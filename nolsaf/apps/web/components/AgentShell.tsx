@@ -5,10 +5,11 @@
 // this. Identity comes from /api/agent-portal/hotels, which is session gated on
 // the server; the shell shows nothing sensitive on its own.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { BadgeCheck, Building2, CalendarSearch, ClipboardList, Handshake, Loader2, LogOut, Menu, ShieldAlert, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, CalendarSearch, ClipboardList, Handshake, HeartPulse, Loader2, LogOut, Menu, ShieldAlert, X } from "lucide-react";
 
 const NAV = [
   { href: "/agent-portal", label: "Book a stay", Icon: CalendarSearch },
@@ -39,12 +40,18 @@ function HealthFooter() {
     const t = window.setInterval(() => void run(), 60_000);
     return () => { ctrl.abort(); window.clearInterval(t); };
   }, []);
-  const tone = ok === "up" ? "bg-emerald-500" : ok === "down" ? "bg-red-500" : "bg-amber-400";
-  const label = ok === "up" ? "All systems operational" : ok === "down" ? "Service unavailable" : "Checking status";
+  const tone = ok === "up" ? "bg-emerald-400" : ok === "down" ? "bg-red-400" : "bg-amber-300";
+  const label = ok === "up" ? "Systems ok" : ok === "down" ? "Service unavailable" : "Checking";
   return (
-    <footer className="mx-3 mb-3 flex flex-shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-2.5">
-      <span className="flex items-center gap-2 text-[11px] font-medium text-neutral-500"><span className={`h-2 w-2 rounded-full ${tone}`} /> {label}</span>
-      <span className="text-[11px] text-neutral-400">NoLSAF Travel Agent Portal</span>
+    <footer className="mx-3 mb-3 mt-2 flex flex-shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-solid border-white/10 bg-[#252d2c] px-4 py-2 text-xs font-bold text-white/60">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="relative flex h-4 w-4 items-center justify-center" aria-hidden>
+          <span className={`absolute h-2 w-2 rounded-full ${tone}`} />
+          <HeartPulse className={`relative h-3.5 w-3.5 ${ok === "up" ? "text-emerald-400" : "text-transparent"}`} />
+        </span>
+        {label}
+      </span>
+      <span className="text-white/40">NoLSAF Travel Agent Portal</span>
     </footer>
   );
 }
@@ -80,78 +87,82 @@ export default function AgentShell({ children }: { children: ReactNode }) {
   }, [router]);
 
   const verified = agency?.verificationStatus === "VERIFIED";
-  const currentNav = NAV.find(({ href }) => href === "/agent-portal" ? pathname === href : pathname.startsWith(href)) ?? NAV[0];
-  const CurrentSectionIcon = currentNav.Icon;
 
   const sidebar = (
-    <div className="relative flex h-full w-[17rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white shadow-[0_18px_44px_-24px_rgba(15,23,42,0.28)]">
-      <div className="relative flex items-center gap-3 px-4 pb-3 pt-4">
-        <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-emerald-600 text-white shadow-sm">
-          <Handshake className="h-[18px] w-[18px]" strokeWidth={1.9} />
+    <div className="relative flex h-full w-[15rem] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-2xl border border-solid border-white/10 bg-[#252d2c] text-white shadow-[0_14px_34px_-18px_rgba(15,23,42,0.45)]">
+      <div className="flex min-h-[5rem] flex-shrink-0 items-center gap-3 border-0 border-b border-solid border-white/10 px-4">
+        <span className="grid h-10 w-10 flex-shrink-0 place-items-center overflow-hidden rounded-lg border border-solid border-white/15 bg-white">
+          <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={40} height={40} className="h-9 w-9 scale-[1.9] object-contain" priority />
         </span>
+        <span className="h-8 w-px flex-shrink-0 bg-white/10" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="m-0 truncate text-[14px] font-extrabold leading-tight tracking-[-0.015em] text-neutral-950">Agent Portal</p>
-          <p className="m-0 mt-1 text-[10px] font-medium text-neutral-400">
-            Travel partner workspace
-          </p>
+          <p className="m-0 truncate text-[12px] font-semibold tracking-[0.08em] text-white/85">AGENT PORTAL</p>
+          <p className="m-0 mt-1 text-[10px] text-white/40">Travel partner workspace</p>
         </div>
-        <button type="button" onClick={() => setMobileOpen(false)} className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border-0 bg-transparent text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-900 lg:hidden" aria-label="Close navigation">
+        <button type="button" onClick={() => setMobileOpen(false)} className="grid h-8 w-8 flex-shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-white/50 transition hover:bg-white/10 hover:text-white lg:hidden" aria-label="Close navigation">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-2" aria-label="Agent portal navigation">
-        <div className="rounded-2xl border border-solid border-neutral-200 bg-neutral-50 p-1.5">
-          {NAV.map(({ href, label, Icon }) => {
-            const active = href === "/agent-portal" ? pathname === href : pathname.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setMobileOpen(false)}
-                aria-current={active ? "page" : undefined}
-                className={`group mb-0.5 flex min-h-11 items-center gap-2.5 rounded-xl px-2.5 text-left no-underline outline-none transition-all duration-150 last:mb-0 focus-visible:ring-2 focus-visible:ring-emerald-500/30 ${active ? "bg-neutral-900 text-white shadow-sm" : "text-neutral-600 hover:bg-white hover:text-neutral-950"}`}
-              >
-                <span className={`grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg transition-colors duration-150 ${active ? "bg-white/10 text-white" : "bg-white text-neutral-400 shadow-sm ring-1 ring-neutral-200/70 group-hover:text-neutral-700"}`}>
-                  <Icon className="h-[17px] w-[17px]" strokeWidth={1.9} />
-                </span>
-                <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold ${active ? "text-white" : "text-neutral-700"}`}>{label}</span>
-              </Link>
-            );
-          })}
-        </div>
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3" aria-label="Agent portal navigation">
+        <p className="m-0 px-2.5 pb-2 text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">Workspace</p>
+        {NAV.map(({ href, label, Icon }) => {
+          const active = href === "/agent-portal" ? pathname === href : pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              onClick={() => setMobileOpen(false)}
+              aria-current={active ? "page" : undefined}
+              className={`group mb-0.5 flex min-h-9 items-center gap-2.5 rounded-lg border border-solid px-2.5 text-left text-[13px] font-semibold no-underline outline-none transition last:mb-0 hover:no-underline focus-visible:ring-2 focus-visible:ring-emerald-300/40 ${
+                active
+                  ? "border-emerald-300/70 bg-emerald-300 text-emerald-950"
+                  : "border-transparent text-white/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"
+              }`}
+            >
+              <span className={`grid h-6 w-6 flex-shrink-0 place-items-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+                <Icon className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+            </Link>
+          );
+        })}
       </nav>
 
-      <div className="relative flex-shrink-0 border-0 border-t border-solid border-neutral-100 bg-white p-3">
-        <div className="px-1 py-1">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg bg-neutral-100 text-[10px] font-extrabold text-neutral-700 ring-1 ring-neutral-200">
-              {initials(agency?.legalName)}
-            </span>
-            <div className="min-w-0 flex-1">
-              {loading ? (
-                <div className="space-y-1.5">
-                  <span className="block h-3 w-28 animate-pulse rounded bg-neutral-200" />
-                  <span className="block h-2 w-16 animate-pulse rounded bg-neutral-200/70" />
-                </div>
-              ) : (
-                <>
-                  <p className="m-0 truncate text-[11px] font-bold text-neutral-800">{agency?.tradingName || agency?.legalName || "Travel agent"}</p>
-                  <p className={`m-0 mt-1 flex items-center gap-1 text-[9px] font-semibold ${verified ? "text-emerald-700" : "text-amber-700"}`}>
-                    {verified ? <BadgeCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
-                    {verified ? "Verified agency" : "Verification pending"}
-                  </p>
-                </>
-              )}
-            </div>
+      <div className="flex-shrink-0 border-0 border-t border-solid border-white/10 p-2">
+        <div className="flex min-w-0 items-center gap-2.5 px-1.5 py-1.5">
+          <span className="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg bg-white/[0.06] text-[10px] font-extrabold text-white/80">
+            {initials(agency?.legalName)}
+          </span>
+          <div className="min-w-0 flex-1">
+            {loading ? (
+              <div className="space-y-1.5">
+                <span className="block h-3 w-28 animate-pulse rounded bg-white/10" />
+                <span className="block h-2 w-16 animate-pulse rounded bg-white/[0.06]" />
+              </div>
+            ) : (
+              <>
+                <p className="m-0 truncate text-[11px] font-bold text-white/85">{agency?.tradingName || agency?.legalName || "Travel agent"}</p>
+                <p className={`m-0 mt-1 flex items-center gap-1 text-[9px] font-semibold ${verified ? "text-emerald-300" : "text-amber-300"}`}>
+                  {verified ? <BadgeCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
+                  {verified ? "Verified agency" : "Verification pending"}
+                </p>
+              </>
+            )}
           </div>
         </div>
-        <button type="button" onClick={() => void signOut()} disabled={signingOut} className="group mt-2 flex w-full items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-2.5 py-2 text-[12px] font-semibold text-neutral-600 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/25 disabled:cursor-not-allowed disabled:opacity-50">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-neutral-100 text-neutral-500 transition group-hover:bg-white group-hover:text-red-600">
-            {signingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
+
+        {/* Leaving this portal should return the operator to their own
+            workspace, not end the session. Signing out stays in the header. */}
+        <Link
+          href="/account/agent"
+          className="mt-1 flex min-h-9 w-full items-center gap-2.5 rounded-lg border-0 px-2.5 text-[12px] font-semibold text-white/55 no-underline transition hover:bg-white/[0.07] hover:text-white hover:no-underline"
+        >
+          <span className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-md bg-white/[0.04]">
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           </span>
-          <span>{signingOut ? "Signing out..." : "Sign out"}</span>
-        </button>
+          Back to workspace
+        </Link>
       </div>
     </div>
   );
@@ -173,44 +184,69 @@ export default function AgentShell({ children }: { children: ReactNode }) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="mx-3 mt-3 flex-shrink-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)]">
+        <header className="mx-3 mt-3 flex-shrink-0 overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)]">
           <div className="flex min-h-[4.5rem] items-center gap-3 px-3 sm:px-4">
-            <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-solid border-neutral-200 bg-neutral-50 text-neutral-700 transition hover:border-neutral-300 hover:bg-white lg:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></button>
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-solid border-neutral-800 bg-neutral-900 text-[11px] font-extrabold tracking-wide text-white">{initials(agency?.legalName)}</span>
-            <div className="min-w-0">
+            <button type="button" onClick={() => setMobileOpen(true)} className="grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-xl border border-solid border-neutral-200 bg-white text-neutral-600 transition hover:border-emerald-200 hover:text-emerald-800 lg:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></button>
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-solid border-neutral-200 bg-neutral-50 text-[11px] font-extrabold tracking-wide text-neutral-600">{initials(agency?.legalName)}</span>
+            <div className="min-w-0 flex-1">
               {loading ? (
                 <span className="inline-block h-4 w-40 animate-pulse rounded bg-neutral-100" />
               ) : (
                 <>
                   <div className="flex min-w-0 items-center gap-2">
-                    <p className="m-0 max-w-[12rem] truncate text-[13px] font-extrabold text-neutral-900 sm:max-w-[18rem]">{agency?.tradingName || agency?.legalName || "Travel agent"}</p>
+                    <p className="m-0 max-w-[12rem] truncate text-[15px] font-bold leading-tight tracking-tight text-neutral-900 sm:max-w-[18rem]">{agency?.tradingName || agency?.legalName || "Travel agent"}</p>
                     {agency && (
                       <span className={`hidden items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold sm:inline-flex ${verified ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}>
                         {verified ? <BadgeCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />} {verified ? "Verified" : "Awaiting verification"}
                       </span>
                     )}
                   </div>
-                  {agency?.reference && <p className="m-0 mt-1 font-mono text-[9px] font-medium tracking-wide text-neutral-400">{agency.reference}</p>}
+                  {agency?.reference && (
+                    <p className="m-0 mt-1">
+                      <code className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500">{agency.reference}</code>
+                    </p>
+                  )}
                 </>
               )}
             </div>
 
-            <span className="mx-1 hidden h-8 w-px bg-neutral-200 md:block" aria-hidden />
-            <div className="hidden min-w-0 items-center gap-2.5 md:flex">
-              <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border border-solid border-neutral-200 bg-neutral-50 text-emerald-700">
-                <CurrentSectionIcon className="h-3.5 w-3.5" />
-              </span>
-              <div className="min-w-0">
-                <p className="m-0 text-[8px] font-extrabold uppercase tracking-[0.16em] text-neutral-400">Current section</p>
-                <p className="m-0 mt-0.5 truncate text-[11px] font-bold text-neutral-700">{currentNav.label}</p>
-              </div>
-            </div>
+            <span className="mx-0.5 hidden h-8 w-px shrink-0 bg-neutral-200 sm:block" aria-hidden />
 
-            <div className="min-w-0 flex-1" />
-            <button type="button" onClick={() => void signOut()} disabled={signingOut} className="hidden min-h-10 items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20 disabled:opacity-50 sm:inline-flex">
+            <Link
+              href="/account/agent"
+              className="hidden min-h-10 shrink-0 items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-600 no-underline outline-none transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-800 hover:no-underline focus-visible:ring-2 focus-visible:ring-emerald-600/25 md:inline-flex"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden />
+              Workspace
+            </Link>
+
+            <button type="button" onClick={() => void signOut()} disabled={signingOut} className="hidden min-h-10 cursor-pointer appearance-none items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-600 outline-none transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-red-500/20 disabled:opacity-50 sm:inline-flex">
               {signingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />} Sign out
             </button>
           </div>
+
+          <nav className="overflow-x-auto rounded-b-3xl border-0 border-t border-solid border-neutral-100 px-3 pt-0.5 sm:px-5" aria-label="Agent portal sections">
+            <div className="flex w-max min-w-full gap-1">
+              {NAV.map(({ href, label, Icon }) => {
+                const active = href === "/agent-portal" ? pathname === href : pathname.startsWith(href);
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    aria-current={active ? "page" : undefined}
+                    className={`inline-flex min-h-11 items-center gap-2 border-0 border-b-2 border-solid px-3 text-xs font-bold no-underline outline-none transition hover:no-underline ${
+                      active
+                        ? "border-emerald-700 text-emerald-800"
+                        : "border-transparent text-neutral-500 hover:border-neutral-200 hover:text-neutral-800"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">

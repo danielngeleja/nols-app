@@ -100,13 +100,16 @@ export function middleware(req: NextRequest) {
   }
   // ────────────────────────────────────────────────────────────────────────────
 
-  // Check for both cookie names for compatibility
-  const token = req.cookies.get("token")?.value || req.cookies.get("nolsaf_token")?.value || "";
-  // Prefer the token role for page routing. Keep the legacy role cookie only as
-  // a fallback for sessions issued before role was included in the JWT.
-  const tokenRole = decodeRoleFromToken(token);
-  const cookieRole = req.cookies.get("role")?.value || "";
-  const role = tokenRole || cookieRole;
+  // Match API authentication and CSRF cookie precedence exactly. During an
+  // account switch a legacy cookie can still describe a different account.
+  const token = req.cookies.get("nolsaf_token")?.value
+    || req.cookies.get("__Host-nolsaf_token")?.value
+    || req.cookies.get("token")?.value
+    || req.cookies.get("__Host-token")?.value
+    || "";
+  // This decoded claim is a navigation hint only; APIs verify the signature,
+  // live session and database role. A writable role cookie is never a fallback.
+  const role = decodeRoleFromToken(token);
 
   // Preserve the existing signed-in /login behavior before normalizing legacy
   // login aliases. Unauthenticated aliases are redirected at the HTTP layer so

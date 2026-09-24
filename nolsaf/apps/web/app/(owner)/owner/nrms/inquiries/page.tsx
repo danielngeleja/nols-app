@@ -16,6 +16,8 @@ type Inquiry = {
   checkIn: string | null; checkOut: string | null; adults: number; children: number; createdAt: string; updatedAt: string; lastMessageAt: string | null; firstResponseAt: string | null;
   roomType: RoomType | null; reservation: { id: number; status: string; receiptNumber: string | null } | null;
   assignedTo: { id: number; name: string | null; fullName: string | null; email: string | null } | null;
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT"; expectedValue: number | null; nextFollowUpAt: string | null; lostReason: string | null;
+  quotationReference: string | null; quotationStatus: string | null; quotationAmount: number | null; quotationCurrency: string | null; quotationValidUntil: string | null; quotationSentAt: string | null;
   messages: Array<{ id: number; direction: string; channel: string; senderName: string | null; body: string; deliveryStatus: string; attemptCount: number; errorMessage: string | null; createdAt: string; metadata: { attachment?: { type: string; fileName: string | null; mimeType: string | null }; automated?: boolean } | null }>;
 };
 type ConversionReport = {
@@ -48,6 +50,7 @@ function timeAgo(value: string | null) {
   if (minutes < 1) return "Just now"; if (minutes < 60) return `${minutes}m ago`; const hours = Math.floor(minutes / 60); if (hours < 24) return `${hours}h ago`; return `${Math.floor(hours / 24)}d ago`;
 }
 function dateOnly(value: string | null) { return value ? value.slice(0, 10) : ""; }
+function localDateTime(value: string | null) { if (!value) return ""; const date = new Date(value); const offset = date.getTimezoneOffset() * 60_000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function nights(checkIn: string, checkOut: string) { return Math.max(0, Math.round((new Date(`${checkOut}T00:00:00Z`).getTime() - new Date(`${checkIn}T00:00:00Z`).getTime()) / 86_400_000)); }
 function conversionPercent(previous: number, current: number) { return previous > 0 ? Math.round((current / previous) * 1000) / 10 : null; }
 
@@ -60,7 +63,9 @@ export default function NrmsGuestInquiriesPage() {
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
   const [messagingDiagnostic, setMessagingDiagnostic] = useState<MessagingDiagnostic | null>(null);
   const [response, setResponse] = useState(""); const [responseKind, setResponseKind] = useState<"OUTBOUND" | "INTERNAL">("OUTBOUND");
-  const [conversion, setConversion] = useState({ guestName: "", guestPhone: "", guestEmail: "", checkIn: "", checkOut: "", roomTypeId: "", adults: "1" });
+  const [conversion, setConversion] = useState({ guestName: "", guestPhone: "", guestEmail: "", checkIn: "", checkOut: "", roomTypeId: "", adults: "1", negotiatedNightlyRate: "" });
+  const [crm, setCrm] = useState({ priority: "NORMAL", expectedValue: "", nextFollowUpAt: "", lostReason: "" });
+  const [quotation, setQuotation] = useState({ amount: "", currency: "TZS", validUntil: "", note: "" });
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); if (!silent) setError(null);
@@ -73,12 +78,23 @@ export default function NrmsGuestInquiriesPage() {
   useEffect(() => { setMessagingDiagnostic(null); }, [selectedPropertyId]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    let socketRefreshTimer: number | null = null;
     const refresh = (event?: { propertyId?: number }) => {
-      if (!event?.propertyId || event.propertyId === selectedPropertyId) void load(true);
+      if (event?.propertyId && event.propertyId !== selectedPropertyId) return;
+      if (socketRefreshTimer) window.clearTimeout(socketRefreshTimer);
+      socketRefreshTimer = window.setTimeout(() => void load(true), 300);
     };
-    const timer = window.setInterval(() => void load(true), 20_000);
+    // Socket events are authoritative. This long fallback only covers a lost
+    // socket event and pauses completely while the tab is not being viewed.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load(true);
+    }, 120_000);
     socket?.on("nrms:inbox:update", refresh);
-    return () => { window.clearInterval(timer); socket?.off("nrms:inbox:update", refresh); };
+    return () => {
+      window.clearInterval(timer);
+      if (socketRefreshTimer) window.clearTimeout(socketRefreshTimer);
+      socket?.off("nrms:inbox:update", refresh);
+    };
   }, [load, selectedPropertyId, socket]);
   const selected = data.inquiries.find((item) => item.id === selectedId) ?? null;
 
@@ -86,7 +102,9 @@ export default function NrmsGuestInquiriesPage() {
     if (!selected) return;
     const room = selected.roomType ?? data.roomTypes[0] ?? null;
     const checkIn = dateOnly(selected.checkIn); const checkOut = dateOnly(selected.checkOut);
-    setConversion({ guestName: selected.guestName || "", guestPhone: selected.guestPhone || "", guestEmail: selected.guestEmail || "", checkIn, checkOut, roomTypeId: room ? String(room.id) : "", adults: String(selected.adults || 1) });
+    setConversion({ guestName: selected.guestName || "", guestPhone: selected.guestPhone || "", guestEmail: selected.guestEmail || "", checkIn, checkOut, roomTypeId: room ? String(room.id) : "", adults: String(selected.adults || 1), negotiatedNightlyRate: "" });
+    setCrm({ priority: selected.priority || "NORMAL", expectedValue: selected.expectedValue == null ? "" : String(selected.expectedValue), nextFollowUpAt: localDateTime(selected.nextFollowUpAt), lostReason: selected.lostReason || "" });
+    setQuotation({ amount: selected.quotationAmount == null ? "" : String(selected.quotationAmount), currency: selected.quotationCurrency || room?.currency || "TZS", validUntil: localDateTime(selected.quotationValidUntil), note: "" });
     setResponse(""); setNotice(null); setError(null);
   }, [data.roomTypes, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -115,7 +133,8 @@ export default function NrmsGuestInquiriesPage() {
     } finally { setBusy(null); }
   };
   const selectedRoom = data.roomTypes.find((room) => String(room.id) === conversion.roomTypeId) ?? null;
-  const estimatedTotal = selectedRoom && conversion.checkIn && conversion.checkOut ? selectedRoom.baseRate * nights(conversion.checkIn, conversion.checkOut) : 0;
+  const bookingNightlyRate = conversion.negotiatedNightlyRate ? Number(conversion.negotiatedNightlyRate) : selectedRoom?.baseRate ?? 0;
+  const estimatedTotal = selectedRoom && conversion.checkIn && conversion.checkOut ? bookingNightlyRate * nights(conversion.checkIn, conversion.checkOut) : 0;
   const conversionReady = Boolean(conversion.guestName.trim().length >= 2 && conversion.guestPhone.trim().length >= 7 && conversion.checkIn && conversion.checkOut && nights(conversion.checkIn, conversion.checkOut) > 0 && selectedRoom);
   const createHold = () => {
     if (!selected || !selectedRoom || !conversionReady) return;
@@ -123,8 +142,11 @@ export default function NrmsGuestInquiriesPage() {
       version: selected.version,
       checkIn: conversion.checkIn, checkOut: conversion.checkOut, adults: Number(conversion.adults), children: selected.children || 0,
       guestName: conversion.guestName, guestPhone: conversion.guestPhone, guestEmail: conversion.guestEmail || null, roomTypeId: selectedRoom.id,
+      negotiatedNightlyRate: conversion.negotiatedNightlyRate ? Number(conversion.negotiatedNightlyRate) : null,
     }), "Inquiry converted to a one-hour room hold.");
   };
+  const saveCrm = () => patchInquiry({ priority: crm.priority, expectedValue: crm.expectedValue ? Number(crm.expectedValue) : null, nextFollowUpAt: crm.nextFollowUpAt ? new Date(crm.nextFollowUpAt).toISOString() : null, lostReason: crm.lostReason.trim() || null }, "Sales follow-up saved.");
+  const recordQuotation = () => selected && quotation.amount && quotation.validUntil && mutate("quotation", () => apiClient.post(`/api/owner/nrms/inquiries/property/${selectedPropertyId}/${selected.id}/quotation`, { version: selected.version, amount: Number(quotation.amount), currency: quotation.currency, validUntil: new Date(quotation.validUntil).toISOString(), note: quotation.note.trim() || null }), "Quotation recorded and added to the inquiry timeline.");
 
   const counts = useMemo(() => ({ new: data.inquiries.filter((item) => item.status === "NEW").length, open: data.inquiries.filter((item) => item.status === "OPEN").length, waiting: data.inquiries.filter((item) => item.status === "WAITING_GUEST").length }), [data.inquiries]);
   /**
@@ -364,9 +386,26 @@ export default function NrmsGuestInquiriesPage() {
           </div>
 
           <aside className="space-y-4">
-            <div className="rounded-xl border border-neutral-200 p-4"><h3 className="m-0 text-sm font-bold">Queue controls</h3><div className="mt-3 grid gap-2"><button type="button" disabled={busy === "update" || selected.status === "OPEN"} onClick={() => void patchInquiry({ status: "OPEN" }, "Inquiry opened.")} className="min-h-9 rounded-lg border border-sky-200 bg-sky-50 text-xs font-bold text-sky-800 disabled:opacity-40">Mark being handled</button><button type="button" disabled={busy === "update" || selected.status === "RESOLVED"} onClick={() => void patchInquiry({ status: "RESOLVED" }, "Inquiry resolved.")} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-800 disabled:opacity-40">Resolve inquiry</button><button type="button" disabled={busy === "update"} onClick={() => void patchInquiry({ status: "CLOSED" }, "Inquiry closed.")} className="min-h-9 rounded-lg border border-neutral-200 bg-white text-xs font-bold text-neutral-600 disabled:opacity-40">Close without booking</button></div></div>
+            <div className="rounded-xl border border-neutral-200 p-4">
+              <h3 className="m-0 text-sm font-bold">Sales follow-up</h3>
+              <div className="mt-3 grid gap-2">
+                <label className="grid gap-1 text-[10px] font-bold text-neutral-600">Priority<select className={inputClass} value={crm.priority} onChange={(event) => setCrm({ ...crm, priority: event.target.value })}><option value="LOW">Low</option><option value="NORMAL">Normal</option><option value="HIGH">High</option><option value="URGENT">Urgent</option></select></label>
+                <label className="grid gap-1 text-[10px] font-bold text-neutral-600">Expected value<input type="number" min="0" className={inputClass} value={crm.expectedValue} onChange={(event) => setCrm({ ...crm, expectedValue: event.target.value })} /></label>
+                <label className="grid gap-1 text-[10px] font-bold text-neutral-600">Next follow-up<input type="datetime-local" className={inputClass} value={crm.nextFollowUpAt} onChange={(event) => setCrm({ ...crm, nextFollowUpAt: event.target.value })} /></label>
+                <label className="grid gap-1 text-[10px] font-bold text-neutral-600">Lost reason<input className={inputClass} value={crm.lostReason} onChange={(event) => setCrm({ ...crm, lostReason: event.target.value })} placeholder="Required when closing" /></label>
+                <button type="button" disabled={busy === "update"} onClick={() => void saveCrm()} className="min-h-9 rounded-lg border-0 bg-neutral-900 text-xs font-bold text-white disabled:opacity-40">Save follow-up</button>
+              </div>
+            </div>
 
-            {!selected.reservation && !['RESOLVED', 'CLOSED', 'CONVERTED'].includes(selected.status) && <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><h3 className="m-0 text-sm font-bold text-emerald-950">Create room hold</h3><p className="mb-0 mt-1 text-[10px] leading-4 text-emerald-800/70">Available to reception, managers and owners. Pricing and inventory are checked on the server.</p><div className="mt-3 grid gap-3"><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Guest name<input className={inputClass} value={conversion.guestName} onChange={(event) => setConversion({ ...conversion, guestName: event.target.value })} /></label><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Guest phone<input className={inputClass} value={conversion.guestPhone} onChange={(event) => setConversion({ ...conversion, guestPhone: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><DatePickerField label="Inquiry check-in" value={conversion.checkIn} onChangeAction={(value) => setConversion({ ...conversion, checkIn: value })} widthClassName="w-full" /><DatePickerField label="Inquiry check-out" value={conversion.checkOut} onChangeAction={(value) => setConversion({ ...conversion, checkOut: value })} widthClassName="w-full" /></div><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Room type<select className={inputClass} value={conversion.roomTypeId} onChange={(event) => setConversion({ ...conversion, roomTypeId: event.target.value })}><option value="">Select room</option>{data.roomTypes.map((room) => <option key={room.id} value={room.id}>{room.name} · {new Intl.NumberFormat().format(room.baseRate)} {room.currency}</option>)}</select></label><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Estimated stay total<input readOnly className={`${inputClass} bg-neutral-50`} value={selectedRoom ? `${new Intl.NumberFormat().format(estimatedTotal)} ${selectedRoom.currency}` : "Select a room"} /></label></div><button type="button" disabled={!conversionReady || busy === "convert"} onClick={() => void createHold()} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-emerald-800 text-xs font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-500">{busy === "convert" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}Create one-hour hold</button></div>}
+            <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+              <h3 className="m-0 text-sm font-bold text-blue-950">Quotation</h3>
+              {selected.quotationReference && <p className="mb-0 mt-1 text-[10px] font-semibold text-blue-800">{selected.quotationReference} · {label(selected.quotationStatus || "SENT")}</p>}
+              <div className="mt-3 grid gap-2"><div className="grid grid-cols-[1fr_5rem] gap-2"><input type="number" min="1" className={inputClass} value={quotation.amount} onChange={(event) => setQuotation({ ...quotation, amount: event.target.value })} placeholder="Amount" /><input className={inputClass} maxLength={3} value={quotation.currency} onChange={(event) => setQuotation({ ...quotation, currency: event.target.value.toUpperCase() })} /></div><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Valid until<input type="datetime-local" className={inputClass} value={quotation.validUntil} onChange={(event) => setQuotation({ ...quotation, validUntil: event.target.value })} /></label><input className={inputClass} value={quotation.note} onChange={(event) => setQuotation({ ...quotation, note: event.target.value })} placeholder="Quotation note" /><button type="button" disabled={!quotation.amount || !quotation.validUntil || busy === "quotation"} onClick={() => void recordQuotation()} className="min-h-9 rounded-lg border-0 bg-blue-800 text-xs font-bold text-white disabled:opacity-40">Record quotation sent</button>{selected.quotationStatus === "SENT" && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => void patchInquiry({ quotationStatus: "ACCEPTED" }, "Quotation accepted.")} className="min-h-8 rounded-lg border border-emerald-200 bg-white text-[10px] font-bold text-emerald-800">Accepted</button><button type="button" onClick={() => void patchInquiry({ quotationStatus: "DECLINED" }, "Quotation declined.")} className="min-h-8 rounded-lg border border-red-200 bg-white text-[10px] font-bold text-red-700">Declined</button></div>}</div>
+            </div>
+
+            <div className="rounded-xl border border-neutral-200 p-4"><h3 className="m-0 text-sm font-bold">Queue controls</h3><div className="mt-3 grid gap-2"><button type="button" disabled={busy === "update" || selected.status === "OPEN"} onClick={() => void patchInquiry({ status: "OPEN" }, "Inquiry opened.")} className="min-h-9 rounded-lg border border-sky-200 bg-sky-50 text-xs font-bold text-sky-800 disabled:opacity-40">Mark being handled</button><button type="button" disabled={busy === "update" || selected.status === "RESOLVED"} onClick={() => void patchInquiry({ status: "RESOLVED" }, "Inquiry resolved.")} className="min-h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-xs font-bold text-emerald-800 disabled:opacity-40">Resolve inquiry</button><button type="button" disabled={busy === "update" || !crm.lostReason.trim()} title={!crm.lostReason.trim() ? "Add a lost reason first" : undefined} onClick={() => void patchInquiry({ status: "CLOSED", lostReason: crm.lostReason.trim() }, "Inquiry closed.")} className="min-h-9 rounded-lg border border-neutral-200 bg-white text-xs font-bold text-neutral-600 disabled:opacity-40">Close without booking</button></div></div>
+
+            {!selected.reservation && !['RESOLVED', 'CLOSED', 'CONVERTED'].includes(selected.status) && <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4"><h3 className="m-0 text-sm font-bold text-emerald-950">Create room hold</h3><p className="mb-0 mt-1 text-[10px] leading-4 text-emerald-800/70">Sales, reception and managers can create a server-checked hold. Any negotiated rate applies only to this booking.</p><div className="mt-3 grid gap-3"><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Guest name<input className={inputClass} value={conversion.guestName} onChange={(event) => setConversion({ ...conversion, guestName: event.target.value })} /></label><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Guest phone<input className={inputClass} value={conversion.guestPhone} onChange={(event) => setConversion({ ...conversion, guestPhone: event.target.value })} /></label><div className="grid grid-cols-2 gap-2"><DatePickerField label="Inquiry check-in" value={conversion.checkIn} onChangeAction={(value) => setConversion({ ...conversion, checkIn: value })} widthClassName="w-full" /><DatePickerField label="Inquiry check-out" value={conversion.checkOut} onChangeAction={(value) => setConversion({ ...conversion, checkOut: value })} widthClassName="w-full" /></div><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Room type<select className={inputClass} value={conversion.roomTypeId} onChange={(event) => setConversion({ ...conversion, roomTypeId: event.target.value })}><option value="">Select room</option>{data.roomTypes.map((room) => <option key={room.id} value={room.id}>{room.name} · {new Intl.NumberFormat().format(room.baseRate)} {room.currency}</option>)}</select></label><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Booking-only nightly rate<input type="number" min="1" className={inputClass} value={conversion.negotiatedNightlyRate} onChange={(event) => setConversion({ ...conversion, negotiatedNightlyRate: event.target.value })} placeholder={selectedRoom ? `Standard ${selectedRoom.currency} ${new Intl.NumberFormat().format(selectedRoom.baseRate)}` : "Select a room first"} /></label><p className="m-0 text-[10px] leading-4 text-neutral-500">Leave blank to use the live rate. Staff cannot go below the owner’s configured rate limit.</p><label className="grid gap-1 text-[10px] font-bold text-neutral-600">Estimated stay total<input readOnly className={`${inputClass} bg-neutral-50`} value={selectedRoom ? `${new Intl.NumberFormat().format(estimatedTotal)} ${selectedRoom.currency}` : "Select a room"} /></label></div><button type="button" disabled={!conversionReady || busy === "convert"} onClick={() => void createHold()} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border-0 bg-emerald-800 text-xs font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-500">{busy === "convert" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}Create one-hour hold</button></div>}
             {selected.reservation && <Link href="/owner/nrms/reservations" className="flex min-h-11 items-center justify-between rounded-xl bg-emerald-800 px-4 text-xs font-bold text-white no-underline hover:text-white"><span>Reservation {selected.reservation.receiptNumber || `#${selected.reservation.id}`}</span><ChevronRight className="h-4 w-4" /></Link>}
           </aside>
         </div>

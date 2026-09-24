@@ -5,14 +5,22 @@
 import { Router, type Response } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
-import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { canonicalGuestPhone, loadGuestSmsEligibility, noPhoneEligibility } from "../lib/guestSmsCampaigns.js";
 import { computeGuestBalance } from "../lib/nrmsFolio.js";
 
 export const router = Router();
 
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+// Access is resolved per handler. Both routes here are reads, and reading the
+// guest book is not owner-only work: front desk searches it at check in, and a
+// sales executive holds `guest.read` to answer for their own accounts.
+// loadNrmsPropertyAccess also checks the PROPERTY owner's NRMS enrollment,
+// which is what requireNrms used to check against the caller's own account and
+// which no staff member has.
+router.use(requireAuth as RequestHandler);
+
+const GUEST_READ_ROLES = ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"] as const;
 
 /**
  * GET /api/owner/nrms/guests/:propertyId?q=&page=&pageSize=&sortOrder=
@@ -20,10 +28,12 @@ router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler
  */
 router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const property = active.property;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), GUEST_READ_ROLES);
+    if (!access) return;
+    // The property's owner, not the caller: guest rows and SMS eligibility are
+    // both scoped by ownerId, so a staff member's own id would match nothing.
+    const ownerId = access.ownerId;
+    const property = access.property;
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const page = Math.max(Math.floor(Number(req.query.page) || 1), 1);
     const pageSize = Math.min(Math.max(Math.floor(Number(req.query.pageSize) || 10), 1), 50);
@@ -84,10 +94,12 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
  */
 router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const property = active.property;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), GUEST_READ_ROLES);
+    if (!access) return;
+    // The property's owner, not the caller: guest rows and SMS eligibility are
+    // both scoped by ownerId, so a staff member's own id would match nothing.
+    const ownerId = access.ownerId;
+    const property = access.property;
     const guestId = Number(req.params.guestId);
     if (!Number.isInteger(guestId) || guestId <= 0) {
       return res.status(400).json({ error: "Invalid guest id" });

@@ -156,17 +156,16 @@ export default function AdminNrmsDirectoryPage() {
   }
 
   return (
-    <div id="nrms-directory" className="mx-auto w-full min-w-0 max-w-7xl space-y-5 px-4 py-6 2xl:max-w-[1720px]">
+    <div id="nrms-directory" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
       {/* Preflight is disabled in this project; without border-box, w-full controls (e.g. the property search box) overflow their container */}
       <style>{`#nrms-directory, #nrms-directory * { box-sizing: border-box; }`}</style>
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
+      <section className="directory-workspace-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="pointer-events-none absolute right-8 top-2 text-6xl font-black tracking-tighter text-emerald-950/[0.025] sm:text-7xl" aria-hidden="true">NRMS</div>
-        <div className="relative flex flex-col flex-wrap gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:items-center sm:gap-3.5 sm:text-left">
+        <div className="relative flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 items-center gap-3 text-left">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Hotel className="h-5 w-5" /></span>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+              <div className="flex flex-wrap items-center gap-2">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS commercial</p>
                 <span className="inline-flex rounded-full border border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm">Read-only</span>
               </div>
@@ -174,20 +173,20 @@ export default function AdminNrmsDirectoryPage() {
               <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500 sm:text-sm">Every enrolled owner and activated property.</p>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <nav aria-label="NRMS workspaces" className="grid min-w-0 grid-cols-2 gap-2 border-t border-white/15 pt-4 sm:grid-cols-3 xl:grid-cols-6">
             <Link href="/admin/nrms/messaging" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><MessageCircle className="h-4 w-4" /> Meta messaging</Link>
             <Link href="/admin/nrms/agents" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldCheck className="h-4 w-4" /> Verify agencies</Link>
             <Link href="/admin/nrms/partnerships" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Handshake className="h-4 w-4" /> Partnerships</Link>
             <Link href="/admin/nrms/billing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Wallet className="h-4 w-4" /> PAYG billing board</Link>
             <Link href="/admin/nrms/pricing" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><Coins className="h-4 w-4" /> Pricing &amp; levers</Link>
             <Link href="/admin/nrms/health" className="inline-flex items-center gap-2 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-xs font-bold text-emerald-800 no-underline shadow-sm transition hover:bg-white"><ShieldAlert className="h-4 w-4" /> System health</Link>
-          </div>
+          </nav>
         </div>
       </section>
 
       {error && <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="directory-metrics grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryCard icon={Building2} label="Properties" value={String(stats.properties)} detail={`${stats.active} active`} tone="emerald" />
         <SummaryCard icon={ShieldCheck} label="Active" value={String(stats.active)} detail="Billing in force" tone="emerald" />
         <SummaryCard icon={Hotel} label="On trial" value={String(stats.trial)} detail="Free usage window" tone="blue" />
@@ -239,7 +238,9 @@ export default function AdminNrmsDirectoryPage() {
           </select>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] border-collapse text-left">
+          <table className="directory-register w-full min-w-[760px] table-fixed border-collapse text-left">
+            <caption className="sr-only">NRMS enrolled owners</caption>
+            <colgroup>{[23, 32, 15, 15, 15].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead>
               <tr className="border-b border-neutral-100 text-[10px] font-bold uppercase tracking-wide text-neutral-400">
                 <th className="px-4 py-2.5 sm:px-5">Owner</th><th className="px-4 py-2.5">Contact</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Activated</th><th className="px-4 py-2.5 sm:px-5">Suspended</th>
@@ -300,7 +301,7 @@ export default function AdminNrmsDirectoryPage() {
           aria-label="Activated properties table"
           tabIndex={0}
         >
-          <table className="w-full min-w-[92rem] table-fixed border-collapse text-left">
+          <table className="directory-register directory-properties-register w-full min-w-[92rem] table-fixed border-collapse text-left">
             <colgroup>
               <col className="w-[14rem]" />
               <col className="w-[11rem]" />
@@ -343,7 +344,7 @@ export default function AdminNrmsDirectoryPage() {
                     </td>
                     <td className="truncate px-4 py-3.5 font-medium text-neutral-600" title={owner ? ownerName(owner) : `Owner #${p.ownerId}`}>{owner ? ownerName(owner) : `Owner #${p.ownerId}`}</td>
                     <td className="whitespace-nowrap px-4 py-3.5"><span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-bold ${ACCOUNT_BADGE[p.accountStatus] ?? "border-neutral-200 bg-neutral-100 text-neutral-500"}`}>{p.accountStatus.replaceAll("_", " ")}</span></td>
-                    <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{p.accountStatus === "TRIAL" ? shortDate(p.trialEndsAt) : "n/a"}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{p.trialEndsAt ? shortDate(p.trialEndsAt) : "Not recorded"}</td>
                     <td className={`whitespace-nowrap px-4 py-3.5 text-right tabular-nums ${nearLimit ? "font-bold text-red-600" : "text-neutral-600"}`}>{p.unpaidBalance.toLocaleString()} / {p.unpaidLimit.toLocaleString()}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.rooms}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.activeStaff}</td>

@@ -1,9 +1,8 @@
 "use client";
 
 // NRMS housekeeping board: live room cleanliness per property with the task
-// queue. Works for OWNER, MANAGER and FRONT_DESK (full control) and for
-// HOUSEKEEPER staff (work tasks, mark rooms clean; inspection stays with the
-// front desk or a manager).
+// queue. Works for OWNER, MANAGER and FRONT_DESK; Housekeeper is a retired
+// membership value and receives no workspace access.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
@@ -151,7 +150,7 @@ export default function NrmsHousekeepingPage() {
   }, [selectedPropertyId]);
   useEffect(() => { void load(); }, [load]);
 
-  const role = board?.access.role ?? "HOUSEKEEPER";
+  const role = board?.access.role ?? "FRONT_DESK";
   const canManage = ["OWNER", "MANAGER", "FRONT_DESK"].includes(role);
 
   const run = async (key: string, action: () => Promise<unknown>) => {

@@ -12,12 +12,16 @@ import apiClient from "@/lib/apiClient";
 import { AlertTriangle, ArrowRight, BedDouble, Check, CheckCircle2, CreditCard, Loader2, LogIn, LogOut, Users, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import NrmsGroupRoomsModal from "./NrmsGroupRoomsModal";
+import NrmsCheckoutPolicyNotice from "./NrmsCheckoutPolicyNotice";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 
 export type GroupPickReservation = {
   id: number;
   status: string;
+  checkIn: string;
+  checkOut: string;
   guestProfile: { fullName: string } | null;
+  agentBooking?: { requestId: number } | null;
   allocations?: Array<{ roomUnitCode: string | null; roomTypeName: string | null }> | null;
 };
 
@@ -34,10 +38,13 @@ export type ReservationGroup = {
     masterFolioReference: string | null;
     masterFolioStatus: string | null;
     agentBookingRequestId: number | null;
+    agentBookingRequestReference?: string | null;
   } | null;
   memberCount: number;
   members: Array<{
     id: number;
+    /** Opaque rs_ reference used in page URLs instead of the row id. */
+    reference?: string;
     status: string;
     checkIn: string;
     checkOut: string;
@@ -78,6 +85,13 @@ const groupRowCls =
 
 function fmtDate(v: string): string {
   return new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function localDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function CreateReservationGroupModal({
@@ -213,6 +227,7 @@ function AdvisoryCheckbox({
 type GroupPreviewMember = {
   reservation: ReservationGroup["members"][number];
   eligible: boolean;
+  complete: boolean;
   blockers: Array<{ code: string; message: string }>;
   requiredChargeIds: number[];
 };
@@ -242,6 +257,8 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
   const [preview, setPreview] = useState<GroupPreviewMember[] | null>(null);
   const [verifyCharges, setVerifyCharges] = useState(false);
   const [overrideRoomReadiness, setOverrideRoomReadiness] = useState(false);
+  const [roomVacantConfirmed, setRoomVacantConfirmed] = useState(false);
+  const [earlyDepartureReason, setEarlyDepartureReason] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -270,7 +287,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
   }, [groupId]);
 
   useEffect(() => { void loadGroup(); }, [loadGroup]);
-  useEffect(() => { setPreview(null); setResultMessage(null); setConfirmExecution(false); }, [action, verifyCharges, overrideRoomReadiness]);
+  useEffect(() => { setPreview(null); setResultMessage(null); setConfirmExecution(false); }, [action, verifyCharges, overrideRoomReadiness, roomVacantConfirmed, earlyDepartureReason]);
 
   // Detaching never touches the reservation itself, so this is the safe undo
   // for a member picked by mistake: the stay carries on and is worked alone.
@@ -328,10 +345,16 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
     setError(null);
     try {
       const path = action === "CHECK_IN" ? "check-in" : "check-out";
-      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/${path}`, { verifyCharges, overrideRoomReadiness });
+      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/groups/${groupId}/${path}`, {
+        verifyCharges,
+        overrideRoomReadiness,
+        roomVacantConfirmed,
+        earlyDepartureReason: earlyDepartureReason.trim() || undefined,
+      });
       const changed = Number(response.data?.changedCount ?? 0);
       const blocked = Number(response.data?.blockedCount ?? 0);
-      setResultMessage(`${changed} reservation${changed === 1 ? "" : "s"} updated${blocked ? `; ${blocked} remained blocked` : ""}.`);
+      const completed = Number(response.data?.completedCount ?? 0);
+      setResultMessage(`${changed} reservation${changed === 1 ? "" : "s"} updated${completed ? `; ${completed} already complete` : ""}${blocked ? `; ${blocked} remained blocked` : ""}.`);
       setConfirmExecution(false);
       setPreview(null);
       await loadGroup();
@@ -363,7 +386,8 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
   };
 
   const eligibleCount = preview?.filter((member) => member.eligible).length ?? 0;
-  const blockedPreviewMembers = preview?.filter((member) => !member.eligible) ?? [];
+  const completedPreviewCount = preview?.filter((member) => member.complete).length ?? 0;
+  const blockedPreviewMembers = preview?.filter((member) => !member.eligible && !member.complete) ?? [];
   const blockedPreviewCount = blockedPreviewMembers.length;
   const agencyBilled = group ? group.billingMode === "SPLIT" || group.billingMode === "MASTER" : false;
   const billingLabel = group?.billingMode === "MASTER"
@@ -373,7 +397,13 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
       : "Guests settle individually";
   const preArrivalGroup = group?.members.length ? group.members.every((member) => ["DRAFT", "HELD", "CONFIRMED"].includes(member.status)) : false;
   const confirmedGroup = group?.members.length ? group.members.every((member) => member.status === "CONFIRMED") : false;
+  const canOperateGroup = accessRole === "OWNER" || accessRole === "MANAGER" || accessRole === "FRONT_DESK";
   const canCancelGroup = accessRole === "OWNER" || accessRole === "MANAGER";
+  const confirmedCount = group?.members.filter((member) => member.status === "CONFIRMED").length ?? 0;
+  const checkedInCount = group?.members.filter((member) => member.status === "CHECKED_IN").length ?? 0;
+  const checkedOutCount = group?.members.filter((member) => member.status === "CHECKED_OUT").length ?? 0;
+  const earlyDepartureCount = group?.members.filter((member) => member.status === "CHECKED_IN" && member.checkOut.slice(0, 10) > localDateKey()).length ?? 0;
+  const departureDeclarationReady = earlyDepartureCount === 0 || (roomVacantConfirmed && earlyDepartureReason.trim().length >= 2);
   return (
     <ModalFrame title={group?.name || "Reservation group"} onClose={onClose} extraWide>
       {loading ? <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /></div> : !group ? <p className="py-10 text-center text-sm text-neutral-500">Group not found.</p> : (
@@ -391,21 +421,23 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                     <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${GROUP_STATUS_CLS[group.status] ?? "bg-neutral-100 text-neutral-600"}`}>{group.status.replace(/_/g, " ")}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${agencyBilled ? "bg-blue-50 text-blue-700" : "bg-neutral-100 text-neutral-600"}`}>{billingLabel}</span>
                   </div>
+                  {checkedOutCount > 0 && <p className="mb-0 mt-1 text-[10px] font-semibold text-neutral-500">{checkedOutCount} of {group.memberCount} complete · {checkedInCount} still in house</p>}
                   {group.notes && <p className="mb-0 mt-1 truncate text-[10px] text-neutral-500">{group.notes}</p>}
-                  {group.sourceBlock?.agentBookingRequestId ? <Link href={`/owner/nrms/agents/requests/${group.sourceBlock.agentBookingRequestId}/guests`} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 no-underline hover:underline">Open verified traveller register <ArrowRight className="h-3 w-3" /></Link> : null}
+                  {canOperateGroup && group.sourceBlock?.agentBookingRequestId ? <Link href={`/owner/nrms/agents/requests/${encodeURIComponent(group.sourceBlock.agentBookingRequestReference ?? String(group.sourceBlock.agentBookingRequestId))}/guests`} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 no-underline hover:underline">Open verified traveller register <ArrowRight className="h-3 w-3" /></Link> : null}
                 </div>
               </div>
-              <div className="grid shrink-0 grid-cols-2 gap-1 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
-                <button type="button" onClick={() => setAction("CHECK_IN")} aria-pressed={action === "CHECK_IN"} className={`inline-flex min-h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-lg border-0 px-3 text-xs font-bold transition-all ${action === "CHECK_IN" ? "bg-emerald-700 text-white shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}><LogIn className="h-3.5 w-3.5" />Check in</button>
-                <button type="button" onClick={() => setAction("CHECK_OUT")} aria-pressed={action === "CHECK_OUT"} className={`inline-flex min-h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-lg border-0 px-3 text-xs font-bold transition-all ${action === "CHECK_OUT" ? "bg-emerald-700 text-white shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}><LogOut className="h-3.5 w-3.5" />Check out</button>
-              </div>
+              {canOperateGroup && <div className="grid shrink-0 grid-cols-2 gap-1 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
+                <button type="button" onClick={() => setAction("CHECK_IN")} aria-pressed={action === "CHECK_IN"} className={`inline-flex min-h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-lg border-0 px-3 text-xs font-bold transition-all ${action === "CHECK_IN" ? "bg-emerald-700 text-white shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}><LogIn className="h-3.5 w-3.5" />Check in{confirmedCount > 0 ? ` ${confirmedCount}` : ""}</button>
+                <button type="button" onClick={() => setAction("CHECK_OUT")} aria-pressed={action === "CHECK_OUT"} className={`inline-flex min-h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-lg border-0 px-3 text-xs font-bold transition-all ${action === "CHECK_OUT" ? "bg-emerald-700 text-white shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}><LogOut className="h-3.5 w-3.5" />Check out{checkedInCount > 0 ? ` ${checkedInCount}` : ""}</button>
+              </div>}
             </div>
           </section>
 
           {/* Check-in refuses any stay without a room number, so the party is
               offered one screen to set them all rather than twenty visits. */}
           {(() => {
-            const missing = group.members.filter(
+            const currentStays = group.members.filter((member) => ["CONFIRMED", "CHECKED_IN"].includes(member.status));
+            const missing = currentStays.filter(
               (member) => ["CONFIRMED"].includes(member.status) && (member.rooms.length === 0 || member.rooms.some((room) => !room.roomUnitCode)),
             ).length;
             return (
@@ -416,21 +448,21 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   </span>
                   <div className="min-w-0">
                     <p className={`m-0 text-xs font-bold ${missing > 0 ? "text-amber-950" : "text-emerald-950"}`}>
-                      {missing > 0 ? `${missing} ${missing === 1 ? "guest needs" : "guests need"} a room` : "Room assignments complete"}
+                      {missing > 0 ? `${missing} ${missing === 1 ? "guest needs" : "guests need"} a room` : currentStays.length > 0 ? "Room assignments complete" : "No room assignments pending"}
                     </p>
                     <p className={`mb-0 mt-0.5 text-[10px] leading-4 ${missing > 0 ? "text-amber-800" : "text-emerald-800/75"}`}>
-                      {missing > 0 ? "Assign every room before starting group check-in." : `All ${group.memberCount} ${group.memberCount === 1 ? "reservation has" : "reservations have"} an assigned room.`}
+                      {missing > 0 ? "Assign every room before starting group check-in." : currentStays.length > 0 ? `All ${currentStays.length} current ${currentStays.length === 1 ? "stay has" : "stays have"} an assigned room.` : "No current stay is waiting for a room assignment."}
                     </p>
                   </div>
                 </div>
-                <button
+                {canOperateGroup && <button
                   type="button"
                   onClick={() => setShowRooms(true)}
                   disabled={busy}
                   className={`inline-flex min-h-10 w-full cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border border-solid px-3.5 text-xs font-bold shadow-sm transition disabled:opacity-50 sm:w-auto ${missing > 0 ? "border-amber-700 bg-amber-700 text-white hover:bg-amber-800" : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100"}`}
                 >
                   <BedDouble className="h-3.5 w-3.5" /> {missing > 0 ? "Assign rooms" : "Manage rooms"}
-                </button>
+                </button>}
               </div>
             );
           })()}
@@ -460,11 +492,11 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                       <p className="m-0 hidden truncate text-xs text-neutral-600 sm:block" title={rooms}>{rooms}</p>
                       <p className="m-0 hidden truncate text-xs tabular-nums text-neutral-500 sm:block">{stay}</p>
                       <span className="text-right">
-                        <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${inspected ? inspected.eligible ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700" : STATUS_CLS[member.status] ?? "bg-neutral-100 text-neutral-600"}`}>
-                          {inspected ? inspected.eligible ? "Ready" : "Blocked" : member.status.replace(/_/g, " ")}
+                        <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${inspected ? inspected.complete ? "bg-neutral-100 text-neutral-600" : inspected.eligible ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700" : STATUS_CLS[member.status] ?? "bg-neutral-100 text-neutral-600"}`}>
+                          {inspected ? inspected.complete ? "Complete" : inspected.eligible ? "Ready" : "Blocked" : member.status.replace(/_/g, " ")}
                         </span>
                       </span>
-                      {agencyBilled ? (
+                      {!canOperateGroup || agencyBilled ? (
                         <span className="h-7 w-7" title="Agency-billed reservations stay linked to their master folio" />
                       ) : (
                         <button
@@ -479,14 +511,14 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                         </button>
                       )}
                     </div>
-                    {inspected && !inspected.eligible && (
+                    {inspected && !inspected.eligible && !inspected.complete && (
                       <div className="flex flex-col gap-2 px-4 pb-3 sm:flex-row sm:items-end sm:justify-between sm:pl-4">
                         <div className="space-y-0.5">
                           {inspected.blockers.map((blocker) => <p key={blocker.code} className="m-0 text-[11px] font-medium leading-4 text-red-700">{blocker.message}</p>)}
                         </div>
                         {action === "CHECK_OUT" && needsIndividualFolioAction(inspected) && (
                           <Link
-                            href={`/owner/nrms/reservations?reservationId=${member.id}`}
+                            href={member.reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(member.reference)}` : "/owner/nrms/reservations"}
                             className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-red-200 bg-white px-3 text-[11px] font-bold text-red-700 no-underline transition hover:border-red-300 hover:bg-red-50 hover:text-red-800 hover:no-underline sm:self-auto"
                           >
                             <CreditCard className="h-3.5 w-3.5" /> {individualFolioActionLabel(inspected)} <ArrowRight className="h-3 w-3" />
@@ -500,7 +532,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2">
+          {canOperateGroup && <div className="grid gap-2 sm:grid-cols-2">
             {action === "CHECK_IN" && (
               <AdvisoryCheckbox
                 tone="amber"
@@ -510,19 +542,35 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                 detail="Use only after staff physically confirm every blocked room."
               />
             )}
-            {action === "CHECK_OUT" && (
-              <AdvisoryCheckbox
-                tone="emerald"
-                checked={verifyCharges}
-                onChange={setVerifyCharges}
-                title="I verified every active extra charge"
-                detail="Required before group checkout can close charged folios."
-              />
+            {action === "CHECK_OUT" && checkedInCount > 0 && (
+              <>
+                <AdvisoryCheckbox
+                  tone="emerald"
+                  checked={verifyCharges}
+                  onChange={setVerifyCharges}
+                  title={`I verified every active extra charge for ${checkedInCount} ${checkedInCount === 1 ? "guest" : "guests"} still in house`}
+                  detail="Applies only to the reservations included in this checkout."
+                />
+                {earlyDepartureCount > 0 && <AdvisoryCheckbox
+                  tone="amber"
+                  checked={roomVacantConfirmed}
+                  onChange={setRoomVacantConfirmed}
+                  title={`All ${earlyDepartureCount} early-departure ${earlyDepartureCount === 1 ? "guest has" : "guests have"} physically departed`}
+                  detail="Applies to the checked-in rooms whose unused dates will be released."
+                />}
+              </>
             )}
-          </div>
+          </div>}
+          {canOperateGroup && action === "CHECK_OUT" && earlyDepartureCount > 0 && (
+            <label className="block rounded-xl border border-solid border-amber-200 bg-amber-50/70 p-3 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+              Reason for {earlyDepartureCount} early {earlyDepartureCount === 1 ? "departure" : "departures"}
+              <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={2} maxLength={300} placeholder="Example: Group changed its travel schedule" className="mt-1.5 box-border w-full resize-none rounded-lg border border-solid border-amber-200 bg-white px-3 py-2 text-xs font-normal normal-case tracking-normal text-neutral-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10" />
+            </label>
+          )}
+          {canOperateGroup && action === "CHECK_OUT" && earlyDepartureCount > 0 && <NrmsCheckoutPolicyNotice group />}
           {resultMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{resultMessage}</p>}
           {error && <p className="m-0 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
-          {confirmExecution && preview && (
+          {canOperateGroup && confirmExecution && preview && (
             <section className={`rounded-2xl border border-solid p-4 shadow-sm ${action === "CHECK_OUT" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`} aria-label={`Confirm group ${action === "CHECK_OUT" ? "checkout" : "check-in"}`}>
               <div className="flex items-start gap-3">
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ${action === "CHECK_OUT" ? "text-amber-700 ring-amber-200" : "text-emerald-700 ring-emerald-200"}`}>
@@ -535,12 +583,15 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   <p className={`mb-0 mt-1 text-xs leading-5 ${action === "CHECK_OUT" ? "text-amber-900" : "text-emerald-900"}`}>
                     {action === "CHECK_OUT"
                       ? eligibleCount > 0
-                        ? `${eligibleCount} ready ${eligibleCount === 1 ? "reservation" : "reservations"} in ${group.name} will be checked out. ${blockedPreviewCount ? `${blockedPreviewCount} blocked ${blockedPreviewCount === 1 ? "stay keeps" : "stays keep"} the current status until the issue is cleared.` : "Guest folios will close, departure will be recorded, and rooms will move into the departure workflow."}`
-                        : `No reservation in ${group.name} is ready for checkout. Clear the issues below and review readiness again.`
+                        ? `${eligibleCount} ready ${eligibleCount === 1 ? "reservation" : "reservations"} in ${group.name} will be checked out. ${completedPreviewCount ? `${completedPreviewCount} already completed ${completedPreviewCount === 1 ? "stay is" : "stays are"} left unchanged. ` : ""}${blockedPreviewCount ? `${blockedPreviewCount} blocked ${blockedPreviewCount === 1 ? "stay keeps" : "stays keep"} the current status until the issue is cleared.` : "Guest folios will close, departure will be recorded, and rooms will move into the departure workflow."}`
+                        : completedPreviewCount > 0 && blockedPreviewCount === 0
+                          ? `All ${completedPreviewCount} ${completedPreviewCount === 1 ? "reservation is" : "reservations are"} already checked out. No further checkout action is required.`
+                          : `No reservation in ${group.name} is ready for checkout. Clear the issues below and review readiness again.`
                       : `${eligibleCount} ready ${eligibleCount === 1 ? "reservation" : "reservations"} in ${group.name} will be checked in and their assigned rooms will become occupied.`}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold">
                     <span className="rounded-full border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{eligibleCount} ready</span>
+                    {completedPreviewCount > 0 && <span className="rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-neutral-600">{completedPreviewCount} already complete</span>}
                     {blockedPreviewCount > 0 && <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-red-700">{blockedPreviewCount} blocked and unchanged</span>}
                     <span className="rounded-full border border-white/80 bg-white px-2.5 py-1 text-neutral-700">{billingLabel}</span>
                   </div>
@@ -560,7 +611,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                               </div>
                               {folioAction && (
                                 <Link
-                                  href={`/owner/nrms/reservations?reservationId=${member.reservation.id}`}
+                                  href={member.reservation.reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(member.reservation.reference)}` : "/owner/nrms/reservations"}
                                   className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-red-200 bg-white px-3 text-[11px] font-bold text-red-700 no-underline transition hover:border-red-300 hover:bg-red-50 hover:text-red-800 hover:no-underline sm:self-auto"
                                 >
                                   <CreditCard className="h-3.5 w-3.5" /> {individualFolioActionLabel(member)} <ArrowRight className="h-3 w-3" />
@@ -574,7 +625,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
                   )}
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                     {eligibleCount > 0 && (
-                      <button type="button" onClick={() => void execute()} disabled={busy} className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border-0 px-4 text-xs font-bold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${action === "CHECK_OUT" ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
+                      <button type="button" onClick={() => void execute()} disabled={busy || (action === "CHECK_OUT" && !departureDeclarationReady)} className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border-0 px-4 text-xs font-bold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${action === "CHECK_OUT" ? "bg-amber-700 hover:bg-amber-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
                         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                         Yes, {action === "CHECK_OUT" ? `check out ${eligibleCount} ready` : "check in group"}
                       </button>
@@ -585,7 +636,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
               </div>
             </section>
           )}
-          {terminalAction && (
+          {canOperateGroup && terminalAction && (
             <div className="rounded-xl border border-solid border-red-200 bg-red-50 p-4">
               <p className="m-0 text-sm font-bold text-red-950">{terminalAction === "cancel" ? "Cancel this entire group?" : "Mark the entire group no-show?"}</p>
               <p className="m-0 mt-1 text-xs leading-5 text-red-800">All {group.memberCount} reservations will release their rooms. Agency room charges will be reversed on the master folio; any resulting credit must then be refunded.</p>
@@ -593,7 +644,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
               <div className="mt-3 flex gap-2"><button type="button" onClick={() => void executeTerminalAction()} disabled={busy} className="cursor-pointer rounded-lg border-0 bg-red-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Confirm {terminalAction === "cancel" ? "group cancellation" : "no-show"}</button><button type="button" onClick={() => { setTerminalAction(null); setTerminalReason(""); }} disabled={busy} className="cursor-pointer rounded-lg border border-solid border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-800">Keep group</button></div>
             </div>
           )}
-          {confirmUngroup && (
+          {canOperateGroup && confirmUngroup && (
             <div className="rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700"><AlertTriangle className="h-4 w-4" /></span>
@@ -610,7 +661,7 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
               </div>
             </div>
           )}
-          <div className="flex flex-col gap-3 rounded-2xl border border-solid border-neutral-200 bg-neutral-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+          {canOperateGroup && <div className="flex flex-col gap-3 rounded-2xl border border-solid border-neutral-200 bg-neutral-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2">
               {preArrivalGroup && canCancelGroup && <button type="button" onClick={() => { setTerminalAction("cancel"); setTerminalReason(""); }} disabled={busy || terminalAction !== null} className="inline-flex min-h-10 cursor-pointer items-center rounded-xl border border-solid border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50">Cancel group</button>}
               {confirmedGroup && <button type="button" onClick={() => { setTerminalAction("no-show"); setTerminalReason(""); }} disabled={busy || terminalAction !== null} className="inline-flex min-h-10 cursor-pointer items-center rounded-xl border border-solid border-amber-200 bg-white px-3 text-xs font-bold text-amber-800 hover:bg-amber-50 disabled:opacity-50">Mark no-show</button>}
@@ -626,9 +677,9 @@ export function ReservationGroupModal({ groupId, onClose, onChanged }: { groupId
               <button type="button" onClick={() => void review()} disabled={busy} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-solid border-neutral-300 bg-white px-4 text-xs font-bold text-neutral-700 shadow-sm transition hover:border-emerald-200 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />}Review readiness</button>
               <button type="button" onClick={() => setConfirmExecution(true)} disabled={busy || !preview || confirmExecution} className="inline-flex min-h-11 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none"><Check className="h-3.5 w-3.5" />Review {action === "CHECK_IN" ? "check-in" : "checkout"}{preview ? ` (${eligibleCount} ready)` : ""}</button>
             </div>
-          </div>
+          </div>}
 
-          {showRooms && (
+          {canOperateGroup && showRooms && (
             <NrmsGroupRoomsModal
               groupId={groupId}
               onClose={() => setShowRooms(false)}

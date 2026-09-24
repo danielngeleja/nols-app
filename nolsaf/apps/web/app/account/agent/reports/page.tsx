@@ -12,10 +12,13 @@ import {
   Package,
   Printer,
   TrendingUp,
+  type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import LogoSpinner from "@/components/LogoSpinner";
+import TableScroller from "@/components/TableScroller";
+import { buildPdfDocument } from "@/lib/pdfReportTemplate";
 import {
   Cell,
   Legend,
@@ -32,8 +35,88 @@ import {
 
 const api = apiClient;
 
+// Local mirrors of the NRMS report primitives (Metric / Panel / DataTable),
+// so the operator report reads as part of the same reporting system.
+const METRIC_TONES = {
+  neutral: "bg-neutral-100 text-neutral-600",
+  emerald: "bg-emerald-50 text-emerald-700",
+  amber: "bg-amber-50 text-amber-700",
+  blue: "bg-blue-50 text-blue-700",
+} as const;
+
+function Metric({
+  label,
+  value,
+  note,
+  icon: Icon,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string | number;
+  note?: string;
+  icon: LucideIcon;
+  tone?: keyof typeof METRIC_TONES;
+}) {
+  return (
+    <article className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-solid border-neutral-200 bg-white p-3.5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400">{label}</p>
+        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg ${METRIC_TONES[tone]}`}>
+          <Icon className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      </div>
+      <p className="m-0 mt-2 truncate text-lg font-bold tabular-nums tracking-tight text-neutral-900">{value}</p>
+      {note ? <p className="m-0 mt-auto pt-1.5 text-[10px] leading-4 text-neutral-500">{note}</p> : null}
+    </article>
+  );
+}
+
+function Panel({
+  title,
+  description,
+  children,
+  bodyClassName = "min-w-0 p-3 sm:p-4",
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  bodyClassName?: string;
+}) {
+  return (
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+      <header className="px-4 py-3 shadow-[inset_0_-1px_0_0_#f5f5f5]">
+        <h3 className="m-0 text-sm font-bold text-neutral-900">{title}</h3>
+        {description ? <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{description}</p> : null}
+      </header>
+      <div className={bodyClassName}>{children}</div>
+    </section>
+  );
+}
+
+function ReportEmpty({ icon: Icon, title, text }: { icon: LucideIcon; title: string; text: string }) {
+  return (
+    <div className="px-4 py-8">
+      <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border border-solid border-dashed border-neutral-300 px-6 py-12 text-center">
+        <span className="grid h-10 w-10 place-items-center rounded-full bg-neutral-100 text-neutral-400">
+          <Icon className="h-5 w-5" aria-hidden />
+        </span>
+        <p className="m-0 mt-1 text-sm font-bold text-neutral-800">{title}</p>
+        <p className="m-0 text-xs text-neutral-500">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+const RANGE_PRESETS: Array<{ label: string; days?: number; months?: number }> = [
+  { label: "7 days", days: 6 },
+  { label: "14 days", days: 13 },
+  { label: "1 month", months: 1 },
+  { label: "6 months", months: 6 },
+  { label: "12 months", months: 12 },
+];
+
 type RevenueItem = {
-  source?: "PLAN_REQUEST" | "TOUR_BOOKING";
+  source?: "TOUR_BOOKING";
   id: string | number;
   invoiceNumber?: string | null;
   invoiceStatus?: string | null;
@@ -386,35 +469,8 @@ export default function AgentReportsPage() {
 
     const reportStatusData = statusData.filter((entry) => Number(entry.value || 0) > 0);
     const statusTotal = reportStatusData.reduce((sum, entry) => sum + Number(entry.value || 0), 0) || 1;
-    const statusLegend = reportStatusData
-      .map(
-        (entry, index) => `
-          <div class="legend-item">
-            <span class="legend-dot" style="background:${statusColors[index % statusColors.length]}"></span>
-            <span class="legend-label">${escapeHtml(String(entry.name || "Unknown"))}</span>
-            <span class="legend-value">${escapeHtml(fmtPct((Number(entry.value || 0) / statusTotal) * 100))}</span>
-          </div>
-        `
-      )
-      .join("");
 
-    const typeRowsHtml = typeData.rows
-      .map((row, index) => `
-        <div class="type-row">
-          <div class="type-head">
-            <span class="type-swatch" style="background:${statusColors[index % statusColors.length]}"></span>
-            <span class="type-name">${escapeHtml(String(row.name || "OTHER"))}</span>
-            <span class="type-pct">${escapeHtml(String(row.pct || 0))}%</span>
-            <span class="type-value">${escapeHtml(fmtMoney(row.value, reportCurrency))}</span>
-          </div>
-          <div class="type-bar"><span style="width:${Math.max(0, row.pct || 0)}%; background:${statusColors[index % statusColors.length]}"></span></div>
-        </div>
-      `)
-      .join("");
 
-    const trendLabelsHtml = trend.buckets
-      .map((bucket) => `<span>${escapeHtml(bucket.label)}</span>`)
-      .join("");
 
     const tableRows = rows
       .map((item) => {
@@ -440,213 +496,192 @@ export default function AgentReportsPage() {
       })
       .join("\n");
 
-    const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Operator Report ${escapeHtml(reportId)}</title>
-  <style>
-    :root { --ink:#0b1220; --muted:#5b6472; --line:#e5e7eb; --brand:#02665e; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--ink); background:#fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .page { padding: 20px; }
-    .sheet { position:relative; overflow:hidden; border: 1px solid var(--line); border-radius: 14px; padding: 14px; background:#fff; }
-    .watermark { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:0; }
-    .watermark-inner { display:flex; flex-direction:column; align-items:center; gap:10px; transform:rotate(-18deg); opacity:.06; }
-    .watermark-inner img { width:320px; height:auto; filter:grayscale(1) contrast(1.05); }
-    .watermark-text { font-size:46px; font-weight:900; letter-spacing:.28em; color:#02665e; white-space:nowrap; }
-    .content { position:relative; z-index:1; }
-    .masthead { margin-bottom: 10px; border:1px solid #dbe3ea; border-radius:12px; padding:10px 12px; background:#f8fafc; }
-    .masthead-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
-    .brand-wrap { display:flex; align-items:center; gap:10px; }
-    .brand-logo { width:38px; height:38px; border-radius:10px; object-fit:contain; background:#edf7f6; border:1px solid #dbe3ea; box-shadow:0 4px 14px rgba(2,102,94,.16); padding:4px; }
-    .brand { font-weight:900; font-size:14px; letter-spacing:.02em; color:#0b1220; }
-    .tag { font-size:10px; color:#475569; }
-    .doc-ref { text-align:right; }
-    .doc-ref-id { font-size:11px; font-weight:800; color:#0f172a; letter-spacing:.04em; }
-    .doc-barcode { margin-top:4px; height:36px; width:auto; }
-    .header { display:grid; grid-template-columns:1.3fr 1fr; gap:12px; border-bottom:1px solid var(--line); padding:10px 0 10px; }
-    .title { font-weight:900; font-size:20px; letter-spacing:-0.02em; }
-    .meta { margin-top:3px; font-size:11px; color:var(--muted); line-height:1.4; }
-    .report-meta { border:1px solid #e2e8f0; border-radius:10px; padding:8px 10px; background:#f8fafc; }
-    .report-meta .meta { margin-top:0; text-align:right; }
-    .badges { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:12px; }
-    .badge { border:1px solid var(--line); border-radius:10px; padding:8px; }
-    .badge .k { font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
-    .badge .v { margin-top:3px; font-weight:900; font-size:14px; color:var(--brand); }
-    .section { margin-top:14px; }
-    .section h2 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#334155; }
-    .summary-grid { display:grid; grid-template-columns:1.2fr 0.9fr 1fr; gap:10px; }
-    .summary-card { border:1px solid var(--line); border-radius:12px; padding:10px; background:#fff; page-break-inside:avoid; }
-    .summary-card h3 { margin:0 0 8px; font-size:12px; font-weight:900; color:#0f172a; }
-    .trend-box { border:1px solid #eef2f7; border-radius:10px; padding:8px; background:#f8fafc; }
-    .trend-svg { width:100%; height:180px; display:block; }
-    .trend-axis { display:flex; justify-content:space-between; margin-top:6px; font-size:9px; color:#64748b; }
-    .trend-legend { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; font-size:10px; color:#334155; }
-    .trend-legend span { display:inline-flex; align-items:center; gap:5px; }
-    .dot { width:8px; height:8px; border-radius:999px; display:inline-block; }
-    .legend-list { display:grid; gap:6px; }
-    .legend-item { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:6px; font-size:10px; color:#334155; }
-    .legend-dot { width:9px; height:9px; border-radius:999px; display:inline-block; }
-    .legend-label { font-weight:700; }
-    .legend-value { font-weight:800; color:#0f172a; }
-    .type-row { margin-bottom:8px; }
-    .type-head { display:grid; grid-template-columns:auto 1fr auto auto; gap:6px; align-items:center; font-size:10px; color:#334155; }
-    .type-swatch { width:9px; height:9px; border-radius:2px; display:inline-block; }
-    .type-name { font-weight:700; text-transform:uppercase; }
-    .type-pct { color:#64748b; font-weight:800; }
-    .type-value { font-weight:800; color:#0f172a; text-align:right; }
-    .type-bar { margin-top:4px; width:100%; height:10px; border-radius:999px; background:#edf2f7; overflow:hidden; }
-    .type-bar span { display:block; height:100%; border-radius:999px; }
-    table { width:100%; border-collapse: collapse; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-    th { font-size:10px; text-align:left; color:var(--muted); background:#f8fafc; padding:8px; border-bottom:1px solid var(--line); }
-    td { font-size:11px; padding:8px; border-bottom:1px solid #eef2f7; vertical-align:top; }
-    tr:last-child td { border-bottom:none; }
-    .footer { margin-top:14px; border-top:1px solid var(--line); padding-top:10px; }
-    .footer-row { display:grid; grid-template-columns: 1.5fr 0.8fr 1fr; gap:14px; align-items:end; }
-    .prepared { font-size:11px; color:#64748b; line-height:1.5; }
-    .prepared .id { margin-top:2px; }
-    .prepared .copy { margin-top:8px; }
-    .qr-wrap { text-align:center; }
-    .qr-wrap img { width:120px; height:120px; border:1px solid #dbe3ea; border-radius:8px; background:#fff; }
-    .qr-cap { margin-top:6px; font-size:10px; color:var(--muted); line-height:1.35; }
-    .sig { text-align:center; }
-    .sig .line { border-top:2px solid #1f2937; margin:0 10px 8px; }
-    .sig .label { font-size:11px; color:#64748b; }
-    .sig .name { margin-top:4px; font-size:14px; font-weight:800; color:#0f172a; }
-    .sig .role { margin-top:2px; font-size:11px; color:#94a3b8; }
-    .footer-bar { margin-top:12px; height:4px; background:#02665e; border-radius:2px; }
-    @media print { @page { size: A4; margin: 10mm; } .page { padding:0; } }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <div class="sheet">
-      <div class="watermark" aria-hidden="true">
-        <div class="watermark-inner">
-          <img src="/assets/NoLS2025-04.png" alt="" />
-          <div class="watermark-text">NoLSAF</div>
-        </div>
-      </div>
+    const stageCounts = reportStatusData
+      .map(
+        (entry, index) => `
+          <div class="pdf-bar-row">
+            <div class="pdf-bar-head">
+              <i style="background:${statusColors[index % statusColors.length]}"></i>
+              <span>${escapeHtml(String(entry.name || "Unknown"))}</span>
+              <b>${escapeHtml(fmtPct((Number(entry.value || 0) / statusTotal) * 100))}</b>
+              <strong>${escapeHtml(String(entry.value ?? 0))}</strong>
+            </div>
+            <div class="pdf-bar-track"><i style="width:${Math.max(0, Math.round((Number(entry.value || 0) / statusTotal) * 100))}%; background:${statusColors[index % statusColors.length]}"></i></div>
+          </div>
+        `
+      )
+      .join("");
 
-      <div class="content">
-      <div class="masthead">
-        <div class="masthead-top">
-          <div class="brand-wrap">
-            <img class="brand-logo" src="/assets/NoLS2025-04.png" alt="NoLSAF" />
-            <div>
-              <div class="brand">NoLSAF</div>
-              <div class="tag">Operator Earnings Report</div>
+    const typeRows = typeData.rows
+      .map(
+        (row, index) => `
+          <div class="pdf-bar-row">
+            <div class="pdf-bar-head">
+              <i style="background:${statusColors[index % statusColors.length]}"></i>
+              <span>${escapeHtml(String(row.name || "OTHER"))}</span>
+              <b>${escapeHtml(String(row.pct || 0))}%</b>
+              <strong>${escapeHtml(fmtMoney(row.value, reportCurrency))}</strong>
+            </div>
+            <div class="pdf-bar-track"><i style="width:${Math.max(0, row.pct || 0)}%; background:${statusColors[index % statusColors.length]}"></i></div>
+          </div>
+        `
+      )
+      .join("");
+
+    const rangeLabel = `${escapeHtml(from)} to ${escapeHtml(to)}`;
+    const generatedLabel = escapeHtml(
+      generatedAt.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+    );
+
+    // Built on the shared NoLSAF report template, the same one NRMS prints with:
+    // A4 cover with barcode, metric tiles, numbered sections, and a
+    // certification page carrying the verification QR.
+    const body = `
+      <header class="pdf-cover">
+        <div class="pdf-cover-top">
+          <div class="pdf-mark">
+            <span class="pdf-logo">N</span>
+            <div class="pdf-mark-copy">
+              <p class="pdf-kicker">NoLSAF operator earnings</p>
+              <h1>Operator earnings report</h1>
+              <p class="pdf-property">${escapeHtml(operatorName)}</p>
+              ${barcodeUrl ? `<div class="pdf-header-barcode">
+                <div class="pdf-barcode-heading">
+                  <span class="pdf-barcode-label">Report reference</span>
+                  <span class="pdf-report-number">${escapeHtml(reportId)}</span>
+                </div>
+                <img class="pdf-barcode" src="${escapeHtml(barcodeUrl)}" alt="Report reference barcode" />
+              </div>` : ""}
             </div>
           </div>
-          <div class="doc-ref">
-            <div class="doc-ref-id">${escapeHtml(reportId)}</div>
-            ${barcodeUrl ? `<img class="doc-barcode" src="${escapeHtml(barcodeUrl)}" alt="${escapeHtml(reportId)}" />` : ""}
+          <div class="pdf-report-meta">
+            <div><span>Report period</span><strong>${rangeLabel}</strong></div>
+            <div><span>Generated</span><strong>${generatedLabel}</strong></div>
+            <div><span>Currency</span><strong>${escapeHtml(reportCurrency)}</strong></div>
+            <div><span>Operator</span><strong>${escapeHtml(operatorEmail)}</strong></div>
+            <div><span>Operations</span><strong>${rows.length}</strong></div>
+            <div><span>Classification</span><strong>Operator use</strong></div>
           </div>
         </div>
-      </div>
-
-      <div class="header">
-        <div>
-          <div class="title">${escapeHtml(operatorName)}</div>
-          <div class="meta">${escapeHtml(operatorEmail)}<br/>${escapeHtml(operatorAddress)}</div>
+        <div class="pdf-scope">
+          <div><span>Based at</span><strong>${escapeHtml(operatorAddress)}</strong></div>
+          <div><span>Earnings basis</span><strong>Completed trips and payout claims</strong></div>
+          <div><span>Report kind</span><strong>Operator earnings</strong></div>
         </div>
-        <div class="report-meta">
-          <div class="meta">
-            ${escapeHtml(from)} to ${escapeHtml(to)}<br/>
-            Generated: ${escapeHtml(fmtDateTime(generatedAt))}
-          </div>
+      </header>
+
+      <div class="pdf-summary">
+        <div class="pdf-metric"><p>Trips in range</p><strong>${escapeHtml(String(kpis.totalTrips))}</strong><small>Assigned trips inside the period</small></div>
+        <div class="pdf-metric pdf-metric-green"><p>Paid earnings</p><strong>${escapeHtml(fmtMoney(kpis.paidEarnings, reportCurrency))}</strong><small>Disbursed for completed trips</small></div>
+        <div class="pdf-metric pdf-metric-amber"><p>Pending earnings</p><strong>${escapeHtml(fmtMoney(kpis.pendingEarnings, reportCurrency))}</strong><small>Claimed or approved, not yet paid</small></div>
+        <div class="pdf-metric"><p>Avg paid per trip</p><strong>${escapeHtml(fmtMoney(kpis.avgPerTrip, reportCurrency))}</strong><small>Paid earnings over trips in range</small></div>
+      </div>
+
+      <section class="pdf-section">
+        <div class="pdf-section-title">
+          <span>01</span>
+          <div><h2>Earnings composition</h2><p>Where the period's earnings came from, and where its invoices currently sit.</p></div>
         </div>
-      </div>
-
-      <div class="badges">
-        <div class="badge"><div class="k">Trips in range</div><div class="v">${escapeHtml(String(kpis.totalTrips))}</div></div>
-        <div class="badge"><div class="k">Paid earnings</div><div class="v">${escapeHtml(fmtMoney(kpis.paidEarnings, reportCurrency))}</div></div>
-        <div class="badge"><div class="k">Pending earnings</div><div class="v">${escapeHtml(fmtMoney(kpis.pendingEarnings, reportCurrency))}</div></div>
-        <div class="badge"><div class="k">Avg paid per trip</div><div class="v">${escapeHtml(fmtMoney(kpis.avgPerTrip, reportCurrency))}</div></div>
-      </div>
-
-      <div class="section">
-        <h2>Visual Summary</h2>
-        <div class="summary-grid">
-          <div class="summary-card">
-            <h3>Revenue trend</h3>
-            <div class="trend-box">
-              <svg class="trend-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Revenue trend chart">
-                <line x1="0" y1="100" x2="100" y2="100" stroke="#cbd5e1" strokeWidth="0.7" />
-                <line x1="0" y1="66" x2="100" y2="66" stroke="#e2e8f0" strokeWidth="0.5" />
-                <line x1="0" y1="33" x2="100" y2="33" stroke="#e2e8f0" strokeWidth="0.5" />
-                <polyline fill="none" stroke="#0f766e" strokeWidth="2.2" points="${escapeHtml(trend.paidPoints)}" />
-                <polyline fill="none" stroke="#f59e0b" strokeWidth="2.2" points="${escapeHtml(trend.pendingPoints)}" />
-              </svg>
-              <div class="trend-axis">${trendLabelsHtml}</div>
-              <div class="trend-legend">
-                <span><i class="dot" style="background:#0f766e"></i>Revenue</span>
-                <span><i class="dot" style="background:#f59e0b"></i>Trend</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="summary-card">
-            <h3>Invoices by status</h3>
-            <div class="legend-list">
-              ${statusLegend || '<div class="legend-item"><span class="legend-label">No records</span><span></span><span class="legend-value">0%</span></div>'}
-            </div>
-          </div>
-
-          <div class="summary-card">
+        <div class="pdf-grid-2">
+          <div class="pdf-panel">
             <h3>Revenue by tourism type</h3>
-            ${typeRowsHtml || '<div class="legend-item"><span class="legend-label">No records</span><span></span><span class="legend-value">'+escapeHtml(fmtMoney(0, reportCurrency))+'</span></div>'}
+            ${typeRows || '<div class="pdf-empty">No earnings recorded in this period.</div>'}
+          </div>
+          <div class="pdf-panel">
+            <h3>Invoices by status</h3>
+            ${stageCounts || '<div class="pdf-empty">No invoices in this period.</div>'}
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="section">
-        <h2>Operations Details Preview</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Operation</th>
-              <th>Client</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Budget</th>
-              <th>Commission</th>
-              <th>Earning</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows || '<tr><td colspan="8">No operations found in this range.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
+      <section class="pdf-section">
+        <div class="pdf-section-title">
+          <span>02</span>
+          <div><h2>Operations detail</h2><p>Every assigned trip in the period, with its invoice stage and your earning.</p></div>
+        </div>
+        <div class="pdf-table-wrap">
+          <table class="pdf-table">
+            <colgroup>
+              <col style="width:19%" /><col style="width:14%" /><col style="width:10%" /><col style="width:11%" />
+              <col style="width:12%" /><col style="width:14%" /><col style="width:11%" /><col style="width:9%" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Operation</th><th>Client</th><th>Type</th><th>Status</th>
+                <th>Budget</th><th>Commission</th><th>Earning</th><th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows || '<tr><td class="pdf-empty" colspan="8">No operations found in this range.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <p class="pdf-note">Figures reflect the data held at the moment this report was generated. Corrections must be made through the originating booking or payout record, not this document.</p>
+      </section>
 
-      <div class="footer">
-        <div class="footer-row">
-          <div class="prepared">
-            <div class="id">${escapeHtml(reportId)}</div>
-            <div class="copy">System-generated report. Figures reflect data at time of generation.</div>
+      <section class="pdf-certification">
+        <div class="pdf-certification-head">
+          <p>Verification</p>
+          <h2>Report certification</h2>
+        </div>
+        <div class="pdf-certification-body">
+          <div class="pdf-disclaimer-row">
+            <div class="pdf-disclaimer">
+              <h3>About this document</h3>
+              This is a system-generated operator earnings report produced by NoLSAF. It is sealed at generation and
+              can be verified independently by scanning the code alongside, which resolves to a NoLSAF verification
+              page showing the figures as issued. Any copy whose figures differ from the verification page has been
+              altered and should not be relied upon.
+            </div>
+            ${qrUrl ? `<div class="pdf-verification-card">
+              <img class="pdf-qr" src="${escapeHtml(qrUrl)}" alt="Scan to verify this report" />
+              <strong>Scan to verify</strong>
+              <p>Confirms this report against NoLSAF records.</p>
+              <p class="pdf-verification-ref">${escapeHtml(reportId)}</p>
+            </div>` : ""}
           </div>
-          ${qrUrl ? `<div class="qr-wrap">
-            <img src="${escapeHtml(qrUrl)}" alt="Scan to verify" />
-            <div class="qr-cap">Scan to verify</div>
-          </div>` : ""}
-          <div class="sig">
-            <div class="line"></div>
-            <div class="label">Signature</div>
-            <div class="name">${escapeHtml(operatorName)}</div>
-            <div class="role">Tour Operator</div>
+
+          <div class="pdf-cert-grid">
+            <div class="pdf-cert-card"><span>Report reference</span><strong>${escapeHtml(reportId)}</strong></div>
+            <div class="pdf-cert-card"><span>Report period</span><strong>${rangeLabel}</strong></div>
+            <div class="pdf-cert-card"><span>Generated</span><strong>${generatedLabel}</strong></div>
+            <div class="pdf-cert-card"><span>Operations covered</span><strong>${rows.length}</strong></div>
+          </div>
+
+          <h2 class="pdf-signature-title">Signatures</h2>
+          <p class="pdf-signature-note">Signed copies are retained by each party.</p>
+          <div class="pdf-signatures">
+            <div class="pdf-signature">
+              <h3>Tour operator</h3>
+              <div class="pdf-signature-line"></div>
+              <p class="pdf-signature-label">Signature and date</p>
+              <div class="pdf-signature-line"></div>
+              <p class="pdf-signature-label">${escapeHtml(operatorName)}</p>
+            </div>
+            <div class="pdf-signature">
+              <h3>NoLSAF</h3>
+              <div class="pdf-signature-line"></div>
+              <p class="pdf-signature-label">Signature and date</p>
+              <div class="pdf-signature-line"></div>
+              <p class="pdf-signature-label">Authorised representative</p>
+            </div>
+          </div>
+
+          <div class="pdf-footer">
+            <span>${escapeHtml(reportId)}</span>
+            <span>NoLSAF operator earnings report</span>
+            <span>Generated ${generatedLabel}</span>
           </div>
         </div>
-        <div class="footer-bar"></div>
-      </div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>`;
+      </section>
+    `;
+
+    const html = buildPdfDocument({
+      title: `Operator earnings report ${reportId}`,
+      rootId: "agent-print-root",
+      rootClass: "agent-pdf",
+      bodyHtml: body,
+    });
 
     const w = window.open("", "_blank");
     if (!w) {
@@ -679,256 +714,163 @@ export default function AgentReportsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="relative mx-auto flex max-w-6xl items-center justify-center px-4 py-3">
-          <Link
-            href="/account/agent"
-            className="absolute left-4 inline-flex items-center justify-center rounded-full p-1.5 text-slate-500 no-underline transition hover:bg-slate-100 hover:text-[#02665e]"
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div className="text-center">
-            <h1 className="text-xl font-extrabold text-slate-900">My Reports</h1>
-            <p className="text-sm text-slate-500">Operational reports for your assigned trips</p>
-          </div>
+    <div className="min-w-0 max-w-full pb-10">
+      <Link
+        href="/account/agent"
+        className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 no-underline transition hover:text-emerald-700 print:hidden"
+        aria-label="Back to dashboard"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+        Back to dashboard
+      </Link>
+
+      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Operator reporting</p>
+          <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">My reports</h1>
+          <p className="m-0 mt-1 text-sm text-neutral-500">Operational reports for your assigned trips.</p>
         </div>
-      </div>
+        <button
+          type="button"
+          onClick={printReport}
+          className="inline-flex min-h-10 w-fit shrink-0 cursor-pointer appearance-none items-center gap-2 rounded-xl border-0 bg-[#073c35] px-3.5 text-[11px] font-bold text-white transition hover:bg-emerald-800 print:hidden"
+        >
+          <Printer className="h-4 w-4" aria-hidden />
+          Print report
+        </button>
+      </header>
 
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        {error ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
-        ) : null}
+      {error ? (
+        <div role="alert" className="mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      ) : null}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Report controls</p>
-              <p className="text-xs text-slate-400">Filter date range, preview details, and print the report.</p>
-            </div>
-            <button
-              type="button"
-              onClick={printReport}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#02665e] px-3 py-2 text-sm font-semibold text-white hover:brightness-95"
-            >
-              <Printer className="h-4 w-4" />
-              Print report
-            </button>
-          </div>
+      {/* Report period. The NRMS toolbar keeps the range inputs grouped in one
+          control and the presets beside them, rather than stacking three rows. */}
+      <section className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-solid border-neutral-200 bg-white px-3 py-2.5 print:hidden">
+        <p className="m-0 mr-1 text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Report period</p>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="text-xs font-semibold text-slate-600">
-              <div>From</div>
-              <div className="mt-1">
-                <DatePickerField
-                  label="From date"
-                  value={from}
-                  max={to}
-                  onChangeAction={setFrom}
-                  widthClassName="w-full"
-                />
-              </div>
-            </div>
-            <div className="text-xs font-semibold text-slate-600">
-              <div>To</div>
-              <div className="mt-1">
-                <DatePickerField
-                  label="To date"
-                  value={to}
-                  min={from}
-                  onChangeAction={setTo}
-                  widthClassName="w-full"
-                />
-              </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-1">
+          <div className="flex h-10 items-center gap-1">
+            <span className="pl-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">From</span>
+            <div className="w-[138px]">
+              <DatePickerField label="Report start date" value={from} max={to} onChangeAction={setFrom} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
             </div>
           </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                start.setDate(start.getDate() - 6);
-                setFrom(toDateOnlyInput(start));
-                setTo(toDateOnlyInput(now));
-              }}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              7 Days
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                start.setDate(start.getDate() - 13);
-                setFrom(toDateOnlyInput(start));
-                setTo(toDateOnlyInput(now));
-              }}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              14 Days
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                start.setMonth(start.getMonth() - 1);
-                setFrom(toDateOnlyInput(start));
-                setTo(toDateOnlyInput(now));
-              }}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              01 Month
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                start.setMonth(start.getMonth() - 6);
-                setFrom(toDateOnlyInput(start));
-                setTo(toDateOnlyInput(now));
-              }}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              6 Month
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                start.setMonth(start.getMonth() - 12);
-                setFrom(toDateOnlyInput(start));
-                setTo(toDateOnlyInput(now));
-              }}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              12 Month
-            </button>
+          <span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden />
+          <div className="flex h-10 items-center gap-1">
+            <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">To</span>
+            <div className="w-[138px]">
+              <DatePickerField label="Report end date" value={to} min={from} onChangeAction={setTo} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-              <Package className="h-4 w-4" />
-            </div>
-            <p className="text-xl font-extrabold text-slate-900">{kpis.totalTrips}</p>
-            <p className="text-xs font-semibold text-slate-500">Trips in range</p>
-          </div>
+        <span className="hidden h-7 w-px bg-neutral-200 xl:block" aria-hidden />
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-              <DollarSign className="h-4 w-4" />
-            </div>
-            <p className="text-xl font-extrabold text-slate-900">{fmtMoney(kpis.paidEarnings, reportCurrency)}</p>
-            <p className="text-xs font-semibold text-slate-500">Paid earnings</p>
-          </div>
-
-          <div className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-              <Clock className="h-4 w-4" />
-            </div>
-            <p className="text-xl font-extrabold text-slate-900">{fmtMoney(kpis.pendingEarnings, reportCurrency)}</p>
-            <p className="text-xs font-semibold text-slate-500">Pending earnings</p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-2 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-            <p className="text-xl font-extrabold text-slate-900">{fmtMoney(kpis.avgPerTrip, reportCurrency)}</p>
-            <p className="text-xs font-semibold text-slate-500">Avg paid per trip</p>
-          </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {RANGE_PRESETS.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => {
+                const now = new Date();
+                const start = new Date(now);
+                if (preset.days) start.setDate(start.getDate() - preset.days);
+                if (preset.months) start.setMonth(start.getMonth() - preset.months);
+                setFrom(toDateOnlyInput(start));
+                setTo(toDateOnlyInput(now));
+              }}
+              className="inline-flex h-9 cursor-pointer appearance-none items-center rounded-lg border border-solid border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-600 transition hover:border-emerald-200 hover:bg-emerald-50/40 hover:text-emerald-700"
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
+      </section>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">Visual Summary</h2>
-          <div className="mt-3 grid gap-3 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-xl font-extrabold text-slate-900">Revenue trend</h3>
-              <div className="mt-2 h-72 rounded-2xl border border-slate-200 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendSeries} margin={{ left: 4, right: 8, top: 6, bottom: 6 }}>
-                    <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
-                    <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
-                    <Tooltip formatter={(value: any) => fmtMoney(Number(value || 0), reportCurrency)} />
-                    <Legend />
-                    <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#0f766e" strokeWidth={3} dot={false} />
-                    <Line type="monotone" dataKey="trend" name="Trend" stroke="#f59e0b" strokeWidth={2.5} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+      <section aria-label="Report summary" className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Trips in range" value={kpis.totalTrips} note="Assigned trips inside the selected period" icon={Package} />
+        <Metric label="Paid earnings" value={fmtMoney(kpis.paidEarnings, reportCurrency)} note="Disbursed to you for completed trips" icon={DollarSign} tone="emerald" />
+        <Metric label="Pending earnings" value={fmtMoney(kpis.pendingEarnings, reportCurrency)} note="Claimed or approved, not yet disbursed" icon={Clock} tone="amber" />
+        <Metric label="Avg paid per trip" value={fmtMoney(kpis.avgPerTrip, reportCurrency)} note="Paid earnings divided by trips in range" icon={TrendingUp} tone="blue" />
+      </section>
 
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-xl font-extrabold text-slate-900">Invoices by status</h3>
-              <div className="mt-2 h-72 rounded-2xl border border-slate-200 p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={62} outerRadius={95} paddingAngle={2}>
-                      {statusData.map((entry, idx) => (
-                        <Cell key={`${entry.name}-${idx}`} fill={statusColors[idx % statusColors.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: any) => `${value} items`} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+      <section aria-label="Visual summary" className="mb-4 grid min-w-0 gap-3 xl:grid-cols-3">
+        <Panel title="Revenue trend" description="Earnings over the selected period against a smoothed trend line.">
+          <div className="h-64 min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendSeries} margin={{ left: 4, right: 8, top: 6, bottom: 6 }}>
+                <CartesianGrid stroke="#f1f1f1" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#a3a3a3" }} tickLine={false} axisLine={{ stroke: "#e5e5e5" }} />
+                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 10, fill: "#a3a3a3" }} tickLine={false} axisLine={false} width={34} />
+                <Tooltip formatter={(value: any) => fmtMoney(Number(value || 0), reportCurrency)} contentStyle={{ borderRadius: 12, border: "1px solid #e5e5e5", fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
+                <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#047857" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="trend" name="Trend" stroke="#f59e0b" strokeWidth={2} strokeDasharray="4 3" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
 
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <h3 className="text-xl font-extrabold text-slate-900">Revenue by tourism type</h3>
-              <div className="mt-4 space-y-3">
-                {typeData.rows.map((row, idx) => (
-                  <div key={row.name} className="space-y-1.5">
-                    <div className="h-5 w-full overflow-hidden rounded-full bg-slate-100">
+        <Panel title="Invoices by status" description="Where your invoices currently sit in the payout workflow.">
+          <div className="h-64 min-w-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={88} paddingAngle={2} stroke="none">
+                  {statusData.map((entry, idx) => (
+                    <Cell key={`${entry.name}-${idx}`} fill={statusColors[idx % statusColors.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: any) => `${value} items`} contentStyle={{ borderRadius: 12, border: "1px solid #e5e5e5", fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+
+        <Panel title="Revenue by tourism type" description="Share of earnings contributed by each trip type.">
+          {typeData.rows.length === 0 ? (
+            <p className="m-0 py-10 text-center text-xs text-neutral-400">No revenue recorded in this period.</p>
+          ) : (
+            <div className="space-y-3">
+              {typeData.rows.map((row, idx) => (
+                <div key={row.name} className="min-w-0">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="inline-flex min-w-0 items-center gap-2 text-[11px] font-bold text-neutral-700">
+                      <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: statusColors[idx % statusColors.length] }} aria-hidden />
+                      <span className="truncate">{row.name}</span>
+                    </span>
+                    <span className="shrink-0 text-[11px] font-bold tabular-nums text-neutral-900">{fmtMoney(row.value, reportCurrency)}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-100">
                       <div
                         className="h-full rounded-full"
                         style={{ width: `${row.pct === 0 ? 0 : Math.max(3, row.pct)}%`, backgroundColor: statusColors[idx % statusColors.length] }}
                       />
                     </div>
-                    <div className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-700">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: statusColors[idx % statusColors.length] }} />
-                        {row.name}
-                      </span>
-                      <span>{row.pct}%</span>
-                      <span className="font-bold text-slate-900">{fmtMoney(row.value, reportCurrency)}</span>
-                    </div>
+                    <span className="w-9 shrink-0 text-right text-[10px] font-bold tabular-nums text-neutral-500">{row.pct}%</span>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          </div>
-        </div>
+          )}
+        </Panel>
+      </section>
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-slate-100 px-4 py-3">
-            <p className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Operations details</p>
-            <p className="mt-1 text-xs text-slate-400">Same report style, but with your operator-assigned trip data.</p>
-          </div>
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+          <header className="px-4 py-3 shadow-[inset_0_-1px_0_0_#f5f5f5]">
+            <h3 className="m-0 text-sm font-bold text-neutral-900">Operations details</h3>
+            <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Every assigned trip in the period, with its invoice stage and your earning.</p>
+          </header>
 
           {rows.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
-                <BarChart3 className="h-6 w-6 text-slate-400" />
-              </div>
-              <p className="text-sm font-semibold text-slate-500">No report rows in this range</p>
-              <p className="text-xs text-slate-400">Try extending your date range.</p>
-            </div>
+            <ReportEmpty icon={BarChart3} title="No report rows in this range" text="Try extending your date range." />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-100 text-sm">
-                <thead className="bg-slate-50">
-                  <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <TableScroller label="operations details table">
+              <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
+                  <tr className="text-left text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">
                     <th className="px-4 py-3 whitespace-nowrap">Operation</th>
                     <th className="px-4 py-3 whitespace-nowrap">Status</th>
                     <th className="px-4 py-3 whitespace-nowrap">Budget</th>
@@ -937,15 +879,15 @@ export default function AgentReportsPage() {
                     <th className="px-4 py-3 whitespace-nowrap">Date</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
+                <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
                   {rows.map((item) => {
                     const rowCurrency = item.source === "TOUR_BOOKING" ? "USD" : (item.currency || reportCurrency);
                     return (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors align-top">
+                    <tr key={item.id} className="align-top transition hover:bg-emerald-50/35">
                       <td className="px-4 py-3 min-w-[240px]">
-                        <div className="font-semibold text-slate-900">{item.title}</div>
-                        <div className="text-xs text-slate-500">{item.client}{item.nationality ? ` • ${item.nationality}` : ""}</div>
-                        <div className="text-[11px] text-slate-400">{item.tripType}</div>
+                        <div className="font-semibold text-neutral-900">{item.title}</div>
+                        <div className="text-xs text-neutral-500">{item.client}{item.nationality ? ` • ${item.nationality}` : ""}</div>
+                        <div className="text-[11px] text-neutral-400">{item.tripType}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                           {(() => {
@@ -960,18 +902,18 @@ export default function AgentReportsPage() {
                                     : stage === "CLAIMED"
                                       ? "bg-indigo-50 text-indigo-700"
                                       : stage === "REJECTED"
-                                        ? "bg-rose-50 text-rose-700"
-                                        : "bg-slate-100 text-slate-700";
+                                        ? "bg-red-50 text-red-700"
+                                        : "bg-neutral-100 text-neutral-700";
                             return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase ${stageTone}`}>{stage}</span>;
                           })()}
                         </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-semibold text-slate-800">{fmtMoney(item.budget, rowCurrency)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap font-semibold text-neutral-800">{fmtMoney(item.budget, rowCurrency)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-semibold text-slate-700">{item.commissionPercent}%</div>
-                        <div className="text-xs text-slate-400">{fmtMoney(item.commissionAmount, rowCurrency)}</div>
+                        <div className="font-semibold text-neutral-700">{item.commissionPercent}%</div>
+                        <div className="text-xs text-neutral-400">{fmtMoney(item.commissionAmount, rowCurrency)}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap font-bold text-[#02665e]">{fmtMoney(item.agentEarning, rowCurrency)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-neutral-500">
                         <div className="inline-flex items-center gap-1">
                           <CalendarDays className="h-3 w-3" />
                           {parseDateSafe(item.completedAt || item.createdAt || item.dateFrom || item.dateTo)?.toLocaleDateString("en-GB", {
@@ -985,10 +927,9 @@ export default function AgentReportsPage() {
                   );})}
                 </tbody>
               </table>
-            </div>
+            </TableScroller>
           )}
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

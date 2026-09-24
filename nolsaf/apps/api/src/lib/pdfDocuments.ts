@@ -37,7 +37,7 @@ const RCPT_OUTER  = "#e2eae9";
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-GB", {
-    weekday: "short", day: "numeric", month: "long", year: "numeric",
+    weekday: "short", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam",
   });
 }
 
@@ -410,6 +410,160 @@ export async function generateBookingTicketPdf(data: BookingTicketData): Promise
   });
 }
 
+export interface CustomerBookingReceiptData {
+  receiptNumber: string;
+  invoiceNumber?: string | null;
+  bookingCode: string;
+  paidAt?: Date | string | null;
+  guestName: string;
+  guestPhone?: string | null;
+  propertyName: string;
+  propertyLocation?: string | null;
+  roomDescription?: string | null;
+  checkIn: Date | string;
+  checkOut: Date | string;
+  totalAmount: number | string;
+  currency?: string;
+  qrPng?: Buffer | null;
+  /**
+   * Wording for receipts that are not a plain stay (e.g. a group stay deposit).
+   * All optional; when absent the booking receipt renders exactly as before.
+   */
+  document?: {
+    title?: string;
+    reservationLabel?: string;
+    periodLabel?: string;
+    periodText?: string;
+    lineTitle?: string;
+    lineSub?: string;
+    /** What is still owed after this payment. Defaults to 0. */
+    balanceDue?: number;
+    confirmationTitle?: string;
+    confirmationCopy?: string;
+  };
+}
+
+/** A5 vector receipt using the same PDFKit and Trebuchet document system as NRMS. */
+export async function generateCustomerBookingReceiptPdf(data: CustomerBookingReceiptData): Promise<Buffer> {
+  const A5_W = 419.53;
+  const A5_H = 595.28;
+  const M = 34;
+  const W = A5_W - M * 2;
+  const currency = data.currency || "TZS";
+  const nights = Math.max(1, Math.ceil(
+    (new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000,
+  ));
+  const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Africa/Dar_es_Salaam",
+  });
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = M;
+
+    doc.font(fonts.bold).fontSize(15).fillColor(TEXT_MAIN).text("NoLSAF", M, y, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text("Quality Stay for Every Wallet", M, y + 19, { lineBreak: false });
+    const d = data.document ?? {};
+    const balanceDue = Math.max(0, Number(d.balanceDue || 0));
+    doc.font(fonts.bold).fontSize(17).fillColor(TEAL)
+      .text(d.title || "BOOKING RECEIPT", M, y, { width: W, align: "right", lineBreak: false });
+    doc.font("Courier-Bold").fontSize(7.5).fillColor(TEXT_MAIN)
+      .text(data.receiptNumber, M, y + 23, { width: W, align: "right", lineBreak: false });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text(data.paidAt ? `Paid ${dateOnly(data.paidAt)}` : "Payment confirmed", M, y + 35, { width: W, align: "right", lineBreak: false });
+    y += 58;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y + 3).lineTo(M + W, y + 3).stroke();
+    y += 18;
+
+    const rightX = M + W * 0.54;
+    const leftW = W * 0.44;
+    const rightW = M + W - rightX;
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
+      .text("ISSUED TO", M, y, { characterSpacing: 0.8, lineBreak: false })
+      .text(d.reservationLabel || "RESERVATION", rightX, y, { characterSpacing: 0.8, lineBreak: false });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN)
+      .text(data.guestName, M, y + 14, { width: leftW, ellipsis: true })
+      .text(data.propertyName, rightX, y + 14, { width: rightW, ellipsis: true });
+    if (data.guestPhone) {
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(data.guestPhone, M, y + 30, { width: leftW, ellipsis: true });
+    }
+    const reservationMeta = [
+      data.propertyLocation,
+      `Code ${data.bookingCode}`,
+      data.invoiceNumber ? `Invoice ${data.invoiceNumber}` : null,
+    ].filter(Boolean).join(" | ");
+    doc.font(fonts.regular).fontSize(7.2).fillColor(TEXT_MUTED)
+      .text(reservationMeta, rightX, y + 30, { width: rightW, height: 22, ellipsis: true });
+    y += 61;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    y += 18;
+
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
+      .text("TRANSACTION", M, y, { characterSpacing: 0.8, lineBreak: false });
+    y += 14;
+    const dateW = 94;
+    const amountW = 92;
+    const descW = W - dateW - amountW;
+    doc.rect(M, y, W, 18).fill(TEAL);
+    doc.font(fonts.bold).fontSize(6.3).fillColor("#ffffff")
+      .text(d.periodLabel || "STAY", M + 7, y + 6, { width: dateW - 8, lineBreak: false })
+      .text("DESCRIPTION", M + dateW + 7, y + 6, { width: descW - 8, lineBreak: false })
+      .text("AMOUNT", M + dateW + descW, y + 6, { width: amountW - 7, align: "right", lineBreak: false });
+    y += 18;
+    doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN)
+      .text(d.periodText || `${dateOnly(data.checkIn)} - ${dateOnly(data.checkOut)}`, M + 7, y + 7, { width: dateW - 8, height: 22, ellipsis: true })
+      .text(d.lineTitle || data.roomDescription || "Accommodation", M + dateW + 7, y + 7, { width: descW - 8, ellipsis: true })
+      .text(fmtMoney(data.totalAmount, currency), M + dateW + descW, y + 7, { width: amountW - 7, align: "right", lineBreak: false });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text(d.lineSub ?? `${nights} night${nights === 1 ? "" : "s"}`, M + dateW + 7, y + 21, { width: descW - 8, height: 10, ellipsis: true });
+    y += 39;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    y += 18;
+
+    const totalsW = 190;
+    const totalsX = M + W - totalsW;
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+      .text("Amount received", totalsX, y, { width: 98, lineBreak: false });
+    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+      .text(fmtMoney(data.totalAmount, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+    y += 17;
+    doc.strokeColor(BORDER).lineWidth(0.7).moveTo(totalsX, y).lineTo(M + W, y).stroke();
+    y += 8;
+    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+      .text("BALANCE", totalsX, y, { width: 98, lineBreak: false });
+    doc.font(fonts.bold).fontSize(9).fillColor(TEAL)
+      .text(fmtMoney(balanceDue, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+    y += 34;
+
+    doc.strokeColor(TEAL).lineWidth(0.8).moveTo(M, y).lineTo(M + W, y).stroke();
+    y += 13;
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL)
+      .text(d.confirmationTitle || (balanceDue > 0 ? "DEPOSIT RECEIVED" : "PAYMENT RECEIVED IN FULL"), M, y, { characterSpacing: 0.6, lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+      .text(d.confirmationCopy || "The reservation is confirmed. Present the booking code at check-in. This document is not a fiscal tax receipt.", M, y + 16, { width: W - (data.qrPng ? 82 : 0), lineGap: 1.5 });
+    if (data.qrPng) {
+      try {
+        doc.image(data.qrPng, M + W - 68, y - 2, { fit: [62, 62] });
+        doc.font(fonts.bold).fontSize(5.5).fillColor(TEXT_MUTED)
+          .text("VERIFY", M + W - 68, y + 62, { width: 62, align: "center", lineBreak: false });
+      } catch { /* QR remains optional. */ }
+    }
+
+    doc.page.margins.bottom = 0;
+    const footerY = A5_H - 34;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, footerY - 6).lineTo(M + W, footerY - 6).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("payments@nolsaf.com | nolsaf.com", M, footerY, { width: W, align: "center", lineBreak: false });
+    doc.page.margins.bottom = M;
+  }, { size: "A5", margin: M });
+}
+
 // ─── 1b. Agent Booking Voucher (NRMS Agent B2B) ───────────────────────────────
 
 export interface AgentVoucherData {
@@ -447,7 +601,7 @@ export async function generateNrmsAgentVoucherPdf(data: AgentVoucherData): Promi
     const fonts = registerNrmsFonts(doc);
     const left = M;
     let y = M;
-    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
 
     // ── Masthead, matching the invoice construction at voucher scale ───────
     doc.font(fonts.bold).fontSize(12).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: W * 0.5, ellipsis: true });
@@ -572,7 +726,7 @@ export async function generatePaymentReceiptPdf(data: PaymentReceiptData): Promi
     const left = MARGIN;
     const width = COL_W;
     let y = MARGIN;
-    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not recorded");
+    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : "Not recorded");
     const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
       doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
       doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "Not provided", x, rowY + 11, { width: rowW, ellipsis: true });
@@ -1271,7 +1425,7 @@ export async function generateNrmsProFormaPdf(data: NrmsProFormaPdfData): Promis
     const left = MARGIN;
     const width = COL_W;
     let y = MARGIN;
-    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
     const addPage = () => {
       doc.addPage({ size: "A4", margin: MARGIN });
       y = MARGIN;

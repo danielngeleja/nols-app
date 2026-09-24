@@ -9,6 +9,19 @@ type PersistLifecycleObservationInput = {
   metadata?: Record<string, unknown>;
 };
 
+export const LIFECYCLE_OBSERVATION_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+const LIFECYCLE_OBSERVATION_ATTEMPTS = 3;
+
+function retryableTransactionStart(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  return candidate?.code === "P2028"
+    && String(candidate.message ?? "").toLowerCase().includes("unable to start a transaction");
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 function fingerprint(serviceType: ServiceType, bookingId: number, code: string, message: string): string {
   return createHash("sha256")
     .update(`${serviceType}:${bookingId}:${code}:${message}`)
@@ -33,7 +46,7 @@ export async function persistLifecycleObservation(input: PersistLifecycleObserva
     fingerprint: fingerprint(input.serviceType, input.bookingId, issue.code, issue.message),
   }));
 
-  await (prisma as any).$transaction(async (tx: any) => {
+  const persist = () => (prisma as any).$transaction(async (tx: any) => {
     await tx.lifecycleSnapshot.upsert({
       where: { serviceType_bookingId: { serviceType: input.serviceType, bookingId: input.bookingId } },
       create: {
@@ -116,5 +129,17 @@ export async function persistLifecycleObservation(input: PersistLifecycleObserva
       },
       data: { status: "RESOLVED", resolvedAt: now },
     });
-  });
+  }, LIFECYCLE_OBSERVATION_TX_OPTIONS);
+
+  for (let attempt = 1; attempt <= LIFECYCLE_OBSERVATION_ATTEMPTS; attempt += 1) {
+    try {
+      await persist();
+      return;
+    } catch (error) {
+      if (!retryableTransactionStart(error) || attempt === LIFECYCLE_OBSERVATION_ATTEMPTS) throw error;
+      // Pool pressure is normally brief. A small bounded delay prevents this
+      // background observer from immediately competing for the same slot.
+      await wait(attempt * 150);
+    }
+  }
 }

@@ -5,6 +5,8 @@ import Link from "next/link"
 import Image from "next/image"
 import { ChevronLeft, Smartphone, CheckCircle, XCircle, MessageSquare } from 'lucide-react'
 import apiClient from "@/lib/apiClient"
+import BackupCodesPanel from "@/components/security/BackupCodesPanel"
+import RegenerateBackupCodes from "@/components/security/RegenerateBackupCodes"
 
 const api = apiClient
 
@@ -24,6 +26,8 @@ export default function Owner2FAPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  /** Plain backup codes, returned once when the authenticator is turned on. */
+  const [backupCodes, setBackupCodes] = useState<string[]>([])
   const [totpFlow, setTotpFlow] = useState<'idle'|'provision'|'verifying'|'enabled'|'disabled'>('idle')
   const [smsFlow, setSmsFlow] = useState<'idle'|'sent'|'verifying'|'enabled'|'disabled'>('idle')
   const totpVerifyingRef = useRef(false)
@@ -105,11 +109,11 @@ export default function Owner2FAPage() {
       const r = await api.post("/api/account/2fa/totp/verify", { code: codeToSend })
       // API returns { ok: true, data: { backupCodes: [...] } }
       const responseData = r.data?.data || r.data
-      const backupCodes = responseData?.backupCodes || []
-      
+      // Shown on screen once; never logged. The API keeps only hashes.
+      setBackupCodes(Array.isArray(responseData?.backupCodes) ? responseData.backupCodes : [])
+
       setSuccess('2FA enabled successfully!')
       dispatchToast({ type: 'success', title: '2FA enabled', message: 'Authenticator enabled. Save your backup codes.', duration: 8000 })
-      console.info('Backup codes:', backupCodes)
       
       // Immediately update state to reflect enabled status (verification succeeded)
       // We know 2FA is enabled because the verify endpoint returned success
@@ -366,6 +370,18 @@ export default function Owner2FAPage() {
           {success && (
             <div className="rounded-xl bg-green-50 border-2 border-green-200 p-3 sm:p-4 mb-4 animate-in fade-in slide-in-from-top-2 duration-300 w-full max-w-full">
               <div className="text-xs sm:text-sm font-semibold text-green-800">{success}</div>
+            </div>
+          )}
+
+          {backupCodes.length > 0 && (
+            <div className="mb-4">
+              <BackupCodesPanel codes={backupCodes} onDone={() => setBackupCodes([])} />
+            </div>
+          )}
+
+          {((me?.twoFactorEnabled && me?.twoFactorMethod === 'TOTP') || status?.totpEnabled || totpFlow === 'enabled') && backupCodes.length === 0 && !showDisableInput && (
+            <div className="mb-4">
+              <RegenerateBackupCodes url="/api/account/2fa/codes/regenerate" />
             </div>
           )}
 

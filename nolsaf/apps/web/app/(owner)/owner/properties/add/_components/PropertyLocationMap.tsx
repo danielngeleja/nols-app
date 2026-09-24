@@ -1,7 +1,7 @@
 "use client";
 // v2
 import { AlertCircle, CheckCircle2, LocateFixed, LocateOff, MapPin, X } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 export type PropertyLocationDetectionMeta = {
   source?: "gps" | "pin";
@@ -18,6 +18,12 @@ type PropertyLocationMapProps = {
    * The owner then fine-tunes the pin — this is purely a soft starting point.
    */
   addressQuery?: string;
+  /** Round number shown on the card header, matching the other cards in the step */
+  stepNo?: number;
+  /** Removes the saved pin */
+  onClear?: () => void;
+  /** Extra content rendered at the foot of the card, e.g. manual coordinate entry */
+  footer?: ReactNode;
 };
 
 const COORD_EPSILON = 0.000001;
@@ -47,6 +53,9 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
   longitude,
   onLocationDetected,
   addressQuery,
+  stepNo,
+  onClear,
+  footer,
 }: PropertyLocationMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any | null>(null);
@@ -177,7 +186,7 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
     }
 
     if (locationDenied) {
-      setNotice("Location access is blocked. Enable it in your browser settings, then try again — or place the pin manually below.", "error");
+      setNotice("Location access is blocked. Enable it in your browser settings, then try again, or place the pin on the map yourself.", "error");
       return;
     }
 
@@ -480,185 +489,131 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
   }, [errorTone, hasCoords, locationDenied, locationError]);
 
   return (
-    <div className="w-full">
-      {/* Closed card — shown when map panel is not open */}
+    <div className={`h-full w-full${isOpen ? " ap-map-open" : ""}`}>
+      {/* Closed card, shown when the map panel is not open */}
       {!isOpen && (
-        <div className="overflow-hidden rounded-2xl shadow-[0_4px_24px_-6px_rgba(2,102,94,0.28)]" style={{ border: "1.5px solid #02665e22" }}>
-
-          {/* ── Header: solid brand + dot-grid overlay ── */}
-          <div
-            className="relative px-4 py-4 flex items-center gap-3"
-            style={{
-              background: "#02665e",
-              backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.13) 1.5px, transparent 1.5px)",
-              backgroundSize: "18px 18px",
-            }}
-          >
-            {/* Subtle right-side highlight glow */}
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-[rgba(255,255,255,0.06)]" />
-
-            {/* Icon box */}
-            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 text-white ring-1 ring-white/25 backdrop-blur-sm">
+        <div className="ap-card ap-card-fill">
+          <div className="ap-card-head">
+            <span className="ap-card-head-no">
               {isDetectingLocation ? (
-                <svg className="animate-spin h-5 w-5" style={{ animationDuration: "0.75s" }} viewBox="0 0 48 48" fill="none">
-                  <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,0.25)" strokeWidth="5" />
-                  <path d="M24 4 a20 20 0 0 1 20 20" stroke="white" strokeWidth="5" strokeLinecap="round" />
+                <svg className="h-3.5 w-3.5 animate-spin" style={{ animationDuration: "0.75s" }} viewBox="0 0 48 48" fill="none">
+                  <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,0.3)" strokeWidth="6" />
+                  <path d="M24 4 a20 20 0 0 1 20 20" stroke="white" strokeWidth="6" strokeLinecap="round" />
                 </svg>
+              ) : stepNo ? (
+                stepNo
               ) : (
-                <LocateFixed className="h-5 w-5" />
+                <LocateFixed className="h-3.5 w-3.5" />
               )}
+            </span>
+
+            <div className="ap-card-head-copy">
+              <p className="ap-card-title">Exact pin</p>
+              <p className="ap-card-sub">Where guests should arrive.</p>
             </div>
 
-            {/* Title */}
-            <div className="relative flex-1 min-w-0">
-              <p className="text-[14px] font-extrabold text-white tracking-tight leading-tight">Property location</p>
-            </div>
-
-            {/* Right status badge */}
-            <div className="relative shrink-0">
-              {isDetectingLocation ? (
-                <div className="flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 ring-1 ring-white/20">
-                  <div className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                  <span className="text-[11px] font-semibold text-white">Locating</span>
-                </div>
-              ) : hasCoords ? (
-                <div className="flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 shadow-sm">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-[#02665e]" />
-                  <span className="font-mono text-[10px] font-bold text-[#02665e] tabular-nums">
-                    {Number(latitude).toFixed(4)}, {Number(longitude).toFixed(4)}
-                  </span>
-                </div>
-              ) : locationDenied ? (
-                <div className="flex items-center gap-1.5 rounded-full bg-amber-400 px-2.5 py-1 shadow-sm">
-                  <LocateOff className="h-3.5 w-3.5 text-white" />
-                  <span className="text-[10px] font-bold text-white">Blocked</span>
-                </div>
-              ) : null}
-            </div>
+            {isDetectingLocation ? (
+              <span className="ap-card-tag is-todo">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                Locating
+              </span>
+            ) : hasCoords ? (
+              <span className="ap-card-tag">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Pinned
+              </span>
+            ) : locationDenied ? (
+              <span className="ap-card-tag is-todo">
+                <LocateOff className="h-3.5 w-3.5" />
+                Blocked
+              </span>
+            ) : (
+              <span className="ap-card-tag is-todo">Required</span>
+            )}
           </div>
 
-          {/* ── Body ── */}
-          <div className="bg-white p-4 space-y-3">
-
-            {/* Primary GPS button */}
-            <button
-              type="button"
-              onClick={detectLocation}
-              disabled={isDetectingLocation}
-              className={[
-                "flex w-full items-center justify-center gap-2.5 rounded-xl py-3.5 text-[13px] font-bold tracking-wide transition-all active:scale-[0.98] disabled:opacity-60",
-                locationDenied
-                  ? "border-2 border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100 shadow-[0_2px_10px_-2px_rgba(245,158,11,0.35)]"
-                  : "bg-[#02665e] text-white hover:bg-[#024f49] shadow-[0_4px_16px_-4px_rgba(2,102,94,0.55)]",
-              ].join(" ")}
-            >
-              {isDetectingLocation ? (
-                <>
-                  <svg className="animate-spin h-4 w-4" style={{ animationDuration: "0.75s" }} viewBox="0 0 48 48" fill="none">
-                    <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,0.25)" strokeWidth="5" />
-                    <path d="M24 4 a20 20 0 0 1 20 20" stroke="white" strokeWidth="5" strokeLinecap="round" />
-                  </svg>
-                  Detecting location…
-                </>
-              ) : locationDenied ? (
-                <><LocateOff className="h-4 w-4" /> Enable location access</>
-              ) : hasCoords ? (
-                <><LocateFixed className="h-4 w-4" /> Refresh my location</>
-              ) : (
-                <><LocateFixed className="h-4 w-4" /> Detect my location</>
-              )}
-            </button>
-
-            {/* Divider */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-px bg-[#02665e]/12" />
-              <span className="text-[10px] font-semibold text-[#02665e]/50 uppercase tracking-widest">or</span>
-              <div className="flex-1 h-px bg-[#02665e]/12" />
-            </div>
-
-            {/* Secondary: Open map */}
-            <button
-              type="button"
-              onClick={openMap}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[12px] font-semibold text-[#02665e] transition-all active:scale-[0.98]"
-              style={{ border: "1.5px solid rgba(2,102,94,0.22)", background: "rgba(2,102,94,0.04)" }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(2,102,94,0.09)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(2,102,94,0.04)"; }}
-            >
-              <MapPin className="h-3.5 w-3.5" />
-              Place pin manually on map
-            </button>
-
+          <div className="ap-card-body ap-card-body-fill">
             {hasCoords ? (
-              <div className="rounded-xl border border-[#02665e]/18 bg-[#02665e]/[0.045] px-3.5 py-3">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#02665e] text-white shadow-sm">
-                    <CheckCircle2 className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[12px] font-extrabold text-[#02665e]">Location saved</p>
-                      <span className="rounded-full bg-white px-2.5 py-1 font-mono text-[10px] font-bold text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10 tabular-nums">
-                        {Number(latitude).toFixed(6)}, {Number(longitude).toFixed(6)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
-                      Use these coordinates if they match the property. Open the map only if you need to adjust the pin.
-                    </p>
-                  </div>
+              <dl className="ap-readout">
+                <div>
+                  <dt>Latitude</dt>
+                  <dd>{Number(latitude).toFixed(6)}</dd>
                 </div>
-              </div>
+                <div>
+                  <dt>Longitude</dt>
+                  <dd>{Number(longitude).toFixed(6)}</dd>
+                </div>
+                <div>
+                  <dt>Accuracy</dt>
+                  <dd>
+                    {locationDetected && locationDetected.accuracy !== null && locationDetected.accuracy !== undefined
+                      ? `${Math.round(locationDetected.accuracy)} m`
+                      : "By hand"}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="m-0 text-[13px] leading-5 text-white/60">
+                Stand at the property and use your location, or drop the pin on the map yourself.
+              </p>
+            )}
+
+            {locationDetected && locationDetected.accuracy !== null && locationDetected.accuracy !== undefined && locationDetected.accuracy > 100 ? (
+              <p className="m-0 flex items-start gap-2 text-[12.5px] leading-5 text-white/80">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-white" />
+                <span>
+                  <span className="font-semibold text-white">Weak GPS signal.</span> Step outside or adjust the pin on the map.
+                </span>
+              </p>
             ) : null}
 
-            {/* Success / accuracy warning banner */}
-            {locationDetected ? (() => {
-              const acc = locationDetected.accuracy;
-              const isPoor = acc !== null && acc > 100;
-              return isPoor ? (
-                <div className="flex items-start gap-3 rounded-xl px-3.5 py-3.5" style={{ background: "#fef3c7", border: "2px solid #f59e0b" }}>
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-md" style={{ background: "#f59e0b" }}>
-                    <AlertCircle className="h-5 w-5 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-extrabold" style={{ color: "#92400e" }}>Weak GPS signal</p>
-                    <p className="mt-0.5 text-[11.5px] leading-relaxed font-medium" style={{ color: "#78350f" }}>
-                      ~{Math.round(acc!)} m margin of error. Step outside or use the map to place the pin precisely.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 rounded-xl px-3.5 py-3" style={{ background: "rgba(2,102,94,0.06)", border: "1.5px solid rgba(2,102,94,0.2)" }}>
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#02665e] shadow-sm">
-                    <CheckCircle2 className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[12px] font-bold text-[#02665e]">Location pinned!</p>
-                    <p className="mt-0.5 text-[11px] text-[#02665e]/70">
-                      {acc !== null ? `Within ~${Math.round(acc)} m — excellent signal` : "Coordinates saved successfully"}
-                    </p>
-                  </div>
-                </div>
-              );
-            })() : null}
-
-            {/* Location notice — soft "info" hints stay visible even with a pin;
-                hard "error" notices only show when there's no coordinate yet. */}
+            {/* Soft hints stay visible with a pin, errors only without one */}
             {locationError && (errorTone === "info" || !hasCoords) ? (
-              errorTone === "info" ? (
-                <div
-                  className="flex items-start gap-2.5 rounded-xl border px-3.5 py-3"
-                  style={{ borderColor: "rgba(2,102,94,0.22)", background: "rgba(2,102,94,0.06)" }}
-                >
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" />
-                  <p className="text-[11px] leading-relaxed text-[#02665e]">{locationError}</p>
-                </div>
-              ) : (
-                <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3">
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
-                  <p className="text-[11px] leading-relaxed text-rose-700">{locationError}</p>
-                </div>
-              )
+              <p className={`m-0 flex items-start gap-2 text-[12.5px] leading-5 ${errorTone === "info" ? "text-white/75" : "text-red-300"}`}>
+                {errorTone === "info" ? <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-white/70" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+                <span>{locationError}</span>
+              </p>
             ) : null}
+
+            {footer}
+
+            <div className="ap-card-actions">
+              <button
+                type="button"
+                onClick={detectLocation}
+                disabled={isDetectingLocation}
+                className={`ap-btn${hasCoords || locationDenied ? "" : " is-primary"}`}
+              >
+                {isDetectingLocation ? (
+                  <>
+                    <LocateFixed className="h-4 w-4 animate-pulse" /> Locating
+                  </>
+                ) : locationDenied ? (
+                  <>
+                    <LocateOff className="h-4 w-4" /> Allow location
+                  </>
+                ) : hasCoords ? (
+                  <>
+                    <LocateFixed className="h-4 w-4" /> Re-detect
+                  </>
+                ) : (
+                  <>
+                    <LocateFixed className="h-4 w-4" /> Use my location
+                  </>
+                )}
+              </button>
+
+              <button type="button" onClick={openMap} className="ap-btn">
+                <MapPin className="h-4 w-4" />
+                {hasCoords ? "Adjust pin" : "Pin on map"}
+              </button>
+
+              {hasCoords && onClear ? (
+                <button type="button" onClick={onClear} className="ap-btn-text">
+                  Clear
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       )}
@@ -666,48 +621,59 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
       {/* Map panel — kept in DOM once hasInitialized (display:none when closed).
           This preserves the WebGL context across open/close cycles. */}
       <div style={{ display: hasInitialized ? (isOpen ? "block" : "none") : "none" }}>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-1">
-            <LocateFixed className="h-4 w-4 shrink-0 text-emerald-300" />
-            <p className="text-[12px] font-medium text-white/80">
-              Move the map so the blue pin sits exactly on your property entrance, then close.
-            </p>
+        <div className="ap-card">
+          <div className="ap-card-head">
+            <span className="ap-card-head-no">{stepNo ?? <MapPin className="h-3.5 w-3.5" />}</span>
+            <div className="ap-card-head-copy">
+              <p className="ap-card-title">Exact pin</p>
+              <p className="ap-card-sub">Move the map until the green dot sits on the entrance, then close.</p>
+            </div>
+            {hasCoords ? (
+              <span className="ap-card-tag">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span className="font-mono tabular-nums">
+                  {Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}
+                </span>
+              </span>
+            ) : (
+              <span className="ap-card-tag is-todo">Not pinned</span>
+            )}
           </div>
 
-          <div className="relative overflow-hidden rounded-[24px] border border-slate-200/70 shadow-sm ring-1 ring-black/5">
+          <div className="relative overflow-hidden">
             <div
               ref={containerRef}
-              className="w-full bg-slate-100"
+              className="w-full bg-[#151b1e]"
               style={{ height: 380, minHeight: 320, maxHeight: 460 }}
             />
 
             {/* Blue location indicator at map center */}
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
               <div className="relative flex items-center justify-center">
-                <div className="absolute h-12 w-12 rounded-full bg-blue-400/25 ring-2 ring-blue-400/40" />
-                <div className="relative h-4 w-4 rounded-full bg-blue-500 shadow-md ring-2 ring-white/90" />
+                <div className="absolute h-12 w-12 rounded-full bg-[#02665e]/25 ring-2 ring-[#02665e]/60" />
+                <div className="relative h-4 w-4 rounded-full bg-[#02665e] shadow-md ring-2 ring-white" />
               </div>
             </div>
 
             {/* GPS detecting overlay */}
             {isDetectingLocation ? (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 backdrop-blur-[3px]">
-                <div className="flex flex-col items-center gap-3 rounded-2xl bg-white px-10 py-7 shadow-2xl">
+                <div className="ap-block flex flex-col items-center gap-3 px-10 py-7">
                   <div className="relative h-12 w-12">
                     <svg className="absolute inset-0 animate-spin" style={{ animationDuration: "0.7s" }} viewBox="0 0 48 48" fill="none">
-                      <circle cx="24" cy="24" r="20" stroke="#e2f5ef" strokeWidth="4" />
-                      <path d="M24 4 a20 20 0 0 1 20 20" stroke="#10b981" strokeWidth="4" strokeLinecap="round" />
+                      <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,0.15)" strokeWidth="4" />
+                      <path d="M24 4 a20 20 0 0 1 20 20" stroke="#02665e" strokeWidth="4" strokeLinecap="round" />
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <LocateFixed className="h-5 w-5 text-emerald-600" />
+                      <LocateFixed className="h-5 w-5 text-white" />
                     </div>
                   </div>
                   <div className="text-center">
-                    <p className="text-[13px] font-semibold tracking-tight text-slate-900">Detecting location</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">Pinpointing your exact position...</p>
+                    <p className="text-[13px] font-semibold tracking-tight text-white">Detecting location</p>
+                    <p className="mt-0.5 text-[11px] text-white/55">Pinpointing your exact position...</p>
                   </div>
-                  <div className="h-0.5 w-24 overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full w-8 animate-[shimmer_0.9s_ease-in-out_infinite] rounded-full bg-emerald-500" />
+                  <div className="h-0.5 w-24 overflow-hidden rounded-full bg-white/15">
+                    <div className="h-full w-8 animate-[shimmer_0.9s_ease-in-out_infinite] rounded-full bg-[#02665e]" />
                   </div>
                 </div>
               </div>
@@ -719,13 +685,11 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
                 type="button"
                 onClick={detectLocation}
                 disabled={isDetectingLocation}
-                title={locationDenied ? "Location blocked — tap for instructions" : "Use my current location"}
+                title={locationDenied ? "Location blocked, tap for instructions" : "Use my current location"}
                 aria-label="Use current location"
                 className={[
-                  "inline-flex items-center gap-1.5 rounded-full py-1.5 pl-2 pr-3 text-[11px] font-semibold shadow backdrop-blur-sm transition hover:shadow-md disabled:opacity-50",
-                  locationDenied
-                    ? "border border-amber-200 bg-white/90 text-amber-700 hover:bg-white"
-                    : "border border-emerald-100 bg-white/90 text-emerald-700 hover:bg-white",
+                  "box-border inline-flex items-center gap-1.5 rounded-lg border-0 py-1.5 pl-2 pr-3 text-[11.5px] font-semibold text-white shadow-md transition disabled:opacity-50",
+                  locationDenied ? "bg-[#151b1e]/90 hover:bg-black" : "bg-[#02665e] hover:bg-[#03786f]",
                 ].join(" ")}
               >
                 {locationDenied
@@ -738,33 +702,21 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
                 onClick={closeMap}
                 title="Close map"
                 aria-label="Close map"
-                className="inline-flex items-center gap-1.5 rounded-full border border-rose-100 bg-white/90 py-1.5 pl-2 pr-3 text-[11px] font-semibold text-rose-600 shadow backdrop-blur-sm transition hover:bg-white hover:shadow-md"
+                className="box-border inline-flex items-center gap-1.5 rounded-lg border border-solid border-white/25 bg-[#151b1e]/90 py-1.5 pl-2 pr-3 text-[11.5px] font-semibold text-white shadow-md transition hover:bg-black"
               >
                 <X className="h-3.5 w-3.5 shrink-0" />
                 Close
               </button>
             </div>
 
-            {/* Coordinate pill — bottom-left */}
-            <div className="absolute bottom-3 left-3 right-12 z-10">
-              {hasCoords ? (
-                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200/80 bg-white/95 py-1.5 pl-2 pr-4 shadow-md backdrop-blur">
-                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
-                    <CheckCircle2 className="h-3 w-3" />
-                  </div>
-                  <span className="font-mono text-[11px] font-semibold text-slate-800 tabular-nums">
-                    {Number(latitude).toFixed(5)}, {Number(longitude).toFixed(5)}
-                  </span>
+            {!hasCoords ? (
+              <div className="absolute bottom-3 left-3 right-12 z-10">
+                <div className="inline-flex items-center gap-2 rounded-lg bg-[#151b1e]/90 py-1.5 pl-2 pr-4 shadow-md">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-white/70" />
+                  <span className="text-[11.5px] text-white/80">Drag the map or tap My location</span>
                 </div>
-              ) : (
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/95 py-1.5 pl-2 pr-4 shadow-md backdrop-blur">
-                  <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-500">
-                    <MapPin className="h-3 w-3" />
-                  </div>
-                  <span className="text-[11px] text-slate-500">Drag map or tap <span className="font-semibold text-emerald-600">My location</span></span>
-                </div>
-              )}
-            </div>
+              </div>
+            ) : null}
 
             {/* Compact attribution */}
             <div className="group absolute bottom-2 right-2 z-10">
@@ -786,13 +738,13 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
 
             {/* Thin static loading bar — gone as soon as first frame paints */}
             {!mapReady && !mapInitError ? (
-              <div className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-0.5 bg-emerald-400/60" />
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-[11] h-0.5 bg-[#02665e]" />
             ) : null}
 
             {mapInitError ? (
-              <div className="absolute inset-0 z-[11] flex flex-col items-center justify-center gap-2 bg-white/80 px-6 text-center backdrop-blur-sm">
-                <AlertCircle className="h-6 w-6 text-rose-500" />
-                <p className="text-xs text-slate-600">{mapInitError}</p>
+              <div className="absolute inset-0 z-[11] flex flex-col items-center justify-center gap-2 bg-[#151b1e]/90 px-6 text-center">
+                <AlertCircle className="h-6 w-6 text-red-300" />
+                <p className="text-xs text-white/75">{mapInitError}</p>
               </div>
             ) : null}
           </div>
@@ -802,7 +754,7 @@ export const PropertyLocationMap = memo(function PropertyLocationMap({
       {/* Below-map messages (map panel only) */}
       <div className="mt-2 space-y-1">
         {hasInitialized && tokenResolved && !mapToken ? (
-          <div className="flex items-center gap-1 text-xs text-amber-700">
+          <div className="flex items-center gap-1 text-xs text-white/70">
             <AlertCircle className="h-3.5 w-3.5" />
             <span>Map token is not configured, so live pinning is unavailable right now.</span>
           </div>

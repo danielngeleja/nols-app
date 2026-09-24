@@ -232,7 +232,7 @@ export default function Page(){
   const receiptDisplay = String(inv.receiptNumber || inv.paymentRef || linkedReceiptDisplay || "").trim();
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
+    <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
       {/* Header */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm overflow-hidden">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

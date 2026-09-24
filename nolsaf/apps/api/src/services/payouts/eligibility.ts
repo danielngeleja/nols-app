@@ -225,6 +225,7 @@ async function loadSalesPayout(sourceId: number): Promise<EligiblePayoutSource> 
       status: true,
       approvedAmount: true,
       deductionAmount: true,
+      withholdingTaxAmount: true,
       netPaidAmount: true,
       requestedAmount: true,
       currency: true,
@@ -257,13 +258,17 @@ async function loadSalesPayout(sourceId: number): Promise<EligiblePayoutSource> 
   // approved minus deduction was edited outside the approval path, which is
   // the one thing a stored-total design cannot otherwise detect.
   if (request.approvedAmount != null) {
-    const expected = Number(request.approvedAmount) - Number(request.deductionAmount ?? 0);
+    // Withholding tax is part of the approval arithmetic (it stays with NoLSAF
+    // for remittance to TRA), so it must be subtracted here too.
+    const expected =
+      Number(request.approvedAmount) - Number(request.deductionAmount ?? 0) - Number(request.withholdingTaxAmount ?? 0);
     if (Math.abs(expected - Number(request.netPaidAmount)) > AMOUNT_TOLERANCE) {
       throw new PayoutIneligibleError(
         "SALES_PAYOUT",
         sourceId,
         `amounts do not reconcile: approved ${request.approvedAmount.toString()} minus deduction ` +
-          `${request.deductionAmount?.toString() ?? "0"} is ${expected}, but netPaidAmount is ${request.netPaidAmount.toString()}`
+          `${request.deductionAmount?.toString() ?? "0"} minus withholding tax ${request.withholdingTaxAmount?.toString() ?? "0"} ` +
+          `is ${expected}, but netPaidAmount is ${request.netPaidAmount.toString()}`
       );
     }
   }

@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import axios from "axios";
-import { ArrowLeft, CheckCircle2, Clock3, Eye, FileText, Loader2, ShieldCheck, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, Eye, FileText, Loader2, ShieldCheck, Upload } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 const api = apiClient;
@@ -581,214 +581,208 @@ export default function TourPackageDocumentsPage() {
     }
   };
 
+  const requiredList = orderedDocs.filter((doc) => doc.required);
+  const optionalList = orderedDocs.filter((doc) => !doc.required);
+  const remaining = Math.max(0, completion.total - completion.uploaded);
+  const allRequiredIn = completion.total > 0 && remaining === 0;
+
+  const renderDocRow = (doc: RequiredDoc) => {
+    const uploaded = uploadedByType[doc.type];
+    const isUploading = savingForType === doc.type;
+    const preview = localPreviewByType[doc.type];
+    const done = Boolean(uploaded?.url);
+    const uploadedWhen = uploaded?.uploadedAt ? new Date(uploaded.uploadedAt) : null;
+    const meta = [
+      toAcceptedText(doc.accept),
+      "max 2MB",
+      doc.type === "PASSPORT_SIZE_PHOTO" ? `cropped to ${PASSPORT_TARGET_WIDTH}×${PASSPORT_TARGET_HEIGHT}` : null,
+    ].filter(Boolean).join(" · ");
+    return (
+      // One row at every width: icon, text, actions. Phones drop the long
+      // description and the button labels so the row never wraps.
+      <li key={doc.type} className="flex items-center gap-3 px-4 py-3.5 sm:gap-4 sm:px-5 sm:py-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3 sm:items-start">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={preview} alt={`${doc.label} preview`} className="h-12 w-10 flex-shrink-0 rounded-lg object-cover" style={{ border: "1px solid #d0e8e5" }} />
+          ) : (
+            <span
+              className={`inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
+                done ? "bg-[#02665e] text-white" : doc.required ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              {done ? <CheckCircle2 className="h-5 w-5" aria-hidden /> : <FileText className="h-5 w-5" aria-hidden />}
+            </span>
+          )}
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[14px] font-bold text-slate-900">{doc.label}</span>
+              {done ? (
+                <span className="inline-flex flex-shrink-0 items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">Uploaded</span>
+              ) : doc.required ? (
+                <span className="inline-flex flex-shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">Needed</span>
+              ) : null}
+            </div>
+            <p className="m-0 mt-0.5 hidden text-[12.5px] leading-relaxed text-slate-500 sm:block">{doc.description}</p>
+            <p className="m-0 mt-0.5 truncate text-[11.5px] text-slate-400 sm:mt-1 sm:whitespace-normal">
+              {meta}
+              {done && uploadedWhen && !Number.isNaN(uploadedWhen.getTime()) ? ` · uploaded ${uploadedWhen.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })}` : ""}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-2">
+          {done ? (
+            <a
+              href={uploaded!.url}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`View ${doc.label}`}
+              title="View"
+              className="inline-flex h-9 w-9 items-center justify-center gap-1.5 rounded-full border border-solid border-slate-300 bg-white text-[13px] font-semibold text-slate-700 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e] sm:w-auto sm:px-3.5"
+            >
+              <Eye className="h-4 w-4" aria-hidden />
+              <span className="hidden sm:inline">View</span>
+            </a>
+          ) : null}
+          <button
+            type="button"
+            disabled={Boolean(savingForType)}
+            onClick={() => openPicker(doc.type)}
+            aria-label={`${done ? "Replace" : "Upload"} ${doc.label}`}
+            title={done ? "Replace" : "Upload"}
+            style={{ fontFamily: "inherit" }}
+            className={`inline-flex h-9 w-9 cursor-pointer items-center justify-center gap-1.5 rounded-full text-[13px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-4 ${
+              done
+                ? "border border-solid border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                : "border-0 bg-[#02665e] text-white hover:bg-[#014d47]"
+            }`}
+          >
+            {isUploading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
+            <span className="hidden sm:inline">{isUploading ? "Uploading..." : done ? "Replace" : "Upload"}</span>
+          </button>
+        </div>
+      </li>
+    );
+  };
+
+  const ringSize = 76;
+  const ringStroke = 7;
+  const ringRadius = (ringSize - ringStroke) / 2;
+  const ringLength = 2 * Math.PI * ringRadius;
+
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 sm:px-6 py-6 space-y-4 min-w-0 overflow-x-hidden">
-      <div className="relative rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+    <div id="tour-docs-page" className="w-full min-w-0 space-y-5">
+      <style>{"#tour-docs-page, #tour-docs-page * { box-sizing: border-box; }"}</style>
+
+      <div className="flex items-center justify-between gap-3">
         <Link
           href={`/account/tour-packages/${encodeURIComponent(bookingId)}`}
-          aria-label="Back to tour package"
-          title="Back to tour package"
-          className="absolute left-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 hover:text-slate-900"
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-solid border-slate-300 bg-white px-3.5 text-[13px] font-semibold text-slate-700 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-[#02665e] hover:text-[#02665e]"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Back to trip
         </Link>
-        <div className="mx-auto max-w-3xl px-10 sm:px-12 text-center">
-          <h1 className="text-2xl font-bold text-slate-900">Package Documents</h1>
-          <div className="mt-1 text-sm leading-relaxed text-slate-600">Upload and manage required files for booking verification and travel-clearance processing.</div>
-        </div>
+        {bookingCode ? <span className="min-w-0 truncate font-mono text-[12px] text-slate-400">{bookingCode}</span> : null}
       </div>
 
-      {isCancellationEvidenceUpload && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <span className="font-semibold">Cancellation evidence requested.</span> Files uploaded here are attached directly to cancellation case #{requestedEvidenceCaseId} for the NoLSAF review team.
+      {loading ? (
+        <div className="space-y-5" aria-busy="true">
+          <span role="status" className="sr-only">Loading documents</span>
+          <div className="h-36 rounded-3xl border border-solid border-slate-200 bg-white" />
+          <div className="h-80 rounded-3xl border border-solid border-slate-200 bg-white" />
         </div>
+      ) : (
+        <>
+          {/* ── Header with progress ── */}
+          <section className="flex flex-col gap-5 rounded-3xl border border-solid border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between sm:p-7">
+            <div className="min-w-0">
+              <p className="m-0 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#02665e]">
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                Travel documents
+              </p>
+              <h1 className="m-0 mt-1.5 break-words text-[24px] font-extrabold leading-tight tracking-tight text-slate-900 sm:text-[28px]">
+                {packageTitle || "Your tour"}
+              </h1>
+              <p className="m-0 mt-2 max-w-xl text-[13.5px] leading-relaxed text-slate-500">
+                Upload what your operator needs for permits and entry. Files stay linked to this booking.
+              </p>
+            </div>
+
+            {completion.total > 0 ? (
+              <div className="flex flex-shrink-0 items-center gap-4 rounded-2xl bg-slate-50 px-4 py-3.5 sm:bg-transparent sm:p-0">
+                <div className="relative" style={{ width: ringSize, height: ringSize }}>
+                  <svg width={ringSize} height={ringSize} className="-rotate-90" aria-hidden>
+                    <circle cx={ringSize / 2} cy={ringSize / 2} r={ringRadius} fill="none" stroke="#e2e8f0" strokeWidth={ringStroke} />
+                    <circle
+                      cx={ringSize / 2}
+                      cy={ringSize / 2}
+                      r={ringRadius}
+                      fill="none"
+                      stroke="#02665e"
+                      strokeWidth={ringStroke}
+                      strokeLinecap="round"
+                      strokeDasharray={ringLength}
+                      strokeDashoffset={ringLength * (1 - completionPercent / 100)}
+                      style={{ transition: "stroke-dashoffset 400ms ease" }}
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex items-center justify-center text-[16px] font-black tabular-nums text-slate-900">
+                    {completion.uploaded}/{completion.total}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-[14px] font-bold text-slate-900">{allRequiredIn ? "All required documents in" : `${remaining} required ${remaining === 1 ? "document" : "documents"} left`}</div>
+                  <div className="mt-0.5 text-[12.5px] text-slate-500">{allRequiredIn ? "Your operator can now verify your booking." : "Finish these to speed up verification."}</div>
+                </div>
+              </div>
+            ) : null}
+          </section>
+
+          {isCancellationEvidenceUpload ? (
+            <div className="flex items-start gap-3 rounded-2xl border border-solid border-amber-200 bg-amber-50 px-4 py-3.5 text-[13px] leading-relaxed text-amber-950">
+              <Clock3 className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" aria-hidden />
+              <span><strong>Evidence for cancellation case #{requestedEvidenceCaseId}.</strong> Anything you upload here is attached to that case for the NoLSAF review team.</span>
+            </div>
+          ) : null}
+
+          {error ? (
+            <div role="alert" className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-700">{error}</div>
+          ) : null}
+          {success ? (
+            <div role="status" className="flex items-center gap-2 rounded-2xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" aria-hidden />
+              {success}
+            </div>
+          ) : null}
+
+          {/* ── Required ── */}
+          {requiredList.length ? (
+            <section className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3.5 sm:px-5">
+                <h2 className="m-0 text-[15px] font-bold text-slate-900">Required</h2>
+                <span className="text-[12.5px] font-semibold text-slate-500">{completion.uploaded} of {completion.total} uploaded</span>
+              </div>
+              <ul className="m-0 list-none divide-y divide-solid divide-slate-200 [&>*]:border-x-0 p-0">{requiredList.map(renderDocRow)}</ul>
+            </section>
+          ) : null}
+
+          {/* ── Optional ── */}
+          {optionalList.length ? (
+            <section className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3.5 sm:px-5">
+                <div>
+                  <h2 className="m-0 text-[15px] font-bold text-slate-900">Only if asked</h2>
+                  <p className="m-0 mt-0.5 text-[12px] text-slate-500">Upload these when your destination or operator requests them.</p>
+                </div>
+              </div>
+              <ul className="m-0 list-none divide-y divide-solid divide-slate-200 [&>*]:border-x-0 p-0">{optionalList.map(renderDocRow)}</ul>
+            </section>
+          ) : null}
+        </>
       )}
 
-        <section className="w-full max-w-full min-w-0 card overflow-hidden">
-          <div className="card-section space-y-4">
-            {loading ? (
-              <div className="flex items-center gap-2 text-sm text-slate-600">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading required documents...
-              </div>
-            ) : (
-              <>
-                <div className="rounded-2xl border border-teal-100 bg-gradient-to-br from-white via-white to-teal-50 p-5 md:p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr] gap-4 md:gap-6 items-stretch">
-                    <div className="text-center md:text-left">
-                      <div className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.22em] text-teal-700 font-semibold">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        Upload Documents
-                      </div>
-                      <h1 className="mt-1 text-xl md:text-3xl font-bold text-slate-900 break-words">
-                        {packageTitle || "Tour Package Documents"}
-                      </h1>
-                      <div className="text-sm text-slate-600 mt-1 break-all">Ref: {bookingCode || bookingId}</div>
-                      <p className="mt-3 text-sm text-slate-700 leading-relaxed max-w-2xl mx-auto md:mx-0">
-                        Upload the required documents for this package (passport, visa, yellow fever, and related files).
-                      </p>
-                      <p className="mt-2 text-xs text-slate-500 leading-relaxed max-w-2xl mx-auto md:mx-0">
-                        Files are linked to your booking for permit and travel-clearance processing.
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-teal-200 bg-white/90 p-4 flex flex-col justify-between">
-                      <div className="inline-flex items-center gap-2 text-sm font-semibold text-teal-800">
-                        <ShieldCheck className="h-4 w-4" />
-                        Document Progress
-                      </div>
-                      <div className="mt-3">
-                        <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-500 transition-all"
-                            style={{ width: `${completionPercent}%` }}
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between text-sm">
-                        <span className="text-slate-600">Required uploaded</span>
-                        <span className="font-semibold text-slate-900">{completion.uploaded}/{completion.total}</span>
-                      </div>
-                      <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-500">
-                        <Clock3 className="h-3.5 w-3.5" />
-                        Complete required uploads to speed up verification
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {error && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                    {error}
-                  </div>
-                )}
-
-                {success && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 inline-flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4" />
-                    {success}
-                  </div>
-                )}
-
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">Required And Supporting Files</div>
-                      <div className="text-xs text-slate-500 mt-0.5">Required documents are prioritized first.</div>
-                    </div>
-                    <div className="text-xs text-slate-600 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
-                      {orderedDocs.length} document type{orderedDocs.length === 1 ? "" : "s"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {orderedDocs.map((doc) => {
-                    const uploaded = uploadedByType[doc.type];
-                    const isUploading = savingForType === doc.type;
-                    return (
-                      <div key={doc.type} className="rounded-2xl border border-slate-200 bg-white p-4 min-w-0 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3">
-                        <div className="min-w-0">
-                          <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 break-words">
-                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-700 border border-teal-100 shrink-0">
-                                <FileText className="h-4 w-4" />
-                              </span>
-                              {doc.label}
-                              {doc.required ? <span className="text-rose-600 text-base leading-none">*</span> : null}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-600 leading-relaxed">{doc.description}</div>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600">
-                              Accepted: {toAcceptedText(doc.accept)}
-                            </span>
-                            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600">Max: 2MB</span>
-                            {doc.type === "PASSPORT_SIZE_PHOTO" ? (
-                              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] text-sky-700">
-                                {PASSPORT_TARGET_WIDTH}x{PASSPORT_TARGET_HEIGHT}
-                              </span>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        {doc.type === "PASSPORT_SIZE_PHOTO" && localPreviewByType[doc.type] && (
-                          <div className="rounded-lg border border-sky-200 bg-sky-50 p-2.5">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={localPreviewByType[doc.type]}
-                                alt="Adjusted passport-size preview"
-                                className="h-20 w-16 object-cover rounded-md border border-sky-200"
-                              />
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-sky-700">Adjusted preview</div>
-                                <div className="text-[11px] text-sky-600 mt-0.5">Auto-cropped to fit passport dimensions.</div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {uploaded?.url ? (
-                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                            <div className="inline-flex items-center gap-1 font-semibold">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Uploaded
-                            </div>
-                            <div className="mt-1 break-words text-[11px] text-emerald-800">
-                              <a
-                                href={uploaded.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                aria-label="View uploaded file"
-                                title="View uploaded file"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-100"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                            Waiting for upload.
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          disabled={Boolean(savingForType)}
-                          onClick={() => openPicker(doc.type)}
-                          className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all w-full md:w-auto ${
-                            Boolean(savingForType)
-                              ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-                              : "bg-teal-600 text-white hover:bg-teal-700 shadow-sm"
-                          }`}
-                        >
-                          {isUploading ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Uploading...
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="h-4 w-4" />
-                              {uploaded?.url ? "Replace File" : "Upload File"}
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        </section>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={(e) => handleFilePicked(e.target.files)}
-          accept={fileInputAccept}
-        />
-    </main>
+      <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFilePicked(e.target.files)} accept={fileInputAccept} />
+    </div>
   );
 }

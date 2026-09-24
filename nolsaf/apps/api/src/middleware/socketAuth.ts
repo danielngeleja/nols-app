@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { getRoleSessionMaxMinutes } from "../lib/securitySettings.js";
 import { touchActiveUser } from "../lib/activePresence.js";
+import { accountMfaSessionAllowed } from "../lib/accountMfaPolicy.js";
 
 export interface AuthenticatedSocket extends Socket {
   data: {
@@ -20,6 +21,9 @@ export interface AuthenticatedSocket extends Socket {
       sessionId?: string;
       /** Verified administrator MFA method carried by the signed JWT. */
       adminMfa?: string;
+      mfa?: string;
+      mfaBinding?: string;
+      imp?: boolean;
     };
   };
 }
@@ -31,6 +35,9 @@ interface JwtSocketPayload {
   exp?: number;
   sid?: string;
   amr?: string;
+  mfa?: string;
+  mfaBinding?: string;
+  imp?: boolean;
 }
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -82,6 +89,7 @@ export async function verifyToken(
           select: {
             id: true, role: true, email: true, suspendedAt: true,
             isDisabled: true, tokensValidAfter: true,
+            twoFactorEnabled: true, twoFactorMethod: true, totpSecretEnc: true,
             agentProfile: { select: { status: true } },
           },
         },
@@ -89,6 +97,7 @@ export async function verifyToken(
     });
     const user = activeSession?.user;
     if (!user) return null;
+    if (!accountMfaSessionAllowed(user, decoded)) return null;
 
     // Deny suspended users
     if (user.suspendedAt) {
@@ -131,6 +140,9 @@ export async function verifyToken(
       sessionIssuedAtSec: Number.isFinite(issuedAtSec) ? issuedAtSec : undefined,
       sessionId,
       adminMfa: role === 'ADMIN' ? decoded.amr : undefined,
+      mfa: decoded.mfa,
+      mfaBinding: decoded.mfaBinding,
+      imp: decoded.imp,
     };
   } catch (error) {
     return null;
@@ -156,6 +168,7 @@ async function currentSocketAuthorizationFailure(socket: AuthenticatedSocket): P
       user: {
         select: {
           role: true, suspendedAt: true, isDisabled: true, tokensValidAfter: true,
+          twoFactorEnabled: true, twoFactorMethod: true, totpSecretEnc: true,
           agentProfile: { select: { status: true } },
         },
       },
@@ -163,6 +176,7 @@ async function currentSocketAuthorizationFailure(socket: AuthenticatedSocket): P
   });
   const current = activeSession?.user;
   if (!current || current.suspendedAt || current.isDisabled) return "SESSION_REVOKED";
+  if (!accountMfaSessionAllowed(current, user)) return "SESSION_REVOKED";
 
   const rawRole = String(current.role || "USER").toUpperCase();
   if (rawRole === "AGENT" && String(current.agentProfile?.status || "").toUpperCase() !== "ACTIVE") return "SESSION_REVOKED";

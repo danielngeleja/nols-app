@@ -219,7 +219,7 @@ export default function AdminDriversBonusesPage() {
     .reduce((sum, b) => sum + (b.amount || 0), 0);
 
   return (
-    <div className="bonuses-page space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="bonuses-page space-y-6 w-full min-w-0">
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <div className="flex flex-col items-center text-center">
           <div className="h-16 w-16 rounded-full bg-gradient-to-br from-amber-50 to-amber-100 flex items-center justify-center mb-4">

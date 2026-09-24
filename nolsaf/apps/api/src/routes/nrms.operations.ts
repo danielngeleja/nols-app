@@ -2,12 +2,12 @@ import crypto from "crypto";
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { type AuthedRequest, blockImpersonated, requireAuth } from "../middleware/auth.js";
 import { getNrmsEnrollment, isNrmsEntitled } from "../lib/nrms.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
 import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
-import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "../lib/nrmsShifts.js";
 import { StockError, deriveStockPatch, reserveMenuStock, restoreMenuStock } from "../lib/nrmsStock.js";
 import { computeOutstanding } from "../lib/nrmsFolio.js";
 import { voidRoutedCharge } from "../lib/nrmsMasterFolio.js";
@@ -25,11 +25,12 @@ import {
 } from "../lib/nrmsHousekeeping.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { sendMail } from "../lib/mailer.js";
-import { RESTRICTION_SCOPE, findOpenRestrictionCase } from "../lib/restrictionCases.js";
 import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 import { buildBreakfastList } from "../lib/nrmsBreakfastList.js";
+import { getNrmsAttentionSnapshot } from "../lib/nrmsAttention.js";
+import { activeStayReservationWhere } from "../lib/nrmsActiveStay.js";
 import { generateNrmsBreakfastListPdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { signNrmsStaffInviteToken, verifyNrmsStaffInviteToken } from "../lib/nrmsStaffInviteToken.js";
 import {
@@ -39,9 +40,24 @@ import {
   buildMenuUrl,
   isValidOrderPointType,
 } from "../lib/nrmsOrderPoints.js";
+import { NRMS_STAFF_ROLES, nrmsRoleOutletType, nrmsRoleRequiresOutlet, nrmsStaffRoleLabel } from "../lib/nrmsStaffRoles.js";
+import { loadNrmsPropertyAccess, requireNrmsPropertyCapability, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import {
+  authorizeNrmsAccess,
+  buildNrmsEffectiveAccessManifest,
+  isNrmsRole,
+  type NrmsCapability,
+} from "../lib/nrmsAuthorization.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
+// Every write here carries `blockImpersonated`, the reads deliberately do not.
+// An admin support session must be able to look at a property to help it, but
+// nothing it does may land in the audit log as the owner or a staff member:
+// this file assigns and revokes staff, voids settled sales, closes cashier
+// shifts and rotates QR order-point tokens. Same posture as
+// owner.payments.merchant, applied per route rather than router-wide so the
+// read paths stay open.
 
 const db = prisma as any;
 // These order transactions take the property inventory lock and then do several
@@ -57,27 +73,12 @@ const LIVE_ORDER_STATUSES = ["PLACED", "CONFIRMED", "PREPARING", "SERVING"];
 // service (handled in Tables & tabs). Every live order falls in exactly one.
 const ROOM_ORDER_FILTER = { OR: [{ reservationId: { not: null } }, { orderPoint: { is: { type: "ROOM" } } }] };
 const TABLE_ORDER_FILTER = { reservationId: null, OR: [{ orderPointId: null }, { orderPoint: { is: { type: "TABLE" } } }] };
-const STAFF_ROLES = ["MANAGER", "FRONT_DESK", "HOUSEKEEPER", "RESTAURANT", "BAR", "OUTLET_SUPERVISOR"] as const;
+const STAFF_ROLES = NRMS_STAFF_ROLES;
 const OUTLET_TYPES = ["RESTAURANT", "BAR", "OTHER"] as const;
 const ORDER_SETTLEMENTS = ["ROOM_FOLIO", "OUTLET_PAYMENT"] as const;
 
 type AccessRole = "OWNER" | (typeof STAFF_ROLES)[number];
-type Access = {
-  property: {
-    id: number;
-    ownerId: number;
-    title: string;
-    status: string;
-    currency: string | null;
-    nrmsActivatedAt: Date | null;
-    nrmsMenuPublic: boolean;
-    housekeepingDailyServiceEnabled: boolean;
-    housekeepingDailyServiceTime: string;
-  };
-  role: AccessRole;
-  outletId: number | null;
-  membershipId: number | null;
-};
+type Access = NrmsPropertyAccess;
 
 const outletSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -174,6 +175,19 @@ function roleCanCorrect(access: Access): boolean {
   return roleCanManage(access) || access.role === "OUTLET_SUPERVISOR";
 }
 
+function accessCan(access: Access, capability: NrmsCapability, targetOutletId?: number | null): boolean {
+  return authorizeNrmsAccess({
+    actorId: access.actorId,
+    role: access.role,
+    capability,
+    propertyId: access.property.id,
+    membershipStatus: access.membershipStatus ?? undefined,
+    membershipConfirmed: access.membershipConfirmed,
+    assignedOutletId: access.outletId,
+    targetOutletId,
+  }).allowed;
+}
+
 function outletAllowed(access: Access, outlet: { id: number; type: string }): boolean {
   if (["OWNER", "MANAGER", "FRONT_DESK"].includes(access.role)) return true;
   if (access.outletId != null && access.outletId !== outlet.id) return false;
@@ -183,75 +197,27 @@ function outletAllowed(access: Access, outlet: { id: number; type: string }): bo
 }
 
 async function loadAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<Access | null> {
-  if (!Number.isInteger(propertyId) || propertyId <= 0) {
-    res.status(400).json({ error: "Invalid property id" });
-    return null;
-  }
-  const userId = req.user!.id;
-  const property = await db.property.findUnique({
-    where: { id: propertyId },
-    select: {
-      id: true,
-      ownerId: true,
-      title: true,
-      status: true,
-      currency: true,
-      nrmsActivatedAt: true,
-      nrmsMenuPublic: true,
-      housekeepingDailyServiceEnabled: true,
-      housekeepingDailyServiceTime: true,
-    },
-  });
-  if (!property) {
-    res.status(404).json({ error: "Property not found" });
-    return null;
-  }
-
-  let access: Access | null = null;
-  if (req.user!.role === "OWNER" && property.ownerId === userId) {
-    access = { property, role: "OWNER", outletId: null, membershipId: null };
-  } else {
-    const membership = await db.nrmsStaffMembership.findFirst({
-      where: { propertyId, userId, status: "ACTIVE" },
-      orderBy: { id: "asc" },
-    });
-    if (membership) {
-      access = { property, role: membership.role as AccessRole, outletId: membership.outletId, membershipId: membership.id };
-    }
-  }
-  if (!access) {
-    res.status(403).json({ error: "You do not have access to this NRMS property", code: "NRMS_PROPERTY_FORBIDDEN" });
-    return null;
-  }
-  if (property.status !== "APPROVED") {
-    res.status(403).json({
-      error: "This property must be an approved Marketplace listing before NRMS can be used",
-      code: "NRMS_PROPERTY_NOT_APPROVED",
-      propertyStatus: property.status,
-    });
-    return null;
-  }
-
-  const [enrollment, account] = await Promise.all([
-    getNrmsEnrollment(property.ownerId),
-    db.ownerPaygAccount.findUnique({ where: { propertyId }, select: { id: true, status: true } }),
-  ]);
-  if (!property.nrmsActivatedAt || !account || !isNrmsEntitled(enrollment)) {
-    res.status(403).json({ error: "NRMS operations are not active for this property", code: "NRMS_NOT_ACTIVE" });
-    return null;
-  }
-  if (["FROZEN", "CLOSED"].includes(account.status)) {
-    const restriction = await findOpenRestrictionCase(RESTRICTION_SCOPE.NRMS_PROPERTY, propertyId);
-    res.status(423).json({
-      error: "NRMS operations are temporarily unavailable for this property",
-      code: "NRMS_PROPERTY_FROZEN",
-      referenceCode: restriction?.referenceCode ?? null,
-      reason: restriction?.reason ?? null,
-    });
-    return null;
-  }
-  return access;
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", ...NRMS_STAFF_ROLES]);
 }
+
+// One role-scoped snapshot backs every active-work marker in the NRMS sidebar.
+// A short shared cache absorbs open tabs and several staff looking at the same
+// queue, while the client uses a one-minute fallback between event refreshes.
+router.get("/property/:propertyId/attention", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  try {
+    const snapshot = await getNrmsAttentionSnapshot(db, access.property.id, {
+      role: access.role,
+      outletId: access.outletId,
+    }, { fresh: req.query.fresh === "1" });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json(snapshot);
+  } catch (error) {
+    console.error("[nrms.operations] attention snapshot failed", error);
+    res.status(500).json({ error: "Unable to load the active NRMS work queues" });
+  }
+}) as RequestHandler);
 
 async function accessForOutlet(req: AuthedRequest, res: Response, outletId: number) {
   const outlet = await db.nrmsOutlet.findUnique({ where: { id: outletId }, include: { menuItems: { orderBy: { name: "asc" } } } });
@@ -324,19 +290,35 @@ router.get("/me", (async (req: AuthedRequest, res: Response) => {
     const enrollment = await getNrmsEnrollment(userId);
     const properties = await db.property.findMany({
       where: { ownerId: userId },
-      select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true },
+      select: { id: true, title: true, currency: true, nrmsActivatedAt: true, nrmsBookingKey: true, nrmsPaygAccount: true },
       orderBy: { id: "asc" },
     });
-    return res.json({ viewer: { firstName }, entitled: isNrmsEntitled(enrollment), workspaceMode: isNrmsEntitled(enrollment) ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties: properties.map((property: any) => ({ ...property, nrmsAccessRole: "OWNER", nrmsOutletId: null })) });
+    return res.json({ viewer: { firstName }, entitled: isNrmsEntitled(enrollment), workspaceMode: isNrmsEntitled(enrollment) ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties: properties.map((property: any) => ({
+      ...property,
+      nrmsAccessRole: "OWNER",
+      nrmsOutletId: null,
+      effectiveAccess: buildNrmsEffectiveAccessManifest({ propertyId: property.id, role: "OWNER" }),
+    })) });
   }
   const memberships = await db.nrmsStaffMembership.findMany({
-    where: { userId, status: "ACTIVE" },
-    include: { property: { select: { id: true, title: true, status: true, currency: true, nrmsActivatedAt: true, nrmsPaygAccount: true } } },
+    where: { userId, status: "ACTIVE", confirmedAt: { not: null } },
+    include: { property: { select: { id: true, title: true, status: true, currency: true, nrmsActivatedAt: true, nrmsBookingKey: true, nrmsPaygAccount: true } } },
     orderBy: { id: "asc" },
   });
   const byProperty = new Map<number, any>();
   for (const membership of memberships) {
-    if (!byProperty.has(membership.propertyId)) byProperty.set(membership.propertyId, { ...membership.property, nrmsAccessRole: membership.role, nrmsOutletId: membership.outletId });
+    if (!isNrmsRole(membership.role) || membership.role === "OWNER") continue;
+    if (!byProperty.has(membership.propertyId)) byProperty.set(membership.propertyId, {
+      ...membership.property,
+      nrmsAccessRole: membership.role,
+      nrmsOutletId: membership.outletId,
+      effectiveAccess: buildNrmsEffectiveAccessManifest({
+        propertyId: membership.propertyId,
+        role: membership.role,
+        outletId: membership.outletId,
+        membershipVersion: membership.inviteVersion,
+      }),
+    });
   }
   const properties = [...byProperty.values()];
   res.json({ viewer: { firstName }, entitled: properties.length > 0, workspaceMode: properties.length > 0 ? "MARKETPLACE_NRMS" : "MARKETPLACE_ONLY", properties });
@@ -465,14 +447,38 @@ router.get("/property/:propertyId/context", (async (req: AuthedRequest, res: Res
   const attendantMap = new Map<number, any>();
   if (owner) attendantMap.set(owner.id, { ...owner, role: "OWNER", outletId: null });
   for (const membership of memberships) attendantMap.set(membership.user.id, { ...membership.user, role: membership.role, outletId: membership.outletId });
-  res.json({ access: { role: access.role, outletId: access.outletId, userId: req.user!.id }, property: access.property, outlets, attendants: [...attendantMap.values()] });
+  // The staff role vocabulary, served rather than duplicated in the web app.
+  // Adding a role in nrmsStaffRoles.ts makes it appear in the owner's picker,
+  // brings its outlet requirement with it, and labels it in the roster, with
+  // no change to the client. `assignable` is resolved against THIS caller, so
+  // a manager simply does not see a role they would be refused for.
+  const staffRoles = NRMS_STAFF_ROLES.map((role) => ({
+    value: role,
+    label: nrmsStaffRoleLabel(role),
+    requiresOutlet: nrmsRoleRequiresOutlet(role),
+    // Which outlet type the role must attach to, so the picker can offer only
+    // the outlets the assign handler would accept.
+    outletType: nrmsRoleOutletType(role),
+    assignable: accessCan(access, role === "MANAGER" ? "staff.manager.assign" : "staff.lower_role.assign"),
+  }));
+
+  res.json({
+    // `canRevokeManager` is a separate capability from assigning one, so it
+    // is reported rather than inferred from the role: the owner staff page
+    // used to decide this by comparing role strings itself.
+    access: { role: access.role, outletId: access.outletId, userId: req.user!.id, canRevokeManager: accessCan(access, "staff.manager.revoke") },
+    property: access.property,
+    outlets,
+    attendants: [...attendantMap.values()],
+    staffRoles,
+  });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/in-house", (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   const reservations = await db.reservation.findMany({
-    where: { propertyId: access.property.id, status: "CHECKED_IN" },
+    where: activeStayReservationWhere({ propertyId: access.property.id }),
     select: {
       id: true,
       currency: true,
@@ -606,9 +612,9 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
     // resurfacing stale drawers from days ago.
     const pendingHandover = !shift && SHIFT_ROLES.has(access.role)
       ? await db.nrmsCashierShift.findFirst({
-          where: { propertyId, status: "CLOSED", handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
+          where: { propertyId, status: "CLOSED", declaredCash: { not: null }, handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
           orderBy: { closedAt: "desc" },
-          select: { id: true, expectedCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
+          select: { id: true, expectedCash: true, declaredCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
         })
       : null;
     res.json({
@@ -630,7 +636,7 @@ router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res:
         ? { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), expectedCash: liveExpected, currency: shift.currency, takenOverFrom: shift.handoverFrom ? attendeeName(shift.handoverFrom.user) : null }
         : null,
       handover: pendingHandover
-        ? { shiftId: pendingHandover.id, attendeeName: attendeeName(pendingHandover.user), amount: Number(pendingHandover.expectedCash), closedAt: pendingHandover.closedAt, currency: pendingHandover.currency }
+        ? { shiftId: pendingHandover.id, attendeeName: attendeeName(pendingHandover.user), amount: Number(pendingHandover.declaredCash), closedAt: pendingHandover.closedAt, currency: pendingHandover.currency }
         : null,
     });
   } catch (error) {
@@ -647,15 +653,17 @@ const SHIFT_ROLES = new Set(["RESTAURANT", "BAR"]);
 function attendeeName(user: any): string {
   return user?.fullName || user?.name || user?.email || "Previous attendee";
 }
-// Every sale is recorded in the system by the attendee who took it, so shifts
-// carry no manually typed amounts. Opening fresh starts at zero; opening as a
-// handover inherits the outgoing shift's system-computed drawer figure.
+// Opening fresh starts at zero. A handover inherits the outgoing attendee's
+// physical count, which is distinct from the system-computed expectation.
 const openShiftSchema = z.object({ handoverFromShiftId: z.number().int().positive().optional() });
-const closeShiftSchema = z.object({ closeNote: z.string().trim().max(300).nullable().optional() });
+const closeShiftSchema = z.object({
+  declaredCash: z.number().finite().min(0),
+  closeNote: z.string().trim().max(300).nullable().optional(),
+});
 
 // A staff member sees and controls only their own shift. The business date is set
 // from the server clock in the property timezone, never chosen by the attendant.
-router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/shifts/open", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!SHIFT_ROLES.has(access.role)) return res.status(403).json({ error: "Your role does not run a cash shift" });
@@ -665,11 +673,12 @@ router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res
   if (!currency) return res.status(409).json({ error: "Set the property currency before opening a shift" });
   try {
     const shift = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, access.property.id);
       const existing = await tx.nrmsCashierShift.findFirst({ where: { propertyId: access.property.id, userId: req.user!.id, status: "OPEN" } });
       if (existing) throw new Error("SHIFT_ALREADY_OPEN");
       // Confirming a handover: the incoming attendee, authenticated as themselves,
-      // accepts the outgoing shift's drawer at the amount the system computed.
-      // The confirmation itself is the signature; nothing is typed by hand.
+      // accepts the outgoing shift's physically counted drawer. The confirmation
+      // itself is the signature; the incoming attendant does not retype it.
       let openingFloat = 0;
       let handoverFromId: number | null = null;
       if (parsed.data.handoverFromShiftId) {
@@ -677,13 +686,14 @@ router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res
           where: { id: parsed.data.handoverFromShiftId, propertyId: access.property.id, status: "CLOSED" },
         });
         if (!outgoing) throw new Error("HANDOVER_NOT_FOUND");
+        if (outgoing.declaredCash == null) throw new Error("HANDOVER_COUNT_REQUIRED");
         const taken = await tx.nrmsCashierShift.findFirst({ where: { handoverFromId: outgoing.id } });
         if (taken) throw new Error("HANDOVER_TAKEN");
-        openingFloat = Number(outgoing.expectedCash);
+        openingFloat = Number(outgoing.declaredCash);
         handoverFromId = outgoing.id;
       }
       const day = await ensureBusinessDay(tx, access.property.id, shiftDayKey(new Date()), req.user!.id);
-      if (day.status === "CLOSED") throw new Error("BUSINESS_DAY_CLOSED");
+      if (day.status !== "OPEN") throw new Error("BUSINESS_DAY_CLOSED");
       return tx.nrmsCashierShift.create({ data: { propertyId: access.property.id, businessDayId: day.id, userId: req.user!.id, businessDate: day.businessDate, currency, openingFloat, handoverFromId } });
     }, ORDER_TX_OPTIONS);
     res.status(201).json({ shift: { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), currency: shift.currency } });
@@ -692,6 +702,7 @@ router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res
     if (code === "SHIFT_ALREADY_OPEN") return res.status(409).json({ error: "You already have an open shift. Close it before opening another." });
     if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "Today is already closed by the night audit and cannot accept a new shift." });
     if (code === "HANDOVER_NOT_FOUND") return res.status(404).json({ error: "That closed shift is no longer available for handover." });
+    if (code === "HANDOVER_COUNT_REQUIRED") return res.status(409).json({ error: "That legacy shift has no physical cash count and cannot be handed over. A manager must review it in Cashier variance." });
     // The unique index on handoverFromId also backstops a concurrent double-confirm.
     if (code === "HANDOVER_TAKEN" || (error as any)?.code === "P2002") return res.status(409).json({ error: "Another attendee already confirmed this handover." });
     console.error("[nrms.operations] shift open failed", error);
@@ -712,32 +723,41 @@ router.get("/property/:propertyId/shifts/current/summary", (async (req: AuthedRe
   res.json({ shiftId: shift.id, openingFloat: Number(shift.openingFloat), expectedCash, summary });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/shifts/:shiftId/close", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!SHIFT_ROLES.has(access.role)) return res.status(403).json({ error: "Your role does not run a cash shift" });
   const parsed = closeShiftSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid close request" });
-  // Staff may only close their OWN shift. Managers close others through Finance.
-  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: access.property.id, userId: req.user!.id, status: "OPEN" } });
-  if (!shift) return res.status(404).json({ error: "You have no open shift to close" });
-  // No manual count: every sale was recorded in the system by this attendee, so
-  // the system figure IS the drawer figure. Closing seals it under their name
-  // together with the classified snapshot they just reviewed, and the next
-  // attendee's takeover confirmation acknowledges receipt of it. One timestamp
-  // for both computations so the drawer figure and the snapshot cannot disagree.
-  const until = new Date();
-  const [expected, summary] = await Promise.all([expectedCashForShift(db, shift, until), shiftHandoverSummary(db, shift, until)]);
-  // Leaving with unsettled orders is allowed (the next attendee serves them),
-  // but never silently: the outgoing attendee must say what is outstanding.
-  if (summary.unpaid.count > 0 && !parsed.data.closeNote) {
-    return res.status(400).json({ error: `${summary.unpaid.count} order${summary.unpaid.count === 1 ? " is" : "s are"} not settled. Note what is outstanding before closing.` });
+  try {
+    const result = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, access.property.id);
+      // Staff may only close their OWN shift. Managers close others through Finance.
+      const shift = await tx.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: access.property.id, userId: req.user!.id, status: "OPEN" } });
+      if (!shift) throw new Error("SHIFT_NOT_FOUND");
+      await assertNrmsBusinessDayWritable(tx, access.property.id, new Date(shift.businessDate));
+      // Freeze the expected drawer and review under the same lock used by Night
+      // Audit, so sales cannot slip between the control check and shift close.
+      const until = new Date();
+      const [expected, summary] = await Promise.all([expectedCashForShift(tx, shift, until), shiftHandoverSummary(tx, shift, until)]);
+      const variance = shiftMoney(parsed.data.declaredCash - expected);
+      if (variance !== 0 && !parsed.data.closeNote) throw new Error("SHIFT_VARIANCE_NOTE_REQUIRED");
+      if (summary.unpaid.count > 0 && !parsed.data.closeNote) throw new Error("SHIFT_OUTSTANDING_NOTE_REQUIRED");
+      const closed = await tx.nrmsCashierShift.update({
+        where: { id: shift.id },
+        data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until },
+      });
+      return { closed, expected, variance };
+    }, ORDER_TX_OPTIONS);
+    res.json({ shift: { id: result.closed.id, expectedCash: result.expected, declaredCash: parsed.data.declaredCash, variance: result.variance, availableForHandover: true } });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "SHIFT_NOT_FOUND") return res.status(404).json({ error: "You have no open shift to close" });
+    if (code === "SHIFT_VARIANCE_NOTE_REQUIRED") return res.status(400).json({ error: "Explain the cash overage or shortage before closing." });
+    if (code === "SHIFT_OUTSTANDING_NOTE_REQUIRED") return res.status(400).json({ error: "Unsettled orders remain. Note what is outstanding before closing." });
+    if (code === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "Night Audit is closing or has closed this business date. Refresh the shift before trying again.", code });
+    throw error;
   }
-  const closed = await db.nrmsCashierShift.update({
-    where: { id: shift.id },
-    data: { status: "CLOSED", expectedCash: expected, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until },
-  });
-  res.json({ shift: { id: closed.id, expectedCash: expected, availableForHandover: true } });
 }) as RequestHandler);
 
 // Standalone shift state for the "Shift & cash" workspace: the same open shift,
@@ -756,9 +776,9 @@ router.get("/property/:propertyId/shift", (async (req: AuthedRequest, res: Respo
   const [pendingHandover, history] = await Promise.all([
     !shift && SHIFT_ROLES.has(access.role)
       ? db.nrmsCashierShift.findFirst({
-          where: { propertyId, status: "CLOSED", handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
+          where: { propertyId, status: "CLOSED", declaredCash: { not: null }, handoverTo: null, closedAt: { gte: new Date(Date.now() - 12 * 3600 * 1000) } },
           orderBy: { closedAt: "desc" },
-          select: { id: true, expectedCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
+          select: { id: true, expectedCash: true, declaredCash: true, closedAt: true, currency: true, user: { select: { fullName: true, name: true, email: true } } },
         })
       : null,
     // The attendee's own recent closed shifts, with who they took the drawer
@@ -768,7 +788,7 @@ router.get("/property/:propertyId/shift", (async (req: AuthedRequest, res: Respo
       orderBy: { closedAt: "desc" },
       take: 10,
       select: {
-        id: true, openedAt: true, closedAt: true, expectedCash: true, currency: true, closeNote: true,
+        id: true, openedAt: true, closedAt: true, expectedCash: true, declaredCash: true, variance: true, currency: true, closeNote: true,
         handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } },
         handoverTo: { select: { user: { select: { fullName: true, name: true, email: true } } } },
       },
@@ -781,10 +801,10 @@ router.get("/property/:propertyId/shift", (async (req: AuthedRequest, res: Respo
       ? { id: shift.id, openedAt: shift.openedAt, openingFloat: Number(shift.openingFloat), expectedCash: liveExpected, currency: shift.currency, takenOverFrom: shift.handoverFrom ? attendeeName(shift.handoverFrom.user) : null }
       : null,
     handover: pendingHandover
-      ? { shiftId: pendingHandover.id, attendeeName: attendeeName(pendingHandover.user), amount: Number(pendingHandover.expectedCash), closedAt: pendingHandover.closedAt, currency: pendingHandover.currency }
+      ? { shiftId: pendingHandover.id, attendeeName: attendeeName(pendingHandover.user), amount: Number(pendingHandover.declaredCash), closedAt: pendingHandover.closedAt, currency: pendingHandover.currency }
       : null,
     history: history.map((row: any) => ({
-      id: row.id, openedAt: row.openedAt, closedAt: row.closedAt, expectedCash: Number(row.expectedCash), currency: row.currency, closeNote: row.closeNote,
+      id: row.id, openedAt: row.openedAt, closedAt: row.closedAt, expectedCash: Number(row.expectedCash), declaredCash: row.declaredCash == null ? null : Number(row.declaredCash), variance: row.variance == null ? null : Number(row.variance), currency: row.currency, closeNote: row.closeNote,
       takenOverFrom: row.handoverFrom ? attendeeName(row.handoverFrom.user) : null,
       handedTo: row.handoverTo ? attendeeName(row.handoverTo.user) : null,
     })),
@@ -802,7 +822,7 @@ router.get("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Res
   res.json({ outlets });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/outlets", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or NRMS manager can create outlets" });
@@ -824,7 +844,7 @@ router.post("/property/:propertyId/outlets", (async (req: AuthedRequest, res: Re
   res.status(201).json({ outlet });
 }) as RequestHandler);
 
-router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Response) => {
+router.post("/outlets/:outletId/menu-items", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const resolved = await accessForOutlet(req, res, Number(req.params.outletId));
   if (!resolved) return;
   if (!roleCanManage(resolved.access) && resolved.access.role !== "OUTLET_SUPERVISOR") {
@@ -859,7 +879,7 @@ router.post("/outlets/:outletId/menu-items", (async (req: AuthedRequest, res: Re
  * Edit guest-facing menu content, price, daily stock state, or retire the
  * item (status INACTIVE keeps history; retired items leave every menu).
  */
-router.patch("/menu-items/:menuItemId", (async (req: AuthedRequest, res: Response) => {
+router.patch("/menu-items/:menuItemId", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const menuItemId = Number(req.params.menuItemId);
   if (!Number.isInteger(menuItemId) || menuItemId <= 0) return res.status(400).json({ error: "Invalid menu item id" });
   const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true, inStock: true, stockQuantity: true } });
@@ -932,7 +952,7 @@ router.get("/property/:propertyId/stock", (async (req: AuthedRequest, res: Respo
  * mid-service. Quantity rules live in deriveStockPatch: a count decides
  * availability outright and a tracked item at zero cannot be toggled back on.
  */
-router.patch("/menu-items/:menuItemId/stock", (async (req: AuthedRequest, res: Response) => {
+router.patch("/menu-items/:menuItemId/stock", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const menuItemId = Number(req.params.menuItemId);
   if (!Number.isInteger(menuItemId) || menuItemId <= 0) return res.status(400).json({ error: "Invalid menu item id" });
   const item = await db.nrmsMenuItem.findUnique({ where: { id: menuItemId }, select: { id: true, outletId: true, inStock: true, stockQuantity: true } });
@@ -960,7 +980,7 @@ router.patch("/menu-items/:menuItemId/stock", (async (req: AuthedRequest, res: R
 }) as RequestHandler);
 
 /** PATCH /outlets/:outletId/category-order - browse order for menu categories */
-router.patch("/outlets/:outletId/category-order", (async (req: AuthedRequest, res: Response) => {
+router.patch("/outlets/:outletId/category-order", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const resolved = await accessForOutlet(req, res, Number(req.params.outletId));
   if (!resolved) return;
   if (!roleCanManage(resolved.access) && resolved.access.role !== "OUTLET_SUPERVISOR") {
@@ -974,7 +994,7 @@ router.patch("/outlets/:outletId/category-order", (async (req: AuthedRequest, re
 }) as RequestHandler);
 
 /** PATCH /outlets/:outletId/qr-settings - guest QR ordering behaviour */
-router.patch("/outlets/:outletId/qr-settings", (async (req: AuthedRequest, res: Response) => {
+router.patch("/outlets/:outletId/qr-settings", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const resolved = await accessForOutlet(req, res, Number(req.params.outletId));
   if (!resolved) return;
   if (!roleCanManage(resolved.access)) {
@@ -986,33 +1006,139 @@ router.patch("/outlets/:outletId/qr-settings", (async (req: AuthedRequest, res: 
   res.json({ outlet: { id: outlet.id, autoAcceptQrOrders: outlet.autoAcceptQrOrders } });
 }) as RequestHandler);
 
+/** A pending assignment older than the invite TTL is no longer actionable: the
+ *  emailed link has expired and only a resend will work. The row itself has no
+ *  expiry column, so this is derived from `updatedAt`, which is the moment the
+ *  invitation was created or last rotated. */
+const NRMS_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** No sign-in and no sale for this long is worth an administrator's attention.
+ *  It is a prompt to look, never an automatic revocation. */
+const NRMS_DORMANT_AFTER_MS = 90 * 24 * 60 * 60 * 1000;
+
 router.get("/property/:propertyId/staff", (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
-  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or NRMS manager can view staff" });
+  if (!accessCan(access, "staff.directory.read")) return res.status(403).json({ error: "Your role cannot view the staff directory", code: "NRMS_CAPABILITY_DENIED" });
   const staff = await db.nrmsStaffMembership.findMany({
     where: { propertyId: access.property.id },
     include: { user: { select: { id: true, fullName: true, name: true, email: true, phone: true } }, outlet: { select: { id: true, name: true, type: true } } },
     orderBy: [{ status: "asc" }, { role: "asc" }, { id: "desc" }],
   });
-  res.json({ staff });
+
+  // ── Activity, for the dormancy signal ────────────────────────────────────
+  // Two sources, because neither alone is enough: an outlet attendant proves
+  // themselves by ringing up sales at THIS property, while a front desk user
+  // may leave no order at all, so a platform sign-in still counts as alive.
+  const userIds = staff.map((membership: any) => membership.userId);
+  const lastActivity = new Map<number, Date>();
+  if (userIds.length > 0) {
+    const noteActivity = (userId: number, when: any) => {
+      if (!when) return;
+      const value = new Date(when);
+      if (!Number.isFinite(value.getTime())) return;
+      const existing = lastActivity.get(userId);
+      if (!existing || value > existing) lastActivity.set(userId, value);
+    };
+    try {
+      const [orders, sessions] = await Promise.all([
+        db.nrmsOutletOrder.groupBy({
+          by: ["createdById"],
+          where: { propertyId: access.property.id, createdById: { in: userIds } },
+          _max: { createdAt: true },
+        }),
+        db.session.groupBy({
+          by: ["userId"],
+          where: { userId: { in: userIds } },
+          _max: { lastSeenAt: true },
+        }),
+      ]);
+      for (const row of orders as any[]) noteActivity(Number(row.createdById), row._max?.createdAt);
+      for (const row of sessions as any[]) noteActivity(Number(row.userId), row._max?.lastSeenAt);
+    } catch (cause: any) {
+      // Activity is advisory. Losing it must not cost the owner the roster.
+      console.warn("Failed to compute NRMS staff activity:", cause?.message);
+    }
+  }
+
+  const now = Date.now();
+  const decorated = staff.map((membership: any) => {
+    const rotatedAt = membership.updatedAt ? new Date(membership.updatedAt) : null;
+    const invitationExpiresAt = membership.status === "PENDING" && rotatedAt
+      ? new Date(rotatedAt.getTime() + NRMS_INVITE_TTL_MS)
+      : null;
+    const lastActiveAt = lastActivity.get(membership.userId) ?? null;
+    return {
+      ...membership,
+      invitationExpiresAt: invitationExpiresAt ? invitationExpiresAt.toISOString() : null,
+      // "Pending" and "the link in their inbox is dead" are different states,
+      // and only one of them is waiting on the staff member.
+      invitationExpired: Boolean(invitationExpiresAt && invitationExpiresAt.getTime() < now),
+      lastActiveAt: lastActiveAt ? lastActiveAt.toISOString() : null,
+      dormant: membership.status === "ACTIVE"
+        && (!lastActiveAt || now - lastActiveAt.getTime() > NRMS_DORMANT_AFTER_MS),
+    };
+  });
+
+  // ── Access review ────────────────────────────────────────────────────────
+  // A prompt to look at the roster, assembled from what is already known. It
+  // records no attestation: "someone confirmed this list on a date" needs a
+  // column that does not exist yet.
+  const review = {
+    active: decorated.filter((m: any) => m.status === "ACTIVE").length,
+    pending: decorated.filter((m: any) => m.status === "PENDING" && !m.invitationExpired).length,
+    expiredInvites: decorated.filter((m: any) => m.invitationExpired).length,
+    dormant: decorated.filter((m: any) => m.dormant).length,
+    dormantAfterDays: Math.round(NRMS_DORMANT_AFTER_MS / 86_400_000),
+    inviteValidDays: Math.round(NRMS_INVITE_TTL_MS / 86_400_000),
+  };
+
+  res.json({ staff: decorated, review });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/staff", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
-  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or NRMS manager can assign staff" });
   const parsed = staffSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid staff assignment", details: parsed.error.flatten() });
+  const assignmentCapability: NrmsCapability = parsed.data.role === "MANAGER" ? "staff.manager.assign" : "staff.lower_role.assign";
+  if (!accessCan(access, assignmentCapability)) {
+    return res.status(403).json({
+      error: parsed.data.role === "MANAGER" ? "Only the property owner can appoint a manager" : "Your role cannot assign staff",
+      code: "NRMS_CAPABILITY_DENIED",
+    });
+  }
+  const outletScopedRole = nrmsRoleRequiresOutlet(parsed.data.role);
+  if (outletScopedRole && !parsed.data.outletId) {
+    return res.status(400).json({ error: "Choose the outlet this role may access", code: "NRMS_OUTLET_SCOPE_REQUIRED" });
+  }
+  if (!outletScopedRole && parsed.data.outletId) {
+    return res.status(400).json({ error: "This role is property-scoped and cannot be assigned an outlet", code: "NRMS_OUTLET_SCOPE_NOT_ALLOWED" });
+  }
   const user = await db.user.findUnique({ where: { email: parsed.data.email.toLowerCase() }, select: { id: true, email: true, fullName: true, name: true, suspendedAt: true, isDisabled: true } });
   if (!user) return res.status(404).json({ error: "No NoLSAF account uses this email. Ask the staff member to register first.", code: "STAFF_ACCOUNT_NOT_FOUND" });
   if (user.suspendedAt || user.isDisabled) return res.status(400).json({ error: "This account is suspended or disabled and cannot be assigned staff access.", code: "STAFF_ACCOUNT_BLOCKED" });
   if (parsed.data.outletId) {
-    const outlet = await db.nrmsOutlet.findFirst({ where: { id: parsed.data.outletId, propertyId: access.property.id } });
+    const outlet = await db.nrmsOutlet.findFirst({ where: { id: parsed.data.outletId, propertyId: access.property.id }, select: { id: true, type: true } });
     if (!outlet) return res.status(400).json({ error: "Selected outlet does not belong to this property" });
+    if (parsed.data.role === "RESTAURANT" && outlet.type !== "RESTAURANT") {
+      return res.status(400).json({ error: "Restaurant staff must be assigned to a restaurant outlet", code: "NRMS_OUTLET_TYPE_MISMATCH" });
+    }
+    if (parsed.data.role === "BAR" && outlet.type !== "BAR") {
+      return res.status(400).json({ error: "Bar staff must be assigned to a bar outlet", code: "NRMS_OUTLET_TYPE_MISMATCH" });
+    }
   }
   const membershipKey = { propertyId: access.property.id, userId: user.id };
   const existing = await db.nrmsStaffMembership.findUnique({ where: { propertyId_userId: membershipKey } });
+
+  // Appointing a manager is owner-only, and so is taking that role away again:
+  // without this a manager could demote a peer by re-assigning them a lower
+  // role, which is the same privilege change the revoke route already guards.
+  if (existing && existing.role === "MANAGER" && !accessCan(access, "staff.manager.revoke")) {
+    return res.status(403).json({
+      error: "Only the property owner can change a manager's assignment",
+      code: "NRMS_CAPABILITY_DENIED",
+    });
+  }
 
   if (!existing || existing.status === "DISABLED") {
     const staffQuota = await checkNrmsQuota(db, access.property.id, "staff");
@@ -1030,8 +1156,17 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
   if (!needsConfirmation && existing) {
     membership = existing;
   } else if (existing) {
-    membership = await db.nrmsStaffMembership.update({
-      where: { id: existing.id },
+    // Compare and swap on the row we authorized against. A concurrent promotion
+    // to MANAGER between the read above and this write would otherwise be
+    // overwritten by a manager who was never allowed to touch that role.
+    const guarded = await db.nrmsStaffMembership.updateMany({
+      where: {
+        id: existing.id,
+        role: existing.role,
+        outletId: existing.outletId,
+        status: existing.status,
+        inviteVersion: existing.inviteVersion,
+      },
       data: {
         role: parsed.data.role,
         outletId: requestedOutletId,
@@ -1040,6 +1175,14 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
         inviteVersion: { increment: 1 },
       },
     });
+    if (guarded.count === 0) {
+      return res.status(409).json({
+        error: "This staff assignment changed while you were editing it. Reload the staff list and try again.",
+        code: "NRMS_STAFF_ASSIGNMENT_CONFLICT",
+      });
+    }
+    membership = await db.nrmsStaffMembership.findUnique({ where: { id: existing.id } });
+    if (!membership) return res.status(404).json({ error: "Staff assignment not found" });
   } else {
     membership = await db.nrmsStaffMembership.create({
       data: {
@@ -1050,6 +1193,24 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
         inviteVersion: 1,
       },
     });
+  }
+
+  if (needsConfirmation) {
+    try {
+      await db.auditLog.create({
+        data: {
+          actorId: req.user!.id,
+          actorRole: access.role,
+          action: existing ? "NRMS_STAFF_ASSIGNMENT_CHANGE" : "NRMS_STAFF_ASSIGN",
+          entity: "NRMS_STAFF_MEMBERSHIP",
+          entityId: membership.id,
+          beforeJson: existing ? { role: existing.role, outletId: existing.outletId, status: existing.status } : null,
+          afterJson: { propertyId: access.property.id, userId: user.id, role: membership.role, outletId: membership.outletId, status: membership.status },
+        },
+      });
+    } catch (cause) {
+      console.error("[NRMS] staff assignment audit log failed", cause);
+    }
   }
 
   let emailSent = false;
@@ -1085,10 +1246,9 @@ router.post("/property/:propertyId/staff", (async (req: AuthedRequest, res: Resp
 // outstanding invite link for it is rejected by the confirm endpoint.
   // Re-assigning the same email later re-invites through PENDING with a new
   // invitation version, so every older link stays invalid.
-router.delete("/property/:propertyId/staff/:membershipId", (async (req: AuthedRequest, res: Response) => {
+router.delete("/property/:propertyId/staff/:membershipId", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
-  if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or NRMS manager can revoke staff access" });
   const membershipId = Number(req.params.membershipId);
   if (!Number.isInteger(membershipId) || membershipId <= 0) return res.status(400).json({ error: "Invalid staff assignment id" });
   const parsedReason = reasonSchema.safeParse(req.body ?? {});
@@ -1096,11 +1256,27 @@ router.delete("/property/:propertyId/staff/:membershipId", (async (req: AuthedRe
   const reason = sanitizeText(parsedReason.data.reason);
   const membership = await db.nrmsStaffMembership.findFirst({ where: { id: membershipId, propertyId: access.property.id } });
   if (!membership) return res.status(404).json({ error: "Staff assignment not found" });
+  const revocationCapability: NrmsCapability = membership.role === "MANAGER" ? "staff.manager.revoke" : "staff.lower_role.revoke";
+  if (!accessCan(access, revocationCapability)) {
+    return res.status(403).json({
+      error: membership.role === "MANAGER" ? "Only the property owner can revoke a manager" : "Your role cannot revoke staff access",
+      code: "NRMS_CAPABILITY_DENIED",
+    });
+  }
   if (membership.status === "DISABLED") return res.json({ membership });
-  const updated = await db.nrmsStaffMembership.update({
-    where: { id: membership.id },
+  // Same compare and swap as the assignment route: the capability above was
+  // decided from this row's role, so the write must not land on a different one.
+  const guarded = await db.nrmsStaffMembership.updateMany({
+    where: { id: membership.id, role: membership.role, status: membership.status, inviteVersion: membership.inviteVersion },
     data: { status: "DISABLED", inviteVersion: { increment: 1 } },
   });
+  if (guarded.count === 0) {
+    return res.status(409).json({
+      error: "This staff assignment changed while you were editing it. Reload the staff list and try again.",
+      code: "NRMS_STAFF_ASSIGNMENT_CONFLICT",
+    });
+  }
+  const updated = await db.nrmsStaffMembership.findUnique({ where: { id: membership.id } });
   try {
     await db.auditLog.create({
       data: {
@@ -1121,7 +1297,7 @@ router.delete("/property/:propertyId/staff/:membershipId", (async (req: AuthedRe
 
 // Staff member confirms the emailed assignment invitation. Requires the invited
 // user to be signed in; activates the PENDING membership.
-router.post("/staff/confirm", (async (req: AuthedRequest, res: Response) => {
+router.post("/staff/confirm", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const token = String(req.body?.token ?? "");
   const payload = verifyNrmsStaffInviteToken(token);
   if (!payload) return res.status(400).json({ error: "This invitation link is invalid or has expired. Ask the property manager to assign you again.", code: "NRMS_INVITE_INVALID" });
@@ -1209,9 +1385,15 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
   const validFromDate = fromDate && Number.isFinite(fromDate.getTime()) ? fromDate : null;
   // A page asks for only its world so room and table boards never overlap.
   const scope = req.query.scope === "room" ? ROOM_ORDER_FILTER : req.query.scope === "table" ? TABLE_ORDER_FILTER : {};
+  // "Only mine": narrows to orders this user rang up. Deliberately a filter and
+  // not a restriction. Outlet history is shared on purpose so a replacement
+  // attendant inherits the full picture at handover; this only lets someone ask
+  // what THEY sold, for their own shift reconciliation.
+  const mineOnly = req.query.mine === "1" || req.query.mine === "true";
   const where: any = {
     propertyId: access.property.id,
     ...(outletId ? { outletId } : {}),
+    ...(mineOnly ? { createdById: req.user!.id } : {}),
     ...(status ? { status } : {}),
     ...(access.role === "RESTAURANT" && !outletId ? { outlet: { type: "RESTAURANT" } } : {}),
     ...(access.role === "BAR" && !outletId ? { outlet: { type: "BAR" } } : {}),
@@ -1236,7 +1418,7 @@ router.get("/property/:propertyId/orders", (async (req: AuthedRequest, res: Resp
     take: limit,
     skip: offset,
   })]);
-  res.json({ total, limit, offset, orders: orders.filter((order: any) => outletAllowed(access, order.outlet)).map(formatOrder) });
+  res.json({ total, limit, offset, mine: mineOnly, orders: orders.filter((order: any) => outletAllowed(access, order.outlet)).map(formatOrder) });
 }) as RequestHandler);
 
 // Cheap counts for the sidebar badge: how many orders are still open, and how
@@ -1268,7 +1450,7 @@ router.get("/property/:propertyId/orders/live-count", (async (req: AuthedRequest
   res.json({ openRoom, openTable, placedRoom, placedTable, byOutlet });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/orders", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   const parsed = orderSchema.safeParse(req.body);
@@ -1338,7 +1520,7 @@ router.post("/property/:propertyId/orders", (async (req: AuthedRequest, res: Res
   }
 }) as RequestHandler);
 
-router.post("/orders/:orderId/advance", (async (req: AuthedRequest, res: Response) => {
+router.post("/orders/:orderId/advance", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const parsed = advanceSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Select a supported payment method" });
   const orderId = Number(req.params.orderId);
@@ -1371,7 +1553,7 @@ router.post("/orders/:orderId/advance", (async (req: AuthedRequest, res: Respons
   res.json({ order: formatOrder(order) });
 }) as RequestHandler);
 
-router.post("/orders/:orderId/tip", (async (req: AuthedRequest, res: Response) => {
+router.post("/orders/:orderId/tip", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const parsed = tipRecordSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Check the received amount and tip details", details: parsed.error.flatten() });
   const orderId = Number(req.params.orderId);
@@ -1439,7 +1621,7 @@ router.post("/orders/:orderId/tip", (async (req: AuthedRequest, res: Response) =
   }
 }) as RequestHandler);
 
-router.post("/orders/:orderId/cancel", (async (req: AuthedRequest, res: Response) => {
+router.post("/orders/:orderId/cancel", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const parsed = reasonSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A cancellation reason is required" });
   const order = await db.nrmsOutletOrder.findUnique({ where: { id: Number(req.params.orderId) }, include: { outlet: true, items: true } });
@@ -1468,7 +1650,7 @@ router.post("/orders/:orderId/cancel", (async (req: AuthedRequest, res: Response
   res.json({ ok: true });
 }) as RequestHandler);
 
-router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) => {
+router.post("/orders/:orderId/void", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const parsed = reasonSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A void reason is required" });
   const seed = await db.nrmsOutletOrder.findUnique({ where: { id: Number(req.params.orderId) }, include: { outlet: true } });
@@ -1488,13 +1670,13 @@ router.post("/orders/:orderId/void", (async (req: AuthedRequest, res: Response) 
         await voidRoutedCharge(tx, order.folioChargeId, sanitizeText(parsed.data.reason));
         const aggregate = await tx.reservationCharge.aggregate({ where: { reservationId: order.reservationId, voidedAt: null }, _sum: { amount: true } });
         await tx.reservation.update({ where: { id: order.reservationId }, data: { chargesTotal: aggregate._sum.amount ?? 0 } });
-        await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });
+        await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidedById: req.user!.id, voidReason: sanitizeText(parsed.data.reason) } });
         await tx.reservationEvent.create({ data: { reservationId: order.reservationId, type: "CHARGE_VOIDED", actorId: req.user!.id, data: { chargeId: order.folioChargeId, orderId: order.id, reason: sanitizeText(parsed.data.reason) } } });
       } else if (order.status === "SETTLED" && order.settlementMode === "OUTLET_PAYMENT") {
         // No folio charge involved: the sale was paid directly at the outlet. Voiding
         // only flips status/voidedAt here; the reversing ledger entry is generated by
         // buildPostings() off these same fields the next time a business date closes.
-        await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidReason: sanitizeText(parsed.data.reason) } });
+        await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "VOIDED", voidedAt: now, voidedById: req.user!.id, voidReason: sanitizeText(parsed.data.reason) } });
       } else {
         throw new Error("NRMS_ORDER_NOT_VOIDABLE");
       }
@@ -1562,11 +1744,11 @@ const hkTaskInclude = {
   completedBy: { select: { id: true, fullName: true, name: true, email: true } },
 };
 
-/** Confirms the assignee actually works housekeeping at this property. */
+/** Confirms the assignee has an active, confirmed operational role that covers housekeeping. */
 async function validHousekeepingAssignee(propertyId: number, ownerId: number, userId: number): Promise<boolean> {
   if (userId === ownerId) return true;
   const membership = await db.nrmsStaffMembership.findFirst({
-    where: { propertyId, userId, status: "ACTIVE", role: { in: ["HOUSEKEEPER", "MANAGER", "FRONT_DESK"] } },
+    where: { propertyId, userId, status: "ACTIVE", confirmedAt: { not: null }, role: { in: ["MANAGER", "FRONT_DESK"] } },
     select: { id: true },
   });
   return Boolean(membership);
@@ -1588,7 +1770,7 @@ router.get("/property/:propertyId/housekeeping", (async (req: AuthedRequest, res
       orderBy: [{ floor: "asc" }, { code: "asc" }],
     }),
     db.reservationRoomAllocation.findMany({
-      where: { status: "ACTIVE", roomUnitId: { not: null }, reservation: { propertyId: access.property.id, status: "CHECKED_IN" } },
+      where: { status: "ACTIVE", roomUnitId: { not: null }, reservation: activeStayReservationWhere({ propertyId: access.property.id }) },
       select: { roomUnitId: true, reservation: { select: { id: true, checkIn: true, checkOut: true, guestProfile: { select: { fullName: true } } } } },
     }),
     db.reservationRoomAllocation.findMany({
@@ -1606,7 +1788,7 @@ router.get("/property/:propertyId/housekeeping", (async (req: AuthedRequest, res
       take: 20,
     }),
     db.nrmsStaffMembership.findMany({
-      where: { propertyId: access.property.id, status: "ACTIVE", role: "HOUSEKEEPER" },
+      where: { propertyId: access.property.id, status: "ACTIVE", confirmedAt: { not: null }, role: { in: ["MANAGER", "FRONT_DESK"] } },
       include: { user: { select: { id: true, fullName: true, name: true, email: true } } },
       orderBy: { id: "asc" },
     }),
@@ -1652,7 +1834,7 @@ router.get("/property/:propertyId/housekeeping", (async (req: AuthedRequest, res
   });
 }) as RequestHandler);
 
-router.put("/property/:propertyId/housekeeping/settings", (async (req: AuthedRequest, res: Response) => {
+router.put("/property/:propertyId/housekeeping/settings", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManageHousekeeping(access.role)) return res.status(403).json({ error: "Only the front desk or a manager can configure housekeeping" });
@@ -1677,7 +1859,7 @@ router.put("/property/:propertyId/housekeeping/settings", (async (req: AuthedReq
   });
 }) as RequestHandler);
 
-router.post("/rooms/:roomUnitId/housekeeping-status", (async (req: AuthedRequest, res: Response) => {
+router.post("/rooms/:roomUnitId/housekeeping-status", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const roomUnitId = Number(req.params.roomUnitId);
   if (!Number.isInteger(roomUnitId) || roomUnitId <= 0) return res.status(400).json({ error: "Invalid room id" });
   const unit = await db.roomUnit.findUnique({ where: { id: roomUnitId }, select: { id: true, propertyId: true, code: true } });
@@ -1699,7 +1881,7 @@ router.post("/rooms/:roomUnitId/housekeeping-status", (async (req: AuthedRequest
   res.json({ room: updated });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/housekeeping/tasks", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/housekeeping/tasks", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManageHousekeeping(access.role)) return res.status(403).json({ error: "Only the front desk or a manager can create housekeeping tasks" });
@@ -1726,7 +1908,7 @@ router.post("/property/:propertyId/housekeeping/tasks", (async (req: AuthedReque
   res.status(201).json({ task: formatHkTask(task) });
 }) as RequestHandler);
 
-router.post("/housekeeping/tasks/:taskId/advance", (async (req: AuthedRequest, res: Response) => {
+router.post("/housekeeping/tasks/:taskId/advance", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const taskId = Number(req.params.taskId);
   if (!Number.isInteger(taskId) || taskId <= 0) return res.status(400).json({ error: "Invalid task id" });
   const parsed = hkAdvanceSchema.safeParse(req.body ?? {});
@@ -1768,7 +1950,7 @@ router.post("/housekeeping/tasks/:taskId/advance", (async (req: AuthedRequest, r
   res.json({ task: formatHkTask(task) });
 }) as RequestHandler);
 
-router.post("/housekeeping/tasks/:taskId/assign", (async (req: AuthedRequest, res: Response) => {
+router.post("/housekeeping/tasks/:taskId/assign", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const taskId = Number(req.params.taskId);
   if (!Number.isInteger(taskId) || taskId <= 0) return res.status(400).json({ error: "Invalid task id" });
   const parsed = hkAssignSchema.safeParse(req.body ?? {});
@@ -1796,6 +1978,10 @@ const orderPointSchema = z.object({
 });
 
 router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res: Response) => {
+  // This response supports live restaurant/bar service as well as the owner's
+  // configuration screen. Property membership and outlet scope are enforced
+  // by the shared loader; requiring property.settings.read here locked every
+  // confirmed restaurant/bar attendant out of their assigned workspace.
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   const [points, propertyRow] = await Promise.all([
@@ -1811,8 +1997,9 @@ router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res
             code: true,
             floor: true,
             status: true,
+            housekeepingStatus: true,
             allocations: {
-              where: { status: "ACTIVE", reservation: { status: "CHECKED_IN" } },
+              where: { status: "ACTIVE", reservation: activeStayReservationWhere() },
               select: {
                 reservation: {
                   select: {
@@ -1843,7 +2030,13 @@ router.get("/property/:propertyId/order-points", (async (req: AuthedRequest, res
       return {
         ...p,
         roomUnit: p.roomUnit
-          ? { id: p.roomUnit.id, code: p.roomUnit.code, floor: p.roomUnit.floor, status: p.roomUnit.status }
+          ? {
+              id: p.roomUnit.id,
+              code: p.roomUnit.code,
+              floor: p.roomUnit.floor,
+              status: p.roomUnit.status,
+              housekeepingStatus: p.roomUnit.housekeepingStatus,
+            }
           : null,
         currentStay: activeStay
           ? {
@@ -1876,7 +2069,7 @@ router.get("/property/:propertyId/menu-public", (async (req: AuthedRequest, res:
   });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/menu-public", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/menu-public", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can change the public menu" });
@@ -1914,7 +2107,7 @@ const guestPayInstructionsSchema = z.object({
     .max(6),
 });
 
-router.patch("/property/:propertyId/guest-pay-instructions", (async (req: AuthedRequest, res: Response) => {
+router.patch("/property/:propertyId/guest-pay-instructions", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can change payment instructions" });
@@ -1929,7 +2122,7 @@ router.patch("/property/:propertyId/guest-pay-instructions", (async (req: Authed
   res.json({ guestPayInstructions: instructions });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/order-points", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/order-points", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can create order points" });
@@ -1958,7 +2151,7 @@ router.post("/property/:propertyId/order-points", (async (req: AuthedRequest, re
   res.status(201).json({ orderPoint: { ...point, menuUrl: buildMenuUrl(point.token) } });
 }) as RequestHandler);
 
-router.post("/property/:propertyId/order-points/generate-rooms", (async (req: AuthedRequest, res: Response) => {
+router.post("/property/:propertyId/order-points/generate-rooms", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const access = await loadAccess(req, res, Number(req.params.propertyId));
   if (!access) return;
   if (!roleCanManage(access)) return res.status(403).json({ error: "Only an owner or manager can generate order points" });
@@ -1989,7 +2182,7 @@ router.post("/property/:propertyId/order-points/generate-rooms", (async (req: Au
   res.status(201).json({ created: toCreate.length });
 }) as RequestHandler);
 
-router.post("/order-points/:orderPointId/rotate", (async (req: AuthedRequest, res: Response) => {
+router.post("/order-points/:orderPointId/rotate", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const pointId = Number(req.params.orderPointId);
   if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
   const seed = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true } });
@@ -2012,7 +2205,7 @@ router.post("/order-points/:orderPointId/rotate", (async (req: AuthedRequest, re
   res.json({ orderPoint: { ...point, menuUrl: buildMenuUrl(point.token) } });
 }) as RequestHandler);
 
-router.post("/order-points/:orderPointId/deactivate", (async (req: AuthedRequest, res: Response) => {
+router.post("/order-points/:orderPointId/deactivate", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const pointId = Number(req.params.orderPointId);
   if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
   const seed = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true } });
@@ -2028,7 +2221,7 @@ router.post("/order-points/:orderPointId/deactivate", (async (req: AuthedRequest
   res.json({ orderPoint: { ...point, menuUrl: null } });
 }) as RequestHandler);
 
-router.delete("/order-points/:orderPointId", (async (req: AuthedRequest, res: Response) => {
+router.delete("/order-points/:orderPointId", blockImpersonated as RequestHandler, (async (req: AuthedRequest, res: Response) => {
   const pointId = Number(req.params.orderPointId);
   if (!Number.isInteger(pointId) || pointId <= 0) return res.status(400).json({ error: "Invalid order point id" });
   const seed = await db.nrmsOrderPoint.findUnique({ where: { id: pointId }, select: { id: true, propertyId: true } });

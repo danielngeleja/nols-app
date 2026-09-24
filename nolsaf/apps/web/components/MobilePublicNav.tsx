@@ -1,30 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useState, useCallback } from "react";
-import { Home, Building2, PlusSquare, User, Car, Calendar, Users, ClipboardList, Settings as SettingsIcon, LogOut, X } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import {
+  Building2,
+  Calendar,
+  Car,
+  ChevronRight,
+  ClipboardList,
+  Home,
+  LogOut,
+  PlusSquare,
+  Settings as SettingsIcon,
+  User,
+  Users,
+  X,
+} from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { clearAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession, type AccountSession } from "@/lib/accountSession";
 import { hidesPublicMobileNavigation } from "@/lib/publicMobileNavigation";
 
-type Slot = "home" | "stays" | "list" | "rides" | "account";
+type Slot = "home" | "stays" | "trips" | "rides" | "account";
+
+const BRAND_GRADIENT = "linear-gradient(135deg, #011a18 0%, #023a35 55%, #02665e 100%)";
+
+/** Everything under "Trips": the things a traveller has booked. */
+const TRIP_PATHS = ["/account/bookings", "/account/group-stays", "/account/tour-packages"];
 
 export default function MobilePublicNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState<AccountSession | null>(null);
-  const [pressed, setPressed] = useState<Slot | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  // This nav lives in the root layout and persists across client navigations,
-  // so the SSR'd shell and the hydrating client can disagree on usePathname().
-  // Defer the path-derived active highlight until after mount so the server and
-  // first client render are identical (no active tab), then light up post-hydration.
+  // This nav lives in the root layout and persists across client navigations, so the
+  // SSR'd shell and the hydrating client can disagree on usePathname(). Defer the
+  // path-derived highlight until after mount so both first renders are identical.
   const [mounted, setMounted] = useState(false);
-  const router = useRouter();
-
-  const press   = useCallback((s: Slot) => setPressed(s), []);
-  const release = useCallback(() => setPressed(null), []);
 
   useEffect(() => {
     let alive = true;
@@ -32,12 +45,8 @@ export default function MobilePublicNav() {
       try {
         const r = await fetchAccountSession();
         if (!alive) return;
-        if (r.ok) {
-          setAuthed(true);
-          setUser(r.data ?? null);
-        } else {
-          setAuthed(false);
-        }
+        setAuthed(r.ok);
+        setUser(r.ok ? r.data ?? null : null);
       } catch {
         if (alive) setAuthed(false);
       }
@@ -47,246 +56,215 @@ export default function MobilePublicNav() {
 
   useEffect(() => { setMounted(true); }, []);
 
-  const isHome       = mounted && pathname === "/public";
-  const isProperties = mounted && pathname.startsWith("/public/properties");
-  const isRides      = mounted && pathname.startsWith("/account/rides");
-  const isAccount    = mounted && pathname.startsWith("/account") && !isRides;
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // Dedicated portals and focused guest flows provide their own navigation.
   if (hidesPublicMobileNavigation(pathname)) return null;
 
-  /* Touch-spring helpers */
-  const touch = (s: Slot) => ({
-    onTouchStart:  () => press(s),
-    onTouchEnd:    release,
-    onTouchCancel: release,
-    onMouseDown:   () => press(s),
-    onMouseUp:     release,
-    onMouseLeave:  release,
-  });
+  const under = (prefix: string) => pathname === prefix || pathname.startsWith(prefix + "/");
+  const isTrips = mounted && TRIP_PATHS.some(under);
+  const isRides = mounted && under("/account/rides");
+  const active: Record<Slot, boolean> = {
+    home: mounted && pathname === "/public",
+    stays: mounted && pathname.startsWith("/public/properties"),
+    trips: isTrips,
+    rides: isRides,
+    account: mounted && under("/account") && !isTrips && !isRides,
+  };
 
-  const itemScale = (s: Slot): React.CSSProperties => ({
-    transform:  pressed === s ? "scale(0.88)" : "scale(1)",
-    transition: pressed === s
-      ? "transform 0.07s cubic-bezier(0.25,0.46,0.45,0.94)"
-      : "transform 0.36s cubic-bezier(0.34,1.56,0.64,1)",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "3px",
-  });
+  const signInHref = "/account/sign-in";
+  const displayName = user?.fullName || user?.name || user?.displayName || "";
+  const avatar = user?.profileImage || user?.avatarUrl || "";
+  const initials = displayName.trim().split(/\s+/).slice(0, 2).map((p) => p.charAt(0).toUpperCase()).join("");
 
-  const BRAND = "#02665e";
-  const iconColor = (active: boolean) => active ? BRAND : "rgba(2,102,94,0.45)";
-  const strokeW   = (active: boolean) => active ? 2.4 : 1.6;
-  const labelColor = (active: boolean) => active ? BRAND : "rgba(2,102,94,0.45)";
+  const tabClass = "relative flex h-full flex-1 select-none flex-col items-center justify-center gap-0.5 border-0 bg-transparent p-0 pt-1 no-underline outline-none";
 
-  const TabItem = ({
-    slot, label, icon, onClick, href,
-  }: {
-    slot: Slot;
-    label: string;
-    icon: React.ReactNode;
-    href?: string;
-    onClick?: () => void;
-  }) => {
-    const active =
-      slot === "home" ? isHome :
-      slot === "stays" ? isProperties :
-      slot === "rides" ? isRides :
-      slot === "account" ? isAccount : false;
-
-    const inner = (
-      <span style={itemScale(slot)}>
-        {/* Active dot indicator above icon */}
-        <span style={{
-          width: active ? "18px" : "0px",
-          height: "2.5px",
-          borderRadius: "999px",
-          background: BRAND,
-          opacity: active ? 1 : 0,
-          transition: "width 0.22s ease, opacity 0.22s ease",
-          marginBottom: "-1px",
-        }} />
-        <span style={{ lineHeight: 0 }}>{icon}</span>
-        <span style={{
-          fontSize: "10px",
-          fontWeight: active ? 700 : 500,
-          letterSpacing: "0.01em",
-          color: labelColor(active),
-          lineHeight: 1,
-          transition: "color 0.18s ease",
-        }}>
+  const TabBody = ({ slot, label, icon }: { slot: Slot; label: string; icon: React.ReactNode }) => {
+    const on = active[slot];
+    return (
+      <>
+        <span className={`flex h-6 items-center justify-center transition-colors ${on ? "text-[#02665e]" : "text-slate-400"}`}>
+          {icon}
+        </span>
+        <span className={`text-[10.5px] leading-none transition-colors ${on ? "font-semibold text-[#02665e]" : "font-medium text-slate-500"}`}>
           {label}
         </span>
-      </span>
-    );
-
-    const cls = "relative flex items-center justify-center flex-1 h-full select-none outline-none";
-
-    if (href) {
-      return (
-        <Link href={href} aria-label={label} style={{ textDecoration: "none" }} className={cls} {...touch(slot)}>
-          {inner}
-        </Link>
-      );
-    }
-    return (
-      <button type="button" aria-label={label} style={{ background: "none", border: "none", padding: 0 }} className={`${cls} cursor-pointer`} onClick={onClick} {...touch(slot)}>
-        {inner}
-      </button>
+        <span
+          aria-hidden
+          className={`h-1 w-1 rounded-full bg-[#02665e] transition-all duration-200 ${on ? "scale-100 opacity-100" : "scale-0 opacity-0"}`}
+        />
+      </>
     );
   };
 
+  const tab = (slot: Slot, label: string, href: string, icon: React.ReactNode) => (
+    <Link key={slot} href={href} aria-label={label} aria-current={active[slot] ? "page" : undefined} className={`${tabClass} active:scale-95 transition-transform`}>
+      <TabBody slot={slot} label={label} icon={icon} />
+    </Link>
+  );
+
+  const iconSize = "h-[19px] w-[19px]";
+
   return (
     <>
-    <nav
-      aria-label="Mobile navigation"
-      className="md:hidden fixed bottom-0 inset-x-0 z-50"
-      style={{
-        background: "rgba(255,255,255,0.97)",
-        backdropFilter: "blur(16px) saturate(1.6)",
-        WebkitBackdropFilter: "blur(16px) saturate(1.6)",
-        borderTop: "1px solid rgba(2,102,94,0.10)",
-        boxShadow: "0 -4px 24px rgba(0,0,0,0.07)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-      }}
-    >
-      {/* Teal shimmer along top edge */}
-      <div
-        aria-hidden
-        style={{
-          position: "absolute",
-          top: 0,
-          left: "10%",
-          right: "10%",
-          height: "1px",
-          background: "linear-gradient(90deg, transparent 0%, rgba(2,102,94,0.35) 40%, rgba(2,102,94,0.55) 50%, rgba(2,102,94,0.35) 60%, transparent 100%)",
-        }}
-      />
+      {/* In-flow spacer: phones have no footer, so the last content must clear the fixed bar. */}
+      <div aria-hidden className="md:hidden" style={{ height: "calc(72px + env(safe-area-inset-bottom, 0px))" }} />
 
-      <div className="flex w-full items-stretch h-[62px] max-w-lg mx-auto px-2">
-        {TabItem({ slot:"home",  label:"Home",   href:"/public",             icon:<Home        width={22} height={22} strokeWidth={strokeW(isHome)}       color={iconColor(isHome)}       /> })}
-        {TabItem({ slot:"stays", label:"Stays",  href:"/public/properties",  icon:<Building2   width={22} height={22} strokeWidth={strokeW(isProperties)} color={iconColor(isProperties)} /> })}
-        {TabItem({ slot:"list",  label:"List",   href:"/account/register?role=owner", icon:<PlusSquare  width={22} height={22} strokeWidth={strokeW(false)}       color={iconColor(false)}        /> })}
-        {TabItem({ slot:"rides", label:"Rides",  href:authed ? "/account/rides" : "/account/sign-in", icon:<Car width={22} height={22} strokeWidth={strokeW(isRides)} color={iconColor(isRides)} /> })}
-        {TabItem({
-          slot: "account",
-          label: authed ? "Account" : "Sign in",
-          onClick: () => authed ? setMenuOpen(true) : router.push("/account/sign-in"),
-          icon: authed && user?.profileImage ? (
-            <span className="relative block" style={{ lineHeight: 0 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={user.profileImage}
-                alt={user.name ?? "Account"}
-                width={24}
-                height={24}
-                className="rounded-full object-cover"
-                style={{
-                  width: "24px",
-                  height: "24px",
-                  outline: isAccount ? `2px solid ${BRAND}` : "1.5px solid rgba(0,0,0,0.12)",
-                  outlineOffset: "1px",
-                }}
+      <nav
+        aria-label="Mobile navigation"
+        className="fixed inset-x-0 bottom-0 z-50 border-0 border-t border-solid border-slate-200 bg-white shadow-[0_-4px_16px_rgba(15,23,42,0.05)] md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
+        <div className="mx-auto flex h-[60px] max-w-lg items-stretch">
+            {tab("home", "Home", "/public", <Home className={iconSize} strokeWidth={2} />)}
+            {tab("stays", "Stays", "/public/properties", <Building2 className={iconSize} strokeWidth={2} />)}
+            {tab("trips", "Trips", authed ? "/account/bookings" : signInHref, <Calendar className={iconSize} strokeWidth={2} />)}
+            {tab("rides", "Rides", authed ? "/account/rides" : signInHref, <Car className={iconSize} strokeWidth={2} />)}
+
+            <button
+              type="button"
+              aria-label={authed ? "Account menu" : "Sign in"}
+              aria-haspopup={authed ? "dialog" : undefined}
+              aria-expanded={authed ? menuOpen : undefined}
+              onClick={() => (authed ? setMenuOpen(true) : router.push(signInHref))}
+              className={`${tabClass} cursor-pointer transition-transform active:scale-95`}
+            >
+              <TabBody
+                slot="account"
+                label={authed ? "Account" : "Sign in"}
+                icon={
+                  authed && initials ? (
+                    <span
+                      className={`flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9.5px] font-bold ring-[1.5px] ${
+                        active.account ? "bg-[#02665e] text-white ring-[#02665e]" : "bg-slate-100 text-slate-600 ring-slate-300"
+                      }`}
+                    >
+                      {initials}
+                    </span>
+                  ) : (
+                    <User className={iconSize} strokeWidth={2} />
+                  )
+                }
               />
-              <span className="absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full bg-emerald-400 ring-[1.5px] ring-white" />
-            </span>
-          ) : (
-            <User width={22} height={22} strokeWidth={strokeW(isAccount)} color={iconColor(isAccount)} />
-          ),
-        })}
-      </div>
-    </nav>
-
-    {/* ── Mobile Account Sheet ── */}
-    {menuOpen && (
-      <>
-        {/* Backdrop */}
-        <div
-          className="fixed inset-0 z-[55] bg-black/50 backdrop-blur-sm"
-          onClick={() => setMenuOpen(false)}
-          aria-hidden
-        />
-        {/* Sheet */}
-        <div
-          className="fixed bottom-0 left-0 right-0 z-[60] rounded-t-3xl bg-white shadow-2xl"
-          style={{ paddingBottom: "env(safe-area-inset-bottom, 12px)" }}
-        >
-          {/* Drag handle */}
-          <div className="mx-auto mt-3 w-10 h-1 rounded-full bg-slate-200" />
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-slate-100">
-            <div>
-              {user?.name && (
-                <div className="font-bold text-slate-900 text-base leading-tight">{user.name}</div>
-              )}
-              <div className="text-xs text-slate-400 mt-0.5">Manage your account</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors"
-              aria-label="Close menu"
-            >
-              <X className="w-4 h-4 text-slate-600" />
             </button>
-          </div>
+        </div>
+      </nav>
 
-          {/* Menu items */}
-          <div className="px-3 py-2">
-            {([
-              { href: "/account",            label: "My account",    Icon: User          },
-              { href: "/account/bookings",    label: "My Bookings",   Icon: Calendar      },
-              { href: "/account/rides",       label: "My Rides",      Icon: Car           },
-              { href: "/account/group-stays", label: "My Group Stay", Icon: Users         },
-              { href: "/account/tour-packages", label: "My Tour Packages", Icon: ClipboardList },
-              { href: "/account/security",    label: "Settings",      Icon: SettingsIcon  },
-            ] as { href: string; label: string; Icon: React.ElementType }[]).map(({ href, label, Icon }) => {
-              const active = pathname === href || pathname.startsWith(href + "/");
-              return (
+      {/* ── Account sheet: same sectioned style as the header menu ── */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-[90] md:hidden" role="dialog" aria-modal="true" aria-label="Account menu">
+          <button type="button" aria-label="Close" onClick={() => setMenuOpen(false)} className="absolute inset-0 border-0 bg-black/50 backdrop-blur-[2px]" />
+          <div
+            className="absolute inset-x-0 bottom-0 max-h-[88dvh] overflow-y-auto rounded-t-3xl bg-[#f3faf8] shadow-[0_-20px_50px_rgba(0,0,0,0.35)]"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)" }}
+          >
+            <div className="sticky top-0 z-10 mb-4 border-0 border-b border-solid border-[#02665e]/10 bg-[#f3faf8] px-4 pb-3 pt-2.5">
+              <span className="mx-auto block h-1 w-10 rounded-full bg-slate-300" aria-hidden="true" />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  {avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={avatar} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover ring-2 ring-white" />
+                  ) : (
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[14px] font-bold text-white" style={{ background: BRAND_GRADIENT }}>
+                      {initials || <User className="h-5 w-5" />}
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="m-0 truncate text-[15px] font-bold text-slate-900">{displayName || "Your account"}</p>
+                    {user?.email && <p className="m-0 truncate text-[12px] text-slate-500">{user.email}</p>}
+                  </div>
+                </div>
                 <button
-                  key={href}
                   type="button"
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-colors hover:bg-slate-50 active:bg-slate-100"
-                  onClick={() => { setMenuOpen(false); router.push(href); }}
+                  onClick={() => setMenuOpen(false)}
+                  aria-label="Close"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-white text-slate-600 ring-1 ring-inset ring-slate-200"
                 >
-                  <span
-                    className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
-                    style={{ background: active ? "linear-gradient(135deg,#0a5c82,#02665e)" : "#f1f5f9" }}
-                  >
-                    <Icon className="w-4 h-4" style={{ color: active ? "#ffffff" : "#64748b" }} />
-                  </span>
-                  <span className={`text-sm font-medium ${active ? "text-teal-700" : "text-slate-700"}`}>
-                    {label}
-                  </span>
-                  {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-teal-500" />}
+                  <X className="h-[18px] w-[18px]" />
                 </button>
-              );
-            })}
-          </div>
+              </div>
+            </div>
 
-          {/* Sign out */}
-          <div className="px-3 pb-2 pt-1 border-t border-slate-100">
-            <button
-              type="button"
-              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left transition-colors hover:bg-red-50 active:bg-red-100"
-              onClick={async () => {
-                setMenuOpen(false);
-                await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-                clearAuthToken();
-                window.location.href = "/account/login";
-              }}
-            >
-              <span className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0 bg-red-50">
-                <LogOut className="w-4 h-4 text-red-500" />
-              </span>
-              <span className="text-sm font-medium text-red-500">Sign out</span>
-            </button>
+            <div className="space-y-5 px-4 pb-2">
+              {[
+                {
+                  title: "Your trips",
+                  items: [
+                    { href: "/account/bookings", label: "My stays", Icon: Calendar },
+                    { href: "/account/rides", label: "My rides", Icon: Car },
+                    { href: "/account/group-stays", label: "Group stays", Icon: Users },
+                    { href: "/account/tour-packages", label: "Tour packages", Icon: ClipboardList },
+                  ],
+                },
+                {
+                  title: "Account",
+                  items: [
+                    { href: "/account", label: "Profile", Icon: User },
+                    { href: "/account/security", label: "Security & settings", Icon: SettingsIcon },
+                  ],
+                },
+                {
+                  title: "Host with NoLSAF",
+                  items: [{ href: "/account/register?role=owner", label: "List your property", Icon: PlusSquare }],
+                },
+              ].map((section) => (
+                <section key={section.title}>
+                  <h2 className="m-0 mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{section.title}</h2>
+                  <ul className="m-0 list-none overflow-hidden rounded-2xl bg-white p-0 ring-1 ring-inset ring-[#02665e]/10">
+                    {section.items.map(({ href, label, Icon }, index) => {
+                      const here = pathname === href;
+                      return (
+                        <li key={href} className={index > 0 ? "border-0 border-t border-solid border-slate-100" : ""}>
+                          <button
+                            type="button"
+                            onClick={() => { setMenuOpen(false); router.push(href); }}
+                            aria-current={here ? "page" : undefined}
+                            className={`flex w-full items-center gap-3 border-0 px-4 py-3 text-left transition ${here ? "bg-[#02665e]/[0.06]" : "bg-transparent active:bg-slate-50"}`}
+                          >
+                            <span
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${here ? "text-white" : "bg-[#02665e]/[0.08] text-[#02665e]"}`}
+                              style={here ? { background: BRAND_GRADIENT } : undefined}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className={`flex-1 text-[14px] font-semibold ${here ? "text-[#02665e]" : "text-slate-800"}`}>{label}</span>
+                            <ChevronRight className="h-4 w-4 text-slate-300" aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+
+              <button
+                type="button"
+                onClick={async () => {
+                  setMenuOpen(false);
+                  await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+                  clearAuthToken();
+                  window.location.href = "/account/login";
+                }}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border-0 bg-white text-[14px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-100 active:bg-rose-50"
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
-      </>
-    )}
+      )}
     </>
   );
 }

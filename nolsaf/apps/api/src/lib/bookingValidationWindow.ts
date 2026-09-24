@@ -10,14 +10,22 @@ export type BookingValidationWindowStatus =
       reason: string;
     };
 
-function startOfDayLocal(date: Date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+const BOOKING_TIME_ZONE = "Africa/Dar_es_Salaam";
+
+function calendarDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BOOKING_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function formatLocalDate(date: Date) {
+function formatBookingDate(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: BOOKING_TIME_ZONE,
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -25,39 +33,43 @@ function formatLocalDate(date: Date) {
 }
 
 /**
- * Booking-code validation is only allowed within the calendar-date window:
- * check-in date <= today <= check-out date.
+ * Booking-code validation is only allowed within the East Africa calendar-date
+ * window: check-in date <= today <= check-out date.
  */
 export function getBookingValidationWindowStatus(
   checkIn: Date,
   checkOut: Date,
   now: Date = new Date()
 ): BookingValidationWindowStatus {
-  const checkInDay = startOfDayLocal(checkIn);
-  const checkOutDay = startOfDayLocal(checkOut);
-  const today = startOfDayLocal(now);
-
-  if (!Number.isFinite(checkInDay.getTime()) || !Number.isFinite(checkOutDay.getTime())) {
+  if (
+    !Number.isFinite(checkIn.getTime())
+    || !Number.isFinite(checkOut.getTime())
+    || !Number.isFinite(now.getTime())
+  ) {
     return { canValidate: false, status: "INVALID_DATES", reason: "Invalid booking dates." };
   }
 
-  if (checkOutDay.getTime() < checkInDay.getTime()) {
+  const checkInDay = calendarDateKey(checkIn);
+  const checkOutDay = calendarDateKey(checkOut);
+  const today = calendarDateKey(now);
+
+  if (checkOutDay < checkInDay) {
     return { canValidate: false, status: "INVALID_DATES", reason: "Invalid booking dates." };
   }
 
-  if (today.getTime() < checkInDay.getTime()) {
+  if (today < checkInDay) {
     return {
       canValidate: false,
       status: "BEFORE_CHECKIN",
-      reason: `Check-in is on ${formatLocalDate(checkInDay)}. You can validate this booking code on the check-in date.`,
+      reason: `Check-in is on ${formatBookingDate(checkIn)}. You can validate this booking code on the check-in date (East Africa Time).`,
     };
   }
 
-  if (today.getTime() > checkOutDay.getTime()) {
+  if (today > checkOutDay) {
     return {
       canValidate: false,
       status: "AFTER_CHECKOUT",
-      reason: `Check-out was on ${formatLocalDate(checkOutDay)}. This booking code can no longer be validated after check-out.`,
+      reason: `Check-out was on ${formatBookingDate(checkOut)}. This booking code can no longer be validated after check-out (East Africa Time).`,
     };
   }
 

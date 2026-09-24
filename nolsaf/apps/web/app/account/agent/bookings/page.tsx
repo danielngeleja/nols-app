@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { ArrowLeft, CalendarDays, ClipboardList, CheckCircle2, Activity, Eye, Info, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet2, UserCheck, ShieldCheck, BadgeCheck, HandCoins, Flag, Star } from "lucide-react";
+import { ArrowLeft, CalendarDays, ClipboardList, CheckCircle2, Activity, Eye, Info, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet2, UserCheck, ShieldCheck, BadgeCheck, HandCoins, Flag, Star, type LucideIcon } from "lucide-react";
 import TableRow from "@/components/TableRow";
+import TableScroller from "@/components/TableScroller";
+import { publishRailCounts } from "@/lib/agentRailSignals";
 
 const api = apiClient;
 
@@ -410,17 +413,33 @@ function bucketLabel(key: BucketKey) {
   }
 }
 
-function bucketIcon(key: MainBucketKey) {
+const MAIN_BUCKETS: MainBucketKey[] = ["new", "confirmed", "progress", "completed"];
+
+// The stage lives in the URL so the sidebar can deep link straight into a stage
+// and a shared link reopens the same one.
+const STAGE_PARAM = "stage";
+
+function parseStage(value: string | null): MainBucketKey {
+  const key = String(value || "").toLowerCase();
+  return (MAIN_BUCKETS as string[]).includes(key) ? (key as MainBucketKey) : "new";
+}
+
+function bucketIconComponent(key: MainBucketKey): LucideIcon {
   switch (key) {
     case "new":
-      return <ClipboardList className="h-4 w-4" />;
+      return ClipboardList;
     case "confirmed":
-      return <CheckCircle2 className="h-4 w-4" />;
+      return UserCheck;
     case "progress":
-      return <Activity className="h-4 w-4" />;
+      return Activity;
     default:
-      return <CheckCircle2 className="h-4 w-4" />;
+      return CheckCircle2;
   }
+}
+
+function bucketIcon(key: MainBucketKey) {
+  const Icon = bucketIconComponent(key);
+  return <Icon className="h-4 w-4" />;
 }
 
 function tabClasses(key: MainBucketKey, isActive: boolean) {
@@ -465,6 +484,28 @@ function tabCountPillClasses(key: MainBucketKey, isActive: boolean) {
     : "rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600";
 }
 
+function StageEmptyState({
+  Icon,
+  title,
+  description,
+}: {
+  Icon: LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="px-4 py-8">
+      <div className="mx-auto flex max-w-md flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-300 px-6 py-12 text-center">
+        <span className="grid h-10 w-10 place-items-center rounded-full bg-neutral-100 text-neutral-400">
+          <Icon className="h-5 w-5" aria-hidden />
+        </span>
+        <p className="m-0 mt-1 text-sm font-bold text-neutral-800">{title}</p>
+        <p className="m-0 text-xs text-neutral-500">{description}</p>
+      </div>
+    </div>
+  );
+}
+
 function SortableHeader({
   label,
   column,
@@ -481,21 +522,27 @@ function SortableHeader({
   tone?: "slate" | "emerald";
 }) {
   const active = sortKey === column;
-  const colorClass = tone === "emerald" ? "text-emerald-700 hover:text-emerald-900" : "text-slate-500 hover:text-slate-700";
+  // NRMS table headers read as quiet metadata until sorted, then take the
+  // emerald accent so the sorted column is obvious at a glance.
+  const colorClass = active
+    ? "text-emerald-700"
+    : tone === "emerald"
+    ? "text-emerald-700/70 hover:text-emerald-700"
+    : "text-neutral-400 hover:text-emerald-700";
 
   return (
     <button
       type="button"
       onClick={() => onSort(column)}
-      className={`inline-flex items-center gap-1.5 border-0 bg-transparent p-0 font-bold uppercase tracking-wider shadow-none outline-none transition-colors appearance-none ${colorClass}`}
+      className={`inline-flex cursor-pointer appearance-none items-center gap-1.5 border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-[0.1em] shadow-none outline-none transition-colors focus-visible:underline ${colorClass}`}
       title={`Sort by ${label}`}
       aria-label={`Sort by ${label}`}
     >
       <span>{label}</span>
       {active ? (
-        sortDir === "asc" ? <ChevronUp className="h-3.5 w-3.5" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+        sortDir === "asc" ? <ChevronUp className="h-3 w-3" aria-hidden /> : <ChevronDown className="h-3 w-3" aria-hidden />
       ) : (
-        <ArrowUpDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+        <ArrowUpDown className="h-3 w-3 opacity-50" aria-hidden />
       )}
     </button>
   );
@@ -506,7 +553,24 @@ export default function AgentBookingsPage() {
   const [items, setItems] = useState<BookingItem[]>([]);
   const [agentName, setAgentName] = useState("Operator");
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<MainBucketKey>("new");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const stageParam = searchParams.get(STAGE_PARAM);
+  const activeTab = parseStage(stageParam);
+
+  // Tab clicks and sidebar links both go through the URL, so there is a single
+  // source of truth for which stage is open.
+  const setActiveTab = useCallback(
+    (key: MainBucketKey) => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (key === "new") next.delete(STAGE_PARAM);
+      else next.set(STAGE_PARAM, key);
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
   const [sortKey, setSortKey] = useState<SortKey>("dateOfTrip");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [currentPage, setCurrentPage] = useState(1);
@@ -695,13 +759,11 @@ export default function AgentBookingsPage() {
       try {
         setLoading(true);
         setError(null);
-        const [assignmentsRes, tourBookingsRes, meRes] = await Promise.all([
-          api.get("/api/agent/assignments"),
-          api.get("/api/agent/tour-bookings").catch(() => ({ data: { items: [] } })),
+        const [tourBookingsRes, meRes] = await Promise.all([
+          api.get("/api/agent/tour-bookings"),
           api.get("/api/account/me").catch(() => null),
         ]);
         if (!alive) return;
-        const assignments: BookingItem[] = (assignmentsRes as any)?.data?.items ?? [];
         const tourBookings: BookingItem[] = (tourBookingsRes as any)?.data?.items ?? [];
         const meData = (meRes as any)?.data?.data ?? (meRes as any)?.data ?? null;
         const resolvedAgentName = String(
@@ -712,10 +774,7 @@ export default function AgentBookingsPage() {
             || meData?.user?.name
             || "Operator"
         ).trim();
-        const merged = [
-          ...assignments,
-          ...tourBookings,
-        ].sort((a, b) => {
+        const merged = [...tourBookings].sort((a, b) => {
           const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return tb - ta;
@@ -745,7 +804,19 @@ export default function AgentBookingsPage() {
     return base;
   }, [items]);
 
-  const tabs: MainBucketKey[] = ["new", "confirmed", "progress", "completed"];
+  // The sidebar shows the same tally the stage strip used to, so publish it
+  // whenever the grouping changes instead of counting the list twice.
+  useEffect(() => {
+    if (loading) return;
+    publishRailCounts("bookings", {
+      new: grouped.new.length,
+      confirmed: grouped.confirmed.length,
+      progress: grouped.progress.length,
+      completed: grouped.completed.length,
+    });
+  }, [grouped, loading]);
+
+  const tabs: MainBucketKey[] = MAIN_BUCKETS;
   const activeItems = grouped[activeTab];
   const isConfirmedTab = activeTab === "confirmed";
   const isProgressTab = activeTab === "progress";
@@ -847,8 +918,8 @@ export default function AgentBookingsPage() {
 
   const paginationControls =
     sortedActiveItems.length > 0 ? (
-      <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-center text-xs font-semibold text-slate-600 sm:text-left">
+      <div className="flex flex-col gap-3 bg-neutral-50/70 px-4 py-3 shadow-[inset_0_1px_0_0_#eeeeee] sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-center text-[11px] font-semibold text-neutral-500 sm:text-left">
           Showing {(currentPage - 1) * PAGE_SIZE + 1}
           {" - "}
           {Math.min(currentPage * PAGE_SIZE, sortedActiveItems.length)}
@@ -860,19 +931,19 @@ export default function AgentBookingsPage() {
             type="button"
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
             disabled={currentPage <= 1}
-            className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-[#02665e]/40 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex min-h-9 cursor-pointer appearance-none items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-600 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-45"
             aria-label="Previous page"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden />
           </button>
-          <span className="text-center text-xs font-semibold text-slate-600">
+          <span className="text-center text-[11px] font-semibold text-neutral-500">
             {currentPage} of {totalPages}
           </span>
           <button
             type="button"
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
             disabled={currentPage >= totalPages}
-            className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-[#02665e]/40 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex min-h-9 cursor-pointer appearance-none items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-600 transition hover:border-emerald-200 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-45"
             aria-label="Next page"
           >
             <ChevronRight className="h-4 w-4" aria-hidden />
@@ -883,174 +954,92 @@ export default function AgentBookingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 animate-pulse">
-        {/* sticky header skeleton */}
-        <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-          <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-            <div className="h-8 w-20 rounded-full bg-slate-200" />
-          </div>
+      <div className="min-w-0 max-w-full pb-10">
+        <div className="mb-4 animate-pulse">
+          <div className="h-3 w-28 rounded-full bg-neutral-200" />
+          <div className="mt-3 h-6 w-44 rounded-full bg-neutral-200" />
+          <div className="mt-2 h-3 w-72 max-w-full rounded-full bg-neutral-100" />
         </div>
 
-        <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-          {/* hero banner skeleton */}
-          <div className="h-[140px] rounded-2xl bg-slate-300" />
-
-          {/* stats row skeleton */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-[72px] rounded-2xl bg-slate-200" />
+        <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
+          <div className="flex gap-4 bg-neutral-50/90 px-4 py-3 shadow-[inset_0_-1px_0_0_#e5e5e5]">
+            {[110, 70, 120, 80, 100, 60, 90].map((w, i) => (
+              <div key={i} className="h-2.5 animate-pulse rounded-full bg-neutral-200" style={{ width: w }} />
             ))}
           </div>
-
-          {/* tab strip skeleton */}
-          <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-9 flex-1 rounded-xl bg-slate-200" />
-            ))}
-          </div>
-
-          {/* table / card skeleton */}
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {/* table header */}
-            <div className="flex gap-4 border-b border-slate-100 bg-slate-50 px-5 py-3">
-              {[120, 80, 110, 90, 100, 70, 90].map((w, i) => (
-                <div key={i} className="h-3 rounded-full bg-slate-200" style={{ width: w }} />
-              ))}
+          {[...Array(6)].map((_, i) => (
+            <div
+              key={i}
+              className="flex animate-pulse items-center gap-4 px-4 py-4 shadow-[inset_0_-1px_0_0_#f5f5f5] last:shadow-none"
+            >
+              <div className="h-3.5 w-28 rounded-full bg-neutral-200" />
+              <div className="h-4 w-16 rounded-full bg-neutral-100" />
+              <div className="h-3.5 w-24 rounded-full bg-neutral-200" />
+              <div className="h-3.5 w-20 rounded-full bg-neutral-100" />
+              <div className="h-3.5 w-24 rounded-full bg-neutral-200" />
+              <div className="h-4 w-16 rounded-full bg-neutral-100" />
+              <div className="ml-auto h-7 w-7 rounded-full bg-neutral-200" />
             </div>
-            {/* table rows */}
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="flex items-center gap-4 border-b border-slate-100 px-5 py-4 last:border-0">
-                <div className="h-4 w-28 rounded-full bg-slate-200" />
-                <div className="h-5 w-16 rounded-full bg-slate-100" />
-                <div className="h-4 w-24 rounded-full bg-slate-200" />
-                <div className="h-4 w-20 rounded-full bg-slate-100" />
-                <div className="h-4 w-24 rounded-full bg-slate-200" />
-                <div className="h-5 w-16 rounded-full bg-slate-100" />
-                <div className="ml-auto h-8 w-8 rounded-full bg-slate-200" />
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="relative mx-auto flex max-w-6xl items-center px-4 py-3">
-          <Link
-            href="/account/agent"
-            className="inline-flex items-center gap-2 rounded-full px-2 py-1.5 text-sm font-semibold text-slate-500 no-underline transition hover:bg-slate-100 hover:text-[#02665e]"
-            aria-label="Back to dashboard"
-          >
-            <ArrowLeft className="h-5 w-5" />
-            <span className="hidden sm:inline">Back</span>
-          </Link>
+    <div className="min-w-0 max-w-full pb-10">
+      <Link
+        href="/account/agent"
+        className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 no-underline transition hover:text-emerald-700"
+        aria-label="Back to dashboard"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+        Back to dashboard
+      </Link>
+
+      <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Operator workspace</p>
+          <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">My bookings</h1>
+          <p className="m-0 mt-1 text-sm text-neutral-500">
+            Bookings assigned to your operator account, organized by trip stage.
+          </p>
         </div>
-      </div>
 
-      <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-        <section
-          className="relative rounded-2xl overflow-hidden shadow-2xl"
-          style={{ background: "linear-gradient(135deg, #171437 0%, #123d52 42%, #0c6457 100%)", boxShadow: "0 28px 65px -15px rgba(12,100,87,0.42), 0 8px 22px -8px rgba(23,20,55,0.50)" }}
-        >
-          <svg
-            aria-hidden
-            className="absolute inset-0 h-full w-full pointer-events-none select-none"
-            preserveAspectRatio="xMidYMid slice"
-            viewBox="0 0 900 220"
-            xmlns="http://www.w3.org/2000/svg"
+        <div className="group/tooltip relative inline-flex shrink-0">
+          <button
+            type="button"
+            aria-label="Booking stages information"
+            className="inline-flex min-h-9 cursor-pointer appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none transition hover:border-emerald-200 hover:text-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-600/25"
           >
-            <circle cx="800" cy="42" r="185" stroke="white" strokeOpacity="0.055" strokeWidth="1" fill="none" />
-            <circle cx="110" cy="190" r="120" stroke="white" strokeOpacity="0.045" strokeWidth="1" fill="none" />
-            {[50, 96, 142, 188].map((y) => (
-              <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="rgba(255,255,255,0.028)" strokeWidth="1" />
-            ))}
-            <polyline
-              points="0,170 100,145 210,156 330,118 460,138 590,94 710,116 830,78 900,88"
-              fill="none"
-              stroke="white"
-              strokeOpacity="0.15"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <polygon
-              points="0,170 100,145 210,156 330,118 460,138 590,94 710,116 830,78 900,88 900,220 0,220"
-              fill="white"
-              fillOpacity="0.024"
-            />
-            <radialGradient id="agentBookingsHeaderGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(45,212,191,0.22)" />
-              <stop offset="100%" stopColor="rgba(45,212,191,0)" />
-            </radialGradient>
-            <ellipse cx="455" cy="112" rx="320" ry="145" fill="url(#agentBookingsHeaderGlow)" />
-          </svg>
-
-          <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 sm:py-14">
-            <div
-              className="mb-5 inline-flex items-center justify-center rounded-full"
-              style={{
-                width: 64,
-                height: 64,
-                background: "rgba(255,255,255,0.10)",
-                border: "1.5px solid rgba(255,255,255,0.18)",
-                boxShadow: "0 0 0 8px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35)",
-              }}
-            >
-              <ClipboardList className="h-7 w-7" style={{ color: "rgba(255,255,255,0.92)" }} aria-hidden />
-            </div>
-            <div className="text-xs font-black uppercase tracking-widest text-teal-100">Operator Workspace</div>
-            <h1
-              className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight"
-              style={{ color: "#ffffff", textShadow: "0 2px 12px rgba(0,0,0,0.4)" }}
-            >
-              My Bookings
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm sm:text-base" style={{ color: "rgba(255,255,255,0.60)" }}>
-              Bookings assigned to your operator account, organized by trip stage.
-            </p>
-
-            <div className="mt-4 relative group/tooltip inline-flex">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150 focus:outline-none"
-                style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.70)" }}
-                aria-label="Booking stages information"
-                onClick={(e) => {
-                  e.preventDefault();
-                  try {
-                    (e.currentTarget as HTMLButtonElement).focus();
-                  } catch {
-                    // ignore
-                  }
-                }}
-              >
-                <Info className="h-3.5 w-3.5" aria-hidden />
-                <span>Booking stages</span>
-              </button>
-              <div
-                role="tooltip"
-                className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 z-50 mb-2 w-72 max-w-[calc(100vw-1rem)] whitespace-normal break-words rounded-xl px-3 py-2.5 text-left text-xs opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
-                style={{ background: "#0b2a38", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(255,255,255,0.85)" }}
-              >
-                <div className="font-semibold mb-1" style={{ color: "#fff" }}>Booking stages</div>
-                <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.60)" }}>
-                  Use these stages to move from new booking review to confirmed trips, live activity tracking and completed trip records.
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {error ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
-        ) : null}
-
-        <section className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <Info className="h-3.5 w-3.5" aria-hidden />
+            Booking stages
+          </button>
           <div
-            className="px-4 py-4"
+            role="tooltip"
+            className="pointer-events-none absolute right-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-solid border-neutral-200 bg-white p-3 text-left opacity-0 shadow-[0_18px_45px_-25px_rgba(15,23,42,0.5)] transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
+          >
+            <p className="m-0 text-[11px] font-bold text-neutral-800">Booking stages</p>
+            <p className="m-0 mt-1 text-[11px] leading-relaxed text-neutral-500">
+              Use these stages to move from new booking review to confirmed trips, live activity tracking and completed
+              trip records.
+            </p>
+          </div>
+        </div>
+      </header>
+
+      {error ? (
+        <div className="mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.45)]">
+          {/* Stage switcher. Hidden from lg up, where the workspace sidebar owns
+              stage selection; below lg the sidebar is not rendered, so this stays
+              as the only way to move between stages. */}
+          <div
+            className="px-4 py-4 lg:hidden"
             style={{ background: "linear-gradient(135deg, #10182e 0%, #143541 52%, #0f4f45 100%)" }}
           >
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1085,7 +1074,9 @@ export default function AgentBookingsPage() {
             </div>
           </div>
 
-          <div className="mt-3">
+          {/* No top gap from lg up, where the stage strip above is hidden and the
+              table header should sit flush with the top of the card. */}
+          <div className="mt-3 lg:mt-0">
             {isProgressTab ? (
               activeItems.length === 0 ? (
                 <div className="px-4 pb-6 pt-2 sm:px-6">
@@ -1199,9 +1190,7 @@ export default function AgentBookingsPage() {
                               <p className="mt-0.5 text-sm text-slate-600">{bookingBy} &bull; {nationality}</p>
                             </div>
                             <Link
-                              href={booking.source === "TOUR_BOOKING"
-                                ? `/account/agent/tour-bookings/${encodeURIComponent(bid)}`
-                                : `/account/agent/assignments/${encodeURIComponent(bid)}`}
+                              href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`}
                               className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 no-underline shadow-sm transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                             >
                               <Eye className="h-3.5 w-3.5" />
@@ -1378,37 +1367,33 @@ export default function AgentBookingsPage() {
               )
             ) : isCompletedTab ? (
               /* ── Completed tab: dedicated summary table ── */
+              activeItems.length === 0 ? (
+                <StageEmptyState
+                  Icon={CheckCircle2}
+                  title="No completed trips yet"
+                  description="Completed bookings will appear here with ratings and trip notes."
+                />
+              ) : (
               <>
-              <div className="overflow-x-auto">
-                <table className="min-w-[1200px] divide-y divide-slate-200">
-                  <thead className="bg-emerald-50">
+              <TableScroller label="completed bookings table">
+                <table className="w-full min-w-[1200px] border-collapse text-left">
+                  <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
                     <tr>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Booking By" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Tour Code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Airport Departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Nationality" column="nationality" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Type of Package" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Completed At" column="completedAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Trip Rating" column="tripRating" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Challenge Witnessed" column="challenge" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Amount Paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} tone="emerald" /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-emerald-700">Action</th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Booking By" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Tour Code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Airport Departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Nationality" column="nationality" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Type of Package" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Completed At" column="completedAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Trip Rating" column="tripRating" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Challenge Witnessed" column="challenge" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Amount Paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {activeItems.length === 0 ? (
-                      <TableRow hover={false}>
-                        <td colSpan={11} className="px-4 py-10 text-center">
-                          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
-                            <CheckCircle2 className="h-5 w-5" />
-                          </div>
-                          <p className="text-base font-semibold text-slate-700">No completed trips yet</p>
-                          <p className="mt-1 text-sm text-slate-500">Completed bookings will appear here with ratings and trip notes.</p>
-                        </td>
-                      </TableRow>
-                    ) : (
-                      paginatedActiveItems.map((booking) => {
+                  <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
+                    {paginatedActiveItems.map((booking) => {
                         const bookingBy = booking.requester?.fullName || "Guest";
                         const nationality = booking.requester?.nationality || "-";
                         const typeOfPackage = booking.tripType || (booking.title ? String(booking.title).split(" • ")[0] : "Custom");
@@ -1433,7 +1418,7 @@ export default function AgentBookingsPage() {
                         const detailsHref = `/account/agent/bookings/completed/${encodeURIComponent(String(booking.id))}?source=${isTourBooking ? "tour" : "assignment"}`;
 
                         return (
-                          <TableRow key={`${isTourBooking ? "tb" : "pr"}-${String(booking.id)}`} className="hover:bg-emerald-50/30">
+                          <TableRow key={`${isTourBooking ? "tb" : "pr"}-${String(booking.id)}`} hover={false} className="group transition hover:bg-emerald-50/35">
                             <td className="px-4 py-3 text-sm font-semibold text-slate-900">{bookingBy}</td>
                             <td className="px-4 py-3">
                               {booking.bookingCode ? (
@@ -1518,38 +1503,42 @@ export default function AgentBookingsPage() {
                             </td>
                           </TableRow>
                         );
-                      })
-                    )}
+                      })}
                   </tbody>
                 </table>
-              </div>
+              </TableScroller>
               {paginationControls}
               </>
+              )
             ) : isConfirmedTab ? (
               <div className="space-y-3 px-4 pb-6 pt-2 sm:px-6">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 px-3 py-2.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-cyan-700">Confirmed Today</p>
-                    <p className="mt-0.5 text-xl font-black text-cyan-900">{confirmedStats.today}</p>
-                  </div>
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">This Week</p>
-                    <p className="mt-0.5 text-xl font-black text-emerald-900">{confirmedStats.week}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Total Confirmed</p>
-                    <p className="mt-0.5 text-xl font-black text-slate-900">{confirmedStats.total}</p>
-                  </div>
-                </div>
+                <section
+                  aria-label="Confirmed bookings at a glance"
+                  className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200"
+                >
+                  {([
+                    { label: "Confirmed today", value: confirmedStats.today, helper: "since midnight", tone: "text-emerald-700" },
+                    { label: "This week", value: confirmedStats.week, helper: "last 7 days", tone: "text-neutral-900" },
+                    { label: "Total confirmed", value: confirmedStats.total, helper: "all time", tone: "text-neutral-900" },
+                  ] as const).map((stat) => (
+                    <div key={stat.label} className="min-w-0 bg-white px-4 py-3">
+                      <p className="m-0 truncate text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">{stat.label}</p>
+                      <div className="mt-1.5 flex items-baseline gap-2">
+                        <p className={`m-0 text-2xl font-bold leading-none tabular-nums ${stat.value > 0 ? stat.tone : "text-neutral-300"}`}>
+                          {stat.value}
+                        </p>
+                        <span className="truncate text-[10px] font-medium text-neutral-400">{stat.helper}</span>
+                      </div>
+                    </div>
+                  ))}
+                </section>
 
                 {activeItems.length === 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-10 text-center">
-                    <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                      <CheckCircle2 className="h-5 w-5" />
-                    </div>
-                    <p className="text-base font-semibold text-slate-700">No confirmed items yet</p>
-                    <p className="mt-1 text-sm text-slate-500">Roadmap audit will appear here once paid bookings are received.</p>
-                  </div>
+                  <StageEmptyState
+                    Icon={UserCheck}
+                    title="No confirmed bookings yet"
+                    description="Confirmed trips appear here once payment is settled."
+                  />
                 ) : (
                   paginatedActiveItems.map((booking) => {
                     const isTourBooking = booking.source === "TOUR_BOOKING";
@@ -1658,25 +1647,14 @@ export default function AgentBookingsPage() {
                               >
                                 {isExpanded ? "Hide Preview" : "Preview Roadmap"}
                               </button>
-                              {!isTourBooking ? (
-                                <Link
-                                  href={`/account/agent/assignments/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              ) : (
-                                <Link
-                                  href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View tour booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              )}
+                              <Link
+                                href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                                aria-label={`View tour booking ${String(booking.id)}`}
+                                title="View details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Link>
                             </div>
                           </div>
 
@@ -1753,35 +1731,31 @@ export default function AgentBookingsPage() {
               </div>
             ) : (
               /* ── New tab: standard table ── */
+              activeItems.length === 0 ? (
+                <StageEmptyState
+                  Icon={bucketIconComponent(activeTab)}
+                  title={`No ${bucketLabel(activeTab).toLowerCase()} bookings yet`}
+                  description="Bookings in this stage will appear here automatically."
+                />
+              ) : (
               <>
-              <div className="overflow-x-auto">
-                <table className="min-w-[980px] divide-y divide-slate-200">
-                  <thead className="bg-slate-50">
+              <TableScroller label="bookings table">
+                <table className="w-full min-w-[980px] border-collapse text-left">
+                  <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
                     <tr>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Booking By" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Tour Code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Airport Departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Nationality" column="nationality" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Type of Package" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Date of Trip" column="dateOfTrip" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-left text-xs"><SortableHeader label="Amount Paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th className="whitespace-nowrap px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Action</th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Booking By" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Tour Code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Airport Departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Nationality" column="nationality" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Type of Package" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Date of Trip" column="dateOfTrip" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Amount Paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {activeItems.length === 0 ? (
-                      <TableRow hover={false}>
-                        <td colSpan={9} className="px-4 py-10 text-center">
-                          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                            {bucketIcon(activeTab)}
-                          </div>
-                          <p className="text-base font-semibold text-slate-700">No {bucketLabel(activeTab).toLowerCase()} items yet</p>
-                          <p className="mt-1 text-sm text-slate-500">Bookings in this category will appear here automatically.</p>
-                        </td>
-                      </TableRow>
-                    ) : (
-                      paginatedActiveItems.map((booking) => {
+                  <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
+                    {paginatedActiveItems.map((booking) => {
                         const bookingBy = booking.requester?.fullName || "Guest";
                         const nationality = booking.requester?.nationality || "-";
                         const dateOfTrip = booking.tripDate
@@ -1798,7 +1772,7 @@ export default function AgentBookingsPage() {
                         const isTourBooking = booking.source === "TOUR_BOOKING";
 
                         return (
-                          <TableRow key={`${isTourBooking ? "tb" : "pr"}-${String(booking.id)}`} className="hover:bg-slate-50">
+                          <TableRow key={`${isTourBooking ? "tb" : "pr"}-${String(booking.id)}`} hover={false} className="group transition hover:bg-emerald-50/35">
                             <td className="px-4 py-3 text-sm font-semibold text-slate-900">{bookingBy}</td>
                             <td className="px-4 py-3">
                               {booking.bookingCode ? (
@@ -1821,39 +1795,27 @@ export default function AgentBookingsPage() {
                             </td>
                             <td className="px-4 py-3 text-sm font-semibold text-slate-700">{amountPaid}</td>
                             <td className="px-4 py-3 text-right">
-                              {!isTourBooking ? (
-                                <Link
-                                  href={`/account/agent/assignments/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              ) : (
-                                <Link
-                                  href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View tour booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Link>
-                              )}
+                              <Link
+                                href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+                                aria-label={`View tour booking ${String(booking.id)}`}
+                                title="View details"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Link>
                             </td>
                           </TableRow>
                         );
-                      })
-                    )}
+                      })}
                   </tbody>
                 </table>
-              </div>
+              </TableScroller>
               {paginationControls}
               </>
+              )
             )}
           </div>
-        </section>
-      </div>
+      </section>
     </div>
   );
 }

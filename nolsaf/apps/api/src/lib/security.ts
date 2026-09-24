@@ -107,18 +107,16 @@ function getWebAuthnConfig() {
   return { rpName, rpID, expectedOrigins };
 }
 
-export function generatePasskeyRegistrationOptions(user: { id: string | number; name?: string; displayName?: string }, existingCreds: Array<any> = []) {
+export async function generatePasskeyRegistrationOptions(user: { id: string | number; name?: string; displayName?: string }, existingCreds: Array<any> = []) {
   const { rpName, rpID } = getWebAuthnConfig();
   const excludeCredentials = existingCreds.map((c) => ({ id: c.credentialId, type: "public-key" }));
 
-  const opts = generateRegistrationOptions({
+  const opts = await generateRegistrationOptions({
     rpName,
     rpID,
-    user: {
-      id: String(user.id),
-      name: user.name || String(user.id),
-      displayName: user.displayName || user.name || String(user.id),
-    },
+    userID: new TextEncoder().encode(String(user.id)),
+    userName: user.name || String(user.id),
+    userDisplayName: user.displayName || user.name || String(user.id),
     attestationType: "none",
     authenticatorSelection: {
       userVerification: "preferred",
@@ -145,10 +143,10 @@ export async function verifyPasskeyRegistration(response: any, expectedChallenge
   return verification as any;
 }
 
-export function generatePasskeyAuthenticationOptions(allowCredentials: Array<any> = []) {
+export async function generatePasskeyAuthenticationOptions(allowCredentials: Array<any> = []) {
   const { rpID } = getWebAuthnConfig();
   const allow = allowCredentials.map((c) => ({ id: c.credentialId, type: "public-key" }));
-  const opts = generateAuthenticationOptions({
+  const opts = await generateAuthenticationOptions({
     timeout: 60_000,
     allowCredentials: allow,
     userVerification: "preferred",
@@ -165,10 +163,12 @@ export async function verifyPasskeyAuthentication(response: any, expectedChallen
     expectedChallenge,
     expectedOrigin: expectedOrigins,
     expectedRPID: rpID,
-    authenticator: {
-      credentialID: credential?.credentialId,
+    credential: {
+      id: credential?.credentialId,
       counter: credential?.signCount || 0,
-      credentialPublicKey: credential?.publicKey,
+      publicKey: typeof credential?.publicKey === "string"
+        ? Uint8Array.from(Buffer.from(credential.publicKey, "base64url"))
+        : credential?.publicKey,
     } as any,
   } as any).catch((e) => ({ verified: false, error: (e as Error).message }));
 

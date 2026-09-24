@@ -13,6 +13,7 @@ import {
   signOwnerPayoutReceipt,
   type OwnerPayoutReceiptSnapshot,
 } from "../lib/ownerPayoutReceiptSeal.js";
+import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler);
 
@@ -197,6 +198,8 @@ router.get("/invoices", (async (req: AuthedRequest, res) => {
       });
       return {
         ...inv,
+        invoiceReference: ownerInvoiceReference(inv.id),
+        bookingReference: inv.booking?.id ? customerBookingReference(inv.booking.id) : null,
         total: payout,
         netPayable: payout,
         commissionPercent: null,

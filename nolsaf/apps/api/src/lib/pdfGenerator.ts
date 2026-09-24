@@ -5,7 +5,7 @@
 
 import { makeQR } from "./qr.js";
 
-interface BookingDetails {
+export interface BookingDetails {
   bookingId: number;
   bookingCode: string;
   guestName: string;
@@ -31,6 +31,28 @@ interface BookingDetails {
     receiptNumber?: string;
     paidAt?: Date | string;
   };
+  /**
+   * Wording for receipts that are not a stay (e.g. a tour package). Every field
+   * is optional; when absent the booking receipt renders exactly as before, so
+   * all customer receipts share one template.
+   */
+  document?: {
+    title?: string;
+    reservationKicker?: string;
+    reservationSub?: string;
+    periodColumn?: string;
+    periodTitle?: string;
+    periodSub?: string;
+    lineTitle?: string;
+    lineSub?: string;
+    currency?: string;
+    confirmationCopy?: string;
+    verifyUrl?: string | null;
+    /** Part payments (e.g. a group stay deposit): what is still owed after this payment. Defaults to 0. */
+    balanceDue?: number;
+    /** Heading beside the QR. Defaults to "Payment received in full", or "Deposit received" when a balance is due. */
+    confirmationTitle?: string;
+  };
 }
 
 /**
@@ -50,7 +72,9 @@ async function generateBookingQRCode(details: BookingDetails): Promise<string> {
     };
 
     const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN;
-    const url = origin ? `${origin.replace(/\/+$/, "")}/public/booking/${encodeURIComponent(details.bookingCode)}` : undefined;
+    const url = details.document && "verifyUrl" in details.document
+      ? details.document.verifyUrl || undefined
+      : origin ? `${origin.replace(/\/+$/, "")}/public/booking/${encodeURIComponent(details.bookingCode)}` : undefined;
 
     // Keep payload compact (QR capacity). Use short keys.
     const payloadObj: any = {
@@ -105,6 +129,9 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
     }
   };
 
+  // The API runs on UTC servers; every date and time on a receipt is Tanzanian time (EAT, UTC+3)
+  const EAT = "Africa/Dar_es_Salaam";
+
   const formatDate = (value: Date | string | undefined | null): string => {
     const d = parseValidDate(value);
     if (!d) return "—";
@@ -112,19 +139,21 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       year: "numeric",
       month: "long",
       day: "numeric",
+      timeZone: EAT,
     });
   };
 
   const formatDateTime = (value: Date | string | undefined | null): string => {
     const d = parseValidDate(value);
     if (!d) return "—";
-    return d.toLocaleString("en-US", {
+    return `${d.toLocaleString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    });
+      timeZone: EAT,
+    })} EAT`;
   };
 
   // Logo: use a configured image URL if provided; otherwise embed a print-safe SVG logo.
@@ -134,16 +163,10 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   const origin = (process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "").replace(/\/+$/, "");
   const defaultLogoUrl = origin ? `${origin}/assets/NoLS2025-04.png` : "";
   const logoSrc = process.env.PDF_LOGO_URL || process.env.BRAND_LOGO_URL || defaultLogoUrl || inlineLogoDataUri;
-  const supportEmail = process.env.SUPPORT_EMAIL || "support@nolsaf.com";
+  const supportEmail = process.env.PAYMENTS_EMAIL || "payments@nolsaf.com";
   const supportPhone = process.env.SUPPORT_PHONE || process.env.SUPPORT_TEL || "";
-  const supportWebsite = (process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "https://nolsaf.com").replace(/\/+$/, "");
-  const generatedAt = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const supportWebsite = "nolsaf.com";
+  const generatedAt = formatDateTime(new Date());
   const checkIn = formatDate(details.checkIn);
   const checkOut = formatDate(details.checkOut);
   const providedNights = typeof details.nights === "number" && Number.isFinite(details.nights) ? details.nights : null;
@@ -158,515 +181,562 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   const amount = Number(details.totalAmount || 0).toLocaleString("en-US");
   const paidAt = details.invoice?.paidAt ? formatDateTime(details.invoice.paidAt) : null;
 
-  // Authenticity barcode: a deterministic SVG barcode derived from the receipt/booking
-  // identifier. Unique per receipt, so it reads as a genuine document mark.
-  const barcodeValue = String(
+  const receiptReference = String(
     details.invoice?.receiptNumber || details.bookingCode || details.bookingId || ""
   );
-  const barcodeSvg = (() => {
-    const W = 150;
-    const H = 36;
-    let seed = 0;
-    for (let i = 0; i < barcodeValue.length; i++) {
-      seed = (seed * 31 + barcodeValue.charCodeAt(i)) >>> 0;
-    }
-    let s = seed || 1;
-    const rnd = () => {
-      s = (s * 1103515245 + 12345) & 0x7fffffff;
-      return s / 0x7fffffff;
-    };
-    const rects: string[] = [];
-    let x = 1;
-    // Continuous bars with small, even gaps — dense like a real barcode (no large blanks).
-    while (x < W - 2) {
-      const bw = 1 + Math.floor(rnd() * 3); // bar width 1–3px
-      const gap = 1 + Math.floor(rnd() * 2); // thin gap 1–2px
-      rects.push(`<rect x="${x}" y="0" width="${bw}" height="${H}" fill="#0f172a"/>`);
-      x += bw + gap;
-    }
-    return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Receipt authenticity barcode" preserveAspectRatio="none">${rects.join("")}</svg>`;
-  })();
+  const invoiceReference = details.invoice?.invoiceNumber
+    ? String(details.invoice.invoiceNumber)
+    : "Not issued";
+  const propertyLocation = [
+    details.property.city,
+    details.property.district,
+    details.property.regionName,
+    details.property.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const roomDescription = [
+    details.roomType,
+    details.rooms ? `${details.rooms} room${details.rooms === 1 ? "" : "s"}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  const doc = details.document ?? {};
+  const currency = doc.currency || "TZS";
+  const documentTitle = doc.title || "BOOKING RECEIPT";
+  const reservationKicker = doc.reservationKicker || "Reservation";
+  const reservationSub = doc.reservationSub ?? `${details.property.type}${propertyLocation ? ` | ${propertyLocation}` : ""}`;
+  const periodColumn = doc.periodColumn || "Stay";
+  const periodTitle = doc.periodTitle || `${checkIn} to ${checkOut}`;
+  const periodSub = doc.periodSub ?? `${nights} night${nights === 1 ? "" : "s"}`;
+  const lineTitle = doc.lineTitle || roomDescription || details.property.type || "Accommodation";
+  const confirmationCopy = doc.confirmationCopy
+    || "The reservation is confirmed. Present the reservation code above at check-in. This document is not a fiscal tax receipt.";
+  const balanceDue = Math.max(0, Number(doc.balanceDue || 0));
+  const confirmationTitle = doc.confirmationTitle || (balanceDue > 0 ? "Deposit received" : "Payment received in full");
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Booking Receipt ${esc(details.bookingCode)}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${esc(doc.title ? doc.title.charAt(0) + doc.title.slice(1).toLowerCase() : "Booking Receipt")} ${esc(details.bookingCode)}</title>
   <style>
     @media print {
       @page { size: A5; margin: 0; }
-      html, body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .sheet { box-shadow: none; border-radius: 0; max-width: 100%; page-break-inside: avoid; break-inside: avoid; }
+      html, body {
+        width: 148mm !important;
+        height: 210mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+      }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .sheet {
+        position: relative !important;
+        left: auto !important;
+        top: auto !important;
+        margin: 0 !important;
+        transform: none !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
     }
     *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; }
     body {
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-      font-size: 12px;
-      line-height: 1.45;
-      color: #1e293b;
-      background: #ffffff;
-      margin: 0;
-      padding: 0;
+      font-family: "Trebuchet MS", Trebuchet, Arial, sans-serif;
+      color: #172b2a;
     }
-    /* Single, full-bleed sheet — no floating card / drop shadow, so it reads as one clean page. */
     .sheet {
-      background: #ffffff;
-      max-width: 100%;
+      width: 148mm;
+      height: 210mm;
       margin: 0;
       overflow: hidden;
-      position: relative;
-    }
-    /* diagonal watermark */
-    .sheet::before {
-      content: 'NoLSAF';
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 80px;
-      font-weight: 900;
-      letter-spacing: 10px;
-      color: rgba(2,102,94,0.045);
-      transform: rotate(-25deg);
-      pointer-events: none;
-      z-index: 0;
-      white-space: nowrap;
-    }
-    .sheet > * { position: relative; z-index: 1; }
-
-    /* Dashed section divider — receipt-style boundary between parts */
-    .dash-sep {
-      border: 0;
-      border-top: 1.5px dashed #cbd5e1;
-      margin: 11px 0;
-      height: 0;
-    }
-
-    /* ── Brand header ── */
-    .brand-header {
-      background: #ffffff;
-      border-bottom: 1.5px dashed #cbd5e1;
-      padding: 14px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .brand-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .brand-logo {
-      width: 46px;
-      height: 46px;
-      border-radius: 8px;
-      display: block;
-      flex-shrink: 0;
-      object-fit: contain;
-    }
-    .brand-name {
-      font-size: 17px;
-      font-weight: 800;
-      color: #02665e;
-      letter-spacing: 0.4px;
-      line-height: 1.1;
-    }
-    .brand-tagline {
-      font-size: 9.5px;
-      font-style: italic;
-      color: #94a3b8;
-      letter-spacing: 0.2px;
-      margin-top: 2px;
-    }
-    .brand-right {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 5px;
-    }
-    .barcode {
-      width: 150px;
-      height: 36px;
-      line-height: 0;
-    }
-    .barcode svg {
-      display: block;
-      width: 100%;
-      height: 100%;
-    }
-    .receipt-label {
-      font-size: 9px;
-      font-weight: 700;
-      color: #94a3b8;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
-      white-space: nowrap;
-      margin-top: 5px;
-    }
-
-    /* ── Body padding ── */
-    .body-pad { padding: 12px 20px 14px; }
-
-    /* ── Booking code ── */
-    .code-block {
-      border: 1.5px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 10px 16px 9px;
-      margin-bottom: 11px;
-      text-align: center;
-      background: linear-gradient(180deg, #f8fffe 0%, #ffffff 100%);
-      position: relative;
-      overflow: hidden;
-    }
-    .code-label {
-      font-size: 10px;
-      font-weight: 600;
-      color: #64748b;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-    }
-    .code-value {
-      font-size: 27px;
-      font-weight: 900;
-      color: #02665e;
-      letter-spacing: 5px;
-      line-height: 1;
-      margin-bottom: 4px;
-    }
-    .code-hint {
-      font-size: 10px;
-      color: #94a3b8;
-    }
-    .paid-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      background: #dcfce7;
-      color: #166534;
-      border-radius: 9999px;
-      padding: 3px 10px;
-      font-size: 10px;
-      font-weight: 800;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-
-    /* ── Two-column guest / property summary ── */
-    .summary-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .summary-card {
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 9px 12px;
-      background: #fafafa;
-    }
-    .summary-card-label {
-      font-size: 9px;
-      font-weight: 700;
-      color: #94a3b8;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      margin-bottom: 5px;
-      padding-bottom: 5px;
-      border-bottom: 1px solid #e8ecf0;
-    }
-    .summary-card-value {
-      font-size: 12px;
-      font-weight: 700;
-      color: #1e293b;
+      background: #fff;
+      padding: 8mm 7mm;
+      font-size: 9.5pt;
       line-height: 1.35;
     }
-    .summary-card-sub {
-      font-size: 10px;
-      color: #64748b;
-      margin-top: 2px;
-      line-height: 1.3;
-    }
-
-    /* ── Detail table ── */
-    .section-header {
+    .receipt-card {
+      width: 134mm;
+      height: 194mm;
       display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 5px;
-      margin-top: 10px;
-    }
-    .section-bar {
-      width: 3px;
-      height: 14px;
-      background: #02665e;
-      border-radius: 9999px;
-      flex-shrink: 0;
-    }
-    .section-label {
-      font-size: 10px;
-      font-weight: 700;
-      color: #02665e;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-    }
-    table.detail-table {
-      width: 100%;
-      border-collapse: collapse;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      flex-direction: column;
       overflow: hidden;
-      font-size: 11.5px;
+      border: 0;
+      border-radius: 0;
+      background: #fff;
     }
-    table.detail-table tr:nth-child(odd) td { background: #f8fafc; }
-    table.detail-table tr:nth-child(even) td { background: #ffffff; }
-    table.detail-table td {
-      padding: 5.5px 12px;
-      border-bottom: 1px solid #e9edf2;
-      vertical-align: top;
-    }
-    table.detail-table tr:last-child td { border-bottom: none; }
-    table.detail-table td:first-child {
-      color: #64748b;
-      font-weight: 600;
-      width: 38%;
-      white-space: nowrap;
-    }
-    table.detail-table td:last-child {
-      color: #1e293b;
-      font-weight: 500;
-    }
-    .amount-row td { background: #f0fdf4 !important; }
-    .amount-row td:last-child {
-      color: #166534 !important;
-      font-weight: 800 !important;
-      font-size: 13px !important;
-    }
-
-    /* ── Check-in/out highlight ── */
-    .dates-row {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
-      gap: 8px;
-      align-items: center;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 8px 12px;
-      margin-bottom: 10px;
-      background: #fafafa;
-      text-align: center;
-    }
-    .date-card-label {
-      font-size: 9px;
-      font-weight: 700;
-      color: #94a3b8;
-      letter-spacing: 0.8px;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-    }
-    .date-card-value {
-      font-size: 11px;
-      font-weight: 700;
-      color: #1e293b;
-      line-height: 1.3;
-    }
-    .date-nights {
-      font-size: 11px;
-      font-weight: 800;
-      color: #02665e;
-      border: 1.5px solid #02665e;
-      border-radius: 9999px;
-      padding: 4px 10px;
-      white-space: nowrap;
-      background: rgba(2,102,94,0.05);
-    }
-
-    /* ── Note block ── */
-    .note-block {
+    .masthead {
       display: flex;
-      gap: 10px;
-      border: 1px solid #e2e8f0;
-      border-left: 3px solid #02665e;
-      border-radius: 0 8px 8px 0;
-      padding: 9px 12px;
-      background: #f8fffe;
-      margin-top: 10px;
-      font-size: 10.5px;
-      color: #475569;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8mm;
+      padding: 3.5mm 4.5mm 3mm;
+      border-bottom: 0.3mm solid #edf4f3;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 3mm;
+      min-width: 0;
+    }
+    .brand img {
+      width: 8mm;
+      height: 8mm;
+      border-radius: 0;
+      background: transparent;
+      object-fit: contain;
+      display: block;
+    }
+    .brand-name {
+      color: #00685f;
+      font-size: 11pt;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .brand-tagline {
+      margin-top: 0.5mm;
+      color: #657b78;
+      font-size: 7.2pt;
+    }
+    .hero {
+      text-align: center;
+      padding: 4mm 0 3.5mm;
+    }
+    h1 {
+      margin: 0;
+      color: #173c38;
+      font-size: 17pt;
+      line-height: 1.1;
+      font-weight: 800;
+    }
+    .amount {
+      margin-top: 2mm;
+      color: #00685f;
+      font-size: 28pt;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .amount span { font-size: 9pt; font-weight: 800; }
+    .status {
+      display: inline-block;
+      margin-top: 2.2mm;
+      padding: 0;
+      border: 0;
+      color: #00685f;
+      background: transparent;
+      font-size: 7.5pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .reference-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 0.3mm minmax(0, 1fr);
+      align-items: center;
+      gap: 4mm;
+      padding: 2.2mm 4.5mm;
+      border-top: 0.3mm solid #edf4f3;
+      border-bottom: 0.3mm solid #edf4f3;
+      background: #f7fbfa;
+    }
+    .reference-item:last-child { text-align: right; }
+    .reference-divider { width: 0.3mm; height: 7mm; background: #d0e8e5; }
+    .label {
+      color: #657b78;
+      font-size: 6.8pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .reference-value {
+      margin-top: 0.5mm;
+      color: #173c38;
+      font-size: 8.2pt;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+    .content { padding: 3mm 4mm 2mm; }
+    .section-title {
+      margin: 0 0 2mm;
+      color: #00685f;
+      font-size: 7.3pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-top: 0.3mm solid #d0e0de;
+      border-bottom: 0.3mm solid #d0e0de;
+      margin-bottom: 4mm;
+    }
+    .cell {
+      min-height: 17mm;
+      padding: 2.5mm 3mm;
+      border: 0;
+    }
+    .cell + .cell { border-left: 0.3mm solid #d0e0de; }
+    .cell-value {
+      margin-top: 1mm;
+      color: #172b2a;
+      font-size: 9pt;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .cell-sub {
+      margin-top: 0.8mm;
+      color: #657b78;
+      font-size: 7.4pt;
+    }
+    .services {
+      margin-bottom: 4mm;
+      padding: 2.5mm 3mm;
+      border-top: 0.3mm solid #d0e0de;
+      border-bottom: 0.3mm solid #d0e0de;
+      color: #334a47;
+      font-size: 8pt;
+    }
+    .certification {
+      display: grid;
+      grid-template-columns: 1fr 24mm;
+      gap: 5mm;
+      align-items: center;
+      padding: 3.5mm 4mm;
+      border-top: 0.45mm solid #00685f;
+      border-bottom: 0.3mm solid #d0e0de;
+      background: #f7fbfa;
+    }
+    .seal-title {
+      color: #00685f;
+      font-size: 9pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .seal-copy {
+      margin-top: 1.2mm;
+      color: #526966;
+      font-size: 7.3pt;
       line-height: 1.45;
     }
-
-    /* ── Footer ── */
-    .doc-footer {
-      border-top: 1.5px dashed #cbd5e1;
-      padding: 10px 20px;
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 14px;
-      background: #f8fafc;
-    }
-    .footer-brand {
-      font-size: 11px;
-      font-weight: 800;
-      color: #02665e;
-      margin-bottom: 3px;
-    }
-    .footer-info {
-      font-size: 10px;
-      color: #64748b;
-      line-height: 1.5;
-    }
-    .footer-info b { color: #1e293b; }
-    .footer-generated {
-      font-size: 9.5px;
-      color: #94a3b8;
-      margin-top: 4px;
-    }
-    .qr-wrap { text-align: center; flex-shrink: 0; }
-    .qr-wrap img { width: 80px; height: 80px; display: block; }
-    .qr-wrap .qr-label {
-      font-size: 9px;
-      color: #94a3b8;
-      font-weight: 600;
-      margin-top: 4px;
-      letter-spacing: 0.5px;
+    .qr { text-align: center; }
+    .qr img, .qr-empty {
+      width: 22mm;
+      height: 22mm;
+      display: block;
+      margin: 0 auto;
     }
     .qr-empty {
-      width: 80px;
-      height: 80px;
-      border: 1.5px dashed #cbd5e1;
-      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      border: 0.3mm dashed #8fc0b9;
+      color: #657b78;
+      font-size: 6.8pt;
+    }
+    .qr-label {
+      margin-top: 1mm;
+      color: #657b78;
+      font-size: 6.5pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .footer {
+      margin-top: auto;
+      padding: 3.5mm 4mm;
+      border-top: 0;
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-size: 9px;
-      color: #94a3b8;
+      justify-content: space-between;
+      gap: 5mm;
+      color: #c8ddda;
+      font-size: 6.7pt;
+      line-height: 1.45;
+      background: #123c38;
+    }
+    .footer-identity {
+      display: flex;
+      align-items: center;
+      gap: 2.5mm;
+    }
+    .footer-mark {
+      width: 1mm;
+      height: 10mm;
+      background: #54b8ab;
+    }
+    .footer-title {
+      color: #fff;
+      font-size: 8pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .footer strong { color: #fff; }
+    .footer-right { text-align: right; }
+
+    /* NRMS document layout */
+    .sheet {
+      padding: 10mm 9mm 8mm;
+      display: flex;
+      flex-direction: column;
+      color: #1e3a38;
+    }
+    .document-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10mm;
+      align-items: start;
+    }
+    .document-brand {
+      display: flex;
+      align-items: center;
+      gap: 3mm;
+      min-width: 0;
+    }
+    .document-logo {
+      width: 9mm;
+      height: 9mm;
+      object-fit: contain;
+    }
+    .document-brand-name {
+      color: #0f2e2b;
+      font-size: 15pt;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .document-brand-sub {
+      margin-top: 1mm;
+      color: #718b88;
+      font-size: 7pt;
+    }
+    .document-heading { text-align: right; }
+    .document-title {
+      color: #02665e;
+      font-size: 18pt;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .document-number {
+      margin-top: 2.5mm;
+      color: #1e3a38;
+      font-family: "Courier New", monospace;
+      font-size: 7.5pt;
+      font-weight: 700;
+    }
+    .document-date {
+      margin-top: 1mm;
+      color: #718b88;
+      font-size: 6.8pt;
+    }
+    .keylines {
+      margin-top: 5mm;
+      border-top: 0.55mm solid #02665e;
+      border-bottom: 0.2mm solid #d6e2e0;
+      height: 1.4mm;
+    }
+    .party-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12mm;
+      padding: 5mm 0;
+      border-bottom: 0.25mm solid #d6e2e0;
+    }
+    .kicker {
+      color: #02665e;
+      font-size: 6.5pt;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .primary-value {
+      margin-top: 2mm;
+      color: #0f2e2b;
+      font-size: 10pt;
+      font-weight: 800;
+    }
+    .secondary-value {
+      margin-top: 1mm;
+      color: #718b88;
+      font-size: 7.4pt;
+      line-height: 1.45;
+    }
+    .ledger-section { margin-top: 5mm; }
+    .ledger-title {
+      margin-bottom: 2.5mm;
+      color: #02665e;
+      font-size: 6.5pt;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .ledger {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .ledger th {
+      padding: 2.2mm 2.5mm;
+      background: #02665e;
+      color: #fff;
+      font-size: 6.3pt;
+      font-weight: 800;
+      text-align: left;
+      text-transform: uppercase;
+    }
+    .ledger th:last-child, .ledger td:last-child { text-align: right; }
+    .ledger td {
+      padding: 3mm 2.5mm;
+      border-bottom: 0.25mm solid #d6e2e0;
+      color: #1e3a38;
+      font-size: 7.8pt;
+      vertical-align: top;
+    }
+    .line-title { font-weight: 800; }
+    .line-sub {
+      margin-top: 1mm;
+      color: #718b88;
+      font-size: 6.8pt;
+      line-height: 1.4;
+    }
+    .totals {
+      width: 59mm;
+      margin: 4mm 0 5mm auto;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 6mm;
+      padding: 1.5mm 0;
+      color: #718b88;
+      font-size: 7.5pt;
+    }
+    .total-row strong { color: #1e3a38; }
+    .total-row.final {
+      margin-top: 1mm;
+      padding-top: 2mm;
+      border-top: 0.35mm solid #9fb7b4;
+      color: #0f2e2b;
+      font-size: 8.5pt;
+      font-weight: 900;
+    }
+    .confirmation-row {
+      display: grid;
+      grid-template-columns: 1fr 23mm;
+      gap: 6mm;
+      align-items: center;
+      padding: 3.5mm 0;
+      border-top: 0.35mm solid #9fb7b4;
+      border-bottom: 0.25mm solid #d6e2e0;
+    }
+    .confirmation-title {
+      color: #02665e;
+      font-size: 8pt;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .confirmation-copy {
+      margin-top: 1.5mm;
+      color: #526966;
+      font-size: 7pt;
+      line-height: 1.5;
+    }
+    .document-qr { text-align: center; }
+    .document-qr img, .document-qr .qr-empty {
+      width: 20mm;
+      height: 20mm;
+      display: block;
+      margin: 0 auto;
+    }
+    .document-qr-label {
+      margin-top: 1mm;
+      color: #718b88;
+      font-size: 5.8pt;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .document-footer {
+      margin-top: auto;
+      padding-top: 2.5mm;
+      border-top: 0.2mm solid #d6e2e0;
+      color: #718b88;
+      font-size: 6.2pt;
       text-align: center;
-      line-height: 1.3;
     }
   </style>
 </head>
 <body>
 <div class="sheet">
-
-  <!-- Brand header -->
-  <div class="brand-header">
-    <div class="brand-left">
-      <img class="brand-logo" src="${logoSrc}" alt="NoLSAF" />
+  <header class="document-header">
+    <div class="document-brand">
+      <img class="document-logo" src="${esc(logoSrc)}" alt="NoLSAF" />
       <div>
-        <div class="brand-name">NoLSAF</div>
-        <div class="brand-tagline">Quality Stay for Every Wallet</div>
+        <div class="document-brand-name">NoLSAF</div>
+        <div class="document-brand-sub">Quality Stay for Every Wallet</div>
       </div>
     </div>
-    <div class="brand-right">
-      <div class="barcode">${barcodeSvg}</div>
-      <div class="receipt-label">Receipt No:&nbsp;${esc(details.invoice?.receiptNumber || details.bookingId)}</div>
+    <div class="document-heading">
+      <div class="document-title">${esc(documentTitle)}</div>
+      <div class="document-number">${esc(receiptReference)}</div>
+      <div class="document-date">${esc(paidAt ? `Paid ${paidAt}` : "Payment confirmed")}</div>
     </div>
-  </div>
+  </header>
 
-  <div class="body-pad">
+  <div class="keylines"></div>
 
-    <!-- Booking code -->
-    <div class="code-block">
-      <div class="paid-pill">&#10003;&nbsp;Paid &amp; Confirmed</div>
-      <div class="code-label">Booking Code</div>
-      <div class="code-value">${esc(details.bookingCode)}</div>
-      <div class="code-hint">Present this code at check&#8209;in or scan the QR below</div>
-    </div>
-
-    <hr class="dash-sep" />
-
-    <!-- Guest + Property summary cards -->
-    <div class="summary-grid">
-      <div class="summary-card">
-        <div class="summary-card-label">Guest</div>
-        <div class="summary-card-value">${esc(details.guestName)}</div>
-        ${details.guestPhone ? `<div class="summary-card-sub">${esc(details.guestPhone)}</div>` : ""}
-        ${details.nationality ? `<div class="summary-card-sub">${esc(details.nationality)}</div>` : ""}
-      </div>
-      <div class="summary-card">
-        <div class="summary-card-label">Property</div>
-        <div class="summary-card-value">${esc(details.property.title)}</div>
-        <div class="summary-card-sub">${esc(details.property.type)}${details.property.regionName ? " &bull; " + esc([details.property.regionName, details.property.city].filter(Boolean).join(", ")) : ""}</div>
-        ${details.roomType ? `<div class="summary-card-sub">${esc(details.roomType)}${details.rooms ? " &times; " + esc(details.rooms) : ""}</div>` : ""}
-      </div>
-    </div>
-
-    <!-- Check-in / Check-out / Nights -->
-    <div class="dates-row">
-      <div>
-        <div class="date-card-label">Check&#8209;in</div>
-        <div class="date-card-value">${checkIn}</div>
-      </div>
-      <div class="date-nights">${nights}&nbsp;night${nights !== 1 ? "s" : ""}</div>
-      <div>
-        <div class="date-card-label">Check&#8209;out</div>
-        <div class="date-card-value">${checkOut}</div>
-      </div>
-    </div>
-
-    <hr class="dash-sep" />
-
-    <!-- Payment details -->
-    <div class="section-header">
-      <div class="section-bar"></div>
-      <div class="section-label">Payment</div>
-    </div>
-    <table class="detail-table">
-      <tr class="amount-row">
-        <td>Total Amount</td>
-        <td>${amount} TZS</td>
-      </tr>
-      ${details.invoice?.receiptNumber ? `<tr><td>Receipt No.</td><td>${esc(details.invoice.receiptNumber)}</td></tr>` : ""}
-      ${paidAt ? `<tr><td>Paid On</td><td>${paidAt}</td></tr>` : ""}
-      <tr><td>Status</td><td style="color:#166534;font-weight:700;">&#10003; Payment Received</td></tr>
-    </table>
-
-    ${details.services ? `
-    <div class="section-header" style="margin-top:14px;">
-      <div class="section-bar"></div>
-      <div class="section-label">Inclusive Services</div>
-    </div>
-    <table class="detail-table">
-      <tr><td colspan="2">${esc(typeof details.services === "string" ? details.services : JSON.stringify(details.services))}</td></tr>
-    </table>
-    ` : ""}
-
-    <!-- Note -->
-    <div class="note-block">
-      <div>
-        <strong style="color:#02665e;">Important:</strong>&nbsp;
-        Present your booking code at the property on arrival. This document is proof of your confirmed reservation.
-        For assistance contact&nbsp;<strong>${supportEmail}</strong>${supportPhone ? `&nbsp;&bull;&nbsp;<strong>${supportPhone}</strong>` : ""}.
-      </div>
-    </div>
-
-  </div><!-- /body-pad -->
-
-  <!-- Footer -->
-  <div class="doc-footer">
+  <section class="party-grid">
     <div>
-      <div class="footer-brand">NoLSAF</div>
-      <div class="footer-info">
-        <b>Email:</b> ${supportEmail}<br>
-        ${supportPhone ? `<b>Phone:</b> ${supportPhone}<br>` : ""}
-        <b>Web:</b> ${supportWebsite}
-      </div>
-      <div class="footer-generated">Printed: ${generatedAt}</div>
+      <div class="kicker">Issued to</div>
+      <div class="primary-value">${esc(details.guestName)}</div>
+      ${details.guestPhone ? `<div class="secondary-value">${esc(details.guestPhone)}</div>` : ""}
+      ${details.nationality ? `<div class="secondary-value">${esc(details.nationality)}</div>` : ""}
     </div>
-    <div class="qr-wrap">
-      ${qrCodeDataUrl
-        ? `<img src="${qrCodeDataUrl}" alt="QR Code" /><div class="qr-label">Scan to verify</div>`
-        : `<div class="qr-empty">QR<br/>unavailable</div>`}
+    <div>
+      <div class="kicker">${esc(reservationKicker)}</div>
+      <div class="primary-value">${esc(details.property.title)}</div>
+      ${reservationSub ? `<div class="secondary-value">${esc(reservationSub)}</div>` : ""}
+      <div class="secondary-value">Code ${esc(details.bookingCode)}${invoiceReference !== "Not issued" ? ` | Invoice ${esc(invoiceReference)}` : ""}</div>
     </div>
-  </div>
+  </section>
 
-</div><!-- /sheet -->
+  <section class="ledger-section">
+    <div class="ledger-title">Transaction</div>
+    <table class="ledger">
+      <colgroup><col style="width:46%"><col style="width:31%"><col style="width:23%"></colgroup>
+      <thead><tr><th>Description</th><th>${esc(periodColumn)}</th><th>Amount</th></tr></thead>
+      <tbody><tr>
+        <td>
+          <div class="line-title">${esc(lineTitle)}</div>
+          ${doc.lineSub ? `<div class="line-sub">${esc(doc.lineSub)}</div>` : ""}
+          ${details.services ? `<div class="line-sub">Includes ${esc(typeof details.services === "string" ? details.services : JSON.stringify(details.services))}</div>` : ""}
+        </td>
+        <td>
+          <div class="line-title">${esc(periodTitle)}</div>
+          ${periodSub ? `<div class="line-sub">${esc(periodSub)}</div>` : ""}
+        </td>
+        <td><div class="line-title">${amount} ${esc(currency)}</div></td>
+      </tr></tbody>
+    </table>
+  </section>
+
+  <section class="totals">
+    <div class="total-row"><span>Amount received</span><strong>${amount} ${esc(currency)}</strong></div>
+    <div class="total-row final"><span>Balance</span><span>${balanceDue.toLocaleString("en-US")} ${esc(currency)}</span></div>
+  </section>
+
+  <section class="confirmation-row">
+      <div>
+        <div class="confirmation-title">${esc(confirmationTitle)}</div>
+        <div class="confirmation-copy">${esc(confirmationCopy)}</div>
+      </div>
+      <div class="document-qr">
+        ${qrCodeDataUrl
+          ? `<img src="${qrCodeDataUrl}" alt="Booking verification QR code" /><div class="document-qr-label">Verify</div>`
+          : `<div class="qr-empty">QR unavailable</div>`}
+      </div>
+  </section>
+
+  <footer class="document-footer">
+    ${esc(supportEmail)}${supportPhone ? ` | ${esc(supportPhone)}` : ""} | ${esc(supportWebsite)} | Generated ${esc(generatedAt)}
+  </footer>
+</div>
 </body>
 </html>
   `;

@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, AuthedRequest } from "../middleware/auth.js";
+import { referralCodeFor, storedReferralCodesFor } from "../lib/referralCode.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -15,9 +16,9 @@ const getDriverReferral: RequestHandler = async (req, res) => {
     const user = (req as AuthedRequest).user!;
     const driverId = user.id;
 
-    // Use full driver ID so the code is not guessable by brute-forcing 6-digit suffixes.
-    const referralCode = `DRIVER-${driverId}`;
-    const referralLink = `${process.env.FRONTEND_URL || process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000'}/register?ref=${referralCode}`;
+    // Opaque: derived from the driver id without exposing it (lib/referralCode.ts).
+    const referralCode = referralCodeFor("DRIVER", driverId);
+    const referralLink = `${process.env.FRONTEND_URL || process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000'}/register?ref=${encodeURIComponent(referralCode)}`;
 
     // Fetch referrals (users who signed up with this driver's referral code)
     let referrals: any[] = [];
@@ -156,7 +157,7 @@ const getDriverReferral: RequestHandler = async (req, res) => {
           where: {
             OR: [
               { referredBy: driverId },
-              { referralCode: referralCode },
+              { referralCode: { in: storedReferralCodesFor("DRIVER", driverId) } },
             ],
           },
           select: {

@@ -1,108 +1,19 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { BedDouble, BookOpen, BriefcaseBusiness, Building2, Compass, Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone, Sparkles, BadgeCheck } from "lucide-react";
-import FooterBridge from "@/components/FooterBridge";
+import { Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone } from "lucide-react";
 
 const APP_VERSION = "v0.1.0";
 
-function IconLinkButton({
-  href,
-  label,
-  iconComponent,
-  iconSize = 20,
-  iconClassName = "",
-  iconActiveClass = "",
-  containerClassName = "",
-  onClick,
-  delay = 0,
-}: {
-  href: string;
-  label: string;
-  iconComponent?: React.ComponentType<any> | undefined;
-  iconSize?: number;
-  iconClassName?: string;
-  iconActiveClass?: string;
-  containerClassName?: string;
-  onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
-  delay?: number;
-}) {
-  const [touched, setTouched] = useState(false);
-  const timeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  const clearTouch = (delay = 600) => {
-    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-    timeoutRef.current = window.setTimeout(() => setTouched(false), delay);
-  };
-
-  const onTouchStart = () => {
-    setTouched(true);
-    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-  };
-
-  const onTouchEnd = () => {
-    clearTouch(700);
-  };
-
-  const onPointerDown = () => {
-    setTouched(true);
-  };
-
-  const onPointerUp = () => {
-    clearTouch(300);
-  };
-
-  let clonedIcon: React.ReactNode;
-  const IconComp = iconComponent;
-  if (IconComp) {
-    clonedIcon = React.createElement(IconComp, {
-      size: iconSize,
-      'aria-hidden': true,
-      className: `${iconClassName ?? ""} ${touched ? iconActiveClass : ""} stroke-current transition-all duration-300`.trim(),
-      strokeWidth: 1.5,
-    });
-  } else {
-    console.warn('PublicFooter: icon component is missing for', label);
-    clonedIcon = <span className="inline-block w-5 h-5 rounded-sm bg-gray-300" aria-hidden="true" />;
-  }
-
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={onClick}
-      aria-label={label}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      style={{ animationDelay: `${delay}ms` }}
-      className={`group relative inline-flex items-center justify-center rounded-full no-underline focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#02665e]/30 focus:ring-offset-slate-950 transition-all duration-300 ease-out transform hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm ${touched ? "-translate-y-[1px]" : ""} ${containerClassName}`}
-    >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-br from-white/50 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-      />
-      {clonedIcon}
-      <span className="sr-only">{label}</span>
-    </a>
-  );
-}
-
-export default function PublicFooter({ withRail = true }: { withRail?: boolean }) {
+// `withRail` is accepted for existing callers; the full-width footer draws its own brand line.
+export default function PublicFooter(_props: { withRail?: boolean }) {
   const year = new Date().getFullYear();
   const [newsletterEmail, setNewsletterEmail] = useState<string>('');
   const [newsletterLoading, setNewsletterLoading] = useState(false);
   const [newsletterStatus, setNewsletterStatus] = useState<null | { ok: boolean; message: string }>(null);
+
 
   const subscribeNewsletter = async () => {
     setNewsletterStatus(null);
@@ -113,24 +24,24 @@ export default function PublicFooter({ withRail = true }: { withRail?: boolean }
     }
     setNewsletterLoading(true);
     try {
-      // Best-effort: try application API endpoint
-      const res = await fetch('/api/newsletter', {
+      // Double opt-in: the API saves the signup and emails a confirmation link.
+      const res = await fetch('/api/public/newsletter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      if (res.ok) {
-        setNewsletterStatus({ ok: true, message: 'Subscribed - check your inbox.' });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok !== false) {
+        setNewsletterStatus({ ok: true, message: String(data?.message || 'Check your inbox to confirm your email.') });
         setNewsletterEmail('');
       } else {
-        // show server message if available
-        let text = 'Subscription failed';
-        try { const j = await res.json(); if (j?.message) text = String(j.message); } catch {}
-        setNewsletterStatus({ ok: false, message: text });
+        setNewsletterStatus({
+          ok: false,
+          message: String(data?.message || data?.error || (res.status === 429 ? 'Too many attempts. Please try again in a few minutes.' : 'Subscription failed. Please try again.')),
+        });
       }
     } catch {
-      // fallback: instruct user to email
-      setNewsletterStatus({ ok: false, message: 'Could not reach server. Please email info@nolsaf.com to subscribe.' });
+      setNewsletterStatus({ ok: false, message: 'Could not reach NoLSAF. Check your connection and try again.' });
     } finally {
       setNewsletterLoading(false);
     }
@@ -143,335 +54,189 @@ export default function PublicFooter({ withRail = true }: { withRail?: boolean }
   }, []);
 
   return (
-    <footer
-      aria-label="Site footer"
-      className="relative w-full mt-10 page-bottom-buffer overflow-hidden bg-gradient-to-b from-white via-slate-50 to-white"
-    >
-      <FooterBridge variant="public" />
+    <footer aria-label="Site footer" className="relative mt-10 hidden w-full page-bottom-buffer md:block">
+      <div className="public-container relative z-10 pb-10 pt-4">
+        <div
+          className="relative box-border overflow-hidden rounded-[20px] text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
+          style={{ background: "linear-gradient(135deg, #07090c 0%, #0b1211 60%, #0d1714 100%)" }}
+        >
+          <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(560px circle at 0% 0%, rgba(2,102,94,0.28), transparent 60%)" }} />
 
-      {withRail ? (
-        <div aria-hidden className="absolute inset-x-0 top-10 h-1 flex">
-          <span className="footer-rail-seg footer-rail-green w-[34%]" />
-          <span className="footer-rail-seg footer-rail-yellow w-[8%]" />
-          <span className="footer-rail-seg footer-rail-black w-[8%]" />
-          <span className="footer-rail-seg footer-rail-blue w-[50%]" />
-        </div>
-      ) : null}
+          {/* Main grid: brand | three link columns | newsletter card */}
+          <div className="relative box-border grid grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(0,0.8fr))] gap-8 px-8 pb-10 pt-9 lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,0.75fr))_minmax(0,1.25fr)] lg:gap-10 lg:px-10">
+            <div className="min-w-0">
+              {/* Logo shown openly: the mark itself, full size, no tile around it */}
+              <Link href="/" className="inline-flex items-center gap-2 text-white no-underline hover:no-underline" aria-label="NoLSAF home">
+                <Image
+                  src="/assets/NoLS2025-04.png"
+                  alt=""
+                  width={36}
+                  height={36}
+                  className="h-9 w-9 object-contain brightness-0 invert"
+                />
+                <span className="text-[20px] font-bold leading-none tracking-tight">NoLSAF</span>
+              </Link>
 
-      <div
-        aria-hidden
-        className="pointer-events-none absolute top-4 left-1/2 h-72 w-[900px] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(2,102,94,0.16),transparent_70%)] blur-2xl"
-      />
+              {/* Two short phrases on their own lines, so it never breaks mid-sentence */}
+              <p className="m-0 mt-3 text-[14px] font-semibold leading-snug text-white">
+                Launched in Tanzania.
+                <span className="block font-normal text-emerald-300/90">Growing across Africa.</span>
+              </p>
 
-      <div className="public-container pt-4 pb-10 relative z-10">
-        <div className="rounded-2xl border border-white/12 bg-gradient-to-b from-slate-950/85 via-slate-900/80 to-slate-950/85 backdrop-blur-xl shadow-[0_18px_58px_rgba(0,0,0,0.38)] text-slate-200">
-          <div className="px-5 py-8 sm:px-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-              <div className="lg:col-span-5 space-y-4">
-                <div className="flex items-start gap-3">
-                  <Image
-                    src="/assets/NoLS2025-04.png"
-                    alt="NoLSAF"
-                    width={120}
-                    height={32}
-                    className="object-contain brightness-0 invert"
-                    style={{ width: "auto", height: "auto" }}
-                  />
-                  <span className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
-                    {APP_VERSION}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-300 leading-relaxed max-w-md">
-                  NoLSAF connects travellers, property owners, tour operators, and trusted mobility partners across East Africa.
-                </p>
-                <p className="text-sm text-slate-400 leading-relaxed max-w-md">
-                  Find verified stays, tour packages, rides, and group travel support in one secure platform.
-                </p>
-
-                <div className="rounded-2xl border border-white/12 bg-white/[0.045] p-4 shadow-inner shadow-white/[0.02]">
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-100">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                    NoLSAF Support
-                  </div>
-                  <div className="grid gap-2 text-[13px] text-slate-300">
-                    <span className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8">
-                        <MapPin className="h-4 w-4 text-emerald-200" />
+              {/* Contact: one card, labelled rows, divided by hairlines */}
+              <ul className="m-0 mt-5 list-none overflow-hidden rounded-xl border border-solid border-white/[0.08] bg-white/[0.02] p-0">
+                {[
+                  { label: "Call us", value: "+255 736 766 726", href: "tel:+255736766726", Icon: Phone },
+                  { label: "Email", value: "support@nolsaf.com", href: "mailto:support@nolsaf.com", Icon: Mail },
+                  { label: "Office", value: "Dar es Salaam, Tanzania", href: null, Icon: MapPin },
+                ].map(({ label, value, href, Icon }, index) => {
+                  const row = (
+                    <>
+                      <Icon className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/40">{label}</span>
+                        <span className="block truncate text-[13px] text-white/85">{value}</span>
                       </span>
-                      Dar es Salaam, Tanzania
-                    </span>
-                    <a
-                      href="tel:+255736766726"
-                      className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-slate-200 transition-colors hover:border-emerald-300/25 hover:bg-emerald-300/10 hover:text-white no-underline"
-                    >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8">
-                        <Phone className="h-4 w-4 text-emerald-200" />
-                      </span>
-                      +255 736 766 726
-                    </a>
-                    <a
-                      href="mailto:support@nolsaf.com"
-                      className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-slate-200 transition-colors hover:border-emerald-300/25 hover:bg-emerald-300/10 hover:text-white no-underline"
-                    >
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/8">
-                        <Mail className="h-4 w-4 text-emerald-200" />
-                      </span>
-                      support@nolsaf.com
-                    </a>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 pt-2 flex-wrap">
-                  <IconLinkButton
-                    href="https://www.linkedin.com/company/nolsaf"
-                    label="NoLSAF on LinkedIn"
-                    iconComponent={Linkedin}
-                    iconSize={20}
-                    iconClassName="text-[#0A66C2] relative z-10"
-                    iconActiveClass="text-[#084A9A]"
-                    containerClassName="h-11 w-11 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25"
-                    delay={0}
-                  />
-                  <IconLinkButton
-                    href="https://www.instagram.com/nolsaf"
-                    label="NoLSAF on Instagram"
-                    iconComponent={Instagram}
-                    iconSize={20}
-                    iconClassName="text-[#E4405F] relative z-10"
-                    iconActiveClass="text-[#C32B4E]"
-                    containerClassName="h-11 w-11 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25"
-                    delay={100}
-                  />
-                  <IconLinkButton
-                    href="https://www.youtube.com/@nolsaf"
-                    label="NoLSAF on YouTube"
-                    iconComponent={Youtube}
-                    iconSize={20}
-                    iconClassName="text-[#FF0000] relative z-10"
-                    iconActiveClass="text-[#CC0000]"
-                    containerClassName="h-11 w-11 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25"
-                    delay={200}
-                  />
-                  <IconLinkButton
-                    href="https://x.com/nolsaf"
-                    label="NoLSAF on X"
-                    iconComponent={X}
-                    iconSize={20}
-                    iconClassName="text-white relative z-10"
-                    iconActiveClass="text-white"
-                    containerClassName="h-11 w-11 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25"
-                    delay={300}
-                  />
-                  <IconLinkButton
-                    href="https://www.facebook.com/nolsaf"
-                    label="NoLSAF on Facebook"
-                    iconComponent={Facebook}
-                    iconSize={20}
-                    iconClassName="text-[#1877F2] relative z-10"
-                    iconActiveClass="text-[#165db8]"
-                    containerClassName="h-11 w-11 bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/15 hover:border-white/25"
-                    delay={400}
-                  />
-                </div>
-              </div>
-
-              <div className="lg:col-span-7">
-                <div className="grid gap-4 lg:grid-cols-[1fr_0.72fr]">
-                  <div className="rounded-2xl border border-white/12 bg-white/6 backdrop-blur-sm p-5 shadow-sm shadow-black/20">
-                  <div className="flex flex-col gap-1">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-100 w-fit">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                      Newsletter
-                    </div>
-                    <div className="text-sm text-slate-300">
-                      Monthly updates on new stays, destinations, and platform improvements.
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                    <form
-                      className="flex flex-1 flex-col sm:flex-row gap-2"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!newsletterLoading) void subscribeNewsletter();
-                      }}
-                    >
-                      <label htmlFor="newsletter-email-2" className="sr-only">
-                        Newsletter email
-                      </label>
-                      <input
-                        id="newsletter-email-2"
-                        type="email"
-                        value={newsletterEmail}
-                        onChange={(e) => setNewsletterEmail(e.target.value)}
-                        placeholder="Your email"
-                        autoComplete="email"
-                        className="flex-1 border border-white/12 rounded-xl px-4 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/25 focus:border-[#02665e] transition-all duration-300 bg-white/10 text-slate-100 placeholder:text-slate-400 hover:border-white/20"
-                        aria-label="Newsletter email"
-                      />
-                      <button
-                        type="submit"
-                        className={`px-5 py-2.5 rounded-xl border border-transparent bg-[#02665e] text-white text-sm font-semibold shadow-sm transition-all duration-300 hover:bg-[#024d47] active:scale-[0.99] ${newsletterLoading ? "opacity-70 cursor-wait" : ""}`}
-                        disabled={newsletterLoading}
-                      >
-                        {newsletterLoading ? (
-                          <span className="flex items-center gap-2">
-                            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            <span className="hidden sm:inline">Subscribing...</span>
-                          </span>
-                        ) : (
-                          "Subscribe"
-                        )}
-                      </button>
-                    </form>
-                  </div>
-
-                  {newsletterStatus ? (
-                    <div
-                      className={`mt-3 text-sm px-3 py-2 rounded-xl ${newsletterStatus.ok ? "bg-emerald-500/10 text-emerald-200 border border-emerald-400/20" : "bg-red-500/10 text-red-200 border border-red-400/20"}`}
-                      role="status"
-                      aria-live="polite"
-                    >
-                      {newsletterStatus.message}
-                    </div>
-                  ) : null}
-                  </div>
-
-                  <div className="rounded-2xl border border-white/12 bg-white/[0.045] backdrop-blur-sm p-5 shadow-sm shadow-black/20">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-100">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-300" />
-                      Portals
-                    </div>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-                      {[
-                        { href: "/account/register?mode=register&role=owner&next=%2Fowner", label: "Owner Portal" },
-                        { href: "/account/register?mode=register&role=driver&next=%2Fdriver", label: "Driver Portal" },
-                      ].map((item) => (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className="group flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-sm font-semibold text-slate-200 no-underline transition-colors hover:border-sky-300/25 hover:bg-sky-300/10 hover:text-white"
-                        >
-                          <span>{item.label}</span>
-                          <span className="text-slate-500 transition-transform group-hover:translate-x-0.5 group-hover:text-sky-200">→</span>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                    </>
+                  );
+                  return (
+                    <li key={label} className={index > 0 ? "border-0 border-t border-solid border-white/[0.06]" : ""}>
+                      {href ? (
+                        <a href={href} className="flex items-center gap-3 px-3.5 py-2.5 no-underline transition-colors hover:bg-white/[0.04] hover:no-underline">
+                          {row}
+                        </a>
+                      ) : (
+                        <div className="flex items-center gap-3 px-3.5 py-2.5">{row}</div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-white/12 bg-white/[0.045] p-5 shadow-sm shadow-black/20">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-100">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                  About NoLSAF
-                </div>
-                <ul className="m-0 grid list-none gap-2 p-0">
-                  {[
-                    { href: "/about/who", label: "Who are we", icon: Building2 },
-                    { href: "/about/what", label: "What we do", icon: Compass },
-                    { href: "/about/story", label: "Our Best Story", icon: Sparkles },
-                    // Anti-impersonation: someone checking a suspicious message needs a
-                    // route to the real corporate record from any page on the site.
-                    { href: "/verify", label: "Verify NoLSAF", icon: BadgeCheck },
-                  ].map((item) => (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        className="group flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-sm font-semibold text-slate-200 no-underline transition-colors hover:border-emerald-300/25 hover:bg-emerald-300/10 hover:text-white"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-300/10 text-emerald-200">
-                            <item.icon className="h-4 w-4" />
-                          </span>
-                          {item.label}
-                        </span>
-                        <span className="text-slate-500 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-200" aria-hidden="true">&rarr;</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="rounded-2xl border border-white/12 bg-white/[0.045] p-5 shadow-sm shadow-black/20">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide text-slate-100">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-300" />
-                    Resources
-                  </div>
-                  <span className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-1 text-[11px] font-semibold text-slate-300">
-                    Version {APP_VERSION}
-                  </span>
-                </div>
-                <ul className="m-0 grid list-none gap-2 p-0">
-                  {[
-                    { href: "/help", label: "Help Center", icon: BookOpen },
-                    { href: "/nrms", label: "NRMS for hotels", icon: BedDouble },
-                    { href: "/careers", label: "Careers", icon: BriefcaseBusiness },
-                  ].map((item) => (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        className="group flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.035] px-3 py-2.5 text-sm font-semibold text-slate-200 no-underline transition-colors hover:border-sky-300/25 hover:bg-sky-300/10 hover:text-white"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-300/10 text-sky-200">
-                            <item.icon className="h-4 w-4" />
-                          </span>
-                          {item.label}
-                        </span>
-                        <span className="text-slate-500 transition-transform group-hover:translate-x-0.5 group-hover:text-sky-200" aria-hidden="true">&rarr;</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-white/12 bg-white/[0.035] p-4 shadow-sm shadow-black/20">
-              <nav aria-label="Site footer navigation">
-                <div className="mb-3 text-center text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                  Platform standards
-                </div>
-                <ul className="m-0 flex list-none flex-wrap items-center justify-center gap-2 p-0">
-                  {[
-                    { href: "/terms", label: "Terms" },
-                    { href: "/privacy", label: "Privacy" },
-                    { href: "/account-deletion", label: "Delete account" },
-                    { href: "/stay-safe", label: "Stay Safe" },
-                    { href: "/cookies-policy", label: "Cookies" },
-                    { href: "/verification-policy", label: "Verification" },
-                    { href: "/cancellation-policy", label: "Cancellation" },
-                  ].map((item) => (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        className="inline-flex rounded-full border border-white/10 bg-white/[0.035] px-3.5 py-2 text-sm font-semibold text-slate-200 no-underline transition-colors hover:border-emerald-300/25 hover:bg-emerald-300/10 hover:text-white"
-                      >
-                        {item.label}
+            {[
+              {
+                title: "Company",
+                links: [
+                  { href: "/about/who", label: "Who we are" },
+                  { href: "/about/what", label: "What we do" },
+                  { href: "/about/story", label: "Our story" },
+                  { href: "/careers", label: "Careers" },
+                ],
+              },
+              {
+                title: "Support",
+                links: [
+                  { href: "/help", label: "Help Center" },
+                  // Anti-impersonation: someone checking a suspicious message needs a
+                  // route to the real corporate record from any page on the site.
+                  { href: "/verify", label: "Verify NoLSAF" },
+                  { href: "/stay-safe", label: "Stay safe" },
+                  { href: "/cancellation-policy", label: "Cancellation" },
+                  { href: "/verification-policy", label: "Verification" },
+                ],
+              },
+              {
+                title: "Partners",
+                links: [
+                  { href: "/account/register?mode=register&role=owner&next=%2Fowner", label: "Owner portal" },
+                  { href: "/account/register?mode=register&role=driver&next=%2Fdriver", label: "Driver portal" },
+                  { href: "/nrms", label: "NRMS for hotels" },
+                ],
+              },
+            ].map((group) => (
+              <nav key={group.title} aria-label={group.title} className="min-w-0">
+                <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45"><span className="h-px w-4 bg-emerald-300/70" aria-hidden />{group.title}</p>
+                <ul className="m-0 mt-3.5 grid list-none gap-2.5 p-0">
+                  {group.links.map((link) => (
+                    <li key={link.href}>
+                      <Link href={link.href} className="group/l inline-flex items-center text-[13.5px] text-white/70 no-underline transition-colors hover:text-white hover:no-underline">
+                        <span className="mr-0 h-px w-0 bg-emerald-300 transition-all duration-200 group-hover/l:mr-2 group-hover/l:w-2.5" aria-hidden />
+                        {link.label}
                       </Link>
                     </li>
                   ))}
                 </ul>
               </nav>
+            ))}
+
+            {/* Newsletter: its own card on large screens, full row under the columns on tablets */}
+            <div className="col-span-4 box-border min-w-0 rounded-2xl border border-solid border-white/[0.09] p-5 lg:col-span-1" style={{ background: "linear-gradient(160deg, rgba(2,102,94,0.22) 0%, rgba(255,255,255,0.03) 70%)" }}>
+              <p className="m-0 flex items-center gap-2 whitespace-nowrap text-[14px] font-semibold text-white"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-300/15 text-emerald-300"><Mail className="h-3.5 w-3.5" aria-hidden /></span>Monthly travel updates</p>
+              <p className="m-0 mt-2 text-[12.5px] leading-snug text-white/55">New stays, destinations and features. No spam.</p>
+              <form
+                className="mt-3.5 flex gap-2 lg:flex-col"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newsletterLoading) void subscribeNewsletter();
+                }}
+              >
+                <label htmlFor="footer-newsletter-email" className="sr-only">Email for NoLSAF updates</label>
+                <input
+                  id="footer-newsletter-email"
+                  type="email"
+                  value={newsletterEmail}
+                  onChange={(e) => setNewsletterEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  className="box-border h-10 min-w-0 flex-1 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-[13.5px] text-white outline-none placeholder:text-white/35 focus:border-emerald-300/60 lg:w-full lg:flex-none"
+                />
+                <button
+                  type="submit"
+                  disabled={newsletterLoading}
+                  className="group/s inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-400 px-4 text-[13px] font-semibold text-[#012e29] transition hover:bg-emerald-300 disabled:cursor-wait disabled:opacity-70 lg:w-full"
+                >
+                  {newsletterLoading ? "Subscribing" : "Subscribe"}
+                  {!newsletterLoading && <span aria-hidden className="transition-transform group-hover/s:translate-x-0.5">&rarr;</span>}
+                </button>
+              </form>
+              {newsletterStatus ? (
+                <p role="status" aria-live="polite" className={`m-0 mt-2 text-[12.5px] ${newsletterStatus.ok ? "text-emerald-300" : "text-rose-300"}`}>
+                  {newsletterStatus.message}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Bottom bar: copyright, legal, social */}
+          <div className="relative box-border flex flex-wrap items-center justify-between gap-4 border-0 border-t border-solid border-white/[0.08] px-8 py-4 lg:px-10">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]">
+              <span className="text-white/50">&copy; {year} NoLSAF</span>
+              {[
+                { href: "/terms", label: "Terms" },
+                { href: "/privacy", label: "Privacy" },
+                { href: "/cookies-policy", label: "Cookies" },
+                { href: "/account-deletion", label: "Delete account" },
+              ].map((item) => (
+                <Link key={item.href} href={item.href} className="text-white/60 no-underline transition-colors hover:text-white hover:no-underline">
+                  {item.label}
+                </Link>
+              ))}
+              <span className="text-[11px] tabular-nums text-white/30">{APP_VERSION}</span>
             </div>
 
-            <div className="mt-8">
-              <div className="h-px w-full bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-              <div className="mt-5 flex flex-col items-center gap-2">
-                <div className="text-xs sm:text-sm text-slate-300 text-center">
-                  <span className="font-semibold text-slate-200">&copy; {year} </span>
-                  <span className="font-extrabold text-[#02665e] tracking-wide">NoLSAF</span>
-                  <span className="text-slate-400"> | All rights reserved</span>
-                </div>
-              </div>
+            <div className="flex items-center gap-1">
+              {[
+                { href: "https://www.linkedin.com/company/nolsaf", label: "NoLSAF on LinkedIn", Icon: Linkedin },
+                { href: "https://www.instagram.com/nolsaf", label: "NoLSAF on Instagram", Icon: Instagram },
+                { href: "https://www.youtube.com/@nolsaf", label: "NoLSAF on YouTube", Icon: Youtube },
+                { href: "https://x.com/nolsaf", label: "NoLSAF on X", Icon: X },
+                { href: "https://www.facebook.com/nolsaf", label: "NoLSAF on Facebook", Icon: Facebook },
+              ].map(({ href, label, Icon }) => (
+                <a
+                  key={href}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={label}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg text-white/55 no-underline transition hover:bg-white/[0.08] hover:text-white"
+                >
+                  <Icon className="h-[18px] w-[18px]" aria-hidden />
+                </a>
+              ))}
             </div>
           </div>
         </div>
       </div>
     </footer>
-  );
-}
+  );}

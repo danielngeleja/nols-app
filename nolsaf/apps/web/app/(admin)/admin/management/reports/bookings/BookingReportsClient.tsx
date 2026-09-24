@@ -1,15 +1,16 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ClipboardList, FileText, Printer, RefreshCw, Users } from "lucide-react";
 
 import Chart from "@/components/Chart";
-import DatePickerField from "@/components/DatePickerField";
 import NoLSAFReportsFrame, { NoLSAFReportTitle } from "@/components/admin/reports/NoLSAFReportsFrame";
+import ReportPeriodPicker from "@/components/admin/reports/ReportPeriodPicker";
 import {
   adminReportPrintStyles,
   buildAdminReportFooter,
   buildAdminReportHeader,
+  buildAdminReportWatermark,
   openAdminReportPrintWindow,
   renderAndPrintAdminReport,
 } from "@/lib/adminReportPrint";
@@ -94,7 +95,7 @@ function PercentBarRow({
 
   return (
     <div className="flex items-center gap-3">
-      <div className="w-[130px] text-[11px] font-semibold text-gray-700 truncate" title={label}>
+      <div className="w-[130px] text-[12.5px] font-semibold text-gray-700 truncate" title={label}>
         {label}
       </div>
 
@@ -149,43 +150,6 @@ function fmtAmount(v: unknown) {
 function normalizeCount(v: number | null | undefined) {
   return Number.isFinite(Number(v)) ? Number(v) : 0;
 }
-
-function RangePill({
-  label,
-  hint,
-  active,
-  onClick,
-}: {
-  label: string;
-  hint: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={hint}
-      aria-label={hint}
-      className={
-        "group relative h-9 w-full snap-start overflow-hidden rounded-md border px-3 text-[10px] font-bold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 " +
-        (active ? "border-emerald-800 bg-gradient-to-b from-emerald-700 to-emerald-800 text-white shadow-emerald-900/15" : "border-neutral-200 bg-gradient-to-b from-white to-neutral-50 text-neutral-600 hover:border-emerald-300 hover:text-emerald-800")
-      }
-    >
-      <span className="relative z-10">{label}</span>
-      <span className={`absolute inset-x-2 bottom-0 h-0.5 transition ${active ? "bg-emerald-300" : "bg-transparent group-hover:bg-emerald-300"}`} aria-hidden />
-
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 shadow-lg opacity-0 scale-95 transition-all duration-150 ease-out group-hover:opacity-100 group-hover:scale-100 group-focus-visible:opacity-100 group-focus-visible:scale-100"
-      >
-        {hint}
-      </span>
-    </button>
-  );
-}
-
-type MoreRangeKey = "3m" | "6m" | "ytd" | "12m";
 
 async function fetchAllPages<T>(baseUrl: URL, maxItems = 20000): Promise<{ items: T[]; total: number }>
 {
@@ -293,24 +257,6 @@ export default function BookingReportsClient() {
 
   const [ownerChartCanvas, setOwnerChartCanvas] = useState<HTMLCanvasElement | null>(null);
   const [tourChartCanvas, setTourChartCanvas] = useState<HTMLCanvasElement | null>(null);
-
-  const getMoreRange = useCallback((k: MoreRangeKey) => {
-    const end = startOfTodayUtc();
-    if (k === "ytd") {
-      const now = new Date();
-      const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-      return { from: formatDate(start), to: formatDate(end) };
-    }
-    if (k === "3m") return { from: formatDate(addDaysUtc(end, -89)), to: formatDate(end) };
-    if (k === "6m") return { from: formatDate(addDaysUtc(end, -179)), to: formatDate(end) };
-    return { from: formatDate(addDaysUtc(end, -364)), to: formatDate(end) };
-  }, []);
-
-  const getQuickRange = useCallback((daysBackInclusive: number) => {
-    const end = startOfTodayUtc();
-    const start = addDaysUtc(end, -daysBackInclusive);
-    return { from: formatDate(start), to: formatDate(end) };
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -508,6 +454,10 @@ export default function BookingReportsClient() {
     // QR. Anyone can scan it to confirm the report is genuine without logging in.
     let reportRef = `BR-${from.replace(/-/g, "")}-${to.replace(/-/g, "")}-${reportId.slice(11, 19).replace(/:/g, "")}`;
     let verifyQrDataUrl: string | null = null;
+    // The seal call is what records the export, so a failure here must stop the
+    // print rather than quietly produce an unrecorded document.
+    let sealedBy = "NoLSAF Administration";
+    let sealedRole = "ADMIN";
     try {
       const sealRes = await fetch("/api/reports/seal", {
         method: "POST",
@@ -530,8 +480,11 @@ export default function BookingReportsClient() {
         }),
       });
       const sealJson: any = await safeJson(sealRes);
+      if (!sealJson?.token) throw new Error("The report was not sealed.");
       if (sealJson?.token) {
         reportRef = String(sealJson.ref || reportRef);
+        sealedBy = String(sealJson.generatedBy || sealedBy);
+        sealedRole = String(sealJson.role || sealedRole);
         const verifyUrl = new URL("/verify", window.location.origin);
         verifyUrl.searchParams.set("t", String(sealJson.token));
         const QR: any = await import("qrcode");
@@ -545,7 +498,9 @@ export default function BookingReportsClient() {
         }
       }
     } catch {
-      verifyQrDataUrl = null;
+      printWindow.close();
+      alert("This report was not printed because it could not be sealed and recorded. Please try again.");
+      return;
     }
 
     const fmt = (n: number | null) => fmtInt(n);
@@ -839,6 +794,13 @@ export default function BookingReportsClient() {
 </head>
 <body>
   <div class="reportPage">
+    ${buildAdminReportWatermark({
+      printedBy: sealedBy,
+      role: sealedRole,
+      reportRef,
+      printedAt: fmtDateTime(reportId),
+      classification: "NoLSAF confidential",
+    })}
     <main class="reportDocument">
       ${buildAdminReportHeader({
         logoUrl,
@@ -851,6 +813,7 @@ export default function BookingReportsClient() {
         from,
         to,
         generatedAt: fmtDateTime(reportId),
+        preparedBy: sealedBy,
         classification: "Operations and management use",
       })}
 
@@ -916,7 +879,7 @@ export default function BookingReportsClient() {
   return (
     <NoLSAFReportsFrame
       actions={
-        <button type="button" onClick={printReport} className="inline-flex h-9 items-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-emerald-800">
+        <button type="button" onClick={printReport} className="inline-flex h-9 items-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-emerald-800">
           <Printer className="h-3.5 w-3.5" aria-hidden />
           Print / PDF
         </button>
@@ -940,100 +903,62 @@ export default function BookingReportsClient() {
               ) : null}
 
               {/* Controls toolbar */}
-              <section className="grid min-w-0 gap-4 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm lg:grid-cols-[minmax(0,360px)_1px_minmax(0,1fr)] lg:items-end" aria-label="Booking report controls">
-                <div className="min-w-0">
-                  <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Reporting period</div>
-                  <div className="mt-2 grid min-w-0 gap-2 sm:grid-cols-2">
-                    <div className="min-w-0">
-                      <div className="mb-1 text-[9px] font-semibold text-neutral-500">From</div>
-                      <DatePickerField label="From date" value={from} max={to} onChangeAction={(nextIso) => setFrom(nextIso)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="mb-1 text-[9px] font-semibold text-neutral-500">To</div>
-                      <DatePickerField label="To date" value={to} min={from} onChangeAction={(nextIso) => setTo(nextIso)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="hidden self-stretch bg-neutral-200 lg:block" aria-hidden />
-
-                <div className="min-w-0">
-                  <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Quick range</div>
-                  <div className="mt-2 flex min-w-0 items-center gap-2">
-                    <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                      <div className="grid w-max min-w-full grid-flow-col auto-cols-[minmax(88px,1fr)] items-center gap-1.5 p-0.5" aria-label="Quick report periods">
-                      {(
-                        [
-                          { key: "today" as const, label: "Today", hint: "Today", days: 0 },
-                          { key: "7d" as const, label: "7 days", hint: "Last 7 days", days: 6 },
-                          { key: "30d" as const, label: "30 days", hint: "Last 30 days", days: 29 },
-                          { key: "3m" as const, label: "3 months", hint: "Last 3 months" },
-                          { key: "6m" as const, label: "6 months", hint: "Last 6 months" },
-                          { key: "ytd" as const, label: "YTD", hint: "Year to date" },
-                          { key: "12m" as const, label: "12 months", hint: "Last 12 months" },
-                        ] as const
-                      ).map((p) => {
-                        const r = "days" in p ? getQuickRange(p.days) : getMoreRange(p.key);
-                        const active = from === r.from && to === r.to;
-                        return (
-                          <RangePill
-                            key={p.key}
-                            label={p.label}
-                            hint={p.hint}
-                            active={active}
-                            onClick={() => {
-                              setFrom(r.from);
-                              setTo(r.to);
-                            }}
-                          />
-                        );
-                      })}
-
-                      </div>
-                  </div>
-                  <button type="button" onClick={() => void load()} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700" title="Refresh" aria-label="Refresh">
-                    <RefreshCw className="h-4 w-4" aria-hidden />
+              <ReportPeriodPicker
+                from={from}
+                to={to}
+                onChangeAction={(nextFrom, nextTo) => {
+                  setFrom(nextFrom);
+                  setTo(nextTo);
+                }}
+                actions={
+                  <button
+                    type="button"
+                    onClick={() => void load()}
+                    className="box-border inline-flex h-8 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-[13px] font-semibold text-neutral-700 transition hover:border-[#073c35]/30 hover:bg-neutral-50"
+                    title="Refresh"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                    Refresh
                   </button>
-                </div>
-                </div>
-              </section>
+                }
+              />
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="h-7 w-7 rounded-xl bg-[#02665e]/10 flex items-center justify-center"><FileText className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /></span>
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Owner bookings</div>
+                <div className="text-[12.5px] font-bold uppercase tracking-[0.16em] text-slate-500">Owner bookings</div>
               </div>
               <div className="ml-auto text-lg font-bold tabular-nums text-neutral-950">{fmtInt(kpiSingle)}</div>
             </div>
-            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="h-7 w-7 rounded-xl bg-sky-50 flex items-center justify-center"><Users className="h-3.5 w-3.5 text-sky-500" aria-hidden /></span>
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Group stays</div>
+                <div className="text-[12.5px] font-bold uppercase tracking-[0.16em] text-slate-500">Group stays</div>
               </div>
               <div className="ml-auto text-lg font-bold tabular-nums text-neutral-950">{fmtInt(kpiGroup)}</div>
             </div>
-            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="h-7 w-7 rounded-xl bg-amber-50 flex items-center justify-center"><ClipboardList className="h-3.5 w-3.5 text-amber-500" aria-hidden /></span>
-                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Tour bookings</div>
+                <div className="text-[12.5px] font-bold uppercase tracking-[0.16em] text-slate-500">Tour bookings</div>
               </div>
               <div className="ml-auto text-lg font-bold tabular-nums text-neutral-950">{fmtInt(kpiTour)}</div>
             </div>
           </div>
 
-          <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+          <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <div className="text-sm font-bold text-neutral-950">Visual summary</div>
-                <div className="mt-0.5 text-[10px] text-neutral-500">Status breakdown across the three booking streams.</div>
+                <div className="mt-0.5 text-[12.5px] text-neutral-500">Status breakdown across the three booking streams.</div>
               </div>
-              {loading ? <div className="text-xs text-slate-400 font-medium">Loading…</div> : null}
+              {loading ? <div className="text-[13px] text-slate-400 font-medium">Loading…</div> : null}
             </div>
 
             <div className="mt-3 grid gap-3 lg:grid-cols-3">
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Owner bookings by status</div>
+              <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3">
+                <div className="mb-2 text-[12.5px] font-bold uppercase tracking-wide text-neutral-500">Owner bookings by status</div>
                 <Chart
                   type="pie"
                   data={ownerStatusChartData as any}
@@ -1054,8 +979,8 @@ export default function BookingReportsClient() {
                 />
               </div>
 
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Group stays status</div>
+              <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3">
+                <div className="mb-2 text-[12.5px] font-bold uppercase tracking-wide text-neutral-500">Group stays status</div>
                 <div className="grid grid-cols-1 gap-2">
                   {groupStayBars.map((row) => (
                     <PercentBarRow key={row.key} label={row.label} pct={row.pct} colorClassName={row.color} />
@@ -1063,8 +988,8 @@ export default function BookingReportsClient() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
-                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Tour bookings by status</div>
+              <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3">
+                <div className="mb-2 text-[12.5px] font-bold uppercase tracking-wide text-neutral-500">Tour bookings by status</div>
                 <Chart
                   type="doughnut"
                   data={tourStatusChartData as any}
@@ -1089,7 +1014,7 @@ export default function BookingReportsClient() {
           </section>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
+            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                 <span className="h-7 w-7 rounded-xl bg-[#02665e]/10 flex items-center justify-center"><FileText className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /></span>
                 <div className="text-sm font-black text-slate-900">Owner bookings</div>
@@ -1104,14 +1029,14 @@ export default function BookingReportsClient() {
                   { label: "Canceled", value: totals.single.byStatus["CANCELED"] ?? "—" },
                 ].map((row) => (
                   <div key={row.label} className="flex items-center justify-between py-1">
-                    <span className="text-xs text-slate-500">{row.label}</span>
+                    <span className="text-[13px] text-slate-500">{row.label}</span>
                     <span className={"text-sm " + (row.bold ? "font-black text-[#02665e]" : "font-semibold text-slate-800")}>{String(row.value)}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
+            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                 <span className="h-7 w-7 rounded-xl bg-sky-50 flex items-center justify-center"><Users className="h-3.5 w-3.5 text-sky-500" aria-hidden /></span>
                 <div className="text-sm font-black text-slate-900">Group stays</div>
@@ -1126,14 +1051,14 @@ export default function BookingReportsClient() {
                   { label: "Canceled", value: totals.groupStays.byStatus["CANCELED"] ?? "—" },
                 ].map((row) => (
                   <div key={row.label} className="flex items-center justify-between py-1">
-                    <span className="text-xs text-slate-500">{row.label}</span>
+                    <span className="text-[13px] text-slate-500">{row.label}</span>
                     <span className={"text-sm " + (row.bold ? "font-black text-sky-600" : "font-semibold text-slate-800")}>{String(row.value)}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
+            <div className="rounded-xl border border-solid border-neutral-200 bg-white p-3.5 shadow-sm">
               <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
                 <span className="h-7 w-7 rounded-xl bg-amber-50 flex items-center justify-center"><ClipboardList className="h-3.5 w-3.5 text-amber-500" aria-hidden /></span>
                 <div className="text-sm font-black text-slate-900">Tour bookings</div>
@@ -1149,7 +1074,7 @@ export default function BookingReportsClient() {
                   { label: "Rejected", value: totals.tourBookings.byStatus["REJECTED"] ?? "—" },
                 ].map((row) => (
                   <div key={row.label} className="flex items-center justify-between py-1">
-                    <span className="text-xs text-slate-500">{row.label}</span>
+                    <span className="text-[13px] text-slate-500">{row.label}</span>
                     <span className={"text-sm " + (row.bold ? "font-black text-amber-600" : "font-semibold text-slate-800")}>{String(row.value)}</span>
                   </div>
                 ))}
@@ -1157,20 +1082,20 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-            <div className="border-b border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Owner booking register</div>
+          <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Owner booking register</div>
             <div className="overflow-x-auto px-3 pb-3">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Name</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Gender</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Nationality</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Paid at</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Property Name</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Check-in &amp; out</th>
-                    <th className="py-2.5 pr-0 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Rating</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Name</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Gender</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Nationality</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Amount</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Paid at</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Property Name</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Check-in &amp; out</th>
+                    <th className="py-2.5 pr-0 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Rating</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1211,26 +1136,26 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-            <div className="border-b border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Group stay register</div>
+          <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Group stay register</div>
             <div className="overflow-x-auto px-3 pb-3">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Name</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Phone</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Gender</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Nationality</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Status</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted Amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed Amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Currency</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted Property</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed Property</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Check-in &amp; out</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Created</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted</th>
-                    <th className="py-2.5 pr-0 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Name</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Phone</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Gender</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Nationality</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Status</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted Amount</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed Amount</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Currency</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted Property</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed Property</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Check-in &amp; out</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Created</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted</th>
+                    <th className="py-2.5 pr-0 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1281,22 +1206,22 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-            <div className="border-b border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Tour booking register</div>
+          <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Tour booking register</div>
             <div className="overflow-x-auto px-3 pb-3">
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Booking code</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Operator</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Tour</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Destination</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Travelers</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Gross amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Commission</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Currency</th>
-                    <th className="py-2.5 pr-4 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Status</th>
-                    <th className="py-2.5 pr-0 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Created</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Booking code</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Operator</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Tour</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Destination</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Travelers</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Gross amount</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Commission</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Currency</th>
+                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Status</th>
+                    <th className="py-2.5 pr-0 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Created</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1339,7 +1264,7 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          {loading ? <div className="text-xs text-slate-400 font-medium text-center py-2">Loading…</div> : null}
+          {loading ? <div className="text-[13px] text-slate-400 font-medium text-center py-2">Loading…</div> : null}
     </NoLSAFReportsFrame>
   );
 }

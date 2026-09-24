@@ -77,11 +77,4 @@ describe("API smoke", () => {
     expect(res.status === 404).toBe(false);
     expect(res.headers["content-type"] || "").toContain("application/json");
   });
-
-  it("mounts plan request endpoint (must not 404)", async () => {
-    // Send an intentionally minimal/invalid payload; we only care that the route exists.
-    const res = await request(app).post("/api/plan-request").send({});
-    expect(res.status === 404).toBe(false);
-    expect(res.headers["content-type"] || "").toContain("application/json");
-  });
 });

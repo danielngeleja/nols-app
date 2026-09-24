@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, History, Loader2, Search, Star, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Coins, History, Loader2, Search, Star, UserRound, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 
@@ -71,6 +71,10 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
   const [status, setStatus] = useState("");
   const [outletId, setOutletId] = useState("");
   const [period, setPeriod] = useState("");
+  /** "Only mine": what this user rang up. Outlet history stays shared so a
+   *  replacement attendant inherits the full picture; this is for a person
+   *  reconciling their own shift, not an access restriction. */
+  const [mineOnly, setMineOnly] = useState(false);
   const [search, setSearch] = useState("");
   const [queryText, setQueryText] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -95,6 +99,7 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
       if (outletId) query.set("outletId", outletId);
       if (queryText) query.set("q", queryText);
       if (period) query.set("from", new Date(Date.now() - Number(period) * 86_400_000).toISOString());
+      if (mineOnly) query.set("mine", "1");
       const [contextResponse, historyResponse] = await Promise.all([
         apiClient.get(`/api/nrms/operations/property/${propertyId}/context`),
         apiClient.get(`/api/nrms/operations/property/${propertyId}/orders?${query.toString()}`),
@@ -108,12 +113,12 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to load order history");
     }
-  }, [outletId, page, period, propertyId, queryText, scope, status]);
+  }, [mineOnly, outletId, page, period, propertyId, queryText, scope, status]);
 
   useEffect(() => { void load(); }, [load]);
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const hasFilters = Boolean(status || outletId || period || search);
+  const hasFilters = Boolean(status || outletId || period || search || mineOnly);
   const canAssignOthers = ["OWNER", "MANAGER", "OUTLET_SUPERVISOR"].includes(role);
   const tipEligibleAttendants = tipAction
     ? attendants.filter((attendant) => (attendant.outletId == null || attendant.outletId === tipAction.order.outlet.id) && (canAssignOthers || attendant.id === currentUserId))
@@ -178,12 +183,26 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
         <span className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-bold text-neutral-500 shadow-sm">{total} saved</span>
       </div>
 
-      <div className="grid min-w-0 gap-2 border-b border-neutral-200 bg-white px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(14rem,1fr)_minmax(10rem,.55fr)_minmax(11rem,.65fr)_minmax(9rem,.45fr)_auto]">
+      <div className="grid min-w-0 gap-2 border-b border-neutral-200 bg-white px-4 py-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_minmax(9rem,.5fr)_minmax(10rem,.6fr)_minmax(8rem,.4fr)_auto_auto]">
         <label className="relative min-w-0"><span className="sr-only">Search order history</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, guest, outlet or item" className="box-border h-10 w-full rounded-lg border border-neutral-200 bg-neutral-50 pl-9 pr-3 text-xs font-medium text-neutral-800 outline-none placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
         <label className="min-w-0"><span className="sr-only">Filter by outlet</span><select value={outletId} onChange={(event) => { setOutletId(event.target.value); setPage(0); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500"><option value="">All outlets</option>{outletOptions.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></label>
         <label className="min-w-0"><span className="sr-only">Filter by status</span><select value={status} onChange={(event) => { setStatus(event.target.value); setPage(0); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500">{FILTERS.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label>
         <label className="min-w-0"><span className="sr-only">Filter by period</span><select value={period} onChange={(event) => { setPeriod(event.target.value); setPage(0); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 outline-none focus:border-emerald-500"><option value="">All time</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label>
-        {hasFilters && <button type="button" onClick={() => { setSearch(""); setQueryText(""); setOutletId(""); setStatus(""); setPeriod(""); setPage(0); }} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-800"><X className="h-3.5 w-3.5" />Clear</button>}
+        <button
+          type="button"
+          onClick={() => { setMineOnly((value) => !value); setPage(0); }}
+          aria-pressed={mineOnly}
+          title="Show only the orders you rang up"
+          className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition ${
+            mineOnly
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+              : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50"
+          }`}
+        >
+          <UserRound className="h-3.5 w-3.5" />
+          Only mine
+        </button>
+        {hasFilters && <button type="button" onClick={() => { setSearch(""); setQueryText(""); setOutletId(""); setStatus(""); setPeriod(""); setMineOnly(false); setPage(0); }} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-500 transition hover:border-neutral-300 hover:bg-neutral-50 hover:text-neutral-800"><X className="h-3.5 w-3.5" />Clear</button>}
       </div>
 
       {error && <div className="mx-4 mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{error}</div>}

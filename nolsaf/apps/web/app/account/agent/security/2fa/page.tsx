@@ -13,6 +13,7 @@ export default function AgentTwoFactorPage() {
       smsVerifyUrl="/api/account/2fa/sms/verify"
       smsDisableUrl="/api/account/2fa/sms/disable"
       backHref="/account/agent/security"
+      regenerateCodesUrl="/api/account/2fa/codes/regenerate"
       containerClassName="public-container w-full"
     />
   )

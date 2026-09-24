@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Activity, Building2, CalendarCheck, RefreshCw, TrendingUp, Wallet } from "lucide-react";
@@ -137,17 +137,17 @@ export default function LivePerformancePulse() {
   const lastUpdated = overview?.lastUpdated ? new Date(overview.lastUpdated) : null;
 
   return (
-    <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-neutral-100 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+    <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="text-sm font-bold text-neutral-950">Revenue and operations pulse</div>
-          <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">
-            Company revenue trend, booking movement, pending approvals, and active sessions.
+          <div className="text-[15px] font-bold leading-5 text-neutral-950">Revenue and operations pulse</div>
+          <div className="mt-0.5 text-[12.5px] leading-4 text-neutral-500">
+            Company revenue trend, booking movement, pending approvals and active sessions.
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex h-8 items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
+          <div className="box-border inline-flex h-8 items-center gap-2 rounded-lg border border-solid border-emerald-100 bg-emerald-50 px-2.5 text-[13px] font-semibold text-emerald-700">
             <TrendingUp className="h-3.5 w-3.5" aria-hidden />
             {previousRevenue > 0 ? `${revenueChange >= 0 ? "+" : ""}${revenueChange.toFixed(1)}% vs yesterday` : "Live data"}
           </div>
@@ -155,7 +155,7 @@ export default function LivePerformancePulse() {
             type="button"
             onClick={() => load(true)}
             disabled={refreshing}
-            className="inline-flex h-8 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 text-[10px] font-bold text-neutral-700 transition-colors hover:border-emerald-200 hover:bg-emerald-50 disabled:opacity-60"
+            className="box-border inline-flex h-8 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-[13px] font-semibold text-neutral-700 transition-colors hover:border-[#073c35]/30 hover:bg-neutral-50 disabled:opacity-60"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
             Refresh
@@ -226,14 +226,14 @@ export default function LivePerformancePulse() {
             })}
           </svg>
 
-          <div className="flex flex-wrap items-center gap-4 border-t border-neutral-100 px-1 pt-3 text-[10px] text-neutral-500">
+          <div className="flex flex-wrap items-center gap-4 border-0 border-t border-solid border-neutral-100 px-1 pt-3 text-[12.5px] text-neutral-500">
             <span>{range.from} to {range.to}</span>
             <span>Total revenue: <strong className="font-bold text-slate-800">{formatMoney(totalRevenue)} TZS</strong></span>
             {lastUpdated ? <span>Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
           </div>
         </div>
 
-        <div className="order-1 grid grid-cols-2 border-b border-neutral-200 bg-neutral-50/70 sm:grid-cols-3 xl:grid-cols-5">
+        <div className="order-1 grid grid-cols-2 border-0 border-b border-solid border-neutral-200 bg-neutral-50/70 sm:grid-cols-3 xl:grid-cols-5">
           <PulseKpi icon={Wallet} label="Company revenue (TZS)" value={`${formatMoney(toNumber(overview?.companyRevenue))} TZS`} helper="Property + transport commission" />
           <PulseKpi icon={TrendingUp} label={`Tour commission (${overview?.companyRevenueTourCurrency || "USD"})`} value={`${overview?.companyRevenueTourCurrency || "USD"} ${formatMoney(toNumber(overview?.companyRevenueTour))}`} helper="USD. Reported separately, never summed with TZS" />
           <PulseKpi icon={CalendarCheck} label="Bookings 24h" value={formatNumber(toNumber(summary?.bookings))} helper="Real booking movement" />
@@ -243,8 +243,8 @@ export default function LivePerformancePulse() {
       </div>
 
       {loading ? (
-        <div className="border-t border-neutral-200 bg-white px-4 py-2.5 text-[10px] font-medium text-neutral-500">
-          Loading live performance data...
+        <div className="border-0 border-t border-solid border-neutral-200 bg-white px-4 py-2.5 text-[12.5px] font-medium text-neutral-500">
+          Loading live performance data
         </div>
       ) : null}
     </section>
@@ -263,15 +263,15 @@ function PulseKpi({
   helper: string;
 }) {
   return (
-    <div className="min-w-0 border-r border-b border-neutral-200 px-3 py-3 last:border-r-0 xl:border-b-0">
+    <div className="box-border min-w-0 border-0 border-b border-r border-solid border-neutral-200 px-3 py-3 last:border-r-0 xl:border-b-0">
       <div className="flex items-start gap-2.5">
-        <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-white text-emerald-700 ring-1 ring-neutral-200">
+        <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-white text-[#073c35] ring-1 ring-neutral-200">
           <Icon className="h-3.5 w-3.5" aria-hidden />
         </div>
         <div className="min-w-0">
-          <div className="truncate text-[8px] font-bold uppercase tracking-[0.1em] text-neutral-400">{label}</div>
-          <div className="mt-1 truncate text-sm font-bold tabular-nums text-neutral-950">{value}</div>
-          <div className="mt-0.5 line-clamp-2 text-[9px] leading-3.5 text-neutral-500">{helper}</div>
+          <div className="truncate text-[12.5px] font-semibold text-neutral-500">{label}</div>
+          <div className="mt-0.5 truncate text-[20px] font-bold leading-tight tabular-nums text-neutral-950">{value}</div>
+          <div className="mt-0.5 line-clamp-2 text-[12.5px] leading-4 text-neutral-400">{helper}</div>
         </div>
       </div>
     </div>

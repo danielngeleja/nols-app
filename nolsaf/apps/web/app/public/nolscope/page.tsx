@@ -1,5 +1,8 @@
 import NolScopeEstimator from "@/components/NolScopeEstimator";
-import { Calculator, FileCheck, MapPin, Route, Sparkles, Telescope } from "lucide-react";
+import NolScopeHeroFacts from "@/components/NolScopeHeroFacts";
+import NolScopeHeroInsights from "@/components/NolScopeHeroInsights";
+import NolScopeHeroRoute from "@/components/NolScopeHeroRoute";
+import { ArrowDown } from "lucide-react";
 import type { Metadata } from "next";
 import { SITE_URL, seoKeywords } from "@/lib/seo";
 
@@ -24,90 +27,66 @@ export const metadata: Metadata = {
   },
 };
 
-const STATS = [
-  { value: "8",    label: "Destinations",       icon: MapPin      },
-  { value: "47+",  label: "Visa rules covered",  icon: FileCheck   },
-  { value: "12",   label: "Transport routes",    icon: Route       },
-  { value: "Free", label: "No sign-up needed",   icon: Sparkles    },
-];
-
 export default function NolScopePage() {
   return (
-    <main className="min-h-screen bg-slate-50">
-
-      {/* ── Hero — constrained to public-container, rounded corners ── */}
-      <section className="public-container pt-4 pb-0">
-        <div
-          style={{
-            background: [
-              "repeating-linear-gradient(135deg,rgba(255,255,255,0.04) 0px,rgba(255,255,255,0.04) 14px,transparent 14px,transparent 28px)",
-              "linear-gradient(135deg,#02665e 0%,#014d47 55%,#013d38 100%)",
-            ].join(","),
-          }}
-          className="relative overflow-hidden rounded-2xl"
-        >
-          {/* subtle radial glow */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(ellipse 70% 60% at 60% 40%,rgba(255,255,255,0.07) 0%,transparent 70%)",
-            }}
-          />
-
-          {/* content */}
-          <div className="relative px-6 pt-12 pb-14 text-center text-white">
-
-            {/* large decorative telescope — background watermark, right-aligned */}
-            <div
-              className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 opacity-[0.07]"
-              style={{ transform: "translateY(-50%) rotate(-18deg)" }}
-              aria-hidden
-            >
-              <Telescope className="w-52 h-52 text-white" strokeWidth={1} />
+    <main className="min-h-screen bg-[#f3f7f6]">
+      {/* ── Hero: the promise on the left, what we price on the right ── */}
+      <section className="public-container pt-4">
+        {/* Calm: one flat colour, few words, one action */}
+        <div className="relative overflow-hidden rounded-3xl bg-[#024d47] text-white">
+          <div className="relative grid gap-10 px-6 py-12 sm:px-10 md:grid-cols-[minmax(0,1fr)_340px] md:items-center lg:grid-cols-[minmax(0,1fr)_400px] lg:py-14">
+            {/* Left */}
+            <div className="text-center md:text-left">
+              <p className="m-0 text-[13px] font-semibold text-emerald-200">NoLScope</p>
+              <h1 className="m-0 mt-2 text-[34px] font-extrabold leading-[1.1] tracking-tight sm:text-[44px]">
+                Know what your Tanzania trip costs.
+              </h1>
+              <p className="m-0 mx-auto mt-3 max-w-md text-[15px] leading-7 text-white/70 md:mx-0">
+                Visa, parks, transport and stays, itemised in minutes.
+              </p>
+              <a
+                href="#estimator"
+                className="mt-7 inline-flex h-12 items-center gap-2 rounded-xl bg-white px-6 text-[15px] font-bold text-[#024d47] no-underline shadow-lg transition-transform hover:-translate-y-0.5"
+              >
+                Start your estimate
+                <ArrowDown className="h-4 w-4" />
+              </a>
+              <NolScopeHeroFacts />
+              {/* Connects the promise to the data: the most-visited places, joined as one route */}
+              <div className="hidden sm:block">
+                <NolScopeHeroRoute />
+              </div>
             </div>
 
-            {/* badge with calculator icon */}
-            <span className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[11px] font-semibold tracking-widest text-white/80">
-              <Calculator className="w-3 h-3 text-emerald-300" strokeWidth={2.5} />
-              NoLScope | Cost Estimator
-            </span>
-
-            {/* headline */}
-            <h1 className="text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight mb-3">
-              Plan your Tanzania trip.
-              <br />
-              <span className="text-white/65 font-medium">Know the real cost upfront.</span>
-            </h1>
-
-            {/* sub */}
-            <p className="text-sm text-white/60 max-w-md mx-auto leading-relaxed">
-              Instant, itemised estimates covering visa fees, park entrance, transport,
-              activities and accommodation. No sign-up required.
-            </p>
-
-            {/* stats grid — each tile has an icon */}
-            <div className="mt-8 grid grid-cols-4 gap-3 max-w-lg mx-auto">
-              {STATS.map((s) => (
-                <div
-                  key={s.label}
-                  className="flex flex-col items-center gap-1 bg-white/10 border border-white/10 rounded-xl py-3 px-1"
-                >
-                  <s.icon className="w-4 h-4 text-emerald-300/70" strokeWidth={1.75} />
-                  <span className="text-xl font-black text-white leading-none">{s.value}</span>
-                  <span className="text-[10px] text-white/55 text-center leading-tight">{s.label}</span>
-                </div>
-              ))}
+            {/* Right: a live answer, not decoration: which places suit the month, from our season data */}
+            <div className="w-full">
+              <NolScopeHeroInsights />
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── Estimator — same public-container as header/footer ── */}
-      <section className="public-container py-10 pb-24">
-        <NolScopeEstimator />
+      {/* ── Workspace: the estimator on a soft mapped background ── */}
+      <section
+        id="estimator"
+        className="relative scroll-mt-20"
+        style={{
+          backgroundImage: [
+            "radial-gradient(ellipse 50% 40% at 15% 0%, rgba(2,102,94,0.08), transparent 70%)",
+            "radial-gradient(ellipse 40% 35% at 90% 30%, rgba(245,158,11,0.06), transparent 70%)",
+            "radial-gradient(rgba(2,102,94,0.10) 1px, transparent 1px)",
+          ].join(","),
+          backgroundSize: "auto, auto, 24px 24px",
+        }}
+      >
+        <div className="public-container pb-24 pt-10">
+          <div className="mb-6">
+            <h2 className="m-0 text-[24px] font-bold tracking-tight text-slate-950 sm:text-[28px]">Build your estimate</h2>
+            <p className="m-0 mt-1 text-[14px] text-slate-500">Four quick steps. Your trip summary updates as you go.</p>
+          </div>
+          <NolScopeEstimator />
+        </div>
       </section>
-
     </main>
   );
 }

@@ -5,6 +5,7 @@
 // the marketplace and NRMS can never disagree about what is sellable.
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES, REAL_BOOKING_STATUSES } from "./bookingStatus.js";
+import { shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
 
 type DbLike = typeof prisma | any;
 
@@ -27,7 +28,19 @@ export type CalendarEntry = {
   guestName: string | null;
   label: string;
   billable: boolean;
+  /// Original scheduled departure when an earlier physical departure shortened
+  /// the visible occupied span. Audit history remains available without making
+  /// released future dates look blocked.
+  scheduledEndDate?: Date | null;
+  earlyDeparture?: boolean;
 };
+
+export function calendarDepartureSpan(plannedEnd: Date, checkedOutAt?: Date | null) {
+  if (!checkedOutAt) return { endDate: plannedEnd, scheduledEndDate: null, earlyDeparture: false };
+  const actualDay = shiftDateOnly(shiftDayKey(checkedOutAt));
+  if (actualDay >= plannedEnd) return { endDate: plannedEnd, scheduledEndDate: null, earlyDeparture: false };
+  return { endDate: actualDay, scheduledEndDate: plannedEnd, earlyDeparture: true };
+}
 
 function overlapWhere(start: Date, end: Date, startField: string, endField: string) {
   return { AND: [{ [endField]: { gt: start } }, { [startField]: { lt: end } }] };
@@ -44,6 +57,7 @@ export async function lockPropertyInventory(tx: any, propertyId: number): Promis
 
 export type NrmsCapacityConsumer = {
   reservationId: number;
+  guestName: string | null;
   allocationId: number;
   roomTypeId: number;
   roomTypeName: string;
@@ -84,10 +98,12 @@ export async function getNrmsCapacityConsumers(
       endDate: true,
       roomType: { select: { name: true } },
       roomUnit: { select: { code: true } },
+      reservation: { select: { guestProfile: { select: { fullName: true } } } },
     },
   });
   return rows.map((row: any) => ({
     reservationId: row.reservationId,
+    guestName: row.reservation?.guestProfile?.fullName ?? null,
     allocationId: row.id,
     roomTypeId: row.roomTypeId,
     roomTypeName: row.roomType.name,
@@ -96,6 +112,90 @@ export async function getNrmsCapacityConsumers(
     startDate: row.startDate,
     endDate: row.endDate,
   }));
+}
+
+export type NrmsMarketplaceHold = {
+  id: number;
+  startDate: Date;
+  endDate: Date;
+  roomCode: string | null;
+  /** Physical room held; null for type-level holds (unassigned rooms, group blocks). */
+  roomUnitCode: string | null;
+  source: "NRMS";
+  bedsBlocked: number;
+  notes: string;
+  nrmsKind: "RESERVATION" | "GROUP_BLOCK";
+  /** Reservation id or group block id, depending on nrmsKind. */
+  nrmsRefId: number;
+  /** Guest name for a reservation; block name for a group block. */
+  label: string;
+};
+
+/**
+ * Everything NRMS holds that the marketplace must not sell, shaped like an
+ * availability block (roomCode = unit code or room type name, bedsBlocked =
+ * rooms). Covers live reservation allocations plus group-block rooms not yet
+ * picked up; a picked-up room is already one of the allocations. Group rows use
+ * ids offset past allocation ids so the two never collide.
+ */
+export async function getNrmsMarketplaceHolds(
+  db: DbLike,
+  propertyId: number,
+  start: Date,
+  end: Date,
+): Promise<NrmsMarketplaceHold[]> {
+  const [consumers, groupBlocks] = await Promise.all([
+    getNrmsCapacityConsumers(db, propertyId, start, end),
+    db.nrmsGroupBlock.findMany({
+      where: {
+        propertyId,
+        status: { in: ["HELD", "PARTIALLY_PICKED_UP"] },
+        cutOffAt: { gt: new Date() },
+        ...overlapWhere(start, end, "checkIn", "checkOut"),
+      },
+      select: {
+        id: true,
+        name: true,
+        reference: true,
+        checkIn: true,
+        checkOut: true,
+        rooms: { select: { id: true, quantity: true, pickedUp: true, roomType: { select: { name: true } } } },
+      },
+    }),
+  ]);
+  const holds: NrmsMarketplaceHold[] = consumers.map((row) => ({
+    id: -row.allocationId,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    roomCode: row.roomUnitCode ?? row.roomTypeName,
+    roomUnitCode: row.roomUnitCode,
+    source: "NRMS",
+    bedsBlocked: 1,
+    notes: `NRMS reservation ${row.reservationId}`,
+    nrmsKind: "RESERVATION",
+    nrmsRefId: row.reservationId,
+    label: row.guestName ?? "NRMS reservation",
+  }));
+  for (const block of groupBlocks as any[]) {
+    for (const room of block.rooms) {
+      const held = Math.max(0, Number(room.quantity ?? 0) - Number(room.pickedUp ?? 0));
+      if (held < 1) continue;
+      holds.push({
+        id: -(1_000_000_000 + room.id),
+        startDate: block.checkIn,
+        endDate: block.checkOut,
+        roomCode: room.roomType.name,
+        roomUnitCode: null,
+        source: "NRMS",
+        bedsBlocked: held,
+        notes: `NRMS group block ${block.reference}`,
+        nrmsKind: "GROUP_BLOCK",
+        nrmsRefId: block.id,
+        label: `${block.name} · ${held} awaiting names`,
+      });
+    }
+  }
+  return holds;
 }
 
 export async function getRoomTypeAvailability(
@@ -327,6 +427,7 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
           select: {
             id: true,
             status: true,
+            checkedOutAt: true,
             allocations: {
               where: { status: "ACTIVE" },
               select: { roomTypeId: true, roomUnitId: true, startDate: true, endDate: true },
@@ -351,6 +452,7 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
         source: true,
         checkIn: true,
         checkOut: true,
+        checkedOutAt: true,
         guestProfile: { select: { fullName: true } },
         allocations: {
           where: { status: "ACTIVE" },
@@ -412,11 +514,12 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
   for (const b of bookings) {
     const allocation = b.nrmsReservation?.allocations?.[0] ?? null;
     const legacyRoom = allocation ? null : resolveLegacyBookingRoom(b.roomCode ?? null);
+    const departure = calendarDepartureSpan(allocation?.endDate ?? b.checkOut, b.nrmsReservation?.checkedOutAt);
     entries.push({
       kind: "BOOKING",
       id: b.id,
       startDate: b.checkIn,
-      endDate: b.checkOut,
+      endDate: departure.endDate,
       status: b.status,
       source: "NOLSAF",
       roomTypeId: allocation?.roomTypeId ?? legacyRoom?.roomTypeId ?? null,
@@ -426,16 +529,19 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
       guestName: b.guestName ?? null,
       label: b.guestName ? `${b.guestName} · NoLSAF` : "NoLSAF booking",
       billable: false, // commission-only; never an NRMS room-night fee (doc 8.2)
+      scheduledEndDate: departure.scheduledEndDate,
+      earlyDeparture: departure.earlyDeparture,
     });
   }
 
   for (const r of reservations) {
     if (r.allocations.length === 0) {
+      const departure = calendarDepartureSpan(r.checkOut, r.checkedOutAt);
       entries.push({
         kind: "RESERVATION",
         id: r.id,
         startDate: r.checkIn,
-        endDate: r.checkOut,
+        endDate: departure.endDate,
         status: r.status,
         source: r.source,
         roomTypeId: null,
@@ -445,14 +551,17 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
         guestName: r.guestProfile?.fullName ?? null,
         label: r.guestProfile?.fullName ?? "External reservation",
         billable: true,
+        scheduledEndDate: departure.scheduledEndDate,
+        earlyDeparture: departure.earlyDeparture,
       });
     } else {
       for (const a of r.allocations) {
+        const departure = calendarDepartureSpan(a.endDate, r.checkedOutAt);
         entries.push({
           kind: "RESERVATION",
           id: r.id,
           startDate: a.startDate,
-          endDate: a.endDate,
+          endDate: departure.endDate,
           status: r.status,
           source: r.source,
           roomTypeId: a.roomTypeId,
@@ -462,6 +571,8 @@ export async function getCalendarEntries(propertyId: number, start: Date, end: D
           guestName: r.guestProfile?.fullName ?? null,
           label: r.guestProfile?.fullName ?? "External reservation",
           billable: true,
+          scheduledEndDate: departure.scheduledEndDate,
+          earlyDeparture: departure.earlyDeparture,
         });
       }
     }
@@ -551,7 +662,7 @@ export async function findUnitConflicts(
   roomUnitId: number,
   start: Date,
   end: Date,
-  opts?: { excludeReservationId?: number; excludeBookingId?: number; db?: DbLike },
+  opts?: { excludeReservationId?: number; excludeAllocationId?: number; excludeBookingId?: number; db?: DbLike },
 ): Promise<UnitConflict[]> {
   const db = opts?.db ?? prisma;
   const unit = await db.roomUnit.findUnique({ where: { id: roomUnitId }, select: { propertyId: true, code: true } });
@@ -560,6 +671,7 @@ export async function findUnitConflicts(
     db.reservationRoomAllocation.findMany({
       where: {
         roomUnitId,
+        ...(opts?.excludeAllocationId ? { id: { not: opts.excludeAllocationId } } : {}),
         status: "ACTIVE",
         ...overlapWhere(start, end, "startDate", "endDate"),
         reservation: {

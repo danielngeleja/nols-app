@@ -124,6 +124,14 @@ export function adminReportPrintStyles(orientation: AdminReportPrintOrientation)
     .signatureSpace { flex: 1; min-height: 54px; }
     .signatureLine { padding-top: 4px; border-top: 1px solid #8d9693; color: var(--muted); font-size: 7px; text-align: center; }
     .documentFooter { display: flex; justify-content: space-between; gap: 20px; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 6.8px; }
+    /* Attribution that repeats on every sheet. A fixed element is painted once
+       per printed page, so page two onward still names who took the export.
+       It sits behind the content and is faint enough to read through. */
+    .reportWatermark { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .reportWatermark div { transform: rotate(-31deg); color: rgba(7, 60, 53, .075); font-size: 34px; font-weight: 900; letter-spacing: 1.5px; line-height: 1.35; text-align: center; text-transform: uppercase; }
+    .reportWatermark div span { display: block; font-size: 15px; font-weight: 700; letter-spacing: 2.5px; }
+    .reportWatermark div code { display: block; font-family: Consolas, "Courier New", monospace; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: none; }
+    .reportDocument { position: relative; z-index: 1; }
     @media screen {
       body { background: #eef2f0; }
       .reportPage { max-width: ${orientation === "landscape" ? "1123px" : "794px"}; margin: 18px auto; background: #fff; box-shadow: 0 24px 70px rgba(7, 60, 53, .14); }
@@ -134,6 +142,30 @@ export function adminReportPrintStyles(orientation: AdminReportPrintOrientation)
       .reportCover, .reportPanel, .tableWrap, .metricCard, .verificationCard, .certificationCopy, .signatureCard { border-radius: 0; }
     }
   `;
+}
+
+/**
+ * A per page watermark naming the person who printed, when, and the sealed
+ * reference. Put it inside `.reportPage`, before the `.reportDocument` main, so
+ * every sheet of a financial export carries its own attribution instead of
+ * relying on the certification block on the last page.
+ */
+export function buildAdminReportWatermark(options: {
+  printedBy: string;
+  role?: string;
+  reportRef: string;
+  printedAt: string;
+  classification?: string;
+}) {
+  const who = options.role ? `${options.printedBy} · ${options.role}` : options.printedBy;
+  return `
+    <div class="reportWatermark" aria-hidden="true">
+      <div>
+        ${escapeHtml(options.classification || "NoLSAF confidential")}
+        <span>Printed by ${escapeHtml(who)} · ${escapeHtml(options.printedAt)}</span>
+        <code>${escapeHtml(options.reportRef)}</code>
+      </div>
+    </div>`;
 }
 
 export function buildAdminReportHeader(options: ReportHeaderOptions) {
@@ -187,9 +219,67 @@ export function openAdminReportPrintWindow() {
   const printWindow = window.open("", "_blank");
   if (!printWindow) return null;
   printWindow.document.open();
-  printWindow.document.write(`<!doctype html><html><head><title>Preparing NoLSAF report</title><style>body{margin:0;display:grid;min-height:100vh;place-items:center;background:#f4f8f6;color:#073c35;font:600 14px Arial,sans-serif}div{padding:18px 22px;border:1px solid #dce4e1;border-radius:10px;background:#fff;box-shadow:0 18px 50px rgba(7,60,53,.12)}</style></head><body><div>Preparing the verified report preview…</div></body></html>`);
+  printWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Preparing NoLSAF report</title>
+  <style>
+    :root { color-scheme: light; --brand:#073c35; --accent:#08a77a; --line:#dce7e3; --muted:#65736f; }
+    * { box-sizing:border-box; }
+    body { margin:0; display:grid; min-height:100vh; place-items:center; padding:24px; background:radial-gradient(circle at 50% 35%,#fff 0,#f4f8f6 52%,#eaf1ee 100%); color:var(--brand); font-family:Inter,"Segoe UI",Arial,sans-serif; }
+    .loader { width:min(410px,100%); padding:27px 28px 25px; border:1px solid rgba(7,60,53,.12); border-radius:18px; background:rgba(255,255,255,.94); box-shadow:0 24px 70px rgba(7,60,53,.13); }
+    .brand { display:flex; align-items:center; gap:11px; }
+    .mark { display:grid; width:38px; height:38px; place-items:center; border-radius:11px; background:var(--brand); color:#fff; font-size:16px; font-weight:900; letter-spacing:-1px; box-shadow:0 8px 20px rgba(7,60,53,.2); }
+    .eyebrow { color:#22816b; font-size:11px; font-weight:800; letter-spacing:.02em; }
+    h1 { margin:4px 0 0; color:#10211d; font-size:17px; line-height:1.2; }
+    .status { min-height:20px; margin:23px 0 9px; color:#344b45; font-size:13px; font-weight:650; }
+    .track { overflow:hidden; height:6px; border-radius:999px; background:#e6eeeb; }
+    .bar { width:18%; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--brand),#13bd89); box-shadow:0 0 14px rgba(19,189,137,.38); transition:width .45s cubic-bezier(.2,.8,.2,1); }
+    .steps { display:flex; justify-content:space-between; gap:8px; margin-top:13px; color:#84918d; font-size:9px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+    .steps span[data-state="active"] { color:var(--brand); }
+    .steps span[data-state="done"] { color:var(--accent); }
+    .hint { margin:19px 0 0; padding-top:15px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; line-height:1.45; }
+    .pulse { display:inline-block; width:6px; height:6px; margin-right:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 0 rgba(8,167,122,.4); animation:pulse 1.4s infinite; vertical-align:1px; }
+    @keyframes pulse { 70% { box-shadow:0 0 0 7px rgba(8,167,122,0); } 100% { box-shadow:0 0 0 0 rgba(8,167,122,0); } }
+    @media (prefers-reduced-motion:reduce) { .bar { transition:none; } .pulse { animation:none; } }
+  </style>
+</head>
+<body>
+  <main class="loader" aria-busy="true" aria-labelledby="report-loader-title">
+    <div class="brand"><div class="mark" aria-hidden="true">N</div><div><div class="eyebrow">NoLSAF verified report</div><h1 id="report-loader-title">Building your report preview</h1></div></div>
+    <div class="status" data-report-loader-status aria-live="polite"><span class="pulse" aria-hidden="true"></span>Preparing report data…</div>
+    <div class="track" role="progressbar" aria-label="Report preparation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="18"><div class="bar" data-report-loader-bar></div></div>
+    <div class="steps" data-report-loader-steps><span data-state="active">Prepare</span><span>Seal</span><span>Verify</span><span>Preview</span></div>
+    <p class="hint">Keep this window open. The print dialog will appear automatically when the verified preview is ready.</p>
+  </main>
+</body>
+</html>`);
   printWindow.document.close();
   return printWindow;
+}
+
+export type AdminReportLoadingStage = "prepare" | "seal" | "verify" | "preview";
+
+const REPORT_LOADING_STAGES: Record<AdminReportLoadingStage, { message: string; progress: number; step: number }> = {
+  prepare: { message: "Preparing report data…", progress: 18, step: 0 },
+  seal: { message: "Sealing the report figures…", progress: 46, step: 1 },
+  verify: { message: "Creating secure verification…", progress: 72, step: 2 },
+  preview: { message: "Composing the print-ready preview…", progress: 92, step: 3 },
+};
+
+export function updateAdminReportPrintWindowStatus(printWindow: Window, stage: AdminReportLoadingStage) {
+  if (printWindow.closed) return;
+  const config = REPORT_LOADING_STAGES[stage];
+  const status = printWindow.document.querySelector<HTMLElement>("[data-report-loader-status]");
+  const bar = printWindow.document.querySelector<HTMLElement>("[data-report-loader-bar]");
+  const track = bar?.parentElement;
+  const steps = Array.from(printWindow.document.querySelectorAll<HTMLElement>("[data-report-loader-steps] span"));
+  if (status) status.innerHTML = `<span class="pulse" aria-hidden="true"></span>${escapeHtml(config.message)}`;
+  if (bar) bar.style.width = `${config.progress}%`;
+  track?.setAttribute("aria-valuenow", String(config.progress));
+  steps.forEach((step, index) => step.setAttribute("data-state", index < config.step ? "done" : index === config.step ? "active" : "pending"));
 }
 
 export async function printPreparedAdminReportWindow(printWindow: Window) {

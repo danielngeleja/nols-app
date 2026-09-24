@@ -120,8 +120,8 @@ export default function NrmsPublicPitch() {
             </div>
 
             <div className="mt-12 grid overflow-hidden rounded-2xl border border-emerald-100 bg-white/80 shadow-sm sm:grid-cols-3">
-              <PricingFact icon={Clock3} label="Free trial" value="Included" detail="length confirmed when you activate a property" />
-              <PricingFact icon={CircleDollarSign} label="After trial" value="Per room-night" detail="rate confirmed at activation, external stays only" />
+              <PricingFact icon={Clock3} label="Property activation" value="Current policy" detail="live terms are shown before you activate" />
+              <PricingFact icon={CircleDollarSign} label="External stays" value="Per room-night" detail="current rate confirmed at activation" />
               <PricingFact icon={WalletCards} label="Marketplace bookings" value="No NRMS fee" detail="your normal commission remains" />
             </div>
             <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/85 p-4 sm:p-5">
@@ -129,7 +129,7 @@ export default function NrmsPublicPitch() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Info className="h-4 w-4" /></span>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-700">Pay As You Go, in plain terms</p>
-                  <p className="mt-1.5 text-sm leading-6 text-neutral-600">NRMS itself has no subscription fee. After your trial, you&apos;re only billed for stays NRMS actually completed outside the NoLSAF marketplace, walk-ins, phone bookings and other OTAs, each at a small per-room-night rate. A guest who books you through the NoLSAF marketplace never adds an NRMS fee.</p>
+                  <p className="mt-1.5 text-sm leading-6 text-neutral-600">NRMS itself has no subscription fee. Under the active policy, you&apos;re billed only for stays NRMS actually completed outside the NoLSAF marketplace, walk-ins, phone bookings and other OTAs, each at the per-room-night rate shown before activation. A guest who books you through the NoLSAF marketplace never adds an NRMS fee.</p>
                 </div>
               </div>
             </div>

@@ -14,7 +14,8 @@ import {
   recordPasswordChangeSuccess,
 } from '../lib/security.js';
 import { validatePasswordWithSettings } from '../lib/securitySettings.js';
-import { hashPassword, verifyPassword } from '../lib/crypto.js';
+import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from '../lib/crypto.js';
+import { backupCodeCandidates, generateBackupCodes, verifyTotp } from '../lib/totp.js';
 import { requireAuth, blockImpersonated, AuthedRequest } from "../middleware/auth.js";
 import { z } from "zod";
 import { limitDriverLocationUpdate, limitDriverAvailabilityToggle } from "../middleware/rateLimit.js";
@@ -1323,34 +1324,39 @@ const postToggle2fa: RequestHandler = async (req, res) => {
             updateData.sms2faEnabled = false;
           }
         } else if (type === 'totp') {
-          // TOTP flow: verify the provided code against stored secret (best-effort)
+          // Same storage as every other account: the encrypted totpSecretEnc that
+          // sign-in verifies against. This used to read a "totpSecret" column that
+          // does not exist and fall back to a secret sent by the browser, so a
+          // driver could turn 2FA on with nothing stored for sign-in to check.
+          const current = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { twoFactorEnabled: true, twoFactorMethod: true, totpSecretEnc: true, backupCodesHash: true },
+          });
+          if (!code || typeof code !== 'string') {
+            res.status(400).json({ error: action === 'enable' ? 'Enter the 6-digit code from your authenticator app' : 'Enter an authenticator code or a backup code' });
+            return;
+          }
           if (action === 'enable') {
-            // need a code to verify
-            if (!code || typeof code !== 'string') { res.status(400).json({ error: 'code required for TOTP enable' }); return; }
-
-            // try to read stored secret from DB only if the prisma model supports it
-            let storedSecret: string | null = null;
-            try {
-              // totpSecret is in the schema — attempt unconditionally, catch P2022 if column missing
-              const u = await prisma.user.findUnique({ where: { id: user.id }, select: { totpSecret: true } as any });
-              storedSecret = (u as any)?.totpSecret ?? null;
-            } catch (e) { /* ignore read errors — column may not exist in this DB */ }
-
-            // fallback: accept secret passed in body (not ideal for prod)
-            const secretToCheck = storedSecret || (req.body && typeof req.body.secret === 'string' ? req.body.secret : null);
-            if (!secretToCheck) { res.status(400).json({ error: 'no totp secret available; provision first' }); return; }
-
-            // validate code
-            let ok = false;
-            try { ok = authenticator.check(String(code), String(secretToCheck)); } catch (e) { ok = false; }
-            if (!ok) { res.status(400).json({ error: 'invalid TOTP code' }); return; }
-
-            // verification passed: mark enabled and persist flag
+            if (current?.twoFactorEnabled && current.twoFactorMethod === 'TOTP') { res.status(409).json({ error: 'Authenticator is already on' }); return; }
+            if (!current?.totpSecretEnc) { res.status(400).json({ error: 'Start the setup again to get a new QR code' }); return; }
+            if (!verifyTotp(code, decrypt(current.totpSecretEnc))) { res.status(400).json({ error: 'That code did not match. Check the time on your phone and try the next code.' }); return; }
+            const plainCodes = generateBackupCodes();
             updateData.twoFactorEnabled = true;
             updateData.twoFactorMethod = 'TOTP';
+            updateData.backupCodesHash = await Promise.all(plainCodes.map((c) => hashCode(c)));
+            (res.locals as any).backupCodes = plainCodes;
           } else {
+            // Turning 2FA off needs proof, like every other account type.
+            let ok = false;
+            if (current?.totpSecretEnc && verifyTotp(code, decrypt(current.totpSecretEnc))) ok = true;
+            if (!ok && Array.isArray(current?.backupCodesHash)) {
+              outer: for (const hash of current!.backupCodesHash as string[]) for (const candidate of backupCodeCandidates(code)) if (await verifyCode(hash, candidate)) { ok = true; break outer; }
+            }
+            if (!ok) { res.status(400).json({ error: 'That code did not match' }); return; }
             updateData.twoFactorEnabled = false;
             updateData.twoFactorMethod = null;
+            updateData.totpSecretEnc = null;
+            updateData.backupCodesHash = [];
           }
         } else {
           // no specific type provided: toggle the generic twoFactorEnabled flag
@@ -1381,7 +1387,8 @@ const postToggle2fa: RequestHandler = async (req, res) => {
       else totpEnabled = action === 'enable';
     }
 
-    return res.json({ ok: true, totpEnabled, smsEnabled });
+    // Plain backup codes are returned once, on enable, and never stored.
+    return res.json({ ok: true, totpEnabled, smsEnabled, backupCodes: (res.locals as any).backupCodes ?? undefined });
   } catch (err) {
     // Improved logging for debugging: print stack when available
     try {
@@ -1408,17 +1415,25 @@ const get2faProvision: RequestHandler = async (req, res) => {
   const type = (req.query.type as string) || 'totp';
   if (type !== 'totp') { res.status(400).json({ error: 'unsupported type' }); return; }
   try {
+    const current = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { twoFactorEnabled: true, twoFactorMethod: true, email: true, phone: true },
+    });
+    // Never replace the secret behind an enabled authenticator: the app on the
+    // driver's phone would stop matching and they could not sign in.
+    if (current?.twoFactorEnabled && current.twoFactorMethod === 'TOTP') {
+      res.status(409).json({ error: 'Authenticator is already on. Turn it off first to set up a new one.' });
+      return;
+    }
     const secret = authenticator.generateSecret();
-    const account = ((user as any).email || `user-${user.id}`) as string;
-    const service = process.env.APP_NAME || 'nolsaf';
-    const otpauth = authenticator.keyuri(account, service, secret);
+    const account = (current?.email || current?.phone || `user-${user.id}`) as string;
+    const issuer = process.env.TOTP_ISSUER || 'NoLSAF';
+    const otpauth = authenticator.keyuri(account, issuer, secret);
     let qr: string | null = null;
     try { qr = await qrcode.toDataURL(otpauth); } catch (e) { /* ignore qr generation errors */ }
 
-    // Attempt to persist secret to user record (totpSecret is in schema — let try-catch handle missing column)
-    try {
-      await prisma.user.update({ where: { id: user.id }, data: { totpSecret: secret } as any });
-    } catch (e) { /* ignore persistence errors — column may not exist in this DB */ }
+    // Encrypted, in the column sign-in reads. Pending until verified with a code.
+    await prisma.user.update({ where: { id: user.id }, data: { totpSecretEnc: encrypt(secret) } });
 
     return res.json({ secret, otpauth, qr });
   } catch (err) {
@@ -1428,6 +1443,41 @@ const get2faProvision: RequestHandler = async (req, res) => {
   }
 };
 router.get('/security/2fa/provision', get2faProvision as unknown as RequestHandler);
+
+/**
+ * POST /driver/security/2fa/codes/regenerate
+ * Body: { code } — a current authenticator code.
+ * Replaces all backup codes and returns the new plain codes once.
+ */
+const regenerateBackupCodes: RequestHandler = async (req, res) => {
+  const user = (req as AuthedRequest).user;
+  if (!user) { res.status(401).json({ error: 'unauthenticated' }); return; }
+  try {
+    const current = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { twoFactorEnabled: true, twoFactorMethod: true, totpSecretEnc: true },
+    });
+    if (!current?.twoFactorEnabled || current.twoFactorMethod !== 'TOTP' || !current.totpSecretEnc) {
+      res.status(400).json({ error: 'Turn on the authenticator app first' });
+      return;
+    }
+    // Same rule as accounts: a session alone cannot mint new ways to sign in.
+    if (!verifyTotp((req.body ?? {}).code, decrypt(current.totpSecretEnc))) {
+      res.status(400).json({ error: 'Enter the current 6-digit code from your authenticator app' });
+      return;
+    }
+    const plainCodes = generateBackupCodes();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { backupCodesHash: await Promise.all(plainCodes.map((c) => hashCode(c))) },
+    });
+    res.json({ ok: true, backupCodes: plainCodes });
+  } catch (err) {
+    console.warn('driver.security.2fa.codes.regenerate failed', err);
+    res.status(500).json({ error: 'Could not create new backup codes' });
+  }
+};
+router.post('/security/2fa/codes/regenerate', blockImpersonated as unknown as RequestHandler, regenerateBackupCodes as unknown as RequestHandler);
 
 // Sessions endpoints removed — Active sessions feature deprecated/removed
 
@@ -1566,7 +1616,7 @@ const postPasskeysCreate: RequestHandler = async (req, res) => {
     const options = await generateRegistrationOptions({
       rpName: process.env.APP_NAME || 'nolsaf',
       rpID,
-      userID: String(user.id),
+      userID: new TextEncoder().encode(String(user.id)),
       userName: (user as any).email || `user-${user.id}`,
       timeout: 60000,
       attestationType: 'direct',
@@ -1651,13 +1701,13 @@ const postPasskeysVerify: RequestHandler = async (req, res) => {
     try { await deleteDriverPasskeyChallenge(user.id); } catch { /* ignore */ }
 
     const regInfo = verification.registrationInfo;
-    if (!regInfo || !regInfo.credentialID || !regInfo.credentialPublicKey) {
+    if (!regInfo?.credential?.id || !regInfo.credential.publicKey) {
       return res.status(500).json({ error: 'missing registration info' });
     }
 
-    const credentialId = toBase64Url(Buffer.from(regInfo.credentialID));
-    const publicKey = toBase64Url(Buffer.from(regInfo.credentialPublicKey));
-    const signCount = typeof regInfo.counter === 'number' ? regInfo.counter : 0;
+    const credentialId = regInfo.credential.id;
+    const publicKey = toBase64Url(Buffer.from(regInfo.credential.publicKey));
+    const signCount = typeof regInfo.credential.counter === 'number' ? regInfo.credential.counter : 0;
 
     // persist credential
     if ((prisma as any).passkey) {
@@ -1759,9 +1809,9 @@ const postPasskeysAuthenticateVerify: RequestHandler = async (req, res) => {
         expectedChallenge: storedChallenge,
         expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
-        authenticator: {
-          credentialPublicKey: fromBase64Url(publicKey),
-          credentialID: fromBase64Url(stored.credentialId || stored.id),
+        credential: {
+          publicKey: fromBase64Url(publicKey),
+          id: stored.credentialId || stored.id,
           counter: signCount,
         },
       } as any);

@@ -13,6 +13,7 @@ export default function TwoFAPage() {
       smsVerifyUrl="/api/driver/security/2fa/sms/verify"
       smsDisableUrl="/api/driver/security/2fa/sms/disable"
       backHref="/driver/security"
+      regenerateCodesUrl="/api/driver/security/2fa/codes/regenerate"
       containerClassName="w-full max-w-6xl mx-auto px-4"
     />
   )

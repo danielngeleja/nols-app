@@ -19,14 +19,17 @@ export default function AuditLogPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [actor, setActor] = useState("all");
+  const [selectedAudit, setSelectedAudit] = useState<Audit | null>(null);
 
   const exportUrl = "/api/admin/audits?format=csv";
   const audits = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const filteredAudits = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return audits;
     return audits.filter((audit) => {
+      if (actor === "system" && audit.adminId != null) return false;
+      if (actor === "admin" && audit.adminId == null) return false;
       const haystack = [
         audit.id,
         audit.adminId,
@@ -40,11 +43,11 @@ export default function AuditLogPage() {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [audits, query]);
+  }, [audits, query, actor]);
 
   useEffect(() => {
     setPage(1);
-  }, [query]);
+  }, [query, actor]);
 
   const totalPages = Math.max(1, Math.ceil(filteredAudits.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -85,29 +88,28 @@ export default function AuditLogPage() {
   }, []);
 
   const header = (
-    <div className="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white/70 shadow-sm backdrop-blur">
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-50" />
-      <div className="relative p-6 sm:p-8">
-        <div className="flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm">
-            <ShieldCheck className="h-7 w-7" />
+    <div className="relative overflow-hidden rounded-2xl border border-[#d8d1e4] bg-[#eee9f4] p-5">
+      <style>{`.audit-workspace, .audit-workspace * {box-sizing:border-box;} .audit-workspace [class~="border"] {border-style:solid;} .audit-workspace th {border-bottom:1px solid #dfe5ee;} .audit-workspace td {border-bottom:1px solid #edf0f5;vertical-align:top;} .audit-workspace .grid > * {min-width:0;}`}</style>
+      <div className="relative">
+        <div className="flex items-center gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white">
+            <ShieldCheck className="h-5 w-5" />
           </div>
-          <h1 className="mt-4 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Audit Log</h1>
-          <p className="mt-1 text-sm text-slate-600">Immutable trails for important admin and system actions</p>
+          <div><p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-700">Governance / Activity records</p><h1 className="mb-0 mt-1 text-2xl font-bold tracking-tight text-slate-900">Audit Log</h1><p className="mb-0 mt-1 text-xs leading-5 text-slate-600">Trace admin and system actions, inspect evidence and export recorded history.</p></div>
         </div>
       </div>
     </div>
   );
 
   const controls = (
-    <div className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white/70 p-4 shadow-sm backdrop-blur">
-      <div className="mx-auto max-w-6xl space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-stretch">
-          <SummaryPill label="Loaded" value={audits.length} />
-          <SummaryPill label="Showing" value={filteredAudits.length} tone={query ? "emerald" : "slate"} />
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900"><b>{audits.length}</b> loaded records</span>
+          <span className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900"><b>{filteredAudits.length}</b> matching records</span>
           <a
             href={exportUrl}
-            className="inline-flex min-h-[4.5rem] items-center justify-center gap-2 rounded-3xl border border-emerald-200 bg-emerald-50 px-5 text-sm font-bold text-emerald-700 no-underline shadow-sm transition-all duration-300 hover:-translate-y-px hover:bg-emerald-100 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+            className="ml-auto inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white no-underline hover:bg-indigo-700"
             download
           >
             <Download className="h-4 w-4" />
@@ -115,23 +117,28 @@ export default function AuditLogPage() {
           </a>
         </div>
 
-        <div className="relative mx-auto w-full sm:max-w-2xl">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+        <div className="relative min-w-0">
           <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search action, admin, details..."
+            aria-label="Search loaded audit records"
             className="w-full rounded-2xl border border-slate-200/70 bg-white py-2.5 pl-10 pr-3 text-sm font-semibold text-slate-800 shadow-sm outline-none transition-all duration-300 placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/20"
           />
         </div>
+        <select value={actor} onChange={(event) => setActor(event.target.value)} aria-label="Filter audit actor" className="min-h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700"><option value="all">All actors</option><option value="admin">Admin actions</option><option value="system">System actions</option></select>
+        </div>
+        <p className="m-0 text-[10px] text-slate-500">Search and actor filters apply to loaded records. CSV exports use the server endpoint, not these local filters.</p>
       </div>
     </div>
   );
 
   if (error) {
     return (
-      <div className="min-h-full w-full bg-slate-50">
-        <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="audit-workspace min-h-full w-full bg-slate-50">
+        <div className="space-y-4 px-3 py-4 sm:px-5 sm:py-5">
           {header}
           <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700 shadow-sm">
             Failed to load audits: {error}
@@ -143,8 +150,8 @@ export default function AuditLogPage() {
 
   if (!data) {
     return (
-      <div className="min-h-full w-full bg-slate-50">
-        <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="audit-workspace min-h-full w-full bg-slate-50">
+        <div className="space-y-4 px-3 py-4 sm:px-5 sm:py-5">
           {header}
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-10 text-center text-sm font-medium text-slate-500 shadow-sm">
             Loading audit logs...
@@ -155,8 +162,8 @@ export default function AuditLogPage() {
   }
 
   return (
-    <div className="min-h-full w-full max-w-full overflow-x-hidden bg-slate-50">
-      <div className="mx-auto max-w-7xl min-w-0 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="audit-workspace min-h-full w-full max-w-full bg-slate-50">
+      <div className="min-w-0 space-y-4 px-3 py-4 sm:px-5 sm:py-5">
         {header}
         {controls}
 
@@ -170,8 +177,8 @@ export default function AuditLogPage() {
             </div>
             <PaginationControls page={safePage} totalPages={totalPages} onPageChange={setPage} />
           </div>
-          <div className="w-full max-w-full overflow-x-auto xl:overflow-x-hidden">
-            <table className="w-full min-w-[900px] table-fixed divide-y divide-slate-100 xl:min-w-0">
+          <div className="w-full max-w-full overflow-x-auto">
+            <table className="w-full min-w-[1000px] table-fixed">
               <colgroup>
                 <col className="w-[13rem]" />
                 <col className="w-[5rem]" />
@@ -181,7 +188,7 @@ export default function AuditLogPage() {
               </colgroup>
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500">Time</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500">Time (EAT)</th>
                   <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500">Admin</th>
                   <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500">Action</th>
                   <th className="px-4 py-3 text-left text-[11px] font-black uppercase tracking-wide text-slate-500">Target</th>
@@ -204,12 +211,13 @@ export default function AuditLogPage() {
                 ) : (
                   paginatedAudits.map((audit) => (
                     <tr key={audit.id} className="transition-colors hover:bg-slate-50">
-                      <td className="truncate px-4 py-3 text-sm font-semibold text-slate-900">
-                        {new Date(audit.createdAt).toLocaleString()}
+                      <td className="truncate px-4 py-3 text-xs font-normal text-slate-700">
+                        {new Date(audit.createdAt).toLocaleString('en-GB', {timeZone:'Africa/Dar_es_Salaam',day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}
                       </td>
-                      <td className="truncate px-4 py-3 text-sm text-slate-700">{audit.adminId ?? "-"}</td>
+                      <td className="px-4 py-3 text-xs text-slate-700">{audit.adminId == null ? "System" : `#${audit.adminId}`}</td>
                       <td className="px-4 py-3 text-sm text-slate-700">
-                        <span className="inline-flex max-w-full items-center truncate rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-black text-slate-900">
+                        <button type="button" onClick={() => setSelectedAudit(audit)} className="mb-2 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700">Inspect #{audit.id}</button>
+                        <span className="inline-flex max-w-full items-center truncate rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700">
                           {formatAction(audit.action)}
                         </span>
                       </td>
@@ -240,6 +248,7 @@ export default function AuditLogPage() {
           ) : null}
         </div>
       </div>
+      {selectedAudit && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" onClick={() => setSelectedAudit(null)}><section role="dialog" aria-modal="true" aria-label={`Audit record ${selectedAudit.id}`} className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => {if (event.key === 'Escape') setSelectedAudit(null);}}><div className="flex items-center justify-between gap-3"><h2 className="m-0 text-base font-bold">Audit #{selectedAudit.id} · {formatAction(selectedAudit.action)}</h2><button autoFocus type="button" onClick={() => setSelectedAudit(null)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold">Close</button></div><pre className="mb-0 mt-4 max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-4 text-xs leading-5 text-slate-700">{formatDetails(selectedAudit.details)}</pre></section></div>}
     </div>
   );
 }
@@ -278,16 +287,6 @@ function PaginationControls({
       >
         <ChevronRight className="h-4 w-4" />
       </button>
-    </div>
-  );
-}
-
-function SummaryPill({ label, value, tone = "slate" }: { label: string; value: number; tone?: "slate" | "emerald" }) {
-  const valueClass = tone === "emerald" ? "text-emerald-700" : "text-slate-950";
-  return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/60 px-4 py-4 text-left shadow-sm transition-all duration-300 hover:-translate-y-px hover:shadow-md">
-      <div className={`text-xl font-black leading-none ${valueClass}`}>{value}</div>
-      <div className="mt-2 text-xs font-black uppercase tracking-wide text-slate-500">{label}</div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { Router } from "express";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth } from "../middleware/auth.js";
+import { auditOrThrow } from "../lib/audit.js";
 import { signReportSeal, type ReportFigure } from "../lib/reportSeal.js";
 
 const router = Router();
@@ -60,6 +61,50 @@ router.post("/seal", requireAuth as any, sealLimiter, async (req: any, res) => {
     }
     if (!generatedBy) generatedBy = req.user?.id ? `User #${req.user.id}` : "User";
     generatedBy = generatedBy.slice(0, 80);
+
+    // A sealed report leaves the platform as paper or PDF, so the export is
+    // recorded before the token is handed out: no record, no seal. The row lands
+    // in the general audit log, where classifyAuditRetention keeps financial
+    // report prints for seven years. An admin export is mirrored into adminAudit
+    // so it also shows on /admin/audits.
+    const printRecord = {
+      ref,
+      kind,
+      title,
+      from,
+      to,
+      generatedAt,
+      generatedBy,
+      role,
+      figures,
+    };
+
+    try {
+      await auditOrThrow(prisma, req, "REPORT_PRINT", `REPORT:${kind}`, null, printRecord);
+    } catch (err: any) {
+      console.error("POST /api/reports/seal could not record the print:", err?.message || err);
+      return res.status(503).json({
+        ok: false,
+        code: "PRINT_RECORD_FAILED",
+        error: "This report was not sealed because the export could not be recorded. Please try again.",
+      });
+    }
+
+    if (role === "ADMIN" && Number.isInteger(Number(req.user?.id))) {
+      try {
+        await prisma.adminAudit.create({
+          data: {
+            adminId: Number(req.user.id),
+            action: "REPORT_PRINT",
+            details: printRecord as any,
+          },
+        });
+      } catch (err: any) {
+        // The durable record above already succeeded, so a mirror failure must
+        // not block the print.
+        console.warn("POST /api/reports/seal adminAudit mirror failed:", err?.message || err);
+      }
+    }
 
     const token = signReportSeal({ kind, title, ref, from, to, generatedAt, generatedBy, role, figures });
     return res.json({ ok: true, token, ref, generatedAt, generatedBy, role });

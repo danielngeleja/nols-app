@@ -11,6 +11,11 @@ import { normalizeAgentDocuments } from "./nrmsAgentIdentity.js";
 
 export const ACCOMMODATION_WORKSPACE = "ACCOMMODATION" as const;
 
+// This workflow performs several dependent reads and writes, including the
+// audit record. Production database round trips can exceed Prisma's 5-second
+// interactive-transaction default even though the amount of work is small.
+export const ACCOMMODATION_BRIDGE_TX_OPTIONS = { maxWait: 5_000, timeout: 15_000 };
+
 export type AccommodationAccessReason =
   | "ROLE_NOT_SUPPORTED"
   | "CAPABILITY_REQUIRED"

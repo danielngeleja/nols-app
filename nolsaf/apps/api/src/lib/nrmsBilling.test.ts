@@ -165,4 +165,30 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
     ).rejects.toThrow("NRMS_MASTER_BALANCE_DUE:80000");
     expect(updateMany).not.toHaveBeenCalled();
   });
+
+  it("requires a physical vacancy declaration before an early checkout", async () => {
+    const tx = {
+      reservation: { findUnique: vi.fn().mockResolvedValue({ status: "CHECKED_IN", totalAmount: 80_000, groupId: null }) },
+      externalPaymentRecord: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 80_000 } }) },
+      reservationCharge: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }), findMany: vi.fn().mockResolvedValue([]) },
+      nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
+    };
+
+    await expect(finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN", checkOut: new Date("2026-09-30T00:00:00Z") }, 10, [], { businessDate: "2026-09-10" }))
+      .rejects.toThrow("NRMS_ROOM_VACANCY_CONFIRMATION_REQUIRED");
+  });
+
+  it("requires a reason when the vacancy declaration closes a stay early", async () => {
+    const tx = {
+      reservation: { findUnique: vi.fn().mockResolvedValue({ status: "CHECKED_IN", totalAmount: 80_000, groupId: null }) },
+      externalPaymentRecord: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: 80_000 } }) },
+      reservationCharge: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }), findMany: vi.fn().mockResolvedValue([]) },
+      nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
+      nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
+    };
+
+    await expect(finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN", checkOut: new Date("2026-09-30T00:00:00Z") }, 10, [], { businessDate: "2026-09-10", roomVacantConfirmed: true }))
+      .rejects.toThrow("NRMS_EARLY_DEPARTURE_REASON_REQUIRED");
+  });
 });

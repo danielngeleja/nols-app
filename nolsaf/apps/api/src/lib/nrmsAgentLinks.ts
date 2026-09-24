@@ -163,7 +163,7 @@ export async function attachAgentToProperty(
 export type LinkTransition = "ACTIVE" | "SUSPENDED" | "REJECTED" | "TERMINATED";
 export type TransitionResult =
   | { ok: true; status: LinkTransition; changed: boolean }
-  | { ok: false; reason: "NOT_FOUND" | "AGENCY_NOT_VERIFIED" | "AGENT_NOT_ACCEPTED" | "HOTEL_NOT_ELIGIBLE" | "ADMIN_SUSPENSION_ACTIVE" | "INVALID_TRANSITION"; message: string };
+  | { ok: false; reason: "NOT_FOUND" | "AGENCY_NOT_VERIFIED" | "AGENT_NOT_ACCEPTED" | "PROPERTY_BILLING_BLOCKED" | "HOTEL_NOT_ELIGIBLE" | "ADMIN_SUSPENSION_ACTIVE" | "INVALID_TRANSITION"; message: string; billingAccount?: any };
 
 /**
  * Approve (→ACTIVE), suspend (→SUSPENDED) or reject (→REJECTED) a link, scoped to
@@ -201,7 +201,10 @@ export async function setAgentLinkStatus(
       return { ok: false, reason: "ADMIN_SUSPENSION_ACTIVE", message: "This partnership was suspended by NoLSAF and can only be resumed by an authorized administrator." };
     }
     const hotelConsentStatus = String(link.initiatedBy || "HOTEL").toUpperCase() === "AGENT" ? "ACCEPTED" : link.hotelConsentStatus;
-    const payg = await db.ownerPaygAccount.findUnique({ where: { propertyId: params.propertyId }, select: { status: true } });
+    const payg = await db.ownerPaygAccount.findUnique({
+      where: { propertyId: params.propertyId },
+      select: { status: true, unpaidBalance: true, unpaidLimit: true, policyId: true },
+    });
     const activation = canActivatePartnership({
       linkStatus: link.status,
       initiatedBy: link.initiatedBy,
@@ -216,7 +219,10 @@ export async function setAgentLinkStatus(
     if (!activation.ok) {
       if (activation.reason === "AGENCY_NOT_VERIFIED") return { ok: false, reason: "AGENCY_NOT_VERIFIED", message: activation.message };
       if (activation.reason === "AGENT_CONSENT_REQUIRED") return { ok: false, reason: "AGENT_NOT_ACCEPTED", message: activation.message };
-      if (["PROPERTY_INACTIVE", "PROPERTY_NRMS_INACTIVE", "PROPERTY_BILLING_BLOCKED"].includes(activation.reason)) {
+      if (activation.reason === "PROPERTY_BILLING_BLOCKED") {
+        return { ok: false, reason: "PROPERTY_BILLING_BLOCKED", message: activation.message, billingAccount: payg };
+      }
+      if (["PROPERTY_INACTIVE", "PROPERTY_NRMS_INACTIVE"].includes(activation.reason)) {
         return { ok: false, reason: "HOTEL_NOT_ELIGIBLE", message: activation.message };
       }
       return { ok: false, reason: "INVALID_TRANSITION", message: activation.message };

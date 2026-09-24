@@ -87,6 +87,23 @@ describe("setAgentLinkStatus", () => {
     expect(db.nrmsAgentPropertyLink.update).not.toHaveBeenCalled();
   });
 
+  it("does not activate the partnership when the billing check finds an unpaid balance", async () => {
+    const account = { status: "PAYMENT_REQUIRED", unpaidBalance: 129_000, unpaidLimit: 50_000, policyId: 3 };
+    const links = {
+      ...makeDb().nrmsAgentPropertyLink,
+      findFirst: vi.fn(async () => ({ id: 100, status: "AGENT_ACCEPTED", initiatedBy: "HOTEL", hotelConsentStatus: "ACCEPTED", agentConsentStatus: "ACCEPTED", agentAccount: { status: "ACTIVE", verificationStatus: "VERIFIED" }, property: { status: "APPROVED", nrmsActivatedAt: new Date() } })),
+    };
+    const db = makeDb({ nrmsAgentPropertyLink: links, ownerPaygAccount: { findUnique: vi.fn(async () => account) } });
+
+    expect(await setAgentLinkStatus(db, { linkId: 100, propertyId: 2, status: "ACTIVE", decidedByUserId: 42 })).toEqual({
+      ok: false,
+      reason: "PROPERTY_BILLING_BLOCKED",
+      message: "The property's NRMS billing account is not currently eligible.",
+      billingAccount: account,
+    });
+    expect(links.updateMany).not.toHaveBeenCalled();
+  });
+
   it("rejects a pending relationship without requiring verification", async () => {
     const db = makeDb({ nrmsAgentPropertyLink: { ...makeDb().nrmsAgentPropertyLink, findFirst: vi.fn(async () => ({ id: 100, status: "INVITED", agentAccount: { verificationStatus: "PENDING" } })) } });
     expect(await setAgentLinkStatus(db, { linkId: 100, propertyId: 2, status: "REJECTED", decidedByUserId: 42, reason: "no" })).toEqual({ ok: true, status: "REJECTED", changed: true });

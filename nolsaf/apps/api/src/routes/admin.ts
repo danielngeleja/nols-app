@@ -14,12 +14,14 @@ import adminCareersApplicationsRouter from "./admin.careers.applications";
 import adminCareersStatsRouter from "./admin.careers.stats";
 import { router as adminCareersRouter } from "./admin.careers";
 import adminChatbotRouter from "./admin.chatbot";
+import adminNewsletterRouter from "./admin.newsletter";
 import adminContractTemplatesRouter from "./admin.contractTemplates";
 import adminDriversLevelMessagesRouter from "./admin.drivers.level-messages";
 import adminDriversLevelsRouter from "./admin.drivers.levels";
 import adminDriversSummaryRouter from "./admin.drivers.summary";
 import adminDriversRouter from "./admin.drivers";
 import adminDisbursementsRouter from "./admin.disbursements.js";
+import adminPaymentsMerchantsRouter from "./admin.payments.merchants.js";
 import adminGroupStaysArrangementsRouter from "./admin.groupStays.arrangements";
 import adminGroupStaysAssignmentsRouter from "./admin.groupStays.assignments";
 import adminGroupStaysBookingsAuditRouter from "./admin.groupStays.bookings.audit";
@@ -42,8 +44,6 @@ import adminObservabilityRouter from "./admin.observability";
 import adminPaymentsRouter from "./admin.payments";
 import adminPerformanceHighlightsRouter from "./admin.performance.highlights";
 import adminPickupPointsRouter from "./admin.pickupPoints";
-import adminPlanWithUsRequestsRouter from "./admin.planWithUs.requests";
-import adminPlanWithUsSummaryRouter from "./admin.planWithUs.summary";
 import adminPodcastsRouter from "./admin.podcasts";
 import adminPropertiesRouter from "./admin.properties.js";
 import adminReferralEarningsRouter from "./admin.referral-earnings";
@@ -123,6 +123,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/drivers", adminDriversRouter);
   app.use("/api/admin/disbursements", adminDisbursementsRouter as RequestHandler);
   app.use("/admin/disbursements", adminDisbursementsRouter as RequestHandler);
+  app.use("/api/admin/payments/merchants", adminPaymentsMerchantsRouter as RequestHandler);
   app.use("/api/admin/drivers/level-messages", requireRole("ADMIN") as RequestHandler, adminDriversLevelMessagesRouter);
   app.use("/admin/group-stays/summary", adminGroupStaysSummaryRouter);
   app.use("/api/admin/group-stays/summary", adminGroupStaysSummaryRouter);
@@ -144,10 +145,6 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/group-stays/claims", adminGroupStaysClaimsRouter);
   app.use("/admin/group-stays/revenue", adminGroupStaysRevenueRouter);
   app.use("/api/admin/group-stays/revenue", adminGroupStaysRevenueRouter);
-  app.use("/admin/plan-with-us/summary", adminPlanWithUsSummaryRouter);
-  app.use("/api/admin/plan-with-us/summary", adminPlanWithUsSummaryRouter);
-  app.use("/admin/plan-with-us/requests", adminPlanWithUsRequestsRouter);
-  app.use("/api/admin/plan-with-us/requests", adminPlanWithUsRequestsRouter);
   app.use("/admin/agents", adminAgentsRouter);
   app.use("/api/admin/agents", adminAgentsRouter);
   app.use("/admin/tour-commerce", adminTourCommerceRouter);
@@ -223,5 +220,6 @@ export function registerAdminNolScopeRoute(app: Express): void {
 
 export function registerAdminChatbotReportsRoutes(app: Express): void {
   app.use("/api/admin/chatbot", adminChatbotRouter as RequestHandler);
+  app.use("/api/admin/newsletter", adminNewsletterRouter as RequestHandler);
   app.use("/api/admin/reports", adminReportsRouter as RequestHandler);
 }

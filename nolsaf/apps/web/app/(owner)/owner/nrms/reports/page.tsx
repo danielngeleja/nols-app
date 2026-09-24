@@ -44,15 +44,16 @@ import {
   TrendingUp,
   Users,
   WalletCards,
+  Handshake,
   X,
   XCircle,
 } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 
-type ReportKey = "manager" | "revenue" | "payments" | "balances" | "occupancy" | "outlets" | "audit";
+type ReportKey = "manager" | "revenue" | "payments" | "balances" | "occupancy" | "outlets" | "commercial" | "audit";
 type RangePreset = "today" | "month" | "90d" | "year";
 type IconType = ComponentType<{ className?: string }>;
-type PdfSectionKey = "operations" | "reconciliation" | "channels" | "occupancy" | "balances" | "outlets" | "payments" | "audit" | "nightAudit" | "cashiers" | "ledger" | "tax" | "nbs" | "assurance" | "certification";
+type PdfSectionKey = "operations" | "reconciliation" | "channels" | "occupancy" | "balances" | "outlets" | "commercial" | "payments" | "audit" | "nightAudit" | "cashiers" | "ledger" | "tax" | "nbs" | "assurance" | "certification";
 type PdfPackKey = "current" | "full" | "executive" | "finance" | "operations" | "custom";
 type PdfPackSelection = { key: PdfPackKey; label: string; sections: PdfSectionKey[] };
 
@@ -106,6 +107,7 @@ type ReservationSourceRow = {
 
 type GuestBalance = {
   reservationId: number;
+  reservationReference?: string | null;
   receiptNumber: string | null;
   guest: string;
   phone: string | null;
@@ -129,6 +131,7 @@ type PaymentRow = {
   type: string;
   occurredAt: string;
   reservationId: number | null;
+  reservationReference?: string | null;
   referenceNumber: string | null;
   guest: string;
   room: string;
@@ -149,6 +152,7 @@ type OutletRow = {
   guest: string;
   room: string;
   reservationId: number;
+  reservationReference?: string | null;
   status: string;
   settlementMode: string;
   settlementMethod: string | null;
@@ -168,6 +172,7 @@ type AuditRow = {
   type: string;
   occurredAt: string;
   reservationId: number;
+  reservationReference?: string | null;
   referenceNumber: string | null;
   guest: string;
   room: string;
@@ -243,6 +248,54 @@ type ReportsResponse = {
   expenses: { rows: ExpenseReportRow[] };
   profitLoss: ProfitLossRow[];
   staffPerformance: StaffPerformanceRow[];
+  /**
+   * How the property sold, where every block above says how it ran. Optional
+   * so a cached response written before this section existed still renders the
+   * rest of the report instead of failing outright.
+   */
+  commercial?: CommercialReportData | null;
+};
+
+type CommercialGroupRow = {
+  reference: string; name: string; agencyName: string | null; agreedBy: string; agreedOn: string;
+  checkIn: string; checkOut: string; cutOffAt: string; cutOffPassed: boolean; status: string; nights: number;
+  roomsAgreed: number; roomsPickedUp: number; roomsStillHeld: number; value: number; currency: string;
+};
+type CommercialProductionPerson = {
+  userId: number; name: string; roleLabel: string;
+  inbox: { assigned: number; repliesSent: number; answered: number; awaitingFirstReply: number; averageFirstResponseMinutes: number | null };
+  conversion: { reachedHold: number; confirmed: number; lost: number };
+  groups: { agreed: number; roomsAgreed: number; value: number; currency: string };
+  agencies: { introduced: number; active: number };
+};
+type CommercialReportData = {
+  basis: { groupProduction: string; agencyProduction: string; inquiries: string };
+  groups: {
+    currency: string; agreed: number; roomsAgreed: number; roomsPickedUp: number; roomsStillHeld: number;
+    value: number; pickupRatePct: number | null; lapsedCutOffs: number;
+    outcome: { live: number; pickedUp: number; released: number; cancelled: number };
+    rows: CommercialGroupRow[];
+  };
+  inquiries: {
+    periodDays: number;
+    funnel: { visits: number; inquiries: number; responded: number; holds: number; confirmed: number };
+    rates: { visitToInquiryPct: number | null; inquiryToHoldPct: number | null; holdToConfirmedPct: number | null };
+    averageFirstResponseMinutes: number | null;
+    sources: Array<{ source: string; visits: number; inquiries: number; responded: number; holds: number; confirmed: number }>;
+  };
+  agents: {
+    introducedInPeriod: number;
+    byStatus: Array<{ status: string; count: number }>;
+    bookingRequests: Array<{ status: string; count: number; rooms: number }>;
+    rows: Array<{ agency: string; status: string; startedOn: string | null; bookingRequests: number }>;
+  };
+  production: { people: CommercialProductionPerson[] };
+  staffAccess: {
+    total: number;
+    byStatus: Array<{ status: string; count: number }>;
+    byRole: Array<{ role: string; roleLabel: string; active: number; pending: number; other: number }>;
+    rows: Array<{ name: string; role: string; roleLabel: string; status: string; outlet: string | null; confirmedOn: string | null; joinedOn: string }>;
+  };
 };
 
 type ExpenseReportRow = { id: number; category: string; description: string; amount: number; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null };
@@ -273,6 +326,7 @@ const REPORTS: Array<{ key: ReportKey; label: string; description: string; icon:
   { key: "balances", label: "Guest balances", description: "Folio settlement control", icon: ReceiptText },
   { key: "occupancy", label: "Occupancy", description: "ADR, RevPAR and room use", icon: BedDouble },
   { key: "outlets", label: "Outlet sales", description: "Restaurant and bar history", icon: ShoppingBasket },
+  { key: "commercial", label: "Sales & groups", description: "Group business, agencies and production", icon: Handshake },
   { key: "audit", label: "Audit & voids", description: "Who changed what and when", icon: ShieldCheck },
 ];
 
@@ -283,6 +337,7 @@ const PDF_SECTION_OPTIONS: Array<{ key: PdfSectionKey; label: string; descriptio
   { key: "occupancy", label: "Room and occupancy", description: "Available nights, sold nights, ADR and RevPAR basis", icon: BedDouble },
   { key: "balances", label: "Guest folio balances", description: "Charges, collections and outstanding guest balances", icon: ReceiptText },
   { key: "outlets", label: "Outlet sales", description: "Restaurant, bar and service order settlement", icon: Store },
+  { key: "commercial", label: "Sales and group business", description: "Group blocks, inquiry conversion, agencies and production by person", icon: Handshake },
   { key: "payments", label: "Payment register", description: "Payment method, operator, reference and status", icon: WalletCards },
   { key: "audit", label: "Audit and exceptions", description: "Voids, corrections, reasons and responsible users", icon: History },
   { key: "nightAudit", label: "Night Audit and business close", description: "Closing status, blockers and immutable audit references", icon: CalendarCheck2 },
@@ -296,9 +351,9 @@ const PDF_SECTION_OPTIONS: Array<{ key: PdfSectionKey; label: string; descriptio
 
 const PDF_PACKS: Array<PdfPackSelection & { description: string }> = [
   { key: "full", label: "Full property pack", description: "Complete management, finance, operations and audit record", sections: PDF_SECTION_OPTIONS.map((section) => section.key) },
-  { key: "executive", label: "Executive pack", description: "Headline operation, performance, channels and controls", sections: ["operations", "reconciliation", "channels", "occupancy", "assurance", "certification"] },
+  { key: "executive", label: "Executive pack", description: "Headline operation, performance, channels and controls", sections: ["operations", "reconciliation", "channels", "occupancy", "commercial", "assurance", "certification"] },
   { key: "finance", label: "Finance and control pack", description: "Revenue, cashiers, ledgers, tax, Night Audit and assurance", sections: ["reconciliation", "balances", "payments", "cashiers", "ledger", "tax", "nightAudit", "audit", "assurance", "certification"] },
-  { key: "operations", label: "Operations pack", description: "Front desk, rooms, channels and outlet performance", sections: ["operations", "channels", "occupancy", "outlets", "assurance", "certification"] },
+  { key: "operations", label: "Operations pack", description: "Front desk, rooms, channels and outlet performance", sections: ["operations", "channels", "occupancy", "outlets", "commercial", "assurance", "certification"] },
 ];
 
 const REQUIRED_PDF_SECTIONS: PdfSectionKey[] = ["assurance", "certification"];
@@ -310,6 +365,7 @@ const CURRENT_REPORT_PDF_SECTIONS: Record<ReportKey, PdfSectionKey[]> = {
   balances: ["balances", "assurance", "certification"],
   occupancy: ["occupancy", "assurance", "certification"],
   outlets: ["outlets", "assurance", "certification"],
+  commercial: ["commercial", "assurance", "certification"],
   audit: ["audit", "assurance", "certification"],
 };
 
@@ -355,6 +411,11 @@ const LABELS: Record<string, string> = {
   BOOKING_COM: "Booking.com",
   EXPEDIA: "Expedia",
 };
+
+/** Reservation page link by opaque reference, never the numeric id. */
+function reservationHref(reference: string | null | undefined): string {
+  return reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(reference)}` : "/owner/nrms/reservations";
+}
 
 function localDateKey(value = new Date()): string {
   const year = value.getFullYear();
@@ -748,6 +809,36 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
         </tbody></table></div>
       </PdfSection>}
 
+      {/* Counted by agreement date, so this section will not tie to occupancy
+          or to the master folio totals elsewhere in the pack. The note at the
+          end says so, because a reader who spots the difference and is not
+          told why will assume one of the two is wrong. */}
+      {hasSection("commercial") && data.commercial && <PdfSection number={sectionNumber("commercial")} title="Sales and group business" description="Group blocks agreed, guest inquiry conversion, agency relationships and production by person, counted by agreement date.">
+        <div className="pdf-metrics">
+          <PdfMetric label="Group blocks agreed" value={String(data.commercial.groups.agreed)} detail={`${data.commercial.groups.roomsAgreed} rooms at ${moneyFormatter(data.commercial.groups.currency).format(data.commercial.groups.value)}`} tone="green" />
+          <PdfMetric label="Rooms named" value={data.commercial.groups.pickupRatePct == null ? "No blocks" : `${data.commercial.groups.pickupRatePct}%`} detail={`${data.commercial.groups.roomsPickedUp} of ${data.commercial.groups.roomsAgreed} rooms picked up`} />
+          <PdfMetric label="Lapsed cut-offs" value={String(data.commercial.groups.lapsedCutOffs)} detail="Live blocks past the decision date with rooms held" tone={data.commercial.groups.lapsedCutOffs ? "amber" : "dark"} />
+          <PdfMetric label="Inquiries received" value={String(data.commercial.inquiries.funnel.inquiries)} detail={data.commercial.inquiries.averageFirstResponseMinutes == null ? "No first replies recorded" : `First reply in ${data.commercial.inquiries.averageFirstResponseMinutes} minutes on average`} />
+        </div>
+
+        <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "18%" }}>Reference</th><th style={{ width: "20%" }}>Group and agency</th><th>Agreed by</th><th>Stay</th><th>Cut-off</th><th>Rooms named</th><th style={{ textAlign: "right" }}>Value</th><th>Status</th></tr></thead><tbody>
+          {data.commercial.groups.rows.map((row) => <tr key={row.reference}><td><b>{row.reference}</b></td><td>{row.name}<br /><span className="muted">{row.agencyName || "No agency recorded"}</span></td><td>{row.agreedBy}<br /><span className="muted">{row.agreedOn}</span></td><td>{row.checkIn} to {row.checkOut}<br /><span className="muted">{row.nights} {row.nights === 1 ? "night" : "nights"}</span></td><td>{row.cutOffAt}{row.cutOffPassed && row.roomsStillHeld > 0 ? <><br /><span className="muted">Passed, {row.roomsStillHeld} held</span></> : null}</td><td>{row.roomsPickedUp} of {row.roomsAgreed}</td><td className="num">{moneyFormatter(row.currency).format(row.value)}</td><td><span className={`pdf-status ${row.status === "CANCELLED" ? "pdf-status-danger" : row.status === "RELEASED" ? "pdf-status-warn" : ""}`}>{label(row.status)}</span></td></tr>)}
+          {!data.commercial.groups.rows.length && <PdfEmptyRow columns={8} text="No group blocks were agreed in this period." />}
+        </tbody></table></div>
+
+        <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "24%" }}>Person</th><th>Assigned</th><th>Replies</th><th>First reply</th><th>Held</th><th>Confirmed</th><th>Blocks</th><th style={{ textAlign: "right" }}>Block value</th></tr></thead><tbody>
+          {data.commercial.production.people.map((person) => <tr key={person.userId}><td><b>{person.name}</b><br /><span className="muted">{person.roleLabel || "Staff"}</span></td><td>{person.inbox.assigned}</td><td>{person.inbox.repliesSent}</td><td>{person.inbox.averageFirstResponseMinutes == null ? "Not yet" : `${person.inbox.averageFirstResponseMinutes} min`}</td><td>{person.conversion.reachedHold}</td><td><b>{person.conversion.confirmed}</b></td><td>{person.groups.agreed}</td><td className="num">{moneyFormatter(person.groups.currency).format(person.groups.value)}</td></tr>)}
+          {!data.commercial.production.people.length && <PdfEmptyRow columns={8} text="No one is assigned to the sales roster for this property." />}
+        </tbody></table></div>
+
+        <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "34%" }}>Person</th><th>Role</th><th>Outlet</th><th>Status</th><th>Assigned</th><th>Accepted</th></tr></thead><tbody>
+          {data.commercial.staffAccess.rows.map((row, index) => <tr key={`${row.name}-${index}`}><td><b>{row.name}</b></td><td>{row.roleLabel}</td><td>{row.outlet || "Whole property"}</td><td><span className={`pdf-status ${row.status === "REVOKED" ? "pdf-status-danger" : row.status !== "ACTIVE" ? "pdf-status-warn" : ""}`}>{label(row.status)}</span></td><td>{row.joinedOn}</td><td>{row.confirmedOn || "Not accepted"}</td></tr>)}
+          {!data.commercial.staffAccess.rows.length && <PdfEmptyRow columns={6} text="No staff have been assigned to this property." />}
+        </tbody></table></div>
+
+        <div className="pdf-note"><b>Sales basis note.</b> Group and agency figures count the day the agreement was made, not the day the guests arrive, so this section does not tie to occupancy or to the master folio totals elsewhere in this pack. Those answer the stay-date question; this one answers the sales question. A reservation hold is credited to whoever worked the conversation rather than to whoever created it.</div>
+      </PdfSection>}
+
       {hasSection("payments") && <PdfSection number={sectionNumber("payments")} title="Payment register" description="All guest and outlet payment records used in the collection total.">
         <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "15%" }}>Date and time</th><th style={{ width: "17%" }}>Guest / room</th><th>Source</th><th>Method</th><th>Reference</th><th>Recorded by</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th></tr></thead><tbody>
           {payments.map((row) => <tr key={`${row.type}-${row.id}`}><td>{dateTime(row.occurredAt)}</td><td><b>{row.guest}</b><br /><span className="muted">{row.room}</span></td><td>{label(row.type)}</td><td>{label(row.method)}</td><td>{row.reference || row.referenceNumber || "Not recorded"}</td><td>{row.recordedBy}</td><td className="num">{money(row.amount)}</td><td><span className={`pdf-status ${row.voidedAt ? "pdf-status-danger" : ""}`}>{row.voidedAt ? "Voided" : "Recorded"}</span></td></tr>)}
@@ -757,7 +848,7 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
 
       {hasSection("audit") && <PdfSection number={sectionNumber("audit")} title="Audit and exception history" description="Recorded operational changes, voids and accountability events.">
         <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "16%" }}>Date and time</th><th style={{ width: "16%" }}>Action</th><th style={{ width: "17%" }}>Guest / room</th><th>Reference</th><th>Performed by</th><th style={{ width: "23%" }}>Reason</th></tr></thead><tbody>
-          {data.audit.rows.map((row) => <tr key={row.id}><td>{dateTime(row.occurredAt)}</td><td><span className={`pdf-status ${row.type.includes("VOID") || row.type === "CANCELLED" ? "pdf-status-danger" : ""}`}>{label(row.type)}</span></td><td><b>{row.guest}</b><br /><span className="muted">{row.room}</span></td><td>{row.referenceNumber || `Reservation #${row.reservationId}`}</td><td>{row.actor}</td><td>{row.reason || "Not recorded"}</td></tr>)}
+          {data.audit.rows.map((row) => <tr key={row.id}><td>{dateTime(row.occurredAt)}</td><td><span className={`pdf-status ${row.type.includes("VOID") || row.type === "CANCELLED" ? "pdf-status-danger" : ""}`}>{label(row.type)}</span></td><td><b>{row.guest}</b><br /><span className="muted">{row.room}</span></td><td>{row.referenceNumber || "No reference number"}</td><td>{row.actor}</td><td>{row.reason || "Not recorded"}</td></tr>)}
           {!data.audit.rows.length && <PdfEmptyRow columns={6} text="No auditable events were recorded in this period." />}
         </tbody></table></div>
       </PdfSection>}
@@ -1219,6 +1310,7 @@ export default function NrmsReportsPage() {
               {activeReport === "balances" && <BalancesReport rows={filteredBalances} currencyReport={currencyReport} money={money} />}
               {activeReport === "occupancy" && <OccupancyReport data={data} />}
               {activeReport === "outlets" && <OutletReport rows={filteredOutlets} money={money} />}
+              {activeReport === "commercial" && <CommercialReport commercial={data.commercial} label={label} />}
               {activeReport === "audit" && <AuditReport rows={data.audit.rows} />}
               <p className="m-0 px-1 text-[10px] leading-4 text-neutral-400 print:hidden">Report period: {shortDate(`${data.range.from}T00:00:00+03:00`)} to {shortDate(`${data.range.to}T00:00:00+03:00`)}. Saved transactions are read-only here; corrections must be made through their original folio, payment or outlet record.</p>
             </div>
@@ -1471,7 +1563,7 @@ function PaymentsReport({ data, rows, currencyReport, money }: { data: ReportsRe
           {pageRows.map((row) => (
             <tr key={row.id}>
               <Cell><span className="whitespace-nowrap">{dateTime(row.occurredAt)}</span></Cell>
-              <Cell>{row.reservationId != null ? <Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link> : <span className="font-bold text-neutral-900">{row.guest}</span>}<span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell>{row.reservationReference ? <Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link> : <span className="font-bold text-neutral-900">{row.guest}</span>}<span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
               <Cell strong>{label(row.method)}</Cell>
               <Cell>{row.recordedBy}</Cell>
               <Cell>{row.reference || row.referenceNumber || "Not recorded"}</Cell>
@@ -1552,7 +1644,7 @@ function BalancesReport({ rows, currencyReport, money }: { rows: GuestBalance[];
         ]}>
           {pageRows.map((row) => (
             <tr key={row.reservationId}>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.receiptNumber || `Reservation #${row.reservationId}`}</span></Cell>
+              <Cell><Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.receiptNumber || "No receipt number"}</span></Cell>
               <Cell><span className="whitespace-nowrap">{shortDate(row.checkIn)}</span><span className="block whitespace-nowrap text-[10px] text-neutral-400">to {shortDate(row.checkOut)}</span></Cell>
               <Cell align="right">{money(row.roomAmount)}</Cell>
               <Cell align="right">{money(row.folioExtras)}</Cell>
@@ -1577,6 +1669,112 @@ function BalancesReport({ rows, currencyReport, money }: { rows: GuestBalance[];
       </Panel>
     </>
   );
+}
+
+/**
+ * How the property sold, as opposed to how it ran.
+ *
+ * Group business used to reach this centre only as money, through the master
+ * folio, so a pack could show an agency owing millions while saying nothing
+ * about how many rooms were promised or how many were released unsold.
+ * Inquiries, agencies, per person production and who holds access appeared
+ * nowhere.
+ *
+ * The block is optional on the response, so an older cached report renders a
+ * plain notice here rather than crashing the whole reporting centre.
+ */
+function CommercialReport({ commercial, label }: { commercial?: CommercialReportData | null; label: (value: string) => string }) {
+  if (!commercial) {
+    return <><ReportTitle icon={Handshake} eyebrow="Commercial" title="Sales and group business" text="How the property sold in the selected period." /><InfoNote>This report was generated before the commercial section existed. Reload the period to build it.</InfoNote></>;
+  }
+  const { groups, inquiries, agents, production, staffAccess } = commercial;
+  const groupMoney = moneyFormatter(groups.currency).format;
+  const funnel = inquiries.funnel;
+  const carried = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 1000) / 10}%` : "0%");
+
+  return <>
+    <ReportTitle icon={Handshake} eyebrow="Commercial" title="Sales and group business" text="Group blocks agreed, inquiry conversion, agency relationships and production by person. Group and agency figures are counted by agreement date, not arrival date: this measures selling, where occupancy measures staying." />
+
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MoneyMetric label="Group blocks agreed" value={String(groups.agreed)} note={`${groups.roomsAgreed} rooms promised, ${groupMoney(groups.value)} at agreed rates`} icon={Handshake} tone="emerald" />
+      <MoneyMetric label="Rooms named" value={groups.pickupRatePct == null ? "No blocks" : `${groups.pickupRatePct}%`} note={`${groups.roomsPickedUp} of ${groups.roomsAgreed} rooms became real reservations`} icon={BedDouble} tone={groups.pickupRatePct != null && groups.pickupRatePct < 50 ? "amber" : "blue"} />
+      <MoneyMetric label="Lapsed cut-offs" value={String(groups.lapsedCutOffs)} note="Live blocks past their decision date with rooms still held" icon={CalendarDays} tone={groups.lapsedCutOffs ? "amber" : "emerald"} />
+      <MoneyMetric label="Inquiries received" value={String(funnel.inquiries)} note={inquiries.averageFirstResponseMinutes == null ? "No first replies recorded" : `Answered in ${inquiries.averageFirstResponseMinutes} minutes on average`} icon={TrendingUp} tone="violet" />
+    </section>
+
+    <Panel title="Guest inquiry conversion" description={`Direct booking page through to a confirmed stay, over ${inquiries.periodDays} report days`}>
+      <DataTable headers={["Stage", "Count", "Carried from the stage above", "What it means"]}>
+        {[
+          { stage: "Page views", value: funnel.visits, previous: null as number | null, meaning: "The direct booking page was opened" },
+          { stage: "Inquiries", value: funnel.inquiries, previous: funnel.visits, meaning: "A guest asked a question" },
+          { stage: "Answered", value: funnel.responded, previous: funnel.inquiries, meaning: "The property sent a first reply" },
+          { stage: "Rooms held", value: funnel.holds, previous: funnel.responded, meaning: "The conversation became a reservation hold" },
+          { stage: "Confirmed", value: funnel.confirmed, previous: funnel.holds, meaning: "The hold became a real stay" },
+        ].map((row) => <tr key={row.stage}><Cell strong>{row.stage}</Cell><Cell>{row.value.toLocaleString()}</Cell><Cell>{row.previous == null ? "Entry point" : carried(row.value, row.previous)}</Cell><Cell>{row.meaning}</Cell></tr>)}
+      </DataTable>
+      {funnel.inquiries === 0 && <TableEmpty text="No guest inquiries were received in this period." />}
+    </Panel>
+
+    <Panel title="Group blocks agreed" description={`${groups.outcome.live} still holding, ${groups.outcome.pickedUp} picked up, ${groups.outcome.released} released, ${groups.outcome.cancelled} cancelled`}>
+      <DataTable headers={["Reference", "Group", "Agreed by", "Stay", "Cut-off", "Rooms", "Value", "Status"]}>
+        {groups.rows.map((row) => <tr key={row.reference}>
+          <Cell strong>{row.reference}</Cell>
+          <Cell>{row.name}<br /><span className="text-[11px] text-neutral-500">{row.agencyName || "No agency recorded"}</span></Cell>
+          <Cell>{row.agreedBy}<br /><span className="text-[11px] text-neutral-500">{row.agreedOn}</span></Cell>
+          <Cell>{row.checkIn} to {row.checkOut}<br /><span className="text-[11px] text-neutral-500">{row.nights} {row.nights === 1 ? "night" : "nights"}</span></Cell>
+          <Cell>{row.cutOffAt}{row.cutOffPassed && row.roomsStillHeld > 0 ? <><br /><span className="text-[11px] font-bold text-amber-700">Passed, {row.roomsStillHeld} still held</span></> : null}</Cell>
+          <Cell>{row.roomsPickedUp} of {row.roomsAgreed} named</Cell>
+          <Cell>{moneyFormatter(row.currency).format(row.value)}</Cell>
+          <Cell><span className={`pdf-status ${row.status === "CANCELLED" ? "pdf-status-danger" : row.status === "RELEASED" ? "pdf-status-warn" : ""}`}>{label(row.status)}</span></Cell>
+        </tr>)}
+      </DataTable>
+      {groups.rows.length === 0 && <TableEmpty text="No group blocks were agreed in this period." />}
+    </Panel>
+
+    <Panel title="Production by person" description="The sales roster: owner, managers and sales executives. Front desk and outlet staff are excluded, because a walk-in checked in at reception was not sold by anybody.">
+      <DataTable headers={["Person", "Assigned", "Replies", "First reply", "Held", "Confirmed", "Blocks", "Block value"]}>
+        {production.people.map((person) => <tr key={person.userId}>
+          <Cell strong>{person.name}<br /><span className="text-[11px] text-neutral-500">{person.roleLabel || "Staff"}</span></Cell>
+          <Cell>{person.inbox.assigned}</Cell>
+          <Cell>{person.inbox.repliesSent}</Cell>
+          <Cell>{person.inbox.averageFirstResponseMinutes == null ? "Not yet" : `${person.inbox.averageFirstResponseMinutes} min`}</Cell>
+          <Cell>{person.conversion.reachedHold}</Cell>
+          <Cell strong>{person.conversion.confirmed}</Cell>
+          <Cell>{person.groups.agreed}</Cell>
+          <Cell>{moneyFormatter(person.groups.currency).format(person.groups.value)}</Cell>
+        </tr>)}
+      </DataTable>
+      {production.people.length === 0 && <TableEmpty text="No one is assigned to the sales roster for this property." />}
+    </Panel>
+
+    <Panel title="Travel agency relationships" description={`${agents.introducedInPeriod} started in this period. Standing relationships are shown in full, because who sells this property does not reset each month.`}>
+      <DataTable headers={["Agency", "Status", "Relationship started", "Booking requests"]}>
+        {agents.rows.map((row, index) => <tr key={`${row.agency}-${index}`}>
+          <Cell strong>{row.agency}</Cell>
+          <Cell><span className={`pdf-status ${["TERMINATED", "REJECTED"].includes(row.status) ? "pdf-status-danger" : ["REQUESTED", "AGENT_ACCEPTED", "INVITED", "SUSPENDED"].includes(row.status) ? "pdf-status-warn" : ""}`}>{label(row.status)}</span></Cell>
+          <Cell>{row.startedOn || "Not recorded"}</Cell>
+          <Cell>{row.bookingRequests}</Cell>
+        </tr>)}
+      </DataTable>
+      {agents.rows.length === 0 && <TableEmpty text="No travel agency relationships exist for this property." />}
+    </Panel>
+
+    <Panel title="Access and roles" description={`${staffAccess.total} assignments on record. Every status is listed, because a report of only active staff cannot answer who used to have access.`}>
+      <DataTable headers={["Person", "Role", "Outlet", "Status", "Assigned", "Accepted"]}>
+        {staffAccess.rows.map((row, index) => <tr key={`${row.name}-${index}`}>
+          <Cell strong>{row.name}</Cell>
+          <Cell>{row.roleLabel}</Cell>
+          <Cell>{row.outlet || "Whole property"}</Cell>
+          <Cell><span className={`pdf-status ${row.status === "REVOKED" ? "pdf-status-danger" : row.status !== "ACTIVE" ? "pdf-status-warn" : ""}`}>{label(row.status)}</span></Cell>
+          <Cell>{row.joinedOn}</Cell>
+          <Cell>{row.confirmedOn || "Not accepted"}</Cell>
+        </tr>)}
+      </DataTable>
+      {staffAccess.rows.length === 0 && <TableEmpty text="No staff have been assigned to this property." />}
+    </Panel>
+
+    <InfoNote>Group and agency production count the day the agreement was made, not the day the guests arrive, so this section will not tie to occupancy or to the master folio totals elsewhere in the pack. Those answer the stay-date question and this one answers the sales question. A reservation hold is credited to whoever worked the conversation rather than to whoever created it, because a sales executive holds no reservation.create today.</InfoNote>
+  </>;
 }
 
 function OccupancyReport({ data }: { data: ReportsResponse }) {
@@ -1654,7 +1852,7 @@ function OutletReport({ rows, money }: { rows: OutletRow[]; money: (value: numbe
             <tr key={row.id} className={outletUiRowClass(row.outletType)}>
               <Cell><strong className="whitespace-nowrap">{row.orderNumber}</strong><span className="mt-0.5 block text-[10px] text-neutral-500">{row.createdBy}</span></Cell>
               <Cell strong>{row.outlet}<span className="mt-0.5 block text-[10px] font-normal text-neutral-400">{label(row.outletType)}</span></Cell>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell><Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
               <Cell><span className="block max-w-[260px] text-xs leading-5">{row.items || "No item details"}</span></Cell>
               <Cell><span className="whitespace-nowrap">{label(row.settlementMode)}</span>{row.settlementMode === "OUTLET_PAYMENT" && <span className="mt-0.5 block whitespace-nowrap text-[10px] text-neutral-400">{label(row.settlementMethod || "UNCLASSIFIED")}</span>}</Cell>
               <Cell><span className="whitespace-nowrap">{dateTime(row.orderedAt)}</span></Cell>
@@ -1741,8 +1939,8 @@ function AuditReport({ rows }: { rows: AuditRow[] }) {
             <tr key={row.id}>
               <Cell><span className="whitespace-nowrap">{dateTime(row.occurredAt)}</span></Cell>
               <Cell><StatusBadge value={row.type} /></Cell>
-              <Cell><Link href={`/owner/nrms/reservations/${row.reservationId}`} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
-              <Cell>{row.referenceNumber || `Reservation #${row.reservationId}`}</Cell>
+              <Cell><Link href={reservationHref(row.reservationReference)} className="font-bold text-neutral-900 no-underline hover:text-emerald-700">{row.guest}</Link><span className="mt-0.5 block text-[10px] text-neutral-400">{row.room}</span></Cell>
+              <Cell>{row.referenceNumber || "No reference number"}</Cell>
               <Cell strong>{row.actor}</Cell>
               <Cell>{row.reason || "Not recorded"}</Cell>
             </tr>

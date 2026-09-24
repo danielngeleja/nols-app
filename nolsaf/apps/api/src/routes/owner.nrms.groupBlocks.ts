@@ -17,13 +17,14 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { NRMS_BILLING_BLOCKING_STATUSES, nrmsBillingBlockPayload } from "../lib/nrms.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { encrypt } from "../lib/crypto.js";
 import { generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { qualifyGroupBlock, STANDARD_GROUP_MIN_ROOMS } from "../lib/nrmsGroupPolicy.js";
+import { checkStaffRateFloor } from "../lib/nrmsRateFloor.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
 import {
   BLOCK_LIVE_STATUSES,
@@ -357,25 +358,71 @@ const proFormaRecordInclude = {
   },
 };
 
-async function loadOwnedBlock(res: Response, ownerId: number, blockId: number) {
-  if (!Number.isInteger(blockId) || blockId <= 0) {
-    res.status(400).json({ error: "Invalid group block id" });
-    return null;
-  }
-  const block = await prisma.nrmsGroupBlock.findFirst({ where: { id: blockId, ownerId }, include: blockInclude });
-  if (!block) {
-    res.status(404).json({ error: "Group block not found" });
-    return null;
-  }
-  const active = await loadOwnedActiveNrmsProperty(res, ownerId, block.propertyId);
-  if (!active) return null;
-  return block;
-}
-
 type GroupDocumentAccess = NrmsPropertyAccess;
 
 async function loadGroupDocumentAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
   return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
+}
+
+/**
+ * Reading the block list, which is not the same permission as operating on a
+ * block's master folio.
+ *
+ * A sales executive sells group business and needs to see the blocks, but the
+ * document guard above also gates master folio payments, payment voids, refunds
+ * and refund voids. Widening that one shared list would have handed a sales
+ * role refund powers it holds no finance capability for, so the read is split
+ * out rather than the money operations opened up.
+ */
+async function loadGroupListAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"]);
+}
+
+/**
+ * Shaping the block itself: agreeing it, amending it before pickup, releasing
+ * the rooms it never used, cancelling one that produced nothing.
+ *
+ * This is the sales executive's actual job. Until now every one of those calls
+ * ran through loadOwnedActiveNrmsProperty, so a role holding sales.group.manage
+ * could open the block list and change nothing on it.
+ *
+ * Front desk is deliberately absent. They pick guests up from a block, which is
+ * a reservation action guarded separately by loadGroupDocumentAccess; they do
+ * not agree the commercial terms of one.
+ */
+async function loadGroupManageAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "SALES_EXECUTIVE"]);
+}
+
+/**
+ * The small group exception is an authority, not a data entry field.
+ *
+ * qualifyGroupBlock lets a party below the standard minimum through when the
+ * creator writes a reason, which is an owner's decision to contract under their
+ * own policy. If a sales executive could type that sentence themselves, the
+ * minimum would not be a policy at all, so the exception stays with the hotel's
+ * own authority and sales agrees standard groups.
+ */
+const SMALL_GROUP_APPROVAL_ROLES: readonly string[] = ["OWNER", "MANAGER"];
+
+/**
+ * A block the caller may shape, resolved through their role on the property
+ * rather than through owning it. This replaced the last owner-only loader in
+ * the file, so every remaining handler is either role aware or guarded by
+ * loadGroupDocumentAccess.
+ */
+async function loadManageableBlock(req: AuthedRequest, res: Response, blockId: number) {
+  if (!Number.isInteger(blockId) || blockId <= 0) {
+    res.status(400).json({ error: "Invalid group block id" });
+    return null;
+  }
+  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockInclude });
+  if (!block) {
+    res.status(404).json({ error: "Group block not found" });
+    return null;
+  }
+  const access = await loadGroupManageAccess(req, res, block.propertyId);
+  return access ? { block, access } : null;
 }
 
 async function loadDocumentAccessibleBlock(req: AuthedRequest, res: Response, blockId: number) {
@@ -390,6 +437,26 @@ async function loadDocumentAccessibleBlock(req: AuthedRequest, res: Response, bl
   }
   const access = await loadGroupDocumentAccess(req, res, block.propertyId);
   return access ? { block, access } : null;
+}
+
+async function loadReadableBlock(req: AuthedRequest, res: Response, blockId: number) {
+  if (!Number.isInteger(blockId) || blockId <= 0) {
+    res.status(400).json({ error: "Invalid group block id" });
+    return null;
+  }
+  const scope = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, select: { propertyId: true } });
+  if (!scope) {
+    res.status(404).json({ error: "Group block not found" });
+    return null;
+  }
+  const access = await loadGroupListAccess(req, res, scope.propertyId);
+  if (!access) return null;
+  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockDetailInclude });
+  if (!block) {
+    res.status(404).json({ error: "Group block not found" });
+    return null;
+  }
+  return { block, access };
 }
 
 async function loadAccessibleProForma(req: AuthedRequest, res: Response, blockId: number, proFormaId: number) {
@@ -430,7 +497,7 @@ function readDates(input: { checkIn: string; checkOut: string; cutOffAt: string 
 /** GET /property/:propertyId/blocks */
 router.get("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Response) => {
   try {
-    const access = await loadGroupDocumentAccess(req, res, Number(req.params.propertyId));
+    const access = await loadGroupListAccess(req, res, Number(req.params.propertyId));
     if (!access) return;
     const blocks = await prisma.nrmsGroupBlock.findMany({
       where: { propertyId: access.property.id, ownerId: access.property.ownerId },
@@ -456,10 +523,19 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
   try {
     const parsed = createBlockSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid group block", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const propertyId = active.property.id as number;
+    const access = await loadGroupManageAccess(req, res, Number(req.params.propertyId));
+    if (!access) return;
+    if ((NRMS_BILLING_BLOCKING_STATUSES as readonly string[]).includes(String(access.account.status ?? "").toUpperCase())) {
+      return res.status(402).json(await nrmsBillingBlockPayload(access.account, "GROUP_BLOCK"));
+    }
+    // The property's owner, who the row belongs to, and the person doing the
+    // work, who it is credited to. They were the same value while only owners
+    // could reach this handler; conflating them now would file a sales
+    // executive's block under the owner's name and lose the attribution any
+    // production report depends on.
+    const ownerId = access.property.ownerId;
+    const actorId = access.actorId;
+    const propertyId = access.property.id;
     const data = parsed.data;
     const agreedRooms = data.rooms.reduce((sum, room) => sum + room.quantity, 0);
     const qualification = qualifyGroupBlock(agreedRooms, data.smallGroupApprovalReason);
@@ -471,8 +547,27 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
         standardMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
       });
     }
+    if (qualification.classification === "APPROVED_SMALL" && !SMALL_GROUP_APPROVAL_ROLES.includes(access.role)) {
+      return res.status(403).json({
+        error: `Standard groups start at ${STANDARD_GROUP_MIN_ROOMS} rooms. A smaller contracted party has to be approved by the owner or a manager.`,
+        code: "SMALL_GROUP_APPROVAL_NOT_PERMITTED",
+        agreedRooms,
+        standardMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
+      });
+    }
     if (billingUsesMasterFolio(data.billingMode) && !String(data.agencyName || "").trim()) {
       return res.status(400).json({ error: "Agency or company name is required for agency billing", code: "AGENCY_NAME_REQUIRED" });
+    }
+    // The rate typed here becomes the guest's rate on pickup, so a staff member
+    // agreeing a block is exercising discount authority. The owner is not
+    // floored; everyone else is.
+    const floorCheck = await checkStaffRateFloor({
+      role: access.role,
+      propertyId,
+      lines: data.rooms.map((room) => ({ roomTypeId: room.roomTypeId, nightlyRate: room.nightlyRate ?? 0 })),
+    });
+    if (!floorCheck.ok) {
+      return res.status(403).json({ error: floorCheck.message, code: "RATE_BELOW_STAFF_FLOOR", violations: floorCheck.violations });
     }
 
     const dates = readDates({ checkIn: data.checkIn, checkOut: data.checkOut, cutOffAt: data.cutOffAt });
@@ -511,14 +606,14 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
           checkOut: dates.checkOut,
           cutOffAt: dates.cutOffAt,
           status: "HELD",
-          currency: active.property.currency ?? "TZS",
+          currency: access.property.currency ?? "TZS",
           billingMode: data.billingMode,
           groupMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
           agreedRoomsAtCreation: agreedRooms,
           smallGroupApprovedAt: qualification.classification === "APPROVED_SMALL" ? new Date() : null,
           smallGroupApprovalReason: qualification.approvalReason ? sanitizeText(qualification.approvalReason) : null,
           notes: data.notes ? sanitizeText(data.notes) : null,
-          createdById: ownerId,
+          createdById: actorId,
         },
       });
       await tx.nrmsGroupBlockRoom.createMany({
@@ -556,9 +651,15 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
 /** GET /blocks/:blockId */
 router.get("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    const accessible = await loadReadableBlock(req, res, Number(req.params.blockId));
     if (!accessible) return;
-    res.json({ block: formatBlock(accessible.block), accessRole: accessible.access.role });
+    const block = formatBlock(accessible.block);
+    res.json({
+      block: accessible.access.role === "SALES_EXECUTIVE"
+        ? { ...block, masterFolio: null, chargeRegister: [] }
+        : block,
+      accessRole: accessible.access.role,
+    });
   } catch (err) {
     console.error("[owner.nrms.groupBlocks] detail failed", err);
     res.status(500).json({ error: "Failed to load the group block" });
@@ -793,9 +894,9 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
   try {
     const parsed = editBlockSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid update", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const manageable = await loadManageableBlock(req, res, Number(req.params.blockId));
+    if (!manageable) return;
+    const { block } = manageable;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: `A ${block.status.toLowerCase().replace(/_/g, " ")} block cannot be edited`, code: "INVALID_STATUS" });
     }
@@ -827,6 +928,18 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
       const existingIds = new Set(block.rooms.map((room: any) => room.id));
       if (data.rooms!.length !== existingIds.size || data.rooms!.some((room) => !existingIds.has(room.id))) {
         return res.status(400).json({ error: "Every current room line must be included in the amendment", code: "BLOCK_ROOM_LINES_MISMATCH" });
+      }
+      // Amending a rate is the same authority as agreeing one, so it meets the
+      // same floor. The amendment carries line ids rather than room type ids,
+      // so the type comes from the line already on the block.
+      const roomTypeByLineId = new Map<number, number>(block.rooms.map((room: any) => [room.id, room.roomTypeId]));
+      const floorCheck = await checkStaffRateFloor({
+        role: manageable.access.role,
+        propertyId: block.propertyId,
+        lines: data.rooms!.map((room) => ({ roomTypeId: roomTypeByLineId.get(room.id)!, nightlyRate: room.nightlyRate })),
+      });
+      if (!floorCheck.ok) {
+        return res.status(403).json({ error: floorCheck.message, code: "RATE_BELOW_STAFF_FLOOR", violations: floorCheck.violations });
       }
     }
     if (data.billingMode !== undefined && data.billingMode !== block.billingMode && pickedUp > 0) {
@@ -1190,9 +1303,13 @@ router.post("/blocks/:blockId/pickup", (async (req: AuthedRequest, res: Response
  */
 router.post("/blocks/:blockId/release", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const manageable = await loadManageableBlock(req, res, Number(req.params.blockId));
+    if (!manageable) return;
+    const { block } = manageable;
+    // The block's own owner, not the caller. A sales executive releasing rooms
+    // is not the owner of anything, and keying this update to req.user would
+    // silently match no row and report a phantom conflict.
+    const ownerId = block.ownerId;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is no longer holding any rooms", code: "INVALID_STATUS" });
     }
@@ -1221,9 +1338,10 @@ router.post("/blocks/:blockId/release", (async (req: AuthedRequest, res: Respons
  */
 router.post("/blocks/:blockId/cancel", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const manageable = await loadManageableBlock(req, res, Number(req.params.blockId));
+    if (!manageable) return;
+    const { block } = manageable;
+    const ownerId = block.ownerId;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is already closed", code: "INVALID_STATUS" });
     }

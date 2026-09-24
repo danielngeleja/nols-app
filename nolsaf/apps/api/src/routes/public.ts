@@ -10,6 +10,7 @@ import publicDriverVerificationRouter from "./public.driverVerification";
 import { router as publicEmailVerify } from "./public.email.verify";
 import publicGroupStayReceiptRouter from "./public.groupStayReceipt";
 import publicInvoicesRouter from "./public.invoices";
+import publicNewsletterRouter from "./public.newsletter";
 import publicNolScopeRouter from "./public.nolscope";
 import publicNrmsMenuRouter from "./public.nrmsMenu";
 import publicNrmsGuestRouter from "./public.nrmsGuest";
@@ -20,7 +21,6 @@ import publicNrmsProFormaRouter from "./public.nrmsProForma";
 import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
 import publicAgentsRouter from "./public.agents";
 import publicPickupPointsRouter from "./public.pickupPoints";
-import publicPlanRequestRouter from "./public.planRequest";
 import publicPodcastsRouter from "./public.podcasts";
 import publicPropertiesRouter from "./public.properties";
 import publicPropertySharesRouter from "./public.propertyShares.js";
@@ -46,6 +46,7 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/client-errors", maybeAuth as RequestHandler, clientErrorsRouter);
   app.use("/api/public/support", publicSupportRouter);
   app.use("/api/public/updates", publicUpdatesRouter);
+  app.use("/api/public/newsletter", publicNewsletterRouter);
   app.use("/api/public/podcasts", publicPodcastsRouter);
   app.use("/api/public/booking", publicBookingRouter);
   app.use("/api/public/bookings", publicBookingsRouter);
@@ -75,10 +76,6 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);
   app.use("/api/public/driver-verification", publicDriverVerificationRouter);
-}
-
-export function registerPublicPlanRequestRoute(app: Express): void {
-  app.use("/api/plan-request", publicPlanRequestRouter);
 }
 
 export function registerPublicAvailabilityRoute(app: Express): void {

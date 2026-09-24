@@ -8,7 +8,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import { CountPill, EmptyState, SummaryCard } from "../_components/CommercialUi";
+import { CountPill, EmptyState } from "../_components/CommercialUi";
 
 type Connection = {
   id: number;
@@ -379,6 +379,72 @@ export default function AdminMetaMessagingPage() {
     { label: "Messaging worker", ok: Boolean(data?.worker?.healthy) },
   ];
   const affectedScopes = new Set(failureGroups.map((group) => group.propertyId ?? "unmatched")).size;
+  const whatsappConnections = (data?.connections ?? []).filter((c) => c.provider === "WHATSAPP" && c.status === "CONNECTED").length;
+  const instagramConnections = (data?.connections ?? []).filter((c) => c.provider === "INSTAGRAM" && c.status === "CONNECTED").length;
+  const totalConnections = total(data?.summary.connections);
+
+  /** Jump to the connections table with a filter already applied. */
+  const focusConnections = (next: { status?: string; provider?: string }) => {
+    setStatus(next.status ?? "");
+    setProvider(next.provider ?? "");
+    setQuery("");
+    document.getElementById("property-connections")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const chip = {
+    ok: "bg-emerald-50 text-emerald-700",
+    warn: "bg-amber-50 text-amber-700",
+    bad: "bg-red-50 text-red-700",
+    muted: "bg-neutral-100 text-neutral-500",
+  };
+
+  const metrics = [
+    {
+      label: "Connected channels", icon: Wifi, tone: "bg-emerald-50 text-emerald-600",
+      value: connected, suffix: totalConnections ? `of ${totalConnections}` : "", alert: false,
+      chips: [
+        { label: `${whatsappConnections} WhatsApp`, tone: whatsappConnections ? chip.ok : chip.muted },
+        { label: `${instagramConnections} Instagram`, tone: instagramConnections ? chip.ok : chip.muted },
+      ],
+      filter: () => focusConnections({ status: "CONNECTED" }),
+    },
+    {
+      label: "Social inquiries", icon: MessageCircle, tone: "bg-sky-50 text-sky-600",
+      value: total(data?.summary.inquiries), suffix: "", alert: false,
+      chips: [
+        { label: `${Number(data?.summary.inquiries.WHATSAPP || 0)} WhatsApp`, tone: chip.muted },
+        { label: `${Number(data?.summary.inquiries.INSTAGRAM || 0)} Instagram`, tone: chip.muted },
+      ],
+      filter: null,
+    },
+    {
+      label: "Retrying now", icon: RefreshCw, tone: retrying ? "bg-amber-50 text-amber-600" : "bg-neutral-100 text-neutral-500",
+      value: retrying, suffix: "", alert: retrying > 0,
+      chips: [
+        { label: `${Number(data?.summary.webhookJobs.RETRY || 0)} inbound`, tone: chip.muted },
+        { label: `${Number(data?.summary.outboundMessages.RETRY || 0)} outbound`, tone: chip.muted },
+      ],
+      filter: null,
+    },
+    {
+      label: "Failed delivery", icon: ShieldAlert, tone: (failedJobs + failedOutbound) ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600",
+      value: failedJobs + failedOutbound, suffix: (failedJobs + failedOutbound) ? `in ${failureGroups.length} ${failureGroups.length === 1 ? "cause" : "causes"}` : "", alert: (failedJobs + failedOutbound) > 0,
+      chips: [
+        { label: `${failedJobs} inbound`, tone: failedJobs ? chip.bad : chip.muted },
+        { label: `${failedOutbound} outbound`, tone: failedOutbound ? chip.bad : chip.muted },
+      ],
+      filter: (failedJobs + failedOutbound) > 0 ? () => document.getElementById("meta-failures")?.scrollIntoView({ behavior: "smooth", block: "start" }) : null,
+    },
+    {
+      label: "Need attention", icon: Activity, tone: attention ? "bg-amber-50 text-amber-600" : "bg-neutral-100 text-neutral-500",
+      value: attention, suffix: "", alert: attention > 0,
+      chips: [
+        { label: `${Number(data?.summary.connections.REAUTH_REQUIRED || 0)} need login`, tone: Number(data?.summary.connections.REAUTH_REQUIRED || 0) ? chip.warn : chip.muted },
+        { label: `${Number(data?.summary.connections.ERROR || 0)} in error`, tone: Number(data?.summary.connections.ERROR || 0) ? chip.bad : chip.muted },
+      ],
+      filter: attention > 0 ? () => focusConnections({ status: "REAUTH_REQUIRED" }) : null,
+    },
+  ] as const;
 
   if (loading && !data) return <div className="flex min-h-[40vh] items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
@@ -393,37 +459,77 @@ export default function AdminMetaMessagingPage() {
           the first thing you see, so the worker and Graph version live here
           rather than only inside the readiness panel further down. */}
       <section className="relative overflow-hidden rounded-2xl bg-[linear-gradient(120deg,#071612_0%,#0c2a24_55%,#071612_100%)] shadow-[0_24px_60px_-38px_rgba(2,44,34,0.9)] ring-1 ring-emerald-950">
-        <div className="pointer-events-none absolute right-6 top-1 select-none text-7xl font-black tracking-tighter text-white/[0.035] sm:text-8xl" aria-hidden="true">META</div>
-        <div className="relative flex flex-wrap items-center gap-x-5 gap-y-4 p-5 sm:p-6">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-800/60 text-emerald-100 shadow-sm ring-1 ring-emerald-700/70"><MessageCircle className="h-5 w-5" /></span>
+        <div className="pointer-events-none absolute inset-0 opacity-[0.05]" style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "22px 22px" }} aria-hidden="true" />
+        <div className="relative flex flex-wrap items-start gap-x-5 gap-y-4 px-5 pt-5 sm:px-6 sm:pt-6">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-800/60 text-emerald-100 ring-1 ring-emerald-700/70"><MessageCircle className="h-5 w-5" /></span>
           <div className="min-w-[16rem] flex-1">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-400">NRMS operations</p>
-            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Meta Messaging Control Center</h1>
-            <p className="mb-0 mt-1 text-xs leading-5 text-emerald-100/60 sm:text-sm">Platform-wide Instagram and WhatsApp connections, delivery health, and recovery controls.</p>
+            <p className="m-0 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-400">
+              NRMS operations
+              <span className="rounded-full bg-white/[0.07] px-2 py-0.5 font-mono text-[10px] normal-case tracking-normal text-emerald-200/70" title="Meta Graph API version in use">Graph {data?.readiness.graphVersion || "unknown"}</span>
+            </p>
+            <h1 className="m-0 mt-1 text-lg font-bold tracking-tight text-white sm:text-xl">Meta Messaging Control Center</h1>
+            <p className="mb-0 mt-1 text-xs leading-5 text-emerald-100/55">Instagram and WhatsApp connections, delivery health and recovery controls across every property.</p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <span className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-[11px] font-bold ring-1 ${systemHealthy ? "bg-emerald-800/50 text-emerald-100 ring-emerald-700/70" : "bg-amber-500/15 text-amber-200 ring-amber-500/40"}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${systemHealthy ? "animate-pulse bg-emerald-300" : "bg-amber-300"}`} aria-hidden="true" />
-              {systemHealthy ? "All systems operational" : "Attention required"}
-            </span>
-            <span className="inline-flex min-h-9 items-center rounded-lg bg-white/5 px-3 font-mono text-[11px] font-bold text-emerald-200/80 ring-1 ring-white/10" title="Meta Graph API version in use">
-              {data?.readiness.graphVersion || "unknown"}
-            </span>
             {(failedJobs + failedOutbound) > 0 && <button type="button" onClick={() => openControl({ kind: "REPLAY" })} className="inline-flex min-h-9 appearance-none items-center gap-2 rounded-lg border-0 bg-red-600 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-red-500"><RefreshCw className="h-4 w-4" /> Retry all failures</button>}
             <button type="button" onClick={() => void load()} className="inline-flex min-h-9 appearance-none items-center gap-2 rounded-lg border-0 bg-white px-3.5 text-xs font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh</button>
           </div>
+        </div>
+
+        {/* Status line: the one sentence an operator reads first, with the live checks behind it. */}
+        <div className="relative mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-black/20 px-5 py-2.5 sm:px-6">
+          <span className={`inline-flex items-center gap-2 text-xs font-bold ${systemHealthy ? "text-emerald-200" : "text-amber-200"}`}>
+            <span className="relative flex h-2 w-2">
+              {systemHealthy && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />}
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${systemHealthy ? "bg-emerald-300" : "bg-amber-300"}`} />
+            </span>
+            {systemHealthy ? "All systems operational" : attention > 0 || (failedJobs + failedOutbound) > 0 ? "Attention required" : "Configuration incomplete"}
+          </span>
+          <span className="text-[11px] text-emerald-100/45">
+            {readinessChecks.filter((c) => c.ok).length} of {readinessChecks.length} platform checks ready
+            {data?.worker ? ` · worker ${data.worker.healthy ? "healthy" : String(data.worker.status || "stalled").toLowerCase()}` : ""}
+          </span>
+          <span className="ml-auto text-[11px] text-emerald-100/40">
+            {data?.generatedAt ? `Updated ${timeAgo(data.generatedAt) ?? shortDate(data.generatedAt)}` : ""}
+          </span>
         </div>
       </section>
 
       {error && <div className="flex items-start gap-2.5 rounded-xl bg-red-50 p-3.5 text-sm font-medium text-red-700 ring-1 ring-red-200" role="alert"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{error}</span></div>}
       {notice && <div className="flex items-start justify-between gap-3 rounded-xl bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200" role="status"><span className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notice" className="appearance-none border-0 bg-transparent p-0 text-emerald-700"><X className="h-4 w-4" /></button></div>}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <SummaryCard icon={Wifi} label="Connected channels" value={String(connected)} detail={`${total(data?.summary.connections)} total connections`} tone="emerald" />
-        <SummaryCard icon={MessageCircle} label="Social inquiries" value={String(total(data?.summary.inquiries))} detail={`${Number(data?.summary.inquiries.WHATSAPP || 0)} WhatsApp · ${Number(data?.summary.inquiries.INSTAGRAM || 0)} Instagram`} tone="blue" />
-        <SummaryCard icon={RefreshCw} label="Retrying now" value={String(retrying)} detail="Inbound and outbound queue" tone={retrying ? "amber" : "slate"} />
-        <SummaryCard icon={ShieldAlert} label="Failed delivery" value={String(failedJobs + failedOutbound)} detail={`${failedJobs} inbound · ${failedOutbound} outbound`} tone={(failedJobs + failedOutbound) ? "amber" : "emerald"} />
-        <SummaryCard icon={Activity} label="Need attention" value={String(attention)} detail="Connection or token issue" tone={attention ? "amber" : "slate"} />
+      {/* One strip, hairline dividers, no truncated captions. Tiles that map to a
+          connection filter apply it and jump to the table. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-neutral-200/70 ring-1 ring-neutral-200 lg:grid-cols-5">
+        {metrics.map((metric) => {
+          const Icon = metric.icon;
+          const body = (
+            <>
+              <span className="flex items-center gap-2">
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${metric.tone}`}><Icon className="h-4 w-4" /></span>
+                <span className="text-[11px] font-semibold text-neutral-500">{metric.label}</span>
+              </span>
+              <span className="mt-2 flex items-baseline gap-2">
+                <span className={`text-2xl font-bold tabular-nums leading-none ${metric.alert ? "text-amber-700" : "text-neutral-900"}`}>{metric.value}</span>
+                {metric.suffix ? <span className="text-[11px] text-neutral-400">{metric.suffix}</span> : null}
+              </span>
+              <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {metric.chips.map((chip) => (
+                  <span key={chip.label} className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${chip.tone}`}>
+                    {chip.label}
+                  </span>
+                ))}
+              </span>
+            </>
+          );
+          return metric.filter ? (
+            <button key={metric.label} type="button" onClick={metric.filter} className="flex min-w-0 appearance-none flex-col items-start border-0 bg-white px-4 py-3.5 text-left transition hover:bg-emerald-50/60">
+              {body}
+            </button>
+          ) : (
+            <div key={metric.label} className="flex min-w-0 flex-col items-start bg-white px-4 py-3.5">{body}</div>
+          );
+        })}
       </div>
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-neutral-200">
@@ -459,7 +565,7 @@ export default function AdminMetaMessagingPage() {
         )}
       </section>
 
-      {(failedJobs + failedOutbound) > 0 && <section className="overflow-hidden rounded-2xl bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-red-200" aria-labelledby="meta-failures-title">
+      {(failedJobs + failedOutbound) > 0 && <section id="meta-failures" className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] ring-1 ring-red-200" aria-labelledby="meta-failures-title">
         <PanelHeader
           icon={ShieldAlert}
           title="Intervention queue"

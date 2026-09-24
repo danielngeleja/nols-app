@@ -1,11 +1,17 @@
 import Image from "next/image";
-import PicturesUploader from "@/components/PicturesUploader";
 import type { Dispatch, SetStateAction } from "react";
-import { Minus, Plus, CheckCircle2, ChevronDown, Bath, Camera, ArrowRight, Circle, Cigarette, CigaretteOff, Info } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, ChevronDown, Cigarette, CigaretteOff, Copy, Info, Minus, Pencil, Plus, Trash2 } from "lucide-react";
 import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "@/lib/amenityIcons";
 import { useEffect, useMemo, useState } from "react";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
+import { FloorPlanner } from "./FloorPlanner";
+import { RoomPhotoSlots } from "./RoomPhotoSlots";
+import type { FloorUses } from "./floorUses";
+
+export const BATH_ITEMS = ["Free toiletries", "Toilet paper", "Shower", "Water Heater", "Toilet", "Hairdryer", "Trash Bin", "Toilet Brush", "Mirror", "Slippers", "Bathrobe", "Bath Mat", "Towel"];
+export const ROOM_ITEMS = ["Free Wi-Fi", "Table", "Chair", "Iron", "TV", "Flat Screen TV", "PS Station", "Wardrobe", "Air Conditioning", "Mini Fridge", "Coffee Maker", "Phone", "Mirror", "Bedside Lamps", "Heating", "Desk", "Safe", "Clothes Rack", "Blackout Curtains", "Couches"];
+
 
 export function RoomsStep({
   isVisible,
@@ -25,6 +31,8 @@ export function RoomsStep({
   setRoomFloors,
   roomFloorDistribution,
   setRoomFloorDistribution,
+  floorUses,
+  setFloorUses,
   smoking,
   setSmoking,
   bathPrivate,
@@ -49,6 +57,11 @@ export function RoomsStep({
   pricePerNight,
   setPricePerNight,
   addRoomType,
+  editingRoomIndex,
+  onEditRoom,
+  onDuplicateRoom,
+  onRemoveRoom,
+  onCancelRoomEdit,
   definedRooms,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   setDefinedRooms,
@@ -73,6 +86,8 @@ export function RoomsStep({
   setRoomFloors: Dispatch<SetStateAction<number[]>>;
   roomFloorDistribution: Record<number, number>;
   setRoomFloorDistribution: Dispatch<SetStateAction<Record<number, number>>>;
+  floorUses: FloorUses;
+  setFloorUses: Dispatch<SetStateAction<FloorUses>>;
   smoking: "yes" | "no";
   setSmoking: (v: "yes" | "no") => void;
   bathPrivate: "yes" | "no";
@@ -97,6 +112,12 @@ export function RoomsStep({
   pricePerNight: number | "";
   setPricePerNight: (v: number | "") => void;
   addRoomType: () => void;
+  /** Index of the saved group being edited in the form, or null for a new group */
+  editingRoomIndex: number | null;
+  onEditRoom: (index: number) => void;
+  onDuplicateRoom: (index: number) => void;
+  onRemoveRoom: (index: number) => void;
+  onCancelRoomEdit: () => void;
   definedRooms: any[];
   setDefinedRooms: (updater: (prev: any[]) => any[]) => void;
   numOrEmpty: (v: any) => number | "";
@@ -152,6 +173,7 @@ export function RoomsStep({
     { label: "Nightly price", done: priceOk },
   ];
   const completedChecks = requiredChecks.filter((item) => item.done).length;
+  const savedRoomsTotal = (definedRooms || []).reduce((sum, r) => sum + (Number(r?.roomsCount) || 0), 0);
   const savedRoomTypeNames = Array.from(new Set((definedRooms || []).map((room) => String(room?.roomType || "").trim()).filter(Boolean)));
 
   // Initialize + keep distribution consistent
@@ -225,6 +247,24 @@ export function RoomsStep({
     });
   }, [definedRooms?.length]);
 
+  const [openDescriptions, setOpenDescriptions] = useState<Set<number>>(() => new Set());
+  const toggleDescription = (idx: number) =>
+    setOpenDescriptions((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+
+  const [openAmenities, setOpenAmenities] = useState<Set<string>>(() => new Set());
+  const toggleAmenities = (key: string) =>
+    setOpenAmenities((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   const toggleCollapsed = (idx: number) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -234,689 +274,482 @@ export function RoomsStep({
     });
   };
 
-  const moveRoomToFloor = (targetFloor: number) => {
-    setRoomFloorDistribution((prev) => {
-      const next = { ...prev };
-      const assigned = roomFloors.reduce((sum, floor) => sum + Number(next[floor] || 0), 0);
-      if (assigned >= roomCountNum) {
-        const donor = roomFloors
-          .filter((floor) => floor !== targetFloor && Number(next[floor] || 0) > 0)
-          .sort((a, b) => Number(next[b] || 0) - Number(next[a] || 0))[0];
-        if (donor === undefined) return prev;
-        next[donor] = Number(next[donor] || 0) - 1;
-      }
-      next[targetFloor] = Number(next[targetFloor] || 0) + 1;
-      return next;
-    });
+  // Floor planner rows. The floors are the truth: each floor holds exactly the
+  // number typed or stepped into it, nothing moves between floors on its own,
+  // and the group's room count follows the sum. A floor joins the group with
+  // its first room and leaves it at zero.
+  const floorDist = (f: number) => Number(roomFloorDistribution?.[f] || 0);
+  const setFloorCount = (f: number, n: number) => {
+    const value = Math.max(0, Math.min(999, Math.floor(Number(n) || 0)));
+    const next: Record<number, number> = {};
+    for (const floor of roomFloors) next[floor] = floorDist(floor);
+    if (value > 0) next[f] = value;
+    else delete next[f];
+    const used = Object.keys(next)
+      .map(Number)
+      .filter((floor) => next[floor] > 0)
+      .sort((x, y) => x - y);
+    const clean: Record<number, number> = {};
+    for (const floor of used) clean[floor] = next[floor];
+    const total = used.reduce((sum, floor) => sum + clean[floor], 0);
+    setRoomFloors(used);
+    setRoomFloorDistribution(clean);
+    setRoomsCount(total > 0 ? total : "");
+  };
+  const canPlusFloor = (f: number) => floorDist(f) < 999;
+  const plusFloor = (f: number) => setFloorCount(f, floorDist(f) + 1);
+  const canMinusFloor = (f: number) => floorDist(f) > 0;
+  const minusFloor = (f: number) => setFloorCount(f, floorDist(f) - 1);
+  const spreadEvenly = () => {
+    const used = [...roomFloors].sort((x, y) => x - y);
+    if (used.length < 2 || roomCountNum < 2) return;
+    const base = Math.floor(roomCountNum / used.length);
+    let extra = roomCountNum - base * used.length;
+    const next: Record<number, number> = {};
+    for (const f of used) {
+      next[f] = base + (extra > 0 ? 1 : 0);
+      if (extra > 0) extra--;
+    }
+    setRoomFloorDistribution(next);
+    setRoomFloors(used.filter((f) => next[f] > 0));
   };
 
-  const moveRoomFromFloor = (sourceFloor: number) => {
-    setRoomFloorDistribution((prev) => {
-      if (Number(prev?.[sourceFloor] || 0) <= 0) return prev;
-      const receiver = roomFloors
-        .filter((floor) => floor !== sourceFloor)
-        .sort((a, b) => a - b)[0];
-      if (receiver === undefined) return prev;
-      return {
-        ...prev,
-        [sourceFloor]: Number(prev[sourceFloor] || 0) - 1,
-        [receiver]: Number(prev[receiver] || 0) + 1,
-      };
-    });
-  };
+  // Card numbers follow the cards actually shown: the floor card only exists
+  // for a multi-storey building.
+  const floorsNo = isMultiStorey ? 3 : null;
+  const bathNo = isMultiStorey ? 4 : 3;
+  const finishNo = bathNo + 1;
+  const savedNo = finishNo + 1;
 
-  const inputClass =
-    "w-full h-12 rounded-xl border-2 border-gray-300 bg-white px-4 text-sm text-gray-900 placeholder-gray-400 shadow-sm transition-all hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500";
 
   return (
     <AddPropertySection
       as="section"
       sectionRef={sectionRef}
       isVisible={isVisible}
-      className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-sm"
+      className="add-property-step-surface"
     >
       {isVisible && (
         <div className="w-full">
-          <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">2</span>
-              <div className="min-w-0">
-                <h2 className="text-lg font-bold text-gray-900 sm:text-xl">Set up your rooms</h2>
-                <p className="mt-0.5 text-sm text-gray-500">Group identical rooms together, then add beds, photos, and price.</p>
+          <div id="rooms-step-start" className="ap-step-ground">
+            {editingRoomIndex !== null && definedRooms[editingRoomIndex] ? (
+              <div className="ap-block ap-editing">
+                <span className="ap-floor-no">
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <p className="m-0 min-w-0 flex-1 text-[13px] text-white/75">
+                  Editing{" "}
+                  <strong className="text-white">
+                    {definedRooms[editingRoomIndex].roomsCount} × {definedRooms[editingRoomIndex].roomType}
+                  </strong>
+                  . Change anything below, then press Update.
+                </p>
+                <button type="button" onClick={onCancelRoomEdit} className="ap-btn">
+                  Cancel
+                </button>
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 rounded-lg bg-slate-100 px-3 py-2">
-              <CheckCircle2 className={`h-4 w-4 ${definedRooms.length > 0 ? "text-emerald-600" : "text-slate-400"}`} />
-              <span className="text-xs font-semibold text-slate-600">{definedRooms.length} saved</span>
-            </div>
-          </div>
+            ) : null}
 
-          <div className="pt-4 space-y-6">
-
-            {/* Compact room-type flow */}
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <div className="flex min-w-max items-center">
-                {["Choose type", "Rooms & beds", "Photos", "Price"].map((label, index) => (
-                  <div key={label} className="flex items-center">
-                    <div className="flex items-center gap-2 px-2 sm:px-4">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200">{index + 1}</span>
-                      <span className="text-xs font-semibold text-slate-600">{label}</span>
-                    </div>
-                    {index < 3 && <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ── Room Setup Card ────────────────────────────────────── */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm">
-              <div className="mb-6 border-b border-slate-200 pb-4">
-                <h3 className="text-xl font-bold text-gray-900">Room details</h3>
-                <p className="mt-1 text-sm text-gray-500">Describe one group of identical rooms.</p>
-              </div>
-
-              <div className="flex flex-col gap-8">
-
-                {/* Room Type Selection */}
-                <div className="order-1 max-w-2xl">
-                  <div className="flex items-center justify-between gap-3">
-                    <label htmlFor="room-type" className="block text-base font-bold text-gray-900">
-                      What type of room is this? <span className="text-red-500">*</span>
-                    </label>
-                    <details className="group relative shrink-0">
-                      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 [&::-webkit-details-marker]:hidden">
-                        <Info className="h-4 w-4" />
-                        Room type guide
-                      </summary>
-                      <div className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-                        <p className="text-sm font-bold text-gray-900">Room type guide</p>
-                        <p className="mt-1 text-xs text-gray-500">Choose the description that best matches how guests use the room.</p>
-                        <dl className="mt-3 space-y-2.5 text-xs">
-                          {[
-                            ["Single", "A room mainly intended for one guest."],
-                            ["Double", "A room intended for two guests, usually with one larger bed."],
-                            ["Studio", "An open-plan unit where sleeping and living areas share one space."],
-                            ["Suite", "A larger premium unit with a separate or defined living area."],
-                            ["Family", "A room designed for a family or group, often with multiple beds."],
-                            ["Other", "Use when none of the listed room types accurately describe it."],
-                          ].map(([name, meaning]) => (
-                            <div key={name} className="grid grid-cols-[4.5rem_1fr] gap-2">
-                              <dt className="font-bold text-gray-900">{name}</dt>
-                              <dd className="leading-relaxed text-gray-600">{meaning}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      </div>
-                    </details>
-                  </div>
-                  <select
-                    id="room-type"
-                    value={roomType}
-                    onChange={(e) => setRoomType(e.target.value)}
-                    className="mt-3 h-14 w-full rounded-lg border border-slate-400 bg-white px-4 text-base font-medium text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    <option value="">Select a room type</option>
-                    <option value="Single">Single</option>
-                    <option value="Double">Double</option>
-                    <option value="Studio">Studio</option>
-                    <option value="Suite">Suite</option>
-                    <option value="Family">Family</option>
-                    <option value="Other">Other</option>
-                  </select>
-                  <p className="mt-2 text-xs text-gray-500">Rooms with different beds or prices should be saved as separate options.</p>
+            {/* ---------------------------------------------------------------
+                1. The room group: what it is, how many, the house rule.
+               --------------------------------------------------------------- */}
+            <section className="ap-card">
+              <header className="ap-card-head">
+                <span className="ap-card-head-no">1</span>
+                <div className="ap-card-head-copy">
+                  <h3 className="ap-card-title">The room group</h3>
+                  <p className="ap-card-sub">One group means identical rooms: same beds, photos and price.</p>
                 </div>
+                {roomTypeOk && roomsCountOk ? (
+                  <span className="ap-card-tag">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    {roomCountNum} {roomType}
+                  </span>
+                ) : (
+                  <span className="ap-card-tag is-todo">Required</span>
+                )}
+              </header>
 
-                {/* Beds: inside ONE room of this type */}
-                <div className="order-3 border-t border-slate-200 pt-7">
-                  <div className="mb-5">
-                    <h4 className="text-base font-bold text-gray-900 sm:text-lg">What beds are available in one {roomTypeOk ? roomType : "room"}?</h4>
-                    <p className="mt-1 text-sm text-gray-500">Add only the beds physically inside one room. Mixed bed types are allowed when the room really contains them.</p>
-                  </div>
-
-                  <div className="grid max-w-3xl grid-cols-1 gap-2">
-                    {[
-                      { key: "twin", label: "Twin", size: "Approx. 99 × 191 cm", sleeps: "Usually sleeps 1" },
-                      { key: "full", label: "Full", size: "Approx. 137 × 191 cm", sleeps: "Usually sleeps 2" },
-                      { key: "queen", label: "Queen", size: "Approx. 152 × 203 cm", sleeps: "Usually sleeps 2" },
-                      { key: "king", label: "King", size: "Approx. 193 × 203 cm", sleeps: "Usually sleeps 2" },
-                    ].map(({ key: k, label, size, sleeps }) => {
-                      const BedIcon = BED_ICONS[k];
-                      const bedCount = beds[k] ?? 0;
-                      return (
-                        <div
-                          key={k}
-                          className={`flex flex-col gap-3 rounded-lg border bg-white p-3 transition-all sm:flex-row sm:items-center sm:justify-between ${bedCount > 0 ? "border-blue-400" : "border-slate-200 hover:border-blue-300"}`}
-                        >
-                          <div className="flex items-start gap-3">
-                            {BedIcon && (
-                              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${bedCount > 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                                <BedIcon className="h-5 w-5" />
-                              </span>
-                            )}
-                            <div className="min-w-0">
-                              <div className="text-sm font-bold text-gray-900">{label} bed</div>
-                              <div className="mt-0.5 text-[11px] text-gray-500">{size}</div>
-                              <div className="mt-0.5 text-[11px] font-medium text-gray-600">{sleeps}</div>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between border-t border-slate-100 pt-3 sm:justify-end sm:border-0 sm:pt-0">
-                            <span className="text-xs font-medium text-gray-500 sm:hidden">Number in this room</span>
-                            <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              aria-label={`Remove one ${k} bed`}
-                              onClick={() => changeBed(k, -1)}
-                              disabled={bedCount === 0}
-                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 transition-all hover:border-gray-400 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 active:scale-95"
-                            >
-                              <Minus className="h-4 w-4" />
-                            </button>
-                            <div className={`flex h-9 w-12 items-center justify-center rounded-lg text-sm font-bold transition-all ${
-                              bedCount > 0 ? "border-2 border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-gray-200 bg-gray-50 text-gray-400"
-                            }`}>
-                              {bedCount}
-                            </div>
-                            <button
-                              type="button"
-                              aria-label={`Add one ${k} bed`}
-                              onClick={() => changeBed(k, 1)}
-                              className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white transition-all hover:bg-emerald-700 active:scale-95"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                            </div>
-                          </div>
+              <div className="ap-card-body">
+                <div className="ap-fields-3">
+                  {/* Room type */}
+                  <div>
+                    <div className="ap-label-row">
+                      <label htmlFor="room-type" className="ap-label">
+                        Room type <span className="text-red-300">*</span>
+                      </label>
+                      <details className="group relative shrink-0">
+                        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11.5px] font-semibold text-white/60 hover:text-white [&::-webkit-details-marker]:hidden">
+                          <Info className="h-3.5 w-3.5" />
+                          Guide
+                        </summary>
+                        <div className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-lg border border-solid border-white/20 bg-[#1d2427] p-3.5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.9)]">
+                          <dl className="m-0 space-y-2 text-[12px]">
+                            {[
+                              ["Single", "A room mainly intended for one guest."],
+                              ["Double", "A room intended for two guests, usually with one larger bed."],
+                              ["Studio", "An open-plan unit where sleeping and living areas share one space."],
+                              ["Suite", "A larger premium unit with a separate or defined living area."],
+                              ["Family", "A room designed for a family or group, often with multiple beds."],
+                              ["Other", "Use when none of the listed room types accurately describe it."],
+                            ].map(([name, meaning]) => (
+                              <div key={name} className="flex gap-2">
+                                <dt className="w-14 shrink-0 font-bold text-white">{name}</dt>
+                                <dd className="m-0 leading-relaxed text-white/65">{meaning}</dd>
+                              </div>
+                            ))}
+                          </dl>
                         </div>
-                      );
-                    })}
-                  </div>
-                  <div className={`mt-4 rounded-xl border px-4 py-3 ${
-                    shouldConfirmMixedBeds ? "border-amber-300 bg-amber-50" : bedsPerRoom > 0 ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"
-                  }`}>
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-xs font-medium text-gray-500">This setup will apply to every {roomTypeOk ? roomType : "room"}</p>
-                        <p className="mt-0.5 text-sm font-bold text-gray-900">{bedsPerRoom > 0 ? selectedBedsSummary : "No beds selected yet"}</p>
-                      </div>
-                      {roomCountNum > 0 && bedsPerRoom > 0 && <p className="text-xs font-semibold text-emerald-700">Bed setup selected</p>}
+                      </details>
+                    </div>
+                    <div className="relative">
+                      <select
+                        id="room-type"
+                        value={roomType}
+                        onChange={(e) => setRoomType(e.target.value)}
+                        className={`ap-select${roomTypeOk ? " is-set" : ""}`}
+                      >
+                        <option value="">Select a room type</option>
+                        <option value="Single">Single</option>
+                        <option value="Double">Double</option>
+                        <option value="Studio">Studio</option>
+                        <option value="Suite">Suite</option>
+                        <option value="Family">Family</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
                     </div>
                   </div>
-                  {shouldConfirmMixedBeds && (
-                    <div className="mt-3 rounded-xl border border-amber-300 bg-white p-4 text-xs text-amber-950">
-                      <p className="font-bold">Are these bed types together inside every room?</p>
-                      <p className="mt-1.5 leading-relaxed">
-                        Your current setup means all {roomCountNum} {roomType || "rooms"} contain <strong>{selectedBedsSummary}</strong> each.
-                      </p>
-                      <p className="mt-2 leading-relaxed text-amber-800">
-                        If the beds belong to different rooms, save separate options instead—for example, <strong>3 Single rooms with 1 Queen</strong>, then <strong>2 Single rooms with 1 King</strong>. Each option can still be distributed across Ground and 1st floor.
-                      </p>
-                    </div>
-                  )}
-                  {roomCountNum > 0 && bedsPerRoom === 0 && (
-                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                      <span>⚠️</span>
-                      <span>Room count set but no beds — add at least 1 bed type.</span>
-                    </div>
-                  )}
-                  {roomCountNum === 0 && bedsPerRoom > 0 && (
-                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-700">
-                      <ArrowRight className="h-4 w-4 shrink-0" />
-                      <span>Good. Next, enter how many rooms have this exact bed setup.</span>
-                    </div>
-                  )}
-                </div>
 
-                {/* Rooms: how many of this type + rules */}
-                <div className="order-2 border-t border-slate-200 pt-7">
-                  <div className="mb-5">
-                    <div className="text-base font-bold text-gray-900 sm:text-lg">
-                      How many {roomTypeOk ? `${roomType} rooms` : "rooms of this type"} are in this building?
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">Count only rooms with the same bed setup, photos, and nightly rate.</p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                    <div className="rounded-xl border border-emerald-200 bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <label htmlFor="rooms-count" className="block text-sm font-bold text-gray-900">
-                            Number of {roomTypeOk ? roomType : "identical"} rooms <span className="text-red-500">*</span>
-                          </label>
-                          <p className="mt-1 text-xs text-gray-500">Enter the total available in this building.</p>
-                        </div>
-                        {roomsCountOk && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />}
-                      </div>
-                      <div className="mt-4 flex items-stretch gap-2">
+                  {/* How many. With floors, the floors are the truth and this is their sum. */}
+                  {isMultiStorey && floorOptions.length > 0 ? (
+                    <div>
+                      <span className="ap-label">
+                        Number of {roomTypeOk ? roomType : "identical"} rooms <span className="text-red-300">*</span>
+                      </span>
+                      <div className={`ap-sum${roomsCountOk ? " is-set" : ""}`} aria-live="polite">
+                        <span className="ap-sum-value">{roomCountNum}</span>
+                        <span className="ap-sum-note">{roomsCountOk ? "sum of the floors" : "add rooms per floor"}</span>
                         <button
                           type="button"
-                          aria-label="Remove one room"
-                          onClick={() => setRoomsCount(roomCountNum <= 1 ? "" : roomCountNum - 1)}
-                          disabled={roomCountNum === 0}
-                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="ap-sum-link"
+                          onClick={() => document.getElementById("rooms-floors")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                         >
-                          <Minus className="h-4 w-4" />
-                        </button>
-                        <div className="relative min-w-0 flex-1">
-                          <input
-                            id="rooms-count"
-                            value={roomsCount as any}
-                            onChange={(e) => setRoomsCount(numOrEmpty(e.target.value))}
-                            type="number"
-                            min={1}
-                            placeholder="0"
-                            className="h-12 w-full rounded-xl border-2 border-slate-300 bg-white px-4 pr-20 text-center text-lg font-bold text-gray-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
-                          />
-                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-gray-400">rooms</span>
-                        </div>
-                        <button
-                          type="button"
-                          aria-label="Add one room"
-                          onClick={() => setRoomsCount(roomCountNum + 1)}
-                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white transition hover:bg-emerald-700 active:scale-95"
-                        >
-                          <Plus className="h-4 w-4" />
+                          Set per floor
+                          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                         </button>
                       </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-4">
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">Smoking policy</p>
-                        <p className="mt-1 text-xs text-gray-500">Is smoking allowed inside these rooms?</p>
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Smoking allowed">
-                        {[
-                          { value: "no" as const, label: "No", icon: CigaretteOff },
-                          { value: "yes" as const, label: "Yes", icon: Cigarette },
-                        ].map(({ value, label, icon: SmokingIcon }) => {
-                          const selected = smoking === value;
-                          return (
-                            <button
-                              key={value}
-                              type="button"
-                              role="radio"
-                              aria-checked={selected}
-                              onClick={() => setSmoking(value)}
-                              className={`flex h-12 items-center justify-center gap-2 rounded-xl border text-sm font-bold transition ${
-                                selected ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                              }`}
-                            >
-                              <SmokingIcon className="h-4 w-4" />
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <p className="mt-3 text-xs text-gray-500">Guests will see this rule before booking.</p>
-                    </div>
-                  </div>
-
-                  {/* Floor distribution (multi-storey) */}
-                  {isMultiStorey ? (
-                    <div className="mt-4 min-w-0 rounded-xl border border-gray-200 bg-white p-4">
-                      <div className="mb-4 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-gray-900">Room location</div>
-                          <p className="mt-0.5 text-xs text-gray-500">Select floors and distribute rooms across them.</p>
-                        </div>
-                      </div>
-                      {floorOptions.length === 0 ? (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                          Please set <span className="font-semibold">Total floors</span> in Step 1 (Basics) to enable floor selection.
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                            {floorOptions.map((f) => {
-                              const selected = roomFloors.includes(f);
-                              return (
-                                <button
-                                  key={f}
-                                  type="button"
-                                  onClick={() => {
-                                    setRoomFloors((prev) => {
-                                      const has = prev.includes(f);
-                                      const next = has ? prev.filter((x) => x !== f) : [...prev, f].sort((a, b) => a - b);
-                                      return next;
-                                    });
-                                    setRoomFloorDistribution((prev) => {
-                                      const next = { ...prev };
-                                      if (roomFloors.includes(f)) {
-                                        delete (next as any)[f];
-                                      } else {
-                                        next[f] = next[f] ?? 0;
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                  aria-pressed={selected}
-                                  className={`shrink-0 snap-start rounded-lg border px-4 py-2 text-sm font-semibold transition-all duration-200 ${
-                                    selected
-                                      ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
-                                      : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50/40"
-                                  }`}
-                                >
-                                  {floorLabel(f)}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {floorOptions.length > 4 && (
-                            <p className="mt-1 text-[11px] text-gray-400 sm:hidden">Swipe sideways to see more floors</p>
-                          )}
-                          {roomFloors.length === 0 && (
-                            <div className="mt-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-                              <span>⚠️</span>
-                              <span>Select at least one floor for this room type.</span>
-                            </div>
-                          )}
-                          {roomFloors.length > 0 && (
-                            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="text-sm font-bold text-gray-900">Room allocation</p>
-                                  <p className="mt-0.5 text-xs text-gray-500">Use + to move rooms between floors automatically.</p>
-                                </div>
-                                <div className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
-                                  floorDistSum === (roomCountNum || 0) ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                                }`}>
-                                  {floorDistSum} of {roomCountNum || 0} assigned
-                                </div>
-                              </div>
-                              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                                <div
-                                  className={`h-full rounded-full transition-all ${floorDistSum === (roomCountNum || 0) ? "bg-emerald-500" : "bg-amber-400"}`}
-                                  style={{ width: `${Math.min(100, roomCountNum > 0 ? (floorDistSum / roomCountNum) * 100 : 0)}%` }}
-                                />
-                              </div>
-                              <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                {roomFloors.map((f) => (
-                                  <div key={f} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-xs font-bold text-emerald-700">
-                                        {f === 0 ? "G" : f}
-                                      </div>
-                                      <div>
-                                        <span className="block text-sm font-semibold text-gray-800">{floorLabel(f)} floor</span>
-                                        <span className="block text-[11px] text-gray-400">Rooms on this floor</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <button
-                                        type="button"
-                                        aria-label={`Move one room away from ${floorLabel(f)} floor`}
-                                        onClick={() => moveRoomFromFloor(f)}
-                                        disabled={Number(roomFloorDistribution?.[f] || 0) === 0 || roomFloors.length < 2}
-                                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
-                                      >
-                                        <Minus className="h-3.5 w-3.5" />
-                                      </button>
-                                      <span className="flex h-9 min-w-10 items-center justify-center rounded-lg bg-slate-100 px-2 text-sm font-bold text-gray-900">
-                                        {roomFloorDistribution?.[f] ?? 0}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        aria-label={`Move one room to ${floorLabel(f)} floor`}
-                                        onClick={() => moveRoomToFloor(f)}
-                                        disabled={roomCountNum <= 0 || Number(roomFloorDistribution?.[f] || 0) >= roomCountNum || (floorDistSum >= roomCountNum && !roomFloors.some((floor) => floor !== f && Number(roomFloorDistribution?.[floor] || 0) > 0))}
-                                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                                      >
-                                        <Plus className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                              {roomCountNum > 0 && floorDistSum !== roomCountNum && (
-                                <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                                  <span>⚠️</span>
-                                  <span>Distribution ({floorDistSum}) does not match total rooms ({roomCountNum}).</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
                     </div>
                   ) : (
-                    <div className="mt-4 flex items-start gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
-                      <span className="mt-0.5 text-base">🏠</span>
-                      <span>
-                        {buildingType === "single_storey"
-                          ? "Single storey: all rooms will be placed on the ground floor."
-                          : buildingType === "separate_units"
-                          ? "Separate units: rooms are spread across different units (no floor levels)."
-                          : "All rooms will be on the ground floor."}
-                      </span>
+                  <div>
+                    <label htmlFor="rooms-count" className="ap-label">
+                      Number of {roomTypeOk ? roomType : "identical"} rooms <span className="text-red-300">*</span>
+                    </label>
+                    <div className="ap-stepper">
+                      <button
+                        type="button"
+                        aria-label="Remove one room"
+                        onClick={() => setRoomsCount(roomCountNum <= 1 ? "" : roomCountNum - 1)}
+                        disabled={roomCountNum === 0}
+                        className="ap-step-btn"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <input
+                        id="rooms-count"
+                        value={roomsCount as any}
+                        onChange={(e) => setRoomsCount(numOrEmpty(e.target.value))}
+                        type="number"
+                        min={1}
+                        placeholder="0"
+                        className={roomsCountOk ? "is-set" : ""}
+                      />
+                      <button
+                        type="button"
+                        aria-label="Add one room"
+                        onClick={() => setRoomsCount(roomCountNum + 1)}
+                        className="ap-step-btn is-plus"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
                     </div>
+                  </div>
                   )}
 
-                </div>
-
-                <div className={`order-4 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between ${
-                  roomSetupOk ? "border-emerald-200 bg-emerald-50/70" : "border-slate-200 bg-slate-50"
-                }`}>
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${roomSetupOk ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-500"}`}>
-                      {roomSetupOk ? <CheckCircle2 className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-gray-900">{roomTypeOk ? `${roomType} room group` : "Room group"}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
-                        <span><strong className="text-gray-900">{roomCountNum || 0}</strong> room{roomCountNum === 1 ? "" : "s"}</span>
-                        <span><strong className="text-gray-900">{selectedBedTypeCount}</strong> bed type{selectedBedTypeCount === 1 ? "" : "s"}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <span className={`shrink-0 self-start rounded-full px-3 py-1.5 text-xs font-bold sm:self-auto ${
-                    roomSetupOk ? "bg-white text-emerald-700 ring-1 ring-emerald-200" : "bg-white text-slate-500 ring-1 ring-slate-200"
-                  }`}>
-                    {roomSetupOk ? "Ready" : "Incomplete"}
-                  </span>
-                </div>
-
-                <div className="order-5 border-t border-slate-200 pt-6">
-                  <label className="block text-base font-bold text-gray-900">
-                    {roomTypeOk ? `Describe this ${roomType} room` : "Describe this room"}
-                  </label>
-                  <p className="mt-1 text-xs text-gray-500">Share what guests should know about its space, comfort, or special features.</p>
-                  <textarea
-                    value={roomDescription}
-                    onChange={(e) => setRoomDescription(e.target.value)}
-                    rows={4}
-                    className="mt-3 block w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-gray-900 placeholder-gray-400 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                    placeholder="e.g. Spacious rooms with natural light, a work desk, and garden views"
-                  />
-                </div>
-
-              </div>
-            </div>
-
-            {/* ── Bathroom & Amenities Card ──────────────────────────── */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
-                  <Bath className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-gray-900">Bathroom &amp; room amenities</h3>
-                  <p className="text-xs text-gray-500">Choose the bathroom type, then select everything guests will find in this room.</p>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                  {/* Left: bath privacy + towel */}
-                  <div className="space-y-5">
-                    <div>
-                      <label className="mb-1 block text-sm font-semibold text-gray-900">What kind of bathroom does this room have?</label>
-                      <p className="mb-3 text-xs text-gray-500">Private means only guests in this room use it.</p>
-                      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Bathroom type">
-                        {[
-                          { value: "yes" as const, label: "Private", help: "For this room" },
-                          { value: "no" as const, label: "Shared", help: "Used by others" },
-                        ].map((option) => {
-                          const selected = bathPrivate === option.value;
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              role="radio"
-                              aria-checked={selected}
-                              onClick={() => setBathPrivate(option.value)}
-                              className={`rounded-xl border px-3 py-3 text-left transition ${
-                                selected ? "border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500" : "border-slate-200 bg-white hover:border-slate-300"
-                              }`}
-                            >
-                              <span className={`block text-sm font-bold ${selected ? "text-emerald-800" : "text-gray-900"}`}>{option.label}</span>
-                              <span className="mt-0.5 block text-[11px] text-gray-500">{option.help}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-semibold text-gray-900">
-                        Towel color
-                      </label>
-                      <input
-                        value={towelColor}
-                        onChange={(e) => setTowelColor(e.target.value)}
-                        className={inputClass}
-                        placeholder="e.g. white"
-                      />
-                    </div>
-                  </div>
-                  {/* Right: bathroom items */}
+                  {/* Smoking */}
                   <div>
-                    <label className="mb-1 block text-sm font-semibold text-gray-900">What is provided in the bathroom?</label>
-                    <p className="mb-3 text-xs text-gray-500">Select every item guests can expect to use.</p>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {(() => {
-                        const iconColors: Record<string, { bg: string; text: string }> = {
-                          "Free toiletries": { bg: "bg-yellow-50", text: "text-yellow-600" },
-                          "Toilet paper": { bg: "bg-stone-50", text: "text-stone-500" },
-                          "Shower": { bg: "bg-blue-50", text: "text-blue-600" },
-                          "Water Heater": { bg: "bg-red-50", text: "text-red-600" },
-                          "Toilet": { bg: "bg-slate-50", text: "text-slate-500" },
-                          "Hairdryer": { bg: "bg-pink-50", text: "text-pink-600" },
-                          "Trash Bin": { bg: "bg-gray-50", text: "text-gray-500" },
-                          "Toilet Brush": { bg: "bg-cyan-50", text: "text-cyan-600" },
-                          "Mirror": { bg: "bg-slate-50", text: "text-slate-500" },
-                          "Slippers": { bg: "bg-amber-50", text: "text-amber-600" },
-                          "Bathrobe": { bg: "bg-rose-50", text: "text-rose-600" },
-                          "Bath Mat": { bg: "bg-teal-50", text: "text-teal-600" },
-                          "Towel": { bg: "bg-sky-50", text: "text-sky-600" },
-                        };
-                        return ["Free toiletries","Toilet paper","Shower","Water Heater","Toilet","Hairdryer","Trash Bin","Toilet Brush","Mirror","Slippers","Bathrobe","Bath Mat","Towel"].map((i) => {
-                          const Icon = (BATHROOM_ICONS as any)[i];
-                          const isChecked = bathItems.includes(i);
-                          const colors = iconColors[i] || { bg: "bg-gray-50", text: "text-gray-500" };
-                          return (
-                            <label
-                              key={i}
-                              className={`relative flex cursor-pointer items-center gap-2 rounded-xl border-2 p-2.5 transition-all ${
-                                isChecked ? "border-emerald-500 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-300"
-                              }`}
-                            >
-                              <input type="checkbox" className="sr-only" checked={isChecked} onChange={() => toggleStr(bathItems, setBathItems, i)} />
-                              {Icon && (
-                                <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${isChecked ? "bg-emerald-100" : colors.bg}`}>
-                                  <Icon className={`h-3.5 w-3.5 ${isChecked ? "text-emerald-600" : colors.text}`} />
-                                </div>
-                              )}
-                              <span className={`text-xs font-medium leading-tight ${isChecked ? "text-emerald-700" : "text-gray-600"}`}>{i}</span>
-                              {isChecked && <div className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-                            </label>
-                          );
-                        });
-                      })()}
+                    <span className="ap-label">Smoking inside</span>
+                    <div className="ap-toggles" role="radiogroup" aria-label="Smoking allowed">
+                      {[
+                        { value: "no" as const, label: "Not allowed", icon: CigaretteOff },
+                        { value: "yes" as const, label: "Allowed", icon: Cigarette },
+                      ].map(({ value, label, icon: SmokingIcon }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={smoking === value}
+                          onClick={() => setSmoking(value)}
+                          className={`ap-toggle${smoking === value ? " is-on" : ""}`}
+                        >
+                          <SmokingIcon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
 
-                {/* Other room amenities */}
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-gray-900">What else is available inside this room?</label>
-                  <p className="mb-3 text-xs text-gray-500">Select everything guests can use in this room group. Do not include shared property facilities here.</p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                    {(() => {
-                      const iconColors: Record<string, { bg: string; text: string }> = {
-                        "Free Wi-Fi": { bg: "bg-blue-50", text: "text-blue-600" },
-                        "Table": { bg: "bg-amber-50", text: "text-amber-600" },
-                        "Chair": { bg: "bg-amber-50", text: "text-amber-600" },
-                        "Iron": { bg: "bg-purple-50", text: "text-purple-600" },
-                        "TV": { bg: "bg-indigo-50", text: "text-indigo-600" },
-                        "Flat Screen TV": { bg: "bg-indigo-50", text: "text-indigo-600" },
-                        "PS Station": { bg: "bg-violet-50", text: "text-violet-600" },
-                        "Wardrobe": { bg: "bg-rose-50", text: "text-rose-600" },
-                        "Air Conditioning": { bg: "bg-cyan-50", text: "text-cyan-600" },
-                        "Mini Fridge": { bg: "bg-sky-50", text: "text-sky-600" },
-                        "Coffee Maker": { bg: "bg-orange-50", text: "text-orange-600" },
-                        "Phone": { bg: "bg-teal-50", text: "text-teal-600" },
-                        "Mirror": { bg: "bg-slate-50", text: "text-slate-500" },
-                        "Bedside Lamps": { bg: "bg-yellow-50", text: "text-yellow-600" },
-                        "Heating": { bg: "bg-red-50", text: "text-red-600" },
-                        "Desk": { bg: "bg-stone-50", text: "text-stone-500" },
-                        "Safe": { bg: "bg-zinc-50", text: "text-zinc-600" },
-                        "Clothes Rack": { bg: "bg-pink-50", text: "text-pink-600" },
-                        "Blackout Curtains": { bg: "bg-gray-50", text: "text-gray-500" },
-                        "Couches": { bg: "bg-amber-50", text: "text-amber-600" },
-                      };
-                      return ["Free Wi-Fi","Table","Chair","Iron","TV","Flat Screen TV","PS Station","Wardrobe","Air Conditioning","Mini Fridge","Coffee Maker","Phone","Mirror","Bedside Lamps","Heating","Desk","Safe","Clothes Rack","Blackout Curtains","Couches"].map((i) => {
-                        const Icon = (OTHER_AMENITIES_ICONS as any)[i];
-                        const isChecked = otherAmenities.includes(i);
-                        const colors = iconColors[i] || { bg: "bg-gray-50", text: "text-gray-500" };
-                        return (
-                          <label
-                            key={i}
-                            className={`relative flex cursor-pointer items-center gap-2 rounded-xl border-2 p-2.5 transition-all ${
-                              isChecked ? "border-emerald-500 bg-emerald-50" : "border-gray-200 bg-white hover:border-emerald-300"
-                            }`}
+                {!isMultiStorey ? (
+                  <p className="m-0 ap-note mt-3">
+                    <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    {buildingType === "separate_units"
+                      ? "Separate units: rooms are spread across different units, with no floor levels."
+                      : "All rooms are on the ground floor."}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="ap-card-body">
+                <label htmlFor="room-description" className="ap-label">
+                  {roomTypeOk ? `Describe this ${roomType} room` : "Describe this room"}{" "}
+                  <span className="font-normal text-white/40">optional</span>
+                </label>
+                <textarea
+                  id="room-description"
+                  value={roomDescription}
+                  onChange={(e) => setRoomDescription(e.target.value)}
+                  rows={3}
+                  className="ap-input ap-textarea"
+                  placeholder="e.g. Spacious rooms with natural light, a work desk, and garden views"
+                />
+              </div>
+            </section>
+
+            {/* ---------------------------------------------------------------
+                2. Beds inside ONE room of this group.
+               --------------------------------------------------------------- */}
+            <section className="ap-card">
+              <header className="ap-card-head">
+                <span className="ap-card-head-no">2</span>
+                <div className="ap-card-head-copy">
+                  <h3 className="ap-card-title">Beds in one {roomTypeOk ? roomType : "room"}</h3>
+                  <p className="ap-card-sub">Only the beds physically inside a single room.</p>
+                </div>
+                {bedsPerRoom > 0 ? (
+                  <span className="ap-card-tag">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    {selectedBedsSummary}
+                  </span>
+                ) : (
+                  <span className="ap-card-tag is-todo">Required</span>
+                )}
+              </header>
+
+              <div className="ap-card-body space-y-3">
+                <div className="ap-beds">
+                  {[
+                    { key: "twin", label: "Twin", size: "99 × 191 cm", sleeps: "Sleeps 1" },
+                    { key: "full", label: "Full", size: "137 × 191 cm", sleeps: "Sleeps 2" },
+                    { key: "queen", label: "Queen", size: "152 × 203 cm", sleeps: "Sleeps 2" },
+                    { key: "king", label: "King", size: "193 × 203 cm", sleeps: "Sleeps 2" },
+                  ].map(({ key: k, label, size, sleeps }) => {
+                    const BedIcon = BED_ICONS[k];
+                    const bedCount = beds[k] ?? 0;
+                    return (
+                      <div key={k} className={`ap-bed${bedCount > 0 ? " is-on" : ""}`}>
+                        <span className="ap-bed-ico">{BedIcon ? <BedIcon className="h-4 w-4" /> : null}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold text-white">{label} bed</span>
+                          <span className="block truncate text-[11.5px] text-white/50">{size} · {sleeps}</span>
+                        </span>
+                        <span className="ap-stepper is-small">
+                          <button
+                            type="button"
+                            aria-label={`Remove one ${k} bed`}
+                            onClick={() => changeBed(k, -1)}
+                            disabled={bedCount === 0}
+                            className="ap-step-btn"
                           >
-                            <input type="checkbox" className="sr-only" checked={isChecked} onChange={() => toggleStr(otherAmenities, setOtherAmenities, i)} />
-                            {Icon && (
-                              <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${isChecked ? "bg-emerald-100" : colors.bg}`}>
-                                <Icon className={`h-3.5 w-3.5 ${isChecked ? "text-emerald-600" : colors.text}`} />
-                              </div>
-                            )}
-                            <span className={`text-xs font-medium leading-tight ${isChecked ? "text-emerald-700" : "text-gray-600"}`}>{i}</span>
-                            {isChecked && <div className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-                          </label>
-                        );
-                      });
-                    })()}
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="ap-step-val">{bedCount}</span>
+                          <button
+                            type="button"
+                            aria-label={`Add one ${k} bed`}
+                            onClick={() => changeBed(k, 1)}
+                            className="ap-step-btn is-plus"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {shouldConfirmMixedBeds ? (
+                  <p className="m-0 ap-note is-strong">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span>
+                      <strong>Are these beds together in every room?</strong> This setup means all {roomCountNum} {roomType || "rooms"} contain{" "}
+                      <strong>{selectedBedsSummary}</strong> each. If the beds belong to different rooms, save them as separate groups, for example 3 rooms with 1 Queen, then 2 rooms with 1 King.
+                    </span>
+                  </p>
+                ) : null}
+                {roomCountNum > 0 && bedsPerRoom === 0 ? (
+                  <p className="m-0 ap-note is-strong">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Room count is set but no beds yet. Add at least one bed.
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            {/* The building, floor by floor: this group's rooms and what else is there */}
+            {isMultiStorey ? (
+              <FloorPlanner
+                id="rooms-floors"
+                cardNo={floorsNo}
+                totalFloors={floorOptions.length}
+                roomType={roomTypeOk ? roomType : ""}
+                roomCount={roomCountNum}
+                roomFloors={roomFloors}
+                distribution={roomFloorDistribution}
+                definedRooms={definedRooms}
+                floorUses={floorUses}
+                setFloorUses={setFloorUses}
+                onPlus={plusFloor}
+                onMinus={minusFloor}
+                canPlus={canPlusFloor}
+                canMinus={canMinusFloor}
+                onSetCount={setFloorCount}
+                onSpreadEvenly={spreadEvenly}
+              />
+            ) : null}
+
+            {/* ---------------------------------------------------------------
+                Bathroom and what is inside the room.
+               --------------------------------------------------------------- */}
+            <section className="ap-card">
+              <header className="ap-card-head">
+                <span className="ap-card-head-no">{bathNo}</span>
+                <div className="ap-card-head-copy">
+                  <h3 className="ap-card-title">Bathroom and amenities</h3>
+                  <p className="ap-card-sub">Only what guests find inside this room.</p>
+                </div>
+                <span className={`ap-card-tag${bathItems.length + otherAmenities.length > 0 ? "" : " is-todo"}`}>
+                  {bathItems.length + otherAmenities.length > 0 ? `${bathItems.length + otherAmenities.length} selected` : "Optional"}
+                </span>
+              </header>
+
+              <div className="ap-card-body">
+                <div className="ap-fields-3">
+                  <div className="sm:col-span-2">
+                    <span className="ap-label">Bathroom</span>
+                    <div className="ap-toggles" role="radiogroup" aria-label="Bathroom type">
+                      {[
+                        { value: "yes" as const, label: "Private", help: "Only this room" },
+                        { value: "no" as const, label: "Shared", help: "Used by others" },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={bathPrivate === option.value}
+                          onClick={() => setBathPrivate(option.value)}
+                          className={`ap-toggle${bathPrivate === option.value ? " is-on" : ""}`}
+                        >
+                          {option.label}
+                          <span className="font-normal text-white/55">{option.help}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="mt-4">
-                    <label className="mb-1 block text-sm font-semibold text-gray-900">Is something inside the room missing from the list?</label>
-                    <p className="mb-2 text-xs text-gray-500">Type any extra room amenities separated by commas.</p>
+                  <div>
+                    <label htmlFor="towel-color" className="ap-label">Towel colour</label>
                     <input
-                      value={otherAmenitiesText}
-                      onChange={(e) => setOtherAmenitiesText(e.target.value)}
-                      className={inputClass}
-                      placeholder="e.g. minibar, balcony, mosquito net"
+                      id="towel-color"
+                      value={towelColor}
+                      onChange={(e) => setTowelColor(e.target.value)}
+                      className={`ap-input${towelColor.trim() ? " is-set" : ""}`}
+                      placeholder="e.g. white"
                     />
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* ── Photos & Pricing Card ──────────────────────────────── */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm">
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
-                  <Camera className="h-5 w-5 text-emerald-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-gray-900">Finish this room type</h3>
-                  <p className="text-xs text-gray-500">Show guests the room, then set what it costs per night.</p>
+              <div className="ap-card-body">
+                <span className="ap-label">In the bathroom</span>
+                <div className="ap-checks">
+                  {BATH_ITEMS.map((i) => {
+                    const Icon = (BATHROOM_ICONS as any)[i];
+                    const isChecked = bathItems.includes(i);
+                    return (
+                      <label key={i} className={`ap-check${isChecked ? " is-on" : ""}`}>
+                        <input type="checkbox" className="sr-only" checked={isChecked} onChange={() => toggleStr(bathItems, setBathItems, i)} />
+                        <span className="ap-check-ico">{Icon ? <Icon className="h-3.5 w-3.5" /> : null}</span>
+                        <span className="min-w-0 truncate">{i}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="space-y-5">
-                {/* Room photos */}
-                <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <PicturesUploader
-                    title="Room photos"
-                    minRequired={3}
+              <div className="ap-card-body">
+                <span className="ap-label">In the room</span>
+                <div className="ap-checks">
+                  {ROOM_ITEMS.map((i) => {
+                    const Icon = (OTHER_AMENITIES_ICONS as any)[i];
+                    const isChecked = otherAmenities.includes(i);
+                    return (
+                      <label key={i} className={`ap-check${isChecked ? " is-on" : ""}`}>
+                        <input type="checkbox" className="sr-only" checked={isChecked} onChange={() => toggleStr(otherAmenities, setOtherAmenities, i)} />
+                        <span className="ap-check-ico">{Icon ? <Icon className="h-3.5 w-3.5" /> : null}</span>
+                        <span className="min-w-0 truncate">{i}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <label htmlFor="room-extra-amenities" className="ap-label mt-3">
+                  Something missing? <span className="font-normal text-white/40">separate with commas</span>
+                </label>
+                <input
+                  id="room-extra-amenities"
+                  value={otherAmenitiesText}
+                  onChange={(e) => setOtherAmenitiesText(e.target.value)}
+                  className="ap-input"
+                  placeholder="e.g. minibar, balcony, mosquito net"
+                />
+              </div>
+            </section>
+
+            {/* ---------------------------------------------------------------
+                Photos on the left, the rate and the save on the right: the
+                last things to do before the group is saved.
+               --------------------------------------------------------------- */}
+            <section className="ap-card">
+              <header className="ap-card-head">
+                <span className="ap-card-head-no">{finishNo}</span>
+                <div className="ap-card-head-copy">
+                  <h3 className="ap-card-title">Photos and price</h3>
+                  <p className="ap-card-sub">Three photos, one nightly rate, then save the group.</p>
+                </div>
+                <span className={`ap-card-tag${canAddRoomType ? "" : " is-todo"}`}>
+                  {canAddRoomType ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" aria-hidden />
+                      Ready to save
+                    </>
+                  ) : (
+                    `${requiredChecks.length - completedChecks} left`
+                  )}
+                </span>
+              </header>
+
+              <div className="ap-split">
+                <div className="ap-split-main">
+                  <RoomPhotoSlots
                     images={roomImages}
                     onUpload={(files) => {
                       if (files) onPickRoomImages(files);
@@ -931,16 +764,12 @@ export function RoomsStep({
                   />
                 </div>
 
-                {/* Price per night */}
-                <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-                  <div>
-                    <label htmlFor="room-nightly-price" className="block text-base font-bold text-gray-900">
-                      Your nightly room rate <span className="text-red-500">*</span>
-                    </label>
-                    <p className="mt-1 text-xs text-gray-500">Enter your base rate for one {roomTypeOk ? roomType : "room"} for one night. NoLSAF commission is added later.</p>
-                  </div>
-                  <div className="mt-4 flex max-w-md items-stretch overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm transition-all focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/20">
-                    <span className="pointer-events-none flex h-12 flex-shrink-0 items-center border-r border-slate-200 bg-slate-50 px-4 text-sm font-bold tracking-wide text-slate-700">TZS</span>
+                <aside className="ap-split-side">
+                  <label htmlFor="room-nightly-price" className="ap-label">
+                    Nightly rate, one {roomTypeOk ? roomType : "room"} <span className="text-red-300">*</span>
+                  </label>
+                  <div className={`ap-price is-lg${priceOk ? " is-set" : ""}`}>
+                    <span className="ap-price-unit">TZS</span>
                     <input
                       id="room-nightly-price"
                       value={pricePerNight === "" ? "" : Number(pricePerNight).toLocaleString("en-US")}
@@ -952,98 +781,96 @@ export function RoomsStep({
                       type="text"
                       inputMode="numeric"
                       placeholder="50,000"
-                      className="block h-12 min-w-0 flex-1 appearance-none border-0 bg-transparent px-4 text-lg font-bold tracking-wide text-gray-900 placeholder-gray-300 outline-none ring-0 focus:outline-none focus:ring-0"
                     />
-                    <span className="pointer-events-none flex h-12 shrink-0 items-center border-l border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-500">/ night</span>
                   </div>
-                  {!priceOk && pricePerNight !== "" && (
-                    <div className="mt-3 flex max-w-xl items-center gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-800">
-                      <Circle className="h-3.5 w-3.5 shrink-0" />
-                      Minimum nightly price is TZS 5,000.
-                    </div>
-                  )}
-                </div>
+                  {!priceOk && pricePerNight !== "" ? (
+                    <p className="ap-field-error">Minimum nightly price is TZS 5,000.</p>
+                  ) : null}
 
-                {/* Clear save checklist */}
-                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
+                  <dl className="ap-rate">
                     <div>
-                      <p className="text-sm font-bold text-gray-900">Ready to save?</p>
-                      <p className="mt-0.5 text-xs text-gray-500">{completedChecks} of {requiredChecks.length} required items complete</p>
+                      <dt>{roomCountNum > 1 ? `All ${roomCountNum} rooms, one night` : "One room, one night"}</dt>
+                      <dd>
+                        {priceOk
+                          ? `TZS ${(Number(pricePerNight) * Math.max(1, roomCountNum)).toLocaleString("en-US")}`
+                          : "Not set"}
+                      </dd>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${canAddRoomType ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
-                      {canAddRoomType ? "Ready" : `${requiredChecks.length - completedChecks} left`}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {requiredChecks.map((item) => (
-                      <div key={item.label} className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-xs font-semibold ${
-                        item.done ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"
-                      }`}>
-                        {item.done ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <Circle className="h-4 w-4 shrink-0" />}
-                        {item.label}
-                      </div>
-                    ))}
-                  </div>
-                  {isMultiStorey && roomsCountOk && !floorsOk && (
-                    <p className="mt-3 text-xs font-medium text-amber-700">Room distribution must equal the total number of rooms.</p>
-                  )}
-                </div>
+                    <div>
+                      <dt>Minimum rate</dt>
+                      <dd>TZS 5,000</dd>
+                    </div>
+                  </dl>
+                  <p className="m-0 ap-note">Your base rate. NoLSAF commission is added later.</p>
 
-                {/* Add room type button */}
-                <div className="flex flex-col gap-2 pt-1 sm:items-end">
+                  <ul className="ap-checklist is-stacked">
+                    {requiredChecks.map((item) => (
+                      <li key={item.label} className={item.done ? "is-done" : ""}>
+                        <span className="ap-checklist-dot">{item.done ? <Check className="h-3 w-3" /> : null}</span>
+                        {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                  {isMultiStorey && roomsCountOk && !floorsOk ? (
+                    <p className="m-0 ap-note is-strong">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                      Rooms placed on floors must equal the number of rooms.
+                    </p>
+                  ) : null}
+
                   <button
                     type="button"
                     onClick={addRoomType}
                     disabled={!canAddRoomType}
-                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none active:scale-[0.98] sm:w-auto"
+                    className="ap-btn is-primary is-block"
                   >
-                    Save {roomTypeOk ? `${roomType} ` : ""}room type
+                    {editingRoomIndex !== null ? "Update" : "Save"} {roomTypeOk ? `${roomType} ` : ""}group
                     <ArrowRight className="h-4 w-4" />
                   </button>
-                  {!canAddRoomType && <p className="text-xs text-gray-500">Complete the checklist above to enable saving.</p>}
-                </div>
+                </aside>
               </div>
-            </div>
+            </section>
 
-            {/* ── Saved Room Types Card ──────────────────────────────── */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">
-                      {savedRoomTypeNames.length === 1 ? `Saved ${savedRoomTypeNames[0]} room` : "Saved room types"}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {savedRoomTypeNames.length > 1 ? `${savedRoomTypeNames.join(", ")} rooms have been added.` : savedRoomTypeNames.length === 1 ? `${savedRoomTypeNames[0]} room details have been added.` : "Saved rooms will appear here."}
-                    </p>
-                  </div>
+            {/* ---------------------------------------------------------------
+                Saved room groups: review, edit, duplicate or remove.
+               --------------------------------------------------------------- */}
+            <section className="ap-card">
+              <header className="ap-card-head">
+                <span className="ap-card-head-no">{savedNo}</span>
+                <div className="ap-card-head-copy">
+                  <h3 className="ap-card-title">Saved room groups</h3>
+                  <p className="ap-card-sub">
+                    {definedRooms.length > 0
+                      ? `${savedRoomsTotal} ${savedRoomsTotal === 1 ? "room" : "rooms"} in ${definedRooms.length} ${definedRooms.length === 1 ? "group" : "groups"}`
+                      : "Each group you save lands here."}
+                  </p>
                 </div>
-                {definedRooms.length > 0 && (
-                  <div className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                    {definedRooms.length} {definedRooms.length === 1 ? "type" : "types"}
-                  </div>
-                )}
-              </div>
-              <div className="space-y-3">
-                {definedRooms.length === 0 ? (
-                  <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-8 text-center">
-                    <div className="text-sm font-medium text-gray-500">No room types saved yet</div>
-                    <div className="mt-1 text-xs text-gray-400">Add your first room type above</div>
-                  </div>
+                {definedRooms.length > 0 ? (
+                  <span className="ap-card-tag">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    {definedRooms.length} saved
+                  </span>
                 ) : (
-                  definedRooms.map((r, idx) => {
+                  <span className="ap-card-tag is-todo">None yet</span>
+                )}
+              </header>
+
+              {definedRooms.length === 0 ? (
+                <div className="ap-card-body">
+                  <p className="m-0 ap-note">Nothing saved yet. Fill in the cards above and press Save group.</p>
+                </div>
+              ) : (
+                <ul className="ap-floor-list">
+                  {definedRooms.map((r, idx) => {
                     const isCollapsed = collapsed.has(idx);
+                    const isEditing = editingRoomIndex === idx;
                     const dist = r?.floorDistribution && typeof r.floorDistribution === "object" ? (r.floorDistribution as Record<number, number>) : null;
                     const distLabel = dist
                       ? Object.keys(dist)
                           .map((k) => Number(k))
-                          .filter((n) => Number.isFinite(n))
-                          .sort((a, b) => a - b)
-                          .map((f) => `${floorLabel(f)}:${dist[f] ?? 0}`)
+                          .filter((n) => Number.isFinite(n) && Number(dist[n]) > 0)
+                          .sort((x, y) => x - y)
+                          .map((f) => `${floorLabel(f)} ${dist[f] ?? 0}`)
                           .join(" · ")
                       : "";
                     const bedLabel = [
@@ -1054,116 +881,179 @@ export function RoomsStep({
                     ]
                       .filter(({ key }) => Number(r.beds?.[key]) > 0)
                       .map(({ key, label }) => `${r.beds[key]} ${label}`)
-                      .join(" · ") || "No beds";
+                      .join(" + ") || "No beds";
+                    const meta = [
+                      bedLabel,
+                      r.bathPrivate === "yes" ? "Private bath" : "Shared bath",
+                      r.smoking === "yes" ? "Smoking" : "No smoking",
+                      distLabel ? `Floors ${distLabel}` : "",
+                    ].filter(Boolean).join(" · ");
+                    const photos: string[] = Array.isArray(r.roomImages) ? r.roomImages : [];
+                    const thumb = photos[0];
                     return (
-                      <div
-                        key={idx}
-                        className={`overflow-hidden rounded-xl border-2 transition-all duration-200 ${
-                          isCollapsed ? "border-gray-200" : "border-emerald-300 shadow-sm"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleCollapsed(idx)}
-                          className={`w-full flex items-start justify-between gap-4 p-4 text-left transition-colors ${
-                            isCollapsed ? "bg-white hover:bg-gray-50" : "bg-emerald-50/50 hover:bg-emerald-50"
-                          }`}
-                          aria-expanded={!isCollapsed}
-                        >
-                          <div className="flex flex-1 min-w-0 items-start gap-3">
-                            <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-lg font-bold transition-all ${
-                              isCollapsed ? "bg-gray-100 text-gray-500" : "bg-emerald-100 text-emerald-700"
-                            }`}>
-                              {r.roomType.charAt(0)}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-bold text-gray-900">{r.roomType}</span>
-                                <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                                  isCollapsed ? "border-gray-200 bg-gray-100 text-gray-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                }`}>
-                                  {r.roomsCount} {r.roomsCount === 1 ? "room" : "rooms"}
+                      <li key={idx} className={isEditing ? "ap-saved-item is-editing" : "ap-saved-item"}>
+                        <div className="ap-saved">
+                          <button
+                            type="button"
+                            onClick={() => toggleCollapsed(idx)}
+                            className="ap-saved-main"
+                            aria-expanded={!isCollapsed}
+                          >
+                            {thumb ? (
+                              <span className="ap-saved-thumb">
+                                {/^https?:\/\//i.test(thumb) ? (
+                                  <Image src={thumb} alt="" width={64} height={48} className="h-full w-full object-cover" />
+                                ) : (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={thumb} alt="" className="h-full w-full object-cover" />
+                                )}
+                              </span>
+                            ) : (
+                              <span className="ap-floor-no">{String(r.roomType || "R").charAt(0)}</span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span className="truncate text-[13.5px] font-semibold text-white">
+                                  {r.roomsCount} × {r.roomType}
                                 </span>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <div className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                                  <span className="font-medium">Beds:</span> {bedLabel}
-                                </div>
-                                <div className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                                  <span className="font-medium">Smoke:</span> {r.smoking === "yes" ? "Yes" : "No"}
-                                </div>
-                                <div className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                                  <span className="font-medium">Bath:</span> {r.bathPrivate === "yes" ? "Private" : "Shared"}
-                                </div>
-                                {distLabel && (
-                                  <div className="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">
-                                    <span className="font-medium">Floors:</span> {distLabel}
-                                  </div>
-                                )}
-                                {Number(r.pricePerNight) > 0 && (
-                                  <div className="rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">
-                                    TZS {Number(r.pricePerNight).toLocaleString("en-US")} / night
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex flex-shrink-0 items-center gap-1.5 pt-0.5">
-                            <span className={`text-xs font-medium ${isCollapsed ? "text-gray-400" : "text-emerald-600"}`}>
-                              {isCollapsed ? "Show" : "Hide"}
+                                {isEditing ? <span className="ap-card-tag is-todo">Editing</span> : null}
+                              </span>
+                              <span className="block truncate text-[11.5px] text-white/55">{meta}</span>
                             </span>
-                            <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${isCollapsed ? "" : "rotate-180"} ${isCollapsed ? "text-gray-400" : "text-emerald-600"}`} />
-                          </div>
-                        </button>
+                            {Number(r.pricePerNight) > 0 ? (
+                              <span className="ap-saved-price">
+                                <strong>TZS {Number(r.pricePerNight).toLocaleString("en-US")}</strong>
+                                <span>per night</span>
+                              </span>
+                            ) : null}
+                            <ChevronDown className={`h-4 w-4 shrink-0 text-white/45 transition-transform ${isCollapsed ? "" : "rotate-180"}`} />
+                          </button>
 
-                        {!isCollapsed && (
-                          <div className="border-t border-gray-200 bg-white px-4 pb-4 pt-4 sm:px-5">
-                            {Array.isArray(r.roomImages) && r.roomImages.length > 0 ? (
-                              <div>
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-semibold text-gray-900">Room photos</p>
-                                    <p className="mt-0.5 text-xs text-gray-500">Slide sideways to view every photo.</p>
-                                  </div>
-                                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">{r.roomImages.length} photos</span>
-                                </div>
-                                <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                  {r.roomImages.map((u: string, i: number) => (
-                                    <div key={i} className="relative aspect-[4/3] w-64 shrink-0 snap-start overflow-hidden rounded-xl border border-gray-200 bg-gray-100 shadow-sm sm:w-72">
+                          <div className="ap-saved-actions">
+                            <button
+                              type="button"
+                              onClick={() => onEditRoom(idx)}
+                              disabled={isEditing}
+                              className="ap-icon-btn"
+                              title="Edit this group"
+                              aria-label={`Edit ${r.roomsCount} × ${r.roomType}`}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDuplicateRoom(idx)}
+                              className="ap-icon-btn"
+                              title="Start a new group from this one"
+                              aria-label={`Duplicate ${r.roomsCount} × ${r.roomType}`}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onRemoveRoom(idx)}
+                              className="ap-icon-btn is-danger"
+                              title="Remove this group"
+                              aria-label={`Remove ${r.roomsCount} × ${r.roomType}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {!isCollapsed ? (
+                          <div className="ap-sheet">
+                            {/* Photos: the cover large, the rest as a strip */}
+                            <div className="ap-mosaic">
+                              {photos.length === 0 ? (
+                                <p className="m-0 ap-note">No photos for this group.</p>
+                              ) : (
+                                photos.slice(0, 5).map((u: string, i: number) => {
+                                  const more = i === 4 && photos.length > 5 ? photos.length - 5 : 0;
+                                  return (
+                                    <div key={i} className={i === 0 ? "ap-mosaic-cover" : "ap-mosaic-thumb"}>
                                       {/^https?:\/\//i.test(u) ? (
-                                        <Image
-                                          src={u}
-                                          alt={`Room ${idx + 1} image ${i + 1}`}
-                                          width={288}
-                                          height={216}
-                                          className="h-full w-full object-cover"
-                                        />
+                                        <Image src={u} alt={`${r.roomType} photo ${i + 1}`} fill sizes={i === 0 ? "420px" : "110px"} className="object-cover" />
                                       ) : (
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        <img
-                                          src={u}
-                                          alt={`Room ${idx + 1} image ${i + 1}`}
-                                          className="h-full w-full object-cover"
-                                        />
+                                        <img src={u} alt={`${r.roomType} photo ${i + 1}`} className="absolute inset-0 h-full w-full object-cover" />
                                       )}
-                                      <span className="absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white">{i + 1} / {r.roomImages.length}</span>
+                                      {i === 0 ? <span className="ap-photo-tag">{photos.length} {photos.length === 1 ? "photo" : "photos"}</span> : null}
+                                      {more > 0 ? <span className="ap-mosaic-more">+{more}</span> : null}
                                     </div>
-                                  ))}
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="ap-sheet-info">
+                              {r.roomDescription ? (
+                                <div>
+                                  <p className={`m-0 text-[13px] leading-5 text-white/75 ${openDescriptions.has(idx) ? "" : "ap-clamp-2"}`}>
+                                    {r.roomDescription}
+                                  </p>
+                                  {String(r.roomDescription).length > 160 ? (
+                                    <button type="button" onClick={() => toggleDescription(idx)} className="ap-sum-link mt-1">
+                                      {openDescriptions.has(idx) ? "Show less" : "Read more"}
+                                    </button>
+                                  ) : null}
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 p-4 text-center">
-                                <div className="text-xs text-gray-400">No images for this room type</div>
-                              </div>
-                            )}
+                              ) : null}
+
+                              <dl className="ap-spec">
+                                <div><dt>Rooms</dt><dd>{r.roomsCount}</dd></div>
+                                <div><dt>Beds per room</dt><dd>{bedLabel}</dd></div>
+                                <div><dt>Bathroom</dt><dd>{r.bathPrivate === "yes" ? "Private" : "Shared"}</dd></div>
+                                <div><dt>Smoking</dt><dd>{r.smoking === "yes" ? "Allowed" : "Not allowed"}</dd></div>
+                                {r.towelColor ? <div><dt>Towel colour</dt><dd>{r.towelColor}</dd></div> : null}
+                                {distLabel ? <div><dt>Floors</dt><dd>{distLabel}</dd></div> : null}
+                                <div><dt>Nightly rate</dt><dd className="font-mono tabular-nums">TZS {Number(r.pricePerNight || 0).toLocaleString("en-US")}</dd></div>
+                                <div>
+                                  <dt>All rooms, one night</dt>
+                                  <dd className="font-mono tabular-nums">
+                                    TZS {(Number(r.pricePerNight || 0) * (Number(r.roomsCount) || 0)).toLocaleString("en-US")}
+                                  </dd>
+                                </div>
+                              </dl>
+
+                              {[
+                                { label: "In the bathroom", items: Array.isArray(r.bathItems) ? r.bathItems : [], icons: BATHROOM_ICONS },
+                                { label: "In the room", items: Array.isArray(r.otherAmenities) ? r.otherAmenities : [], icons: OTHER_AMENITIES_ICONS },
+                              ].map(({ label, items, icons }) =>
+                                items.length ? (
+                                  <div key={label}>
+                                    <span className="ap-label">
+                                      {label} <span className="font-normal text-white/40">{items.length}</span>
+                                    </span>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(openAmenities.has(`${idx}-${label}`) ? items : items.slice(0, 6)).map((item: string) => {
+                                        const Icon = (icons as any)[item];
+                                        return (
+                                          <span key={item} className="ap-chip-static">
+                                            {Icon ? <Icon className="h-3 w-3" aria-hidden /> : null}
+                                            {item}
+                                          </span>
+                                        );
+                                      })}
+                                      {items.length > 6 ? (
+                                        <button type="button" onClick={() => toggleAmenities(`${idx}-${label}`)} className="ap-chip-static is-more">
+                                          {openAmenities.has(`${idx}-${label}`) ? "Show less" : `+${items.length - 6} more`}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                ) : null
+                              )}
+
+                            </div>
                           </div>
-                        )}
-                      </div>
+                        ) : null}
+                      </li>
                     );
-                  })
-                )}
-              </div>
-            </div>
+                  })}
+                </ul>
+              )}
+            </section>
 
           </div>
         </div>

@@ -1,6 +1,8 @@
 import { Router, type RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
+import { extractPaymentMetadata, extractRecordedPayerAccount, formatPaymentExportTimestamp, maskPaymentAccount } from "../lib/adminPaymentsView.js";
 
 const router = Router();
 router.use(
@@ -67,6 +69,7 @@ router.get("/invoices", async (req, res) => {
               amount: true,
               currency: true,
               status: true,
+              phone: true,
               createdAt: true,
               payload: true, // Include payload to extract account info
             },
@@ -79,49 +82,18 @@ router.get("/invoices", async (req, res) => {
       prisma.invoice.count({ where }),
     ]);
 
-    // Helper function to extract account number from various sources
-    const extractAccountNumber = (inv: any, paymentEvent: any): string | null => {
-      // First try: paymentEvent payload (most reliable for actual payment)
-      if (paymentEvent?.payload) {
-        const payload = paymentEvent.payload as any;
-        // Common field names in payment payloads
-        const accountFields = ['phoneNumber', 'phone', 'accountNumber', 'account', 'msisdn', 'sourcePhone', 'destinationPhone'];
-        for (const field of accountFields) {
-          if (payload[field]) {
-            return String(payload[field]);
-          }
-        }
-      }
-      
-      // Second try: paymentRef might contain account info
-      if (inv.paymentRef) {
-        // Check if paymentRef looks like a phone number (starts with 0, 255, or +255)
-        const ref = String(inv.paymentRef);
-        if (/^(0|255|\+255|254|\+254)\d{6,}/.test(ref)) {
-          return ref;
-        }
-      }
-      
-      // Third try: owner's payout info (from JSON payout field)
-      // This would require additional query, but for now we'll skip as it's expensive
-      // Owner phone as fallback
-      if (inv.owner?.phone) {
-        return inv.owner.phone;
-      }
-      
-      return null;
-    };
-
     // Transform to payment-like format
     const transformed = items.map((inv) => {
       const paymentEvent = inv.paymentEvents?.[0] || null;
-      const accountNumber = extractAccountNumber(inv, paymentEvent);
+      const accountNumber = maskPaymentAccount(extractRecordedPayerAccount(inv, paymentEvent));
       
       return {
         id: inv.id,
         invoiceId: inv.id,
         invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
         receiptNumber: inv.receiptNumber,
+        issuedAt: inv.issuedAt,
+        ...extractPaymentMetadata(paymentEvent?.payload, inv.checkoutSessionId),
         date: tab === "paid" ? (inv.paidAt || inv.updatedAt) : (inv.approvedAt || inv.updatedAt),
         amount: Number(inv.netPayable || inv.total || 0),
         currency: "TZS", // Default, can be extended if needed
@@ -242,25 +214,37 @@ router.get("/events/:id", async (req, res) => {
 // GET /admin/payments/summary
 router.get("/summary", async (_req, res) => {
   try {
-    // Count APPROVED invoices (waiting for payment)
-    const waitingCount = await prisma.invoice.count({ where: { status: "APPROVED" } });
-    
-    // Count PAID invoices (paid history)
-    const paidCount = await prisma.invoice.count({ where: { status: "PAID" } });
-    
-    // Payment event aggregates (for reference)
-    const byStatus = await prisma.paymentEvent.groupBy({ by: ["status"], _count: { _all: true } });
-    const byProvider = await prisma.paymentEvent.groupBy({ by: ["provider"], _count: { _all: true } });
-    
-    res.json({ 
+    const [waitingCount, paidCount, nrmsPayable, nrmsPaid, payoutOpen, payoutPaid, unmatchedRows, variance] = await Promise.all([
+      prisma.invoice.count({ where: { status: "APPROVED" } }),
+      prisma.invoice.count({ where: { status: "PAID" } }),
+      prisma.nrmsBillingStatement.count({ where: { status: "PAYABLE" } }),
+      prisma.nrmsBillingStatement.count({ where: { status: "PAID" } }),
+      prisma.disbursement.count({ where: { status: { in: ["REQUESTED", "APPROVED", "BATCHED", "AUTHORIZED", "SUBMITTED", "PROCESSING", "SECURITY_REVIEW"] } } }),
+      prisma.disbursement.count({ where: { status: "PAID" } }),
+      prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*) AS count FROM payment_events
+        WHERE status = 'SUCCESS'
+          AND invoiceId IS NULL
+          AND tourBookingId IS NULL
+          AND groupBookingId IS NULL
+          AND JSON_EXTRACT(payload, '$.nrmsToken') IS NULL
+      `,
+      prisma.paymentEvent.count({
+        where: { payload: { path: "$.variance.recordedAt", string_contains: "T" } },
+      }),
+    ]);
+    const unmatched = Number(unmatchedRows[0]?.count ?? 0);
+    res.json({
       waiting: waitingCount,
       paid: paidCount,
-      byStatus, 
-      byProvider 
+      booking: { waiting: waitingCount, paid: paidCount },
+      nrms: { waiting: nrmsPayable, paid: nrmsPaid },
+      payouts: { open: payoutOpen, paid: payoutPaid },
+      exceptions: { unmatched, variance, total: unmatched + variance },
     });
   } catch (err: any) {
     console.error("Error in GET /admin/payments/summary:", err);
-    res.json({ waiting: 0, paid: 0, byStatus: [], byProvider: [] });
+    res.status(500).json({ error: "Unable to load payment operations summary" });
   }
 });
 
@@ -278,7 +262,7 @@ function toCsv(rows: Array<Record<string, any>>, fields: string[]) {
 }
 
 // GET /admin/payments/export.csv
-router.get("/export.csv", async (req, res) => {
+router.get("/export.csv", blockImpersonated as RequestHandler, requireAdminFinanceGrant as RequestHandler, async (req, res) => {
   try {
     const { tab = "waiting", q, selectedIds } = req.query as any;
     
@@ -322,27 +306,11 @@ router.get("/export.csv", async (req, res) => {
           where: { status: "SUCCESS" },
           orderBy: { id: "desc" },
           take: 1,
-          select: { provider: true, payload: true },
+          select: { provider: true, phone: true, payload: true, eventId: true, createdAt: true, status: true },
         },
       },
       orderBy: tab === "paid" ? { paidAt: "desc" } : { approvedAt: "desc" },
     });
-
-    // Extract account number helper (same as in GET /invoices)
-    const extractAccountNumber = (inv: any, paymentEvent: any): string | null => {
-      if (paymentEvent?.payload) {
-        const payload = paymentEvent.payload as any;
-        const accountFields = ['phoneNumber', 'phone', 'accountNumber', 'account', 'msisdn', 'sourcePhone', 'destinationPhone'];
-        for (const field of accountFields) {
-          if (payload[field]) return String(payload[field]);
-        }
-      }
-      if (inv.paymentRef && /^(0|255|\+255|254|\+254)\d{6,}/.test(String(inv.paymentRef))) {
-        return String(inv.paymentRef);
-      }
-      if (inv.owner?.phone) return inv.owner.phone;
-      return null;
-    };
 
     // Generate CSV
     const headers = [
@@ -350,7 +318,8 @@ router.get("/export.csv", async (req, res) => {
       'Invoice Number',
       'Receipt Number',
       'Status',
-      'Date',
+      'Status Date (EAT UTC+3)',
+      'Invoice Issued At (EAT UTC+3)',
       'Amount (TZS)',
       'Owner Name',
       'Owner Email',
@@ -358,24 +327,32 @@ router.get("/export.csv", async (req, res) => {
       'Property Title',
       'Property Type',
       'Payment Method',
-      'Payment Reference',
-      'Account Number',
+      'Bank Name',
+      'Merchant Reference',
+      'Bank / Provider Transaction Reference',
+      'Recorded Payer Account (Masked)',
+      'Provider',
+      'Provider Event ID',
+      'Provider Event Status',
+      'Provider Event At (EAT UTC+3)',
       'Approved By',
-      'Approved At',
-      'Paid At',
+      'Approved At (EAT UTC+3)',
+      'Paid At (EAT UTC+3)',
     ];
 
     const rows = items.map((inv) => {
       const paymentEvent = inv.paymentEvents?.[0] || null;
-      const accountNumber = extractAccountNumber(inv, paymentEvent);
+      const accountNumber = maskPaymentAccount(extractRecordedPayerAccount(inv, paymentEvent));
       const date = tab === "paid" ? (inv.paidAt || inv.updatedAt) : (inv.approvedAt || inv.updatedAt);
+      const metadata = extractPaymentMetadata(paymentEvent?.payload, inv.checkoutSessionId);
 
       return {
         'Invoice ID': inv.id,
         'Invoice Number': inv.invoiceNumber || `INV-${inv.id}`,
         'Receipt Number': inv.receiptNumber || '',
         'Status': inv.status,
-        'Date': date ? new Date(date).toLocaleString() : '',
+        'Status Date (EAT UTC+3)': formatPaymentExportTimestamp(date),
+        'Invoice Issued At (EAT UTC+3)': formatPaymentExportTimestamp(inv.issuedAt),
         'Amount (TZS)': Number(inv.netPayable || inv.total || 0),
         'Owner Name': inv.owner.name || '',
         'Owner Email': inv.owner.email || '',
@@ -383,15 +360,34 @@ router.get("/export.csv", async (req, res) => {
         'Property Title': inv.booking?.property?.title || '',
         'Property Type': inv.booking?.property?.type || '',
         'Payment Method': inv.paymentMethod || paymentEvent?.provider || '',
-        'Payment Reference': inv.paymentRef || '',
-        'Account Number': accountNumber || '',
+        'Bank Name': metadata.bankName || '',
+        'Merchant Reference': inv.paymentRef || '',
+        'Bank / Provider Transaction Reference': metadata.providerReference || '',
+        'Recorded Payer Account (Masked)': accountNumber || '',
+        'Provider': paymentEvent?.provider || '',
+        'Provider Event ID': paymentEvent?.eventId || '',
+        'Provider Event Status': paymentEvent?.status || '',
+        'Provider Event At (EAT UTC+3)': formatPaymentExportTimestamp(paymentEvent?.createdAt),
         'Approved By': inv.approvedByUser?.name || '',
-        'Approved At': inv.approvedAt ? new Date(inv.approvedAt).toLocaleString() : '',
-        'Paid At': inv.paidAt ? new Date(inv.paidAt).toLocaleString() : '',
+        'Approved At (EAT UTC+3)': formatPaymentExportTimestamp(inv.approvedAt),
+        'Paid At (EAT UTC+3)': formatPaymentExportTimestamp(inv.paidAt),
       };
     });
 
     const csvContent = toCsv(rows, headers);
+
+    try {
+      await prisma.adminAudit.create({
+        data: {
+          adminId: Number((req.user as any)?.id) || null,
+          targetUserId: null,
+          action: "PAYMENTS_CSV_EXPORT",
+          details: { tab, query: q ? String(q).slice(0, 120) : null, selectedCount: selectedIds ? String(selectedIds).split(",").filter(Boolean).length : 0, rows: rows.length },
+        },
+      });
+    } catch (auditError) {
+      console.warn("Failed to audit payments CSV export", auditError);
+    }
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="payments-${tab}-${new Date().toISOString().split('T')[0]}.csv"`);

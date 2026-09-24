@@ -308,7 +308,7 @@ export default function AdminProfile() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 pb-24 sm:px-6 sm:pb-28 lg:px-8">
+    <div className="space-y-6 pb-24 sm:pb-28 w-full min-w-0">
         {/* Header Card */}
         <div className="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white/70 shadow-sm backdrop-blur">
           <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-50" />
@@ -449,6 +449,7 @@ export default function AdminProfile() {
                 setupUrl="/api/account/2fa/totp/setup"
                 verifyUrl="/api/account/2fa/totp/verify"
                 disableUrl="/api/account/2fa/disable"
+                regenerateCodesUrl="/api/account/2fa/codes/regenerate"
                 onStatusChangeAction={() => { void refreshProfile(); }}
                 embedded
               />

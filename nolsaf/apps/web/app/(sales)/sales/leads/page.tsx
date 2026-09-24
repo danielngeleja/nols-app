@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Eye, Plus, UsersRound } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import SalesShell, { statusTone } from "@/components/SalesShell";
+import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Lead = {
@@ -143,7 +143,7 @@ export default function SalesLeadsPage() {
                   status === item ? "bg-brand text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
-                {item.replaceAll("_", " ")}
+                {codeLabel(item)}
               </button>
             ))}
           </div>
@@ -196,10 +196,10 @@ export default function SalesLeadsPage() {
                             ) : null}
                           </td>
                           <td className="px-4 py-3 align-middle text-xs font-medium text-slate-600">
-                            <span className="line-clamp-2">{lead.proposedProduct.replaceAll("_", " ")}</span>
+                            <span className="line-clamp-2">{codeLabel(lead.proposedProduct)}</span>
                           </td>
                           <td className="px-4 py-3 align-middle">
-                            <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${statusTone(lead.status)}`}>{lead.status.replaceAll("_", " ")}</span>
+                            <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${statusTone(lead.status)}`}>{codeLabel(lead.status)}</span>
                           </td>
                           <td className={`whitespace-nowrap px-4 py-3 align-middle text-xs ${overdue ? "font-semibold text-red-700" : "text-slate-600"}`}>
                             {shortDate(lead.nextFollowUpAt)}
@@ -235,12 +235,12 @@ export default function SalesLeadsPage() {
                         <p className="mb-0 mt-1 truncate text-xs text-slate-500">{lead.location || "No location recorded"}</p>
                       </div>
                       <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${statusTone(lead.status)}`}>
-                        {lead.status.replaceAll("_", " ")}
+                        {codeLabel(lead.status)}
                       </span>
                     </div>
                     <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5 text-[11px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                       <span className="shrink-0 whitespace-nowrap rounded-lg bg-slate-100 px-2.5 py-1.5 font-bold text-slate-600">
-                        {lead.proposedProduct.replaceAll("_", " ")}
+                        {codeLabel(lead.proposedProduct)}
                       </span>
                       <span className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600">
                         Follow-up {shortDate(lead.nextFollowUpAt)}

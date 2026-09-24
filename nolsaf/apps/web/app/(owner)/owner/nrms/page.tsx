@@ -13,6 +13,7 @@ import {
   ArrowDownToLine,
   ArrowRight,
   ArrowUpFromLine,
+  ArrowUpRight,
   BarChart3,
   BedDouble,
   CalendarDays,
@@ -28,13 +29,22 @@ import {
   X,
 } from "lucide-react";
 import { useNrms } from "./_components/NrmsProvider";
+import { useNrmsAccessRole } from "./_components/NrmsAccessRole";
+import SalesHome from "./_components/SalesHome";
 import NrmsFrozenNotice from "./_components/NrmsFrozenNotice";
+import NrmsCheckoutPolicyNotice from "./_components/NrmsCheckoutPolicyNotice";
+import { roomReadiness, roomAssignmentRequirement } from "@/lib/nrmsRoomReadiness";
+import NrmsRoomAssignmentPicker from "./_components/NrmsRoomAssignmentPicker";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type Reservation = {
   id: number;
+  /** Opaque rs_ reference used in page URLs instead of the row id. */
+  reference?: string;
   status: string;
   source: string;
+  bookingId?: number | null;
+  marketplaceBooking?: { id: number; reference: string; status?: string | null; checkInCodeStatus?: string | null } | null;
   checkIn: string;
   checkOut: string;
   currency: string;
@@ -44,7 +54,17 @@ type Reservation = {
   chargesTotal?: number | null;
   openOutletOrderCount?: number;
   amountPaid?: number | null;
+  effectivePaid?: number;
+  transferredToMaster?: number;
+  agencySettlement?: { settled: boolean } | null;
   checkedInAt?: string | null;
+  earlyCheckInApproved?: boolean;
+  earlyCheckInResolution?: {
+    resolution: "APPROVE_EARLY_CHECKIN";
+    reason: string | null;
+    operationalArrival: string | null;
+    createdAt: string;
+  } | null;
   adults?: number;
   children?: number;
   balance: number | null;
@@ -55,6 +75,7 @@ type Reservation = {
     roomTypeName?: string;
     roomUnitId: number | null;
     roomUnitCode: string | null;
+    roomUnitFloor?: number | null;
     status: string;
   }>;
   payments?: Array<{
@@ -90,16 +111,17 @@ type RoomTotals = {
 type RoomTypeOption = {
   id: number;
   name: string;
-  units: Array<{ id: number; code: string; status: string }>;
+  units: Array<{ id: number; code: string; floor?: number | null; status: string; housekeepingStatus?: string | null }>;
 };
 
 type AttentionItem = {
   id: number;
+  reference?: string;
   guest: string;
   room: string;
   checkOut: string;
   source: string;
-  issues: Array<{ code: "ROOM" | "OVERDUE" | "BALANCE"; label: string }>;
+  issues: Array<{ code: "ROOM" | "OVERDUE" | "EARLY_CHECKIN" | "BALANCE"; label: string }>;
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -119,11 +141,46 @@ function sameDay(a: Date, b: Date): boolean {
 
 function roomsLabel(r: Reservation): string {
   const active = (r.allocations ?? []).filter((a) => a.status === "ACTIVE");
-  return tallyRoomLabels(active.map((a) => a.roomUnitCode ?? a.roomTypeName), "Room not assigned");
+  return tallyRoomLabels(active.map((a) => a.roomUnitCode
+    ? `${a.roomUnitCode}${a.roomUnitFloor == null ? "" : ` · ${a.roomUnitFloor === 0 ? "Floor G" : `Floor ${a.roomUnitFloor}`}`}`
+    : a.roomTypeName), "Room not assigned");
+}
+
+/** Reservation page link by opaque reference, never the numeric id. */
+function reservationHref(r: { reference?: string }): string {
+  return r.reference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(r.reference)}` : "/owner/nrms/reservations";
 }
 
 function hasAssignedRoom(r: Reservation): boolean {
-  return (r.allocations ?? []).some((allocation) => allocation.status === "ACTIVE" && Boolean(allocation.roomUnitCode));
+  return roomReadiness(r).ready;
+}
+
+/**
+ * A marketplace stay cannot be checked in from NRMS. The guest's single-use
+ * code is the only proof of arrival, it is what releases the owner's payout,
+ * and the API refuses this reservation with MARKETPLACE_BOOKING. So the row
+ * hands the receptionist over to the marketplace validation page and brings
+ * them back here once the code is accepted, rather than offering a button that
+ * can only fail.
+ */
+function marketplaceCheckInHref(r: Reservation): string | null {
+  const handoffReference = r.marketplaceBooking?.reference ?? null;
+  if (!handoffReference) return null;
+  return `/owner/bookings/validate?handoff=${encodeURIComponent(handoffReference)}&return=${encodeURIComponent("/owner/nrms")}`;
+}
+
+/** Why a marketplace arrival may not be checkable in yet, for the row detail. */
+function marketplaceCodeNote(r: Reservation): string | null {
+  switch (String(r.marketplaceBooking?.checkInCodeStatus ?? "")) {
+    case "USED":
+      return "code already used";
+    case "VOID":
+      return "code voided, contact support";
+    case "ACTIVE":
+      return "code required";
+    default:
+      return null;
+  }
 }
 
 function sourceLabel(source: string): string {
@@ -132,6 +189,13 @@ function sourceLabel(source: string): string {
 
 function shortDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function localDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function shortDateTime(value: string): string {
@@ -152,7 +216,27 @@ function hasOutstandingBalance(reservation: Reservation): boolean {
   return reservation.balance != null && reservation.balance > 0;
 }
 
-export default function NrmsFrontDeskPage() {
+/**
+ * The NRMS home is not one screen.
+ *
+ * A receptionist opening NRMS needs arrivals, departures and tonight's rooms.
+ * A sales executive holds none of those duties: they cannot check a guest in,
+ * and occupancy is not the number they are measured on. Sending them to the
+ * front desk made the product look like it had no idea what they do, so the
+ * role decides which home is composed.
+ *
+ * The role comes from the layout (NrmsAccessRole), which resolves it from the
+ * server side membership. This chooses a screen, never a permission: whichever
+ * home renders, its requests are still made as the signed-in account and the
+ * API still decides what comes back.
+ */
+export default function NrmsHomePage() {
+  const { accessRole } = useNrmsAccessRole();
+  if (accessRole === "SALES_EXECUTIVE") return <SalesHome />;
+  return <NrmsFrontDeskPage />;
+}
+
+function NrmsFrontDeskPage() {
   const router = useRouter();
   const { selectedPropertyId, selectedProperty } = useNrms();
   const [loading, setLoading] = useState(true);
@@ -160,9 +244,17 @@ export default function NrmsFrontDeskPage() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [roomTotals, setRoomTotals] = useState<RoomTotals | null>(null);
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
+  const [propertyTotalFloors, setPropertyTotalFloors] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{ reservation: Reservation; action: "check-in" | "check-out" } | null>(null);
   const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
+  // Early departure is decided on the hotel's business day, which only moves on
+  // when the night audit closes. The browser cannot see that day, so when the
+  // server says a departure declaration is needed, the modal must show it.
+  const [departureDeclarationNeeded, setDepartureDeclarationNeeded] = useState(false);
+  useEffect(() => {
+    setDepartureDeclarationNeeded(false);
+  }, [pendingAction?.reservation.id, pendingAction?.action]);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -173,15 +265,27 @@ export default function NrmsFrontDeskPage() {
       from.setDate(from.getDate() - 14);
       const to = new Date();
       to.setDate(to.getDate() + 2);
-      const [reservationResponse, roomsResponse] = await Promise.all([
+      const [reservationResponse, inHouseResponse, roomsResponse] = await Promise.all([
         apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}`, {
           params: { from: from.toISOString(), to: to.toISOString(), limit: 200 },
         }),
+        // In-house is an operational state, not a date-window report. Always
+        // load every checked-in stay so an old or future-dated anomaly cannot
+        // disappear from the front desk counters and attention queue.
+        apiClient.get<any>(`/api/owner/nrms/reservations/property/${selectedPropertyId}`, {
+          params: { status: "CHECKED_IN", limit: 200 },
+        }),
         apiClient.get<any>(`/api/owner/nrms/rooms/${selectedPropertyId}`),
       ]);
-      setReservations(reservationResponse.data?.reservations ?? []);
+      const merged = new Map<number, Reservation>();
+      for (const reservation of [
+        ...(reservationResponse.data?.reservations ?? []),
+        ...(inHouseResponse.data?.reservations ?? []),
+      ]) merged.set(reservation.id, reservation);
+      setReservations([...merged.values()]);
       setRoomTotals(roomsResponse.data?.totals ?? null);
       setRoomTypes(roomsResponse.data?.roomTypes ?? []);
+      setPropertyTotalFloors(roomsResponse.data?.property?.totalFloors ?? null);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load front desk");
     } finally {
@@ -198,11 +302,18 @@ export default function NrmsFrontDeskPage() {
     () => reservations.filter((r) => r.status === "CONFIRMED" && sameDay(new Date(r.checkIn), today)),
     [reservations, today],
   );
-  const departures = useMemo(
-    () => reservations.filter((r) => r.status === "CHECKED_IN" && new Date(r.checkOut).getTime() <= new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime()),
-    [reservations, today],
+  const checkedInRecords = useMemo(() => reservations.filter((r) => r.status === "CHECKED_IN"), [reservations]);
+  // A future arrival carrying CHECKED_IN is corrupt operational state, not a
+  // guest occupying a room tonight. Keep it visible to Attention below, but do
+  // not let it inflate the in-house or occupancy figures.
+  const inHouse = useMemo(
+    () => checkedInRecords.filter((r) => r.checkIn.slice(0, 10) <= localDateKey(today) || r.earlyCheckInApproved),
+    [checkedInRecords, today],
   );
-  const inHouse = useMemo(() => reservations.filter((r) => r.status === "CHECKED_IN"), [reservations]);
+  const departures = useMemo(
+    () => inHouse.filter((r) => new Date(r.checkOut).getTime() <= new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).getTime()),
+    [inHouse, today],
+  );
   const totalRooms = roomTotals?.sellableUnits ?? roomTotals?.roomUnits ?? 0;
   const stayingRooms = Math.min(totalRooms, Math.max(0, inHouse.length - departures.length));
   const turnoverRooms = Math.min(departures.length, Math.max(0, totalRooms - stayingRooms));
@@ -214,35 +325,57 @@ export default function NrmsFrontDeskPage() {
   const attentionItems = useMemo(() => {
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
     const active = new Map<number, Reservation>();
-    [...arrivals, ...inHouse].forEach((reservation) => active.set(reservation.id, reservation));
+    [...arrivals, ...checkedInRecords].forEach((reservation) => active.set(reservation.id, reservation));
 
     return [...active.values()].flatMap<AttentionItem>((reservation) => {
       const guest = reservation.guestProfile?.fullName ?? "Guest";
       const issues: AttentionItem["issues"] = [];
-      if (!hasAssignedRoom(reservation)) issues.push({ code: "ROOM", label: "Room assignment required" });
+      if (!hasAssignedRoom(reservation)) issues.push({ code: "ROOM", label: roomReadiness(reservation).missingAllocation ? "Room allocation missing" : `Room assignment required (${roomReadiness(reservation).assigned}/${roomReadiness(reservation).total})` });
+      if (reservation.status === "CHECKED_IN" && reservation.checkIn.slice(0, 10) > localDateKey(today) && !reservation.earlyCheckInApproved) {
+        issues.push({ code: "EARLY_CHECKIN", label: `Checked in before ${shortDate(reservation.checkIn)} arrival` });
+      }
       if (new Date(reservation.checkOut).getTime() < startOfToday && reservation.status === "CHECKED_IN") {
         const overdueDays = Math.max(1, Math.floor((startOfToday - new Date(reservation.checkOut).getTime()) / 86_400_000));
         issues.push({ code: "OVERDUE", label: `${overdueDays} ${overdueDays === 1 ? "day" : "days"} past check-out` });
       }
       if (hasOutstandingBalance(reservation)) issues.push({ code: "BALANCE", label: `${reservation.currency} ${reservation.balance!.toLocaleString()} outstanding` });
-      return issues.length > 0 ? [{ id: reservation.id, guest, room: roomsLabel(reservation), checkOut: reservation.checkOut, source: sourceLabel(reservation.source), issues }] : [];
+      return issues.length > 0 ? [{ id: reservation.id, reference: reservation.reference, guest,room: roomsLabel(reservation), checkOut: reservation.checkOut, source: sourceLabel(reservation.source), issues }] : [];
     });
-  }, [arrivals, inHouse, today]);
+  }, [arrivals, checkedInRecords, today]);
 
-  const act = async (id: number, action: "check-in" | "check-out", verifiedChargeIds: number[] = [], overrideRoomReadiness = false) => {
+  const act = async (
+    id: number,
+    action: "check-in" | "check-out",
+    verifiedChargeIds: number[] = [],
+    overrideRoomReadiness = false,
+    checkoutDeclaration?: { roomVacantConfirmed: boolean; earlyDepartureReason?: string },
+  ) => {
     setBusyId(id);
     setError(null);
     setRoomNotReady(null);
     try {
       await apiClient.post(
         `/api/owner/nrms/reservations/${id}/${action}`,
-        action === "check-out" ? { verifiedChargeIds } : overrideRoomReadiness ? { overrideRoomReadiness: true } : {},
+        action === "check-out" ? { verifiedChargeIds, ...checkoutDeclaration } : overrideRoomReadiness ? { overrideRoomReadiness: true } : {},
       );
       await load();
       setPendingAction(null);
     } catch (e: any) {
-      if (action === "check-in" && e?.response?.data?.code === "ROOM_NOT_READY") {
+      const code = e?.response?.data?.code;
+      const handoffHref = action === "check-in" && code === "MARKETPLACE_BOOKING"
+        ? marketplaceCheckInHref(reservations.find((reservation) => reservation.id === id) ?? pendingAction?.reservation ?? ({} as Reservation))
+        : null;
+      if (handoffHref) {
+        // Marketplace stays are checked in with the guest's code, so send the
+        // receptionist there instead of leaving them on an error they cannot fix.
+        setPendingAction(null);
+        setRoomNotReady(null);
+        router.push(handoffHref);
+      } else if (action === "check-in" && code === "ROOM_NOT_READY") {
         setRoomNotReady(e?.response?.data?.error || "The assigned room has not been cleaned yet.");
+      } else if (action === "check-out" && (code === "ROOM_VACANCY_CONFIRMATION_REQUIRED" || code === "EARLY_DEPARTURE_REASON_REQUIRED")) {
+        setDepartureDeclarationNeeded(true);
+        setError("NRMS records this as an early departure. Tick the room-vacant box and add a reason in the Early departure section above, then confirm check-out again.");
       } else {
         setError(e?.response?.data?.error || "Action failed");
       }
@@ -366,20 +499,26 @@ export default function NrmsFrontDeskPage() {
             emptyActionHref="/owner/nrms/reservations?create=1"
             emptyActionLabel="Add reservation"
           >
-            {arrivals.map((reservation) => (
-              <OperationRow
-                key={reservation.id}
-                reservation={reservation}
-                actionLabel="Check in"
-                actionTone="emerald"
-                busy={busyId === reservation.id}
-                onAction={() => {
-                  setError(null);
-                  setPendingAction({ reservation, action: "check-in" });
-                }}
-                detail={`${sourceLabel(reservation.source)} · check-in today`}
-              />
-            ))}
+            {arrivals.map((reservation) => {
+              const roomReady = hasAssignedRoom(reservation);
+              const marketplaceHref = roomReady ? marketplaceCheckInHref(reservation) : null;
+              const codeNote = marketplaceCodeNote(reservation);
+              return (
+                <OperationRow
+                  key={reservation.id}
+                  reservation={reservation}
+                  actionLabel={!roomReady ? "Prepare room" : marketplaceHref ? "Check in with code" : "Check in"}
+                  actionTone="emerald"
+                  actionHref={marketplaceHref}
+                  busy={busyId === reservation.id}
+                  onAction={() => {
+                    setError(null);
+                    setPendingAction({ reservation, action: "check-in" });
+                  }}
+                  detail={`${sourceLabel(reservation.source)} · ${!roomReady ? "room assignment required" : codeNote ?? "check-in today"}`}
+                />
+              );
+            })}
           </OperationList>
 
           <OperationList
@@ -418,12 +557,15 @@ export default function NrmsFrontDeskPage() {
 
       {pendingAction && (
         <StayActionModal
+          propertyId={selectedPropertyId}
           reservation={pendingAction.reservation}
           action={pendingAction.action}
           roomTypes={roomTypes}
+          totalFloors={propertyTotalFloors}
           busy={busyId === pendingAction.reservation.id}
           error={error}
           roomNotReady={roomNotReady}
+          requireDepartureDeclaration={departureDeclarationNeeded}
           onOverrideCheckIn={() => void act(pendingAction.reservation.id, "check-in", [], true)}
           onClose={() => {
             if (busyId == null) {
@@ -436,7 +578,7 @@ export default function NrmsFrontDeskPage() {
             setRoomNotReady(null);
             router.push(href);
           }}
-          onConfirm={(verifiedChargeIds) => void act(pendingAction.reservation.id, pendingAction.action, verifiedChargeIds)}
+          onConfirm={(verifiedChargeIds, checkoutDeclaration) => void act(pendingAction.reservation.id, pendingAction.action, verifiedChargeIds, false, checkoutDeclaration)}
           onAssignRoom={(allocationId, roomUnitId) => assignRoom(pendingAction.reservation.id, allocationId, roomUnitId)}
         />
       )}
@@ -445,33 +587,45 @@ export default function NrmsFrontDeskPage() {
 }
 
 function StayActionModal({
+  propertyId,
   reservation,
   action,
   roomTypes,
+  totalFloors,
   busy,
   error,
   roomNotReady,
+  requireDepartureDeclaration = false,
   onOverrideCheckIn,
   onClose,
   onOpenDestination,
   onConfirm,
   onAssignRoom,
 }: {
+  propertyId: number;
   reservation: Reservation;
   action: "check-in" | "check-out";
   roomTypes: RoomTypeOption[];
+  totalFloors: number | null;
   busy: boolean;
   error: string | null;
   roomNotReady: string | null;
+  /** Set when the server reported that this checkout is an early departure. */
+  requireDepartureDeclaration?: boolean;
   onOverrideCheckIn: () => void;
   onClose: () => void;
   onOpenDestination: (href: string) => void;
-  onConfirm: (verifiedChargeIds: number[]) => void;
+  onConfirm: (verifiedChargeIds: number[], checkoutDeclaration?: { roomVacantConfirmed: boolean; earlyDepartureReason?: string }) => void;
   onAssignRoom: (allocationId: number, roomUnitId: number) => Promise<boolean>;
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [verifiedChargeIds, setVerifiedChargeIds] = useState<number[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<number | "">("");
+  const [availableRoomIds, setAvailableRoomIds] = useState<Set<number> | null>(null);
+  const [roomAvailabilityLoading, setRoomAvailabilityLoading] = useState(false);
+  const [roomAvailabilityError, setRoomAvailabilityError] = useState<string | null>(null);
+  const [roomVacantConfirmed, setRoomVacantConfirmed] = useState(false);
+  const [earlyDepartureReason, setEarlyDepartureReason] = useState("");
   const isCheckIn = action === "check-in";
   const guestName = reservation.guestProfile?.fullName ?? "Guest";
   const room = roomsLabel(reservation);
@@ -498,11 +652,15 @@ function StayActionModal({
   const chargesUnverified = !isCheckIn && activeCharges.some((charge) => !verifiedChargeIds.includes(charge.id));
   const checkoutBlocked = folioUnsettled || hasOpenOutletOrders || chargesUnverified;
   const noRoomAssigned = !hasAssignedRoom(reservation);
-  const unassignedAllocation = (reservation.allocations ?? []).find((allocation) => allocation.status === "ACTIVE" && allocation.roomUnitId == null);
-  const eligibleRooms = unassignedAllocation
-    ? roomTypes.find((roomType) => roomType.id === unassignedAllocation.roomTypeId)?.units.filter((unit) => unit.status === "ACTIVE") ?? []
-    : [];
+  const unassignedAllocation = (reservation.allocations ?? []).find((allocation) => allocation.status === "ACTIVE" && (allocation.roomUnitId == null || !allocation.roomUnitCode));
+  const categoryRooms = unassignedAllocation ? roomTypes.find((roomType) => roomType.id === unassignedAllocation.roomTypeId)?.units.filter((unit) => unit.status === "ACTIVE") ?? [] : [];
+  const eligibleRooms = categoryRooms.filter((unit) => availableRoomIds?.has(unit.id));
+  const assignmentRequirement = roomAssignmentRequirement(reservation);
+  const assignmentPaymentReady = assignmentRequirement.ready;
   const actionLabel = isCheckIn ? "Confirm check-in" : "Confirm check-out";
+  const marketplaceHref = isCheckIn ? marketplaceCheckInHref(reservation) : null;
+  const earlyDeparture = !isCheckIn && (reservation.checkOut.slice(0, 10) > localDateKey() || requireDepartureDeclaration);
+  const departureDeclarationReady = isCheckIn || !earlyDeparture || (roomVacantConfirmed && earlyDepartureReason.trim().length >= 2);
 
   const handleAssignRoom = async () => {
     if (!unassignedAllocation || selectedRoomId === "") return;
@@ -512,6 +670,33 @@ function StayActionModal({
       setAcknowledged(false);
     }
   };
+
+  useEffect(() => {
+    if (!isCheckIn || !unassignedAllocation || !assignmentPaymentReady) {
+      setAvailableRoomIds(null);
+      setRoomAvailabilityError(null);
+      return;
+    }
+    let cancelled = false;
+    setRoomAvailabilityLoading(true);
+    setRoomAvailabilityError(null);
+    apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, {
+      params: {
+        roomTypeId: unassignedAllocation.roomTypeId,
+        checkIn: reservation.checkIn,
+        checkOut: reservation.checkOut,
+        allocationId: unassignedAllocation.id,
+      },
+    }).then((response) => {
+      if (cancelled) return;
+      setAvailableRoomIds(new Set<number>((response.data?.units ?? []).filter((unit: any) => unit.available).map((unit: any) => Number(unit.id))));
+    }).catch((cause: any) => {
+      if (!cancelled) setRoomAvailabilityError(cause?.response?.data?.error || "Could not check live room availability");
+    }).finally(() => {
+      if (!cancelled) setRoomAvailabilityLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [assignmentPaymentReady, isCheckIn, propertyId, reservation.checkIn, reservation.checkOut, unassignedAllocation]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -534,7 +719,9 @@ function StayActionModal({
         <div className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-5 sm:px-7">
           <div>
             <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">NRMS · {isCheckIn ? "Check-in review" : "Check-out review"}</p>
-            <h2 id="stay-action-title" className="mb-0 mt-1 text-xl font-bold tracking-tight text-neutral-950">Reservation</h2>
+            <h2 id="stay-action-title" className="mb-0 mt-1 text-xl font-bold tracking-tight text-neutral-950">
+              {isCheckIn ? "Review arrival" : `Check out ${guestName}?`}
+            </h2>
           </div>
           <button type="button" onClick={onClose} disabled={busy} aria-label="Close review" className="flex h-9 w-9 appearance-none items-center justify-center rounded-full border-0 bg-neutral-100 p-0 text-neutral-500 transition hover:bg-neutral-200 hover:text-neutral-900 disabled:opacity-50">
             <X className="h-4 w-4" />
@@ -665,28 +852,20 @@ function StayActionModal({
             </section>
           )}
 
-          {isCheckIn && noRoomAssigned && (
-            <div className="rounded-2xl border border-red-200 bg-red-50/60 p-4">
+          {isCheckIn && noRoomAssigned && unassignedAllocation && assignmentPaymentReady && (
+            <div className="space-y-3">
               <div className="flex items-start gap-3">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
+                <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                 <div>
-                  <p className="m-0 text-sm font-bold text-red-900">Assign a room before check-in</p>
-                  <p className="mb-0 mt-1 text-xs leading-5 text-red-700">
-                    Select an active {unassignedAllocation?.roomTypeName ?? "room"} unit. Availability is verified when you assign it.
+                  <p className="m-0 text-sm font-bold text-neutral-900">Assign a room before check-in</p>
+                  <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">
+                    The guest keeps the paid room category; the front desk selects only the physical room number.
                   </p>
                 </div>
               </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <select
-                  value={selectedRoomId}
-                  onChange={(event) => setSelectedRoomId(event.target.value ? Number(event.target.value) : "")}
-                  disabled={busy || eligibleRooms.length === 0}
-                  aria-label="Select room to assign"
-                  className="min-h-11 min-w-0 flex-1 rounded-xl border border-red-200 bg-white px-3 text-sm font-semibold text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 disabled:bg-neutral-100 disabled:text-neutral-400"
-                >
-                  <option value="">{eligibleRooms.length > 0 ? "Select an available room" : "No active rooms configured"}</option>
-                  {eligibleRooms.map((unit) => <option key={unit.id} value={unit.id}>{unit.code}</option>)}
-                </select>
+              <NrmsRoomAssignmentPicker roomTypeName={unassignedAllocation?.roomTypeName ?? "Room type unavailable"} units={eligibleRooms} totalFloors={totalFloors} selectedUnitId={selectedRoomId} onSelect={setSelectedRoomId} loading={roomAvailabilityLoading} disabled={busy} />
+              {roomAvailabilityError && <p className="m-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{roomAvailabilityError}</p>}
+              <div className="flex justify-end">
                 <button
                   type="button"
                   onClick={() => void handleAssignRoom()}
@@ -699,6 +878,15 @@ function StayActionModal({
               </div>
             </div>
           )}
+
+          {isCheckIn && noRoomAssigned && !assignmentPaymentReady && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <div><p className="m-0 text-xs font-bold">Room assignment is waiting for payment</p><p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{assignmentRequirement.message}</p></div>
+            </div>
+          )}
+
+          {isCheckIn && noRoomAssigned && (!unassignedAllocation || !assignmentPaymentReady) && <button type="button" onClick={() => onOpenDestination(reservationHref(reservation))} className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold">{unassignedAllocation ? "Review payment and assignment" : "Review missing room allocation"}</button>}
 
           {(checkoutBlocked || (noRoomAssigned && !isCheckIn)) && (
             <div className={`rounded-xl border px-4 py-3 text-xs leading-5 ${checkoutBlocked ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
@@ -729,6 +917,26 @@ function StayActionModal({
               )}
             </div>
           )}
+
+          {!isCheckIn && earlyDeparture && (
+            <section className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-xs font-bold text-neutral-900">Early departure</p>
+                  <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">
+                    {reservation.checkOut.slice(0, 10) > localDateKey()
+                      ? `This stay was planned until ${shortDate(reservation.checkOut)}. Future calendar dates will be released and NRMS will retain the original schedule for audit.`
+                      : `The hotel's business day has not yet reached ${shortDate(reservation.checkOut)}, usually because the last night audit is still open, so NRMS records this checkout as early.`}
+                  </p>
+                  <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={2} maxLength={300} placeholder="Reason for leaving early" className="mt-2 box-border w-full resize-none rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10" />
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-[11px] leading-4 text-neutral-700"><input type="checkbox" checked={roomVacantConfirmed} onChange={(event) => setRoomVacantConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" /><span><strong className="font-semibold text-neutral-900">The guest has physically left and the room is vacant.</strong> This declaration is stored with the departure record.</span></label>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {!isCheckIn && earlyDeparture && <NrmsCheckoutPolicyNotice />}
 
           <label className={`group flex items-center gap-4 rounded-xl border-2 px-4 py-3.5 transition ${checkoutBlocked ? "cursor-not-allowed border-neutral-200 bg-neutral-50 opacity-60" : acknowledged ? "cursor-pointer border-emerald-500 bg-emerald-50" : "cursor-pointer border-neutral-300 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"}`}>
             <input
@@ -780,22 +988,34 @@ function StayActionModal({
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-neutral-100 bg-neutral-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : `/owner/nrms/reservations?reservationId=${reservation.id}`)} disabled={busy} className="inline-flex min-h-10 appearance-none items-center justify-center rounded-lg border-0 bg-transparent px-3 text-xs font-bold text-neutral-600 transition hover:bg-white hover:text-neutral-900 disabled:opacity-50">
+          <button type="button" onClick={() => onOpenDestination(hasOpenOutletOrders ? "/owner/nrms/orders" : reservationHref(reservation))} disabled={busy} className="inline-flex min-h-10 appearance-none items-center justify-center rounded-lg border-0 bg-transparent px-3 text-xs font-bold text-neutral-600 transition hover:bg-white hover:text-neutral-900 disabled:opacity-50">
             {hasOpenOutletOrders ? "Open restaurant & bar orders" : folioUnsettled ? "Open reservation and settle folio" : chargesUnverified ? "Open full reservation to verify charges" : "Open full reservation"}
           </button>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} disabled={busy} className="min-h-10 flex-1 appearance-none rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-50 sm:flex-none">
               Not now
             </button>
+            {marketplaceHref ? (
             <button
               type="button"
-              onClick={() => onConfirm(verifiedChargeIds)}
-              disabled={busy || !acknowledged || checkoutBlocked || (isCheckIn && noRoomAssigned)}
+              onClick={() => onOpenDestination(marketplaceHref)}
+              disabled={busy || !acknowledged || noRoomAssigned}
+              className="inline-flex min-h-10 flex-1 appearance-none items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45 sm:flex-none"
+            >
+              Check in with code
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
+            ) : (
+            <button
+              type="button"
+              onClick={() => onConfirm(verifiedChargeIds, !earlyDeparture ? undefined : { roomVacantConfirmed, earlyDepartureReason: earlyDepartureReason.trim() })}
+              disabled={busy || !acknowledged || !departureDeclarationReady || checkoutBlocked || (isCheckIn && noRoomAssigned)}
               className={`inline-flex min-h-10 flex-1 appearance-none items-center justify-center gap-2 rounded-lg border-0 px-4 text-xs font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-45 sm:flex-none ${isCheckIn ? "bg-emerald-700 hover:bg-emerald-800" : "bg-neutral-900 hover:bg-neutral-800"}`}
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-              {busy ? "Processing..." : hasOpenOutletOrders ? "Complete orders first" : folioUnsettled ? "Settle folio first" : chargesUnverified ? "Verify charges first" : actionLabel}
+              {busy ? "Processing..." : hasOpenOutletOrders ? "Complete orders first" : folioUnsettled ? "Settle folio first" : chargesUnverified ? "Verify charges first" : isCheckIn ? actionLabel : "Yes, check out guest"}
             </button>
+            )}
           </div>
         </div>
       </section>
@@ -1060,6 +1280,7 @@ function OperationRow({
   detail,
   actionLabel,
   actionTone,
+  actionHref = null,
   busy,
   onAction,
   overdue = false,
@@ -1069,6 +1290,8 @@ function OperationRow({
   detail: string;
   actionLabel: string;
   actionTone: "emerald" | "dark";
+  /** When set the action leaves NRMS for this page instead of acting here. */
+  actionHref?: string | null;
   busy: boolean;
   onAction: () => void;
   overdue?: boolean;
@@ -1130,15 +1353,25 @@ function OperationRow({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onAction}
-          disabled={busy}
-          className={`col-start-2 row-start-1 inline-flex min-h-9 w-[5.5rem] shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-2 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-24 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
-        >
-          {busy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-          <span className="truncate">{busy ? "Working..." : actionLabel}</span>
-        </button>
+        {actionHref ? (
+          <Link
+            href={actionHref}
+            className={`col-start-2 row-start-1 inline-flex min-h-9 w-[8.5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-lg px-2 text-xs font-bold no-underline transition hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-36 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
+          >
+            <span className="truncate">{actionLabel}</span>
+            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={onAction}
+            disabled={busy}
+            className={`col-start-2 row-start-1 inline-flex min-h-9 w-[5.5rem] shrink-0 appearance-none items-center justify-center gap-1.5 self-center rounded-lg border-0 px-2 text-xs font-bold transition disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-24 sm:px-3 xl:col-auto xl:row-auto xl:justify-self-end ${buttonClassName}`}
+          >
+            {busy && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+            <span className="truncate">{busy ? "Working..." : actionLabel}</span>
+          </button>
+        )}
       </div>
     </li>
   );
@@ -1147,6 +1380,7 @@ function OperationRow({
 function AttentionPanel({ items }: { items: AttentionItem[] }) {
   const [collapsed, setCollapsed] = useState(false);
   const overdueCount = items.filter((item) => item.issues.some((issue) => issue.code === "OVERDUE")).length;
+  const earlyCheckInCount = items.filter((item) => item.issues.some((issue) => issue.code === "EARLY_CHECKIN")).length;
   const balanceCount = items.filter((item) => item.issues.some((issue) => issue.code === "BALANCE")).length;
   const roomCount = items.filter((item) => item.issues.some((issue) => issue.code === "ROOM")).length;
 
@@ -1169,6 +1403,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {overdueCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700"><span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />{overdueCount} overdue</span>}
+          {earlyCheckInCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700"><span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />{earlyCheckInCount} early check-in</span>}
           {balanceCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />{balanceCount} balance</span>}
           {roomCount > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700"><span className="h-1.5 w-1.5 rounded-full bg-violet-500" aria-hidden="true" />{roomCount} room</span>}
           <div className="ml-1 min-w-24 rounded-xl border border-white/80 bg-white/80 px-3.5 py-2 text-right shadow-sm backdrop-blur-sm">
@@ -1199,17 +1434,17 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
             {items.map((item) => (
           <li
             key={item.id}
-            className={`m-0 list-none border-l-[3px] px-5 py-2 transition-colors ${item.issues.some((issue) => issue.code === "OVERDUE") ? "border-l-red-400 bg-red-50/35 hover:bg-red-50/65" : item.issues.some((issue) => issue.code === "BALANCE") ? "border-l-amber-400 bg-amber-50/35 hover:bg-amber-50/65" : "border-l-violet-400 bg-violet-50/30 hover:bg-violet-50/60"}`}
+            className={`m-0 list-none border-l-[3px] px-5 py-2 transition-colors ${item.issues.some((issue) => issue.code === "OVERDUE" || issue.code === "EARLY_CHECKIN") ? "border-l-red-400 bg-red-50/35 hover:bg-red-50/65" : item.issues.some((issue) => issue.code === "BALANCE") ? "border-l-amber-400 bg-amber-50/35 hover:bg-amber-50/65" : "border-l-violet-400 bg-violet-50/30 hover:bg-violet-50/60"}`}
           >
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:grid-cols-[minmax(11rem,1.35fr)_minmax(7rem,0.8fr)_minmax(9rem,0.95fr)_minmax(9rem,1.1fr)_minmax(7rem,auto)] lg:items-center lg:gap-3">
               <div className="col-start-1 flex min-w-0 items-center gap-3 lg:col-auto">
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ring-inset ${item.issues.some((issue) => issue.code === "OVERDUE") ? "bg-red-100/70 text-red-700 ring-red-200" : item.issues.some((issue) => issue.code === "BALANCE") ? "bg-amber-100/70 text-amber-800 ring-amber-200" : "bg-violet-100/70 text-violet-800 ring-violet-200"}`}>{initials(item.guest)}</span>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ring-1 ring-inset ${item.issues.some((issue) => issue.code === "OVERDUE" || issue.code === "EARLY_CHECKIN") ? "bg-red-100/70 text-red-700 ring-red-200" : item.issues.some((issue) => issue.code === "BALANCE") ? "bg-amber-100/70 text-amber-800 ring-amber-200" : "bg-violet-100/70 text-violet-800 ring-violet-200"}`}>{initials(item.guest)}</span>
                 <p className="m-0 min-w-0 truncate text-sm font-bold text-neutral-950">{item.guest}</p>
               </div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-semibold text-neutral-700">{item.room}</p></div>
               <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><p className="m-0 truncate text-xs font-medium text-neutral-500">check-out {shortDate(item.checkOut)} · {item.source}</p></div>
-              <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><div className="flex flex-wrap gap-1.5">{item.issues.map((issue) => <span key={issue.code} className={`rounded-md border px-2 py-1 text-[10px] font-bold ${issue.code === "OVERDUE" ? "border-red-200 bg-red-50 text-red-700" : issue.code === "BALANCE" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>{issue.label}</span>)}</div></div>
-              <Link href={`/owner/nrms/reservations?reservationId=${item.id}`} className="col-start-2 row-start-1 inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
+              <div className="col-start-1 min-w-0 pl-[3rem] lg:col-auto lg:p-0"><div className="flex flex-wrap gap-1.5">{item.issues.map((issue) => <span key={issue.code} className={`rounded-md border px-2 py-1 text-[10px] font-bold ${issue.code === "OVERDUE" || issue.code === "EARLY_CHECKIN" ? "border-red-200 bg-red-50 text-red-700" : issue.code === "BALANCE" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-violet-200 bg-violet-50 text-violet-700"}`}>{issue.label}</span>)}</div></div>
+              <Link href={reservationHref(item)} className="col-start-2 row-start-1 inline-flex min-h-8 shrink-0 items-center justify-center gap-1.5 self-center rounded-lg border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-950 hover:no-underline lg:col-auto lg:row-auto lg:justify-self-end">Review <ArrowRight className="h-3.5 w-3.5" /></Link>
             </div>
           </li>
             ))}

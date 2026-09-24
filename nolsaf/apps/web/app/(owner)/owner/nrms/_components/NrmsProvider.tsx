@@ -12,9 +12,18 @@ export type NrmsProperty = {
   status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
   currency: string | null;
   nrmsActivatedAt: string | null;
+  nrmsBookingKey: string;
   nrmsQrOrderingFrozenAt?: string | null;
-  nrmsAccessRole?: "OWNER" | "MANAGER" | "FRONT_DESK" | "HOUSEKEEPER" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
+  nrmsAccessRole?: "OWNER" | "MANAGER" | "SALES_EXECUTIVE" | "FRONT_DESK" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
   nrmsOutletId?: number | null;
+  effectiveAccess?: {
+    propertyId: number;
+    primaryRole: string;
+    workspace: string;
+    capabilities: string[];
+    scopes: { outletIds: number[]; shift: "ANY" | "OWN" | "NONE"; finance: "FULL" | "OPERATIONAL" | "LIMITED" | "NONE" };
+    membershipVersion: number;
+  };
   nrmsPaygAccount?: { status: string; trialStartsAt: string; trialEndsAt: string; unpaidBalance: string | number; unpaidLimit: string | number } | null;
   restriction?: { referenceCode: string; reason?: string | null } | null;
   qrRestriction?: { referenceCode: string; reason?: string | null } | null;
@@ -28,7 +37,13 @@ export type NrmsEnrollment = {
   plan: { code: string; name: string; config: Record<string, unknown> | null };
 } | null;
 
-export type NrmsUsagePolicy = { currency: string; roomNightPrice: string | number; trialDays: number } | null;
+export type NrmsUsagePolicy = {
+  version: string;
+  effectiveFrom: string;
+  currency: string;
+  roomNightPrice: string | number;
+  trialDays: number;
+} | null;
 
 // The API's global error handler (apps/api/src/middleware/errorHandler.ts) is
 // the single source of truth for what an error message should say: it relays

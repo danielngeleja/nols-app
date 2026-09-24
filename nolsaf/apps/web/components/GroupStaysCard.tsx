@@ -266,8 +266,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
       setCurrentStep(Math.min(2, Math.max(1, savedStep)));
 
       setHasSavedDraft(true);
-      setDraftNotice('Draft restored (Steps 1–2).');
-      window.setTimeout(() => setDraftNotice(''), 3000);
+      // "Book again" from the account page seeds this draft from the lapsed request
+      setDraftNotice(parsed.rebook ? 'Filled from your earlier request. Pick new dates to continue.' : 'Draft restored (Steps 1–2).');
+      window.setTimeout(() => setDraftNotice(''), parsed.rebook ? 6000 : 3000);
     } catch {
       // If draft is corrupted, ignore it
       try { localStorage.removeItem(DRAFT_KEY); } catch {}

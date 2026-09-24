@@ -69,23 +69,25 @@ const ROLES = [
 // account's live NrmsUsageChargePolicy via useNrms() rather than stating a
 // number here, since the policy can change without a code deploy.
 function buildBillingSteps(trialDays: number | undefined, currency: string | undefined, roomNightPrice: string | number | undefined) {
-  const trialPhrase = trialDays ? `${trialDays}-day trial` : "free trial";
+  const hasTrial = typeof trialDays === "number" && trialDays > 0;
   const priceLine = currency && roomNightPrice != null
-    ? `Charged at ${currency} ${Number(roomNightPrice).toLocaleString()} per external room-night after your trial.`
-    : "Charged per external room-night after your trial, at the rate shown when you activate.";
+    ? `Charged at ${currency} ${Number(roomNightPrice).toLocaleString()} per external room-night${hasTrial ? " after the trial" : ""}.`
+    : `Charged per external room-night${hasTrial ? " after the trial" : ""}, at the rate shown when you activate.`;
   return [
-    { step: "01", title: "Free trial starts on activation", description: `Your ${trialPhrase} begins the moment you activate NRMS on this property.` },
+    hasTrial
+      ? { step: "01", title: "Property trial starts on activation", description: `Your ${trialDays}-day trial begins the moment you activate NRMS on this property.` }
+      : { step: "01", title: "Usage policy starts on activation", description: "PAYG terms begin when you activate NRMS on this property." },
     { step: "02", title: "Usage is tracked nightly", description: "Only external room-nights are metered. NoLSAF bookings carry no NRMS fee." },
-    { step: "03", title: "A statement opens when due", description: `Once trial usage ends or your unpaid limit is reached, a payable statement is issued. ${priceLine}` },
+    { step: "03", title: "A statement opens when due", description: `${hasTrial ? "Once trial usage ends and charges reach the statement threshold" : "When charges reach the statement threshold"}, a payable statement is issued. ${priceLine}` },
     { step: "04", title: "Pay by mobile money, bank or card", description: "Settle the statement from NRMS billing, and operations resume." },
   ];
 }
 
 function buildFaqs(trialDays: number | undefined) {
-  const trialPhrase = trialDays ? `the ${trialDays}-day trial` : "your free trial";
+  const hasTrial = typeof trialDays === "number" && trialDays > 0;
   return [
     { q: "Does NRMS charge anything for NoLSAF bookings?", a: "No. NRMS usage fees apply only to external room-nights you record, meaning stays not booked through NoLSAF. Your marketplace commission is unaffected." },
-    { q: `What happens after ${trialPhrase}?`, a: "Usage keeps being tracked and billed under your PAYG policy. Pay statements as they're issued, right from NRMS billing." },
+    { q: hasTrial ? `What happens after the ${trialDays}-day trial?` : "How does NRMS PAYG billing work?", a: "Usage is tracked and billed under your active PAYG policy. Pay statements as they're issued, right from NRMS billing." },
     { q: "Can I lose NRMS access?", a: "Yes, if your property's Marketplace approval is withdrawn, or your account is frozen for unpaid usage past the limit. Both are reversible once resolved." },
     { q: "Where do I see what I owe?", a: "Open NRMS billing from the Finance section in the sidebar. Every statement, token and payment is listed there." },
   ];

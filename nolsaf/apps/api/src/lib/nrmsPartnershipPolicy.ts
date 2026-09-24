@@ -47,7 +47,7 @@ export function resolvePartnershipConsents(input: Pick<PartnershipPolicyInput, "
   return { initiatedBy, hotel, agent };
 }
 
-function evaluateShared(input: PartnershipPolicyInput): PartnershipPolicyResult {
+function evaluateIdentityAndProperty(input: PartnershipPolicyInput): PartnershipPolicyResult {
   const consent = resolvePartnershipConsents(input);
   if ([consent.hotel, consent.agent].some((value) => value === "DECLINED" || value === "WITHDRAWN")) {
     return { ok: false, reason: "CONSENT_DECLINED", message: "This partnership was declined or withdrawn." };
@@ -58,6 +58,12 @@ function evaluateShared(input: PartnershipPolicyInput): PartnershipPolicyResult 
   if (upper(input.agencyVerificationStatus) !== "VERIFIED") return { ok: false, reason: "AGENCY_NOT_VERIFIED", message: "The agency must be centrally verified before activation." };
   if (upper(input.propertyStatus) !== "APPROVED") return { ok: false, reason: "PROPERTY_INACTIVE", message: "The property is not approved." };
   if (!input.propertyNrmsActivated) return { ok: false, reason: "PROPERTY_NRMS_INACTIVE", message: "NRMS is not active for this property." };
+  return { ok: true };
+}
+
+function evaluateBookingEligibility(input: PartnershipPolicyInput): PartnershipPolicyResult {
+  const operational = evaluateIdentityAndProperty(input);
+  if (!operational.ok) return operational;
   if (!upper(input.paygStatus) || ["FROZEN", "PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"].includes(upper(input.paygStatus))) {
     return { ok: false, reason: "PROPERTY_BILLING_BLOCKED", message: "The property's NRMS billing account is not currently eligible." };
   }
@@ -68,12 +74,18 @@ export function canActivatePartnership(input: PartnershipPolicyInput): Partnersh
   if (!["REQUESTED", "AGENT_ACCEPTED", "ACTIVE", "SUSPENDED"].includes(upper(input.linkStatus))) {
     return { ok: false, reason: "RELATIONSHIP_NOT_ACTIVE", message: "This relationship is not ready for activation." };
   }
-  return evaluateShared(input);
+  const operational = evaluateIdentityAndProperty(input);
+  if (!operational.ok) return operational;
+
+  if (!upper(input.paygStatus) || ["FROZEN", "PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"].includes(upper(input.paygStatus))) {
+    return { ok: false, reason: "PROPERTY_BILLING_BLOCKED", message: "The property's NRMS billing account is not currently eligible." };
+  }
+  return { ok: true };
 }
 
 export function canBookPartnership(input: PartnershipPolicyInput): PartnershipPolicyResult {
   if (upper(input.linkStatus) !== "ACTIVE") {
     return { ok: false, reason: "RELATIONSHIP_NOT_ACTIVE", message: "This hotel partnership is not active." };
   }
-  return evaluateShared(input);
+  return evaluateBookingEligibility(input);
 }

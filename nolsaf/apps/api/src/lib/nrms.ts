@@ -104,14 +104,57 @@ const BILLING_BLOCK_COPY: Record<string, { error: string; title: string; detail:
   },
 };
 
+const AGENT_ACTIVATION_BLOCK_COPY: typeof BILLING_BLOCK_COPY = {
+  PAYMENT_REQUIRED: {
+    error: "Settle the NRMS balance before activating this agent",
+    title: "Settle the NRMS balance to activate this agent",
+    detail: "Unpaid room-night usage has passed the account limit. Clearing it lets you activate this partnership immediately.",
+    action: "PAY",
+  },
+  PAYMENT_PENDING: {
+    error: "An NRMS payment for this balance is already in progress",
+    title: "A payment is already in progress",
+    detail: "Activation will become available as soon as the payment provider confirms the NRMS balance payment.",
+    action: "STATUS",
+  },
+  CLOSED: {
+    error: "This NRMS account is closed",
+    title: "This NRMS account is closed",
+    detail: "New agent partnerships cannot be activated on a closed account. Contact NoLSAF support to reopen it.",
+    action: "SUPPORT",
+  },
+};
+
+const GROUP_BLOCK_COPY: typeof BILLING_BLOCK_COPY = {
+  PAYMENT_REQUIRED: {
+    error: "Settle the NRMS balance before holding new group rooms",
+    title: "Settle the NRMS balance to hold this group",
+    detail: "Unpaid room-night usage has passed the account limit. Clearing it lets you save this group block immediately.",
+    action: "PAY",
+  },
+  PAYMENT_PENDING: {
+    error: "An NRMS payment for this balance is already in progress",
+    title: "A payment is already in progress",
+    detail: "New group holds will become available as soon as the payment provider confirms the NRMS balance payment.",
+    action: "STATUS",
+  },
+  CLOSED: {
+    error: "This NRMS account is closed",
+    title: "This NRMS account is closed",
+    detail: "New group rooms cannot be held on a closed account. Contact NoLSAF support to reopen it.",
+    action: "SUPPORT",
+  },
+};
+
 /**
  * Payload for a 402 on a billing-blocked account. The balance figures come from
  * the already-loaded account row, so the only extra read is the policy currency,
  * and that happens exclusively on the blocked path.
  */
-export async function nrmsBillingBlockPayload(account: any) {
+export async function nrmsBillingBlockPayload(account: any, purpose: "EXTERNAL_STAY" | "AGENT_ACTIVATION" | "GROUP_BLOCK" = "EXTERNAL_STAY") {
   const status = String(account?.status ?? "").toUpperCase();
-  const copy = BILLING_BLOCK_COPY[status] ?? BILLING_BLOCK_COPY.PAYMENT_REQUIRED;
+  const copySet = purpose === "AGENT_ACTIVATION" ? AGENT_ACTIVATION_BLOCK_COPY : purpose === "GROUP_BLOCK" ? GROUP_BLOCK_COPY : BILLING_BLOCK_COPY;
+  const copy = copySet[status] ?? copySet.PAYMENT_REQUIRED;
   let currency = "TZS";
   try {
     const policy = account?.policyId

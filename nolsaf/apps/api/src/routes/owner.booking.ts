@@ -14,7 +14,12 @@ import {
   getBookingCodeLockoutStatus,
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
-import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { syncNoLsafBookingToNrms, updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import {
+  customerBookingReference,
+  isCustomerBookingReference,
+  matchesCustomerBookingReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(
@@ -38,6 +43,38 @@ const bookingUserSelect = {
   email: true,
   phone: true,
 } as const;
+
+router.get("/handoff/:reference", (async (req: AuthedRequest, res: Response) => {
+  const reference = String(req.params.reference || "").trim();
+  if (!isCustomerBookingReference(reference)) {
+    return res.status(400).json({ error: "Invalid check-in handoff" });
+  }
+
+  const candidates = await prisma.booking.findMany({
+    where: {
+      property: { ownerId: req.user!.id },
+      status: { notIn: ["CANCELED"] },
+      code: { isNot: null },
+      checkOut: { gte: new Date(Date.now() - 7 * 86400000) },
+    },
+    select: {
+      id: true,
+      guestName: true,
+      checkIn: true,
+      property: { select: { title: true } },
+      user: { select: { name: true, fullName: true } },
+    },
+  });
+  const booking = candidates.find((candidate) => matchesCustomerBookingReference(reference, candidate.id));
+  if (!booking) return res.status(404).json({ error: "Check-in handoff not found" });
+
+  return res.json({
+    reference: customerBookingReference(booking.id),
+    guestName: booking.guestName || booking.user?.fullName || booking.user?.name || "Guest",
+    propertyName: booking.property?.title || "Property",
+    checkIn: booking.checkIn,
+  });
+}) as RequestHandler);
 
 /** PREVIEW: validate code and return all details (no state change) */
 const validateBooking: RequestHandler = async (req, res) => {
@@ -136,6 +173,7 @@ const validateBooking: RequestHandler = async (req, res) => {
   // Map details with all booking information
   const details = {
     bookingId: booking.id,
+    bookingReference: customerBookingReference(booking.id),
     // Prefer visible code if present; fallback to legacy code fields.
     code: codeRecord?.codeVisible || codeRecord?.code || null,
     property: {
@@ -192,7 +230,7 @@ const confirmCheckin: RequestHandler = async (req, res) => {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, property: { ownerId: r.user!.id } },
     include: {
-      property: { select: { id: true, title: true, type: true, basePrice: true, currency: true } },
+      property: { select: { id: true, title: true, type: true, basePrice: true, currency: true, nrmsActivatedAt: true } },
       code: true,
     },
   });
@@ -212,6 +250,27 @@ const confirmCheckin: RequestHandler = async (req, res) => {
   if (booking.status === "CHECKED_IN" && booking.code.status === "USED") {
     await invalidateOwnerReports(r.user!.id);
     return (res as Response).json({ ok: true, bookingId: booking.id, status: booking.status, alreadyConfirmed: true, invoiceId: null });
+  }
+
+  // An NRMS property must finish the same operational preparation for every
+  // source before arrival is committed: restore the paid category, assign a
+  // physical room, then consume the guest's one-time code.
+  if (booking.property.nrmsActivatedAt) {
+    await syncNoLsafBookingToNrms(prisma, booking.id);
+    const operationalStay = await prisma.reservation.findUnique({
+      where: { bookingId: booking.id },
+      select: {
+        id: true,
+        allocations: { where: { status: "ACTIVE" }, select: { roomUnitId: true } },
+      },
+    });
+    if (!operationalStay || operationalStay.allocations.length === 0 || operationalStay.allocations.some((allocation) => allocation.roomUnitId == null)) {
+      return (res as Response).status(409).json({
+        error: "Assign a specific room to every booked room before validating check-in.",
+        code: "ROOM_ASSIGNMENT_REQUIRED",
+        reservationId: operationalStay?.id ?? null,
+      });
+    }
   }
 
   // Mark code as used and update booking status using the service
@@ -349,6 +408,7 @@ const getCheckedInBookings: RequestHandler = async (req, res) => {
       const { ownerPayout } = extractOwnerPayoutFromAccommodationGross(gross, cp);
       return {
       id: b.id,
+      bookingReference: customerBookingReference(b.id),
       property: b.property,
       code: b.code,
       codeVisible: b.code?.codeVisible ?? null,
@@ -411,6 +471,7 @@ const getForCheckoutBookings: RequestHandler = async (req, res) => {
       const { ownerPayout } = extractOwnerPayoutFromAccommodationGross(gross, cp);
       return {
       id: b.id,
+      bookingReference: customerBookingReference(b.id),
       property: b.property,
       code: b.code,
       codeVisible: b.code?.codeVisible ?? null,
@@ -546,8 +607,16 @@ router.get("/checked-out", getCheckedOutBookings);
 // GET /owner/bookings/:id — checked-in booking details (with code + property)
 const getBooking: RequestHandler = async (req, res) => {
   const r = req as AuthedRequest;
-  const id = Number(req.params.id);
-  if (!Number.isFinite(id)) return (res as Response).status(400).json({ error: "booking id required" });
+  const identifier = String(req.params.id || "").trim();
+  let id = Number(identifier);
+  if (!Number.isFinite(id) && isCustomerBookingReference(identifier)) {
+    const candidates = await prisma.booking.findMany({
+      where: { property: { ownerId: r.user!.id } },
+      select: { id: true },
+    });
+    id = candidates.find((candidate) => matchesCustomerBookingReference(identifier, candidate.id))?.id ?? NaN;
+  }
+  if (!Number.isFinite(id)) return (res as Response).status(400).json({ error: "booking reference required" });
   const b = await prisma.booking.findFirst({
     where: { id, property: { ownerId: r.user!.id } },
     include: {
@@ -565,6 +634,7 @@ const getBooking: RequestHandler = async (req, res) => {
 
   (res as Response).json({
     ...(b as any),
+    bookingReference: customerBookingReference(b.id),
     transportFare: (b as any).transportFare ?? null,
     ownerBaseAmount,
   });
@@ -747,6 +817,7 @@ const getRecentBookings: RequestHandler = async (req, res) => {
   // Map to include relevant fields for the UI
   const mapped = bookings.map((b: any) => ({
     id: b.id,
+    bookingReference: customerBookingReference(b.id),
     property: b.property,
     code: b.code,
     codeVisible: b.code?.codeVisible ?? null,

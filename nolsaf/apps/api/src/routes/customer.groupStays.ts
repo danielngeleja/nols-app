@@ -18,15 +18,36 @@ import {
   coralPostJson64,
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
-import { loadGroupStayDepositReceipt, loadGroupStayDepositReceiptData } from "../lib/groupStayReceipts.js";
+import { describeGroupStayDeposit, loadGroupStayDepositReceipt, loadGroupStayDepositReceiptData } from "../lib/groupStayReceipts.js";
+import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { signGroupStayReceiptToken } from "../lib/groupStayReceiptToken.js";
 import { getEffectiveCommissionPercent, roundMoney } from "../lib/accommodationPayout.js";
 import { mapGroupStayLifecycle } from "../lib/serviceLifecycle.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
+import {
+  customerRecordReference,
+  isCustomerRecordReference,
+  matchesCustomerRecordReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
+
+router.param("id", async (req, res, next, value) => {
+  const authedReq = req as AuthedRequest;
+  const requestedId = String(value || "").trim();
+  if (!isCustomerRecordReference(requestedId, "group-stay")) return next();
+
+  const candidates = await prisma.groupBooking.findMany({
+    where: { userId: authedReq.user!.id },
+    select: { id: true },
+  });
+  const match = candidates.find(({ id }) => matchesCustomerRecordReference(requestedId, "group-stay", id));
+  if (!match) return res.status(404).json({ error: "Group booking not found" });
+  req.params.id = String(match.id);
+  return next();
+});
 
 // ── Rate limiter for deposit payment initiation ─────────────────────────────
 const depositPaymentLimiter = makePaymentRateLimiter({
@@ -136,6 +157,7 @@ router.get("/", async (req, res) => {
       
       return {
         id: gb.id,
+        groupStayReference: customerRecordReference("group-stay", gb.id),
         auction: {
           isOpenForClaims: gb.isOpenForClaims,
           recommendedPropertyCount: coerceIdArray(gb.recommendedPropertyIds).length,
@@ -169,6 +191,38 @@ router.get("/", async (req, res) => {
         createdAt: gb.createdAt,
         updatedAt: gb.updatedAt,
         adminSuggestions, // Include admin suggestions/messages
+        // The customer's own original request, so "Book again" can pre-fill the form.
+        // Dates and the roster are left out: they are re-entered for the new stay.
+        request: {
+          groupType: gb.groupType ?? null,
+          fromCountry: gb.fromCountry ?? null,
+          fromRegion: gb.fromRegion ?? null,
+          fromDistrict: gb.fromDistrict ?? null,
+          fromWard: gb.fromWard ?? null,
+          fromLocation: gb.fromLocation ?? null,
+          toRegion: gb.toRegion ?? null,
+          toDistrict: gb.toDistrict ?? null,
+          toWard: gb.toWard ?? null,
+          toLocation: gb.toLocation ?? null,
+          accommodationType: gb.accommodationType ?? null,
+          minHotelStarLabel: gb.minHotelStarLabel ?? null,
+          headcount: gb.headcount ?? null,
+          maleCount: gb.maleCount ?? null,
+          femaleCount: gb.femaleCount ?? null,
+          otherCount: gb.otherCount ?? null,
+          roomSize: gb.roomSize ?? null,
+          needsPrivateRoom: Boolean(gb.needsPrivateRoom),
+          privateRoomCount: gb.privateRoomCount ?? 0,
+          useDates: gb.useDates !== false,
+          arrPickup: Boolean(gb.arrPickup),
+          arrTransport: Boolean(gb.arrTransport),
+          arrMeals: Boolean(gb.arrMeals),
+          arrGuide: Boolean(gb.arrGuide),
+          arrEquipment: Boolean(gb.arrEquipment),
+          pickupLocation: gb.pickupLocation ?? null,
+          pickupTime: gb.pickupTime ?? null,
+          arrangementNotes: gb.arrangementNotes ?? null,
+        },
         lifecycle: mapGroupStayLifecycle({
           bookingStatus: gb.status,
           depositPaid: Boolean(gb.depositPaid),
@@ -612,6 +666,66 @@ router.get("/:id/deposit-receipt-data", async (req, res) => {
   const result = await loadGroupStayDepositReceiptData(bookingId, userId);
   if (!result.ok) return res.status(result.status).json({ ok: false, error: result.error, message: result.message });
   return res.json({ ok: true, receipt: result.receipt });
+});
+
+/**
+ * GET /api/customer/group-stays/:id/deposit-receipt.html
+ * The deposit receipt rendered with the shared customer receipt template
+ * (pdfGenerator), the same document as the stay and tour receipts. The
+ * balance line shows what is still owed after the deposit.
+ */
+router.get("/:id/deposit-receipt.html", async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user!.id;
+    const bookingId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(bookingId)) return res.status(400).json({ ok: false, error: "Invalid booking id" });
+
+    const result = await loadGroupStayDepositReceiptData(bookingId, userId);
+    if (!result.ok) {
+      // 409 tells the viewer "not paid yet" apart from a real failure
+      const status = result.error === "deposit_not_paid" ? 409 : result.status;
+      return res.status(status).json({ ok: false, error: result.error, message: result.message });
+    }
+    const receipt = result.receipt;
+
+    const d = describeGroupStayDeposit(receipt);
+
+    const { html } = await generateBookingPDF({
+      bookingId: receipt.bookingId,
+      bookingCode: receipt.paymentRef || receipt.receiptNumber,
+      guestName: receipt.guestName,
+      property: { title: receipt.propertyName, type: d.kind, country: "Tanzania" },
+      checkIn: receipt.checkIn,
+      checkOut: receipt.checkOut,
+      totalAmount: receipt.depositPaid,
+      invoice: { receiptNumber: receipt.receiptNumber, paidAt: receipt.paidAt },
+      document: {
+        title: "DEPOSIT RECEIPT",
+        reservationKicker: "Group stay",
+        reservationSub: `${d.kind} | ${d.location}`,
+        periodColumn: "Stay",
+        periodTitle: d.periodLong,
+        periodSub: d.stayFacts,
+        lineTitle: d.lineTitle,
+        lineSub: [d.share, receipt.paymentRef ? `Ref ${receipt.paymentRef}` : null].filter(Boolean).join(" | ") || undefined,
+        currency: receipt.currency,
+        balanceDue: receipt.remainingBalance,
+        confirmationCopy: d.confirmationCopy,
+        verifyUrl: null,
+      },
+    });
+    if (!html) return res.status(500).json({ ok: false, error: "Failed to generate receipt" });
+
+    const filename = `Group Stay Deposit Receipt - ${receipt.receiptNumber}.pdf`.replace(/"/g, '\\"');
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    res.setHeader("X-NoLSAF-Filename", filename);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(html);
+  } catch (error: any) {
+    console.error("GET /customer/group-stays/:id/deposit-receipt.html error:", error);
+    return res.status(500).json({ ok: false, error: "Failed to generate receipt" });
+  }
 });
 
 /**

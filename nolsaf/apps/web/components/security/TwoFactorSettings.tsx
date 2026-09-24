@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from "react"
 import { Lock, Smartphone, Shield, CheckCircle, XCircle } from "lucide-react"
 import Spinner from "@/components/Spinner"
 import SecuritySettingsShell from "@/components/security/SecuritySettingsShell"
+import BackupCodesPanel from "@/components/security/BackupCodesPanel"
+import RegenerateBackupCodes from "@/components/security/RegenerateBackupCodes"
 
 type Status = { totpEnabled: boolean; smsEnabled: boolean; phone?: string | null }
 
@@ -16,6 +18,8 @@ export type TwoFactorSettingsProps = {
   smsDisableUrl: string
   backHref: string
   containerClassName?: string
+  /** Where "Generate new backup codes" posts. Hidden when not provided. */
+  regenerateCodesUrl?: string
 }
 
 export default function TwoFactorSettings({
@@ -27,6 +31,7 @@ export default function TwoFactorSettings({
   smsDisableUrl,
   backHref,
   containerClassName,
+  regenerateCodesUrl,
 }: TwoFactorSettingsProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +46,8 @@ export default function TwoFactorSettings({
   const [showSmsDisableInput, setShowSmsDisableInput] = useState(false)
   const [sending, setSending] = useState(false)
   const [provision, setProvision] = useState<{ qr?: string; secret?: string; otpauth?: string } | null>(null)
+  /** Plain backup codes, returned once when the authenticator is turned on. */
+  const [backupCodes, setBackupCodes] = useState<string[]>([])
   const totpVerifyingRef = useRef(false)
   const smsVerifyingRef = useRef(false)
 
@@ -118,6 +125,7 @@ export default function TwoFactorSettings({
       } else {
         setStatus((s) => (s ? { ...s, totpEnabled: true } : { totpEnabled: true, smsEnabled: false }))
         setTotpFlow("enabled")
+        if (Array.isArray(body?.backupCodes)) setBackupCodes(body.backupCodes)
         dispatchToast({ type: "success", title: "Two-factor enabled", message: "Authenticator/TOTP enabled." })
       }
     } catch (e: any) {
@@ -438,6 +446,18 @@ export default function TwoFactorSettings({
                   </div>
                 </div>
               ) : null}
+
+              {regenerateCodesUrl && status?.totpEnabled && !showDisableInput && backupCodes.length === 0 && (
+                <div className="mt-4">
+                  <RegenerateBackupCodes url={regenerateCodesUrl} />
+                </div>
+              )}
+
+              {backupCodes.length > 0 && (
+                <div className="mt-4">
+                  <BackupCodesPanel codes={backupCodes} onDone={() => setBackupCodes([])} />
+                </div>
+              )}
 
               {(totpFlow === "provision" || totpFlow === "verifying") && (
                 <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4">

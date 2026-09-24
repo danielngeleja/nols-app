@@ -100,19 +100,20 @@ interface Props {
 export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props) {
   const [hovered, setHovered] = useState<number | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [available, setAvailable] = useState(W);
 
-  // Scale the fixed-size canvas to fit whatever container width we have
+  // Narrow screens scale the canvas down; wide screens stretch the text column instead
+  // of leaving empty space to the right of the fan.
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const available = entry.contentRect.width;
-      setScale(Math.min(1, available / W));
-    });
+    const ro = new ResizeObserver(([entry]) => setAvailable(entry.contentRect.width));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const scale = Math.min(1, available / W);
+  const canvasW = Math.max(W, Math.round(available));
 
   const display = items.slice(0, maxItems);
   const N = display.length;
@@ -123,7 +124,7 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
 
   /** Height allocated to each text item */
   const ITEM_SLOT = H / N;
-  const BLOCK_H = Math.min(ITEM_SLOT - 12, 82);
+  const BLOCK_H = Math.min(ITEM_SLOT - 12, 104);
 
   return (
     // Outer wrapper measures available width; inner canvas scales proportionally
@@ -133,12 +134,12 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
       style={{ width: "100%", height: Math.round(H * scale) }}
     >
     <div
-      style={{ position: "relative", width: W, height: H, transformOrigin: "top left", transform: `scale(${scale})` }}
+      style={{ position: "relative", width: canvasW, height: H, transformOrigin: "top left", transform: `scale(${scale})` }}
     >
       {/* ── SVG layer: fan + lines ── */}
       <svg
-        viewBox={`0 0 ${W} ${H}`}
-        width={W}
+        viewBox={`0 0 ${canvasW} ${H}`}
+        width={canvasW}
         height={H}
         style={{ position: "absolute", inset: 0, overflow: "hidden" }}
         aria-hidden="true"
@@ -161,7 +162,26 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
               d={buildArcPath(CX, CY, RI, RO, a1, a2)}
               fill={COLORS[i % COLORS.length]}
               opacity={hovered !== null && hovered !== i ? 0.45 : 1}
-              style={{ transition: "opacity 0.2s ease" }}
+              style={{ transition: "opacity 0.2s ease", pointerEvents: "auto", cursor: "pointer" }}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered(null)}
+            />
+          );
+        })}
+
+        {/* Hairline separators between rows in the text column */}
+        {display.slice(1).map((_, i) => {
+          const y = (H * (i + 1)) / N;
+          return (
+            <line
+              key={`sep-${i}`}
+              x1={TEXT_X + 12}
+              y1={y}
+              x2={canvasW - 8}
+              y2={y}
+              stroke="#e6efee"
+              strokeWidth={1}
+              strokeDasharray="3 4"
             />
           );
         })}
@@ -178,11 +198,13 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
               textAnchor="middle"
               dominantBaseline="middle"
               fill="rgba(255,255,255,0.9)"
-              fontSize={10}
-              fontWeight="700"
-              fontFamily="inherit"
+              fontSize={12}
+              fontWeight="800"
+              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+              letterSpacing="0.06em"
+              style={{ pointerEvents: "none" }}
             >
-              {i + 1}
+              {String(i + 1).padStart(2, "0")}
             </text>
           );
         })}
@@ -190,18 +212,17 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
         {/* Center disc: white ring → brand fill → "N" label */}
         <circle cx={CX} cy={CY} r={RI - 1} fill="white" />
         <circle cx={CX} cy={CY} r={RI - 8} fill="#02665e" />
-        <text
-          x={CX}
-          y={CY}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fill="white"
-          fontSize={15}
-          fontWeight="900"
-          fontFamily="inherit"
-        >
-          N
-        </text>
+        <circle cx={CX} cy={CY} r={RI - 14} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={1} />
+        {/* Brand mark in place of a plain letter; filter renders the logo white */}
+        <image
+          href="/assets/NoLS2025-04.png"
+          x={CX - 15}
+          y={CY - 15}
+          width={30}
+          height={30}
+          preserveAspectRatio="xMidYMid meet"
+          style={{ filter: "brightness(0) invert(1)" }}
+        />
 
         {/* Connector spoke lines + endpoint dots */}
         {display.map((_, i) => {
@@ -241,88 +262,117 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
         const topY = Math.round(centerY - BLOCK_H / 2);
         const isHov = hovered === i;
 
+        const accent = COLORS[i % COLORS.length];
         const inner = (
           <div
             style={{
+              boxSizing: "border-box",
               height: BLOCK_H,
               display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              paddingLeft: 10,
-              paddingRight: 8,
+              alignItems: "center",
+              gap: 16,
+              paddingLeft: 14,
+              paddingRight: 14,
               borderLeft: `3px solid ${isHov ? "#02665e" : "transparent"}`,
-              background: isHov ? "rgba(2,102,94,0.06)" : "transparent",
-              borderRadius: "0 10px 10px 0",
+              background: isHov ? "rgba(2,102,94,0.05)" : "transparent",
+              borderRadius: "0 8px 8px 0",
               transition: "border-color 0.18s ease, background 0.18s ease",
             }}
           >
-            {/* "New" badge — only on the first (most recent) item */}
-            {i === 0 && (
-              <span
+            <div style={{ minWidth: 0, flex: 1 }}>
+              {/* Meta line: segment colour key, date and the New tag on one row */}
+              <p
                 style={{
-                  display: "inline-block",
-                  alignSelf: "flex-start",
-                  marginBottom: 4,
-                  padding: "1px 7px",
-                  borderRadius: 99,
-                  background: "#02665e",
-                  color: "#ffffff",
-                  fontSize: 9,
-                  fontWeight: 800,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  lineHeight: 1.6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 11.5,
+                  color: "#64748b",
+                  margin: 0,
+                  marginBottom: 5,
+                  lineHeight: 1,
                   fontFamily: "inherit",
                 }}
               >
-                New
-              </span>
-            )}
-            <p
+                <span aria-hidden style={{ width: 8, height: 8, borderRadius: 2, background: accent, flexShrink: 0 }} />
+                {fmt(item.createdAt)}
+                {i === 0 && (
+                  <span
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      background: "#e6f4f2",
+                      color: "#02665e",
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    New
+                  </span>
+                )}
+              </p>
+              <h3
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  letterSpacing: "-0.01em",
+                  color: isHov ? "#02665e" : "#0f172a",
+                  margin: 0,
+                  marginBottom: 4,
+                  lineHeight: 1.3,
+                  transition: "color 0.18s ease",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 1,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  fontFamily: "inherit",
+                }}
+              >
+                {item.title}
+              </h3>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "#64748b",
+                  margin: 0,
+                  maxWidth: 680,
+                  lineHeight: 1.5,
+                  display: "-webkit-box",
+                  WebkitLineClamp: BLOCK_H >= 90 ? 2 : 1,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  fontFamily: "inherit",
+                }}
+              >
+                {item.content}
+              </p>
+            </div>
+
+            {/* Read cue: fills with brand colour on hover */}
+            <span
+              aria-hidden
               style={{
-                fontSize: 10,
-                color: "#94a3b8",
-                margin: 0,
-                marginBottom: 3,
-                lineHeight: 1,
-                fontFamily: "inherit",
-              }}
-            >
-              {fmt(item.createdAt)}
-            </p>
-            <h3
-              style={{
-                fontSize: 13.5,
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 34,
+                height: 34,
+                borderRadius: 8,
+                border: `1px solid ${isHov ? "#02665e" : "#dbe7e5"}`,
+                background: isHov ? "#02665e" : "#ffffff",
+                color: isHov ? "#ffffff" : "#02665e",
+                fontSize: 16,
                 fontWeight: 700,
-                color: isHov ? "#02665e" : "#1e293b",
-                margin: 0,
-                marginBottom: 3,
-                lineHeight: 1.3,
-                transition: "color 0.18s ease",
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                fontFamily: "inherit",
+                transform: isHov ? "translateX(2px)" : "none",
+                transition: "all 0.18s ease",
               }}
             >
-              {item.title}
-            </h3>
-            <p
-              style={{
-                fontSize: 11,
-                color: "#64748b",
-                margin: 0,
-                lineHeight: 1.45,
-                display: "-webkit-box",
-                WebkitLineClamp: 1,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-                fontFamily: "inherit",
-              }}
-            >
-              {item.content}
-            </p>
+              &rarr;
+            </span>
           </div>
         );
 
@@ -330,7 +380,7 @@ export default function UpdateRadialFan({ items, maxItems = 5, onSelect }: Props
           position: "absolute",
           left: TEXT_X,
           top: topY,
-          width: W - TEXT_X - 8,
+          width: canvasW - TEXT_X - 8,
           display: "block",
           cursor: "pointer",
           textDecoration: "none",

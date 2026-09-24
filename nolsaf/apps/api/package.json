@@ -41,7 +41,7 @@
     "@aws-sdk/s3-request-presigner": "^3.956.0",
     "@prisma/adapter-mariadb": "7.9.1",
     "@prisma/client": "7.9.1",
-    "@simplewebauthn/server": "^8.0.0",
+    "@simplewebauthn/server": "^14.0.2",
     "@socket.io/redis-adapter": "^8.3.0",
     "@stripe/stripe-js": "^8.5.3",
     "@types/multer": "^2.0.0",
@@ -60,9 +60,9 @@
     "ioredis": "^5.4.1",
     "ipaddr.js": "^2.2.0",
     "jsonwebtoken": "^9.0.2",
-    "morgan": "^1.10.0",
-    "multer": "^2.2.0",
-    "nodemailer": "^9.0.1",
+    "morgan": "^1.12.0",
+    "multer": "^2.3.0",
+    "nodemailer": "^9.1.1",
     "otplib": "^12.0.1",
     "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4",
@@ -85,8 +85,8 @@
     "@types/qrcode": "^1.5.5",
     "@types/sanitize-html": "^2.16.0",
     "@types/supertest": "^6.0.3",
-    "@vitest/coverage-v8": "4.1.4",
-    "@vitest/pretty-format": "4.1.4",
+    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/pretty-format": "4.1.11",
     "baseline-browser-mapping": "^2.9.13",
     "eslint": "^9.39.5",
     "prisma": "7.9.1",
@@ -96,6 +96,6 @@
     "tsx": "^4.15.7",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.65.0",
-    "vitest": "4.1.4"
+    "vitest": "4.1.11"
   }
 }

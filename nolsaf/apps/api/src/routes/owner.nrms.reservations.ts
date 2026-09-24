@@ -17,12 +17,17 @@ import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import { CHARGE_CATEGORIES, computeGuestBalance, computeOutstanding, getCheckoutSettlement } from "../lib/nrmsFolio.js";
 import { buildNrmsDocumentNumber, generateNrmsInvoicePdf, generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { queueNrmsCheckInWelcome } from "../lib/nrmsCheckInWelcome.js";
+import { nrmsCheckInDateConflict } from "../lib/nrmsCheckInDate.js";
 import { resolveAllocationMealPlan } from "../lib/nrmsMealPlan.js";
-import { summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
-import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
-import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
-import { ASSIGNABLE_STATUSES, assignGroupRooms } from "../lib/nrmsRoomAssignment.js";
+import { resolveAnalyticsMasterFolioStayDate, summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "../lib/nrmsRevenueAnalytics.js";
+import { loadNrmsPropertyAccess, requireNrmsPropertyCapability } from "../lib/nrmsPropertyAccess.js";
+import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey } from "../lib/nrmsShifts.js";
+import { moveRoomAllocation } from "../lib/nrmsMoveRoom.js";
+import { ASSIGNABLE_STATUSES, assignGroupRooms, roomAssignmentPaymentReady } from "../lib/nrmsRoomAssignment.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
+import { customerBookingReference, isNrmsReservationReference, matchesNrmsReservationReference, nrmsAgentRequestReference, nrmsReservationReference } from "../lib/customerBookingReference.js";
+import { resolveCommissionAmount, resolveOwnerPayoutAmount, roundMoney } from "../lib/accommodationPayout.js";
+import { connectExistingNoLsafBookings, roomTypeCodeFromSpec, syncNoLsafBookingToNrms } from "../lib/nolsafMarketplaceNrms.js";
 import {
   billingRoutesExtras,
   billingUsesMasterFolio,
@@ -38,6 +43,10 @@ import {
   voidRoutedCharge,
   voidRoutedRoom,
 } from "../lib/nrmsMasterFolio.js";
+
+/** Reservation groups are operational stays, not commercial group blocks. */
+const RESERVATION_READ_ROLES = ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"] as const;
+const GROUP_OPERATION_ROLES = ["OWNER", "MANAGER", "FRONT_DESK"] as const;
 
 export const router = Router();
 
@@ -55,7 +64,16 @@ router.use(requireAuth as RequestHandler);
 const requireOwnerRole = requireRole("OWNER") as RequestHandler;
 router.use(((req, res, next) => {
   const groupScoped = /^\/groups(?:\/|$)/.test(req.path) || /^\/property\/\d+\/groups(?:\/|$)/.test(req.path);
-  if (groupScoped) return next();
+  // Reading the reservation book is staff work: the handler resolves access
+  // through loadNrmsPropertyAccess, which admits the owner, manager, front desk
+  // and sales executive and checks the PROPERTY owner's enrollment rather than
+  // the caller's. Matched on method as well as path, because POST on the same
+  // path creates a reservation and stays owner-only.
+  const readsReservationBook = req.method === "GET" && /^\/property\/\d+$/.test(req.path);
+  const readsReservationDetail = req.method === "GET" && /^\/\d+$/.test(req.path);
+  const resolvesEarlyCheckIn = req.method === "POST" && /^\/\d+\/early-check-in-resolution$/.test(req.path);
+  const managesRoomAssignment = req.method === "POST" && /^\/\d+\/(?:move-room|room-assignment\/prepare)$/.test(req.path);
+  if (groupScoped || readsReservationBook || readsReservationDetail || resolvesEarlyCheckIn || managesRoomAssignment) return next();
   return requireOwnerRole(req, res, (roleError?: unknown) => {
     if (roleError) return next(roleError);
     return requireNrms(req, res, next);
@@ -139,8 +157,14 @@ const editReservationSchema = z.object({
 });
 
 const reasonSchema = z.object({ reason: z.string().trim().min(2).max(300) });
+const earlyCheckInResolutionSchema = z.object({
+  resolution: z.enum(["CORRECT_ARRIVAL_DATE", "APPROVE_EARLY_CHECKIN"]),
+  reason: z.string().trim().min(2).max(300),
+});
 const checkoutVerificationSchema = z.object({
   verifiedChargeIds: z.array(z.number().int().positive()).max(500).default([]),
+  roomVacantConfirmed: z.boolean().default(false),
+  earlyDepartureReason: z.string().trim().min(2).max(300).optional().nullable(),
 });
 const createGroupSchema = z.object({
   name: z.string().trim().min(2).max(160),
@@ -157,6 +181,8 @@ const addGroupMembersSchema = z.object({
 const groupActionSchema = z.object({
   overrideRoomReadiness: z.boolean().optional().default(false),
   verifyCharges: z.boolean().optional().default(false),
+  roomVacantConfirmed: z.boolean().optional().default(false),
+  earlyDepartureReason: z.string().trim().min(2).max(300).optional().nullable(),
 });
 const groupTerminalSchema = z.object({ reason: z.string().trim().min(2).max(300) });
 
@@ -197,8 +223,101 @@ function decimal(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function formatReservation(r: any) {
-  const marketplaceInvoice = r.booking?.invoices?.[0] ?? null;
+function groupMembersShareCommonNight(members: Array<{ checkIn: Date; checkOut: Date }>): boolean {
+  if (members.length < 2) return true;
+  const latestArrival = Math.max(...members.map((member) => member.checkIn.getTime()));
+  const earliestDeparture = Math.min(...members.map((member) => member.checkOut.getTime()));
+  return Number.isFinite(latestArrival) && Number.isFinite(earliestDeparture) && latestArrival < earliestDeparture;
+}
+
+function isAgencyManagedGroupMember(member: {
+  agentPropertyLinkId?: number | null;
+  materializedAgentBookingRequestId?: number | null;
+  agentBookingRequest?: { id: number } | null;
+}): boolean {
+  return member.agentPropertyLinkId != null
+    || member.materializedAgentBookingRequestId != null
+    || member.agentBookingRequest != null;
+}
+
+function marketplaceFinancialBreakdown(booking: any, invoice: any) {
+  const bookingTotal = decimal(booking?.totalAmount);
+  const invoiceTotal = decimal(invoice?.total);
+  const transportFare = Math.max(0, decimal(booking?.transportFare) ?? 0);
+  const accommodationGross = bookingTotal == null ? null : Math.max(0, bookingTotal - transportFare);
+  const storedPercent = decimal(invoice?.commissionPercent);
+  const storedCommission = decimal(invoice?.commissionAmount);
+  const storedPayout = decimal(invoice?.netPayable);
+  let commissionAmount = storedCommission;
+  let ownerPayout = storedPayout;
+  let status: "RECORDED" | "CALCULATED" | "UNAVAILABLE" = "RECORDED";
+
+  // NoLSAF commission is a markup the guest pays on top of the owner's price,
+  // so the owner's share is gross / (1 + pct), never gross * (1 - pct). The
+  // amounts recorded on the invoice at approval are the figures of record; only
+  // derive (with the same shared helpers) when they are missing.
+  if (accommodationGross == null) {
+    if (ownerPayout == null && commissionAmount == null) status = "UNAVAILABLE";
+  } else if (ownerPayout == null || ownerPayout <= 0 || commissionAmount == null) {
+    ownerPayout = resolveOwnerPayoutAmount({
+      invoiceNumber: invoice?.invoiceNumber,
+      invoiceTotal: invoice?.total,
+      netPayable: storedPayout,
+      bookingTotalAmount: booking?.totalAmount,
+      transportFare: booking?.transportFare,
+      commissionPercent: storedPercent,
+    });
+    commissionAmount = resolveCommissionAmount({
+      invoiceNumber: invoice?.invoiceNumber,
+      invoiceTotal: invoice?.total,
+      // undefined, not null: the helper reads Number(null) as a recorded 0.
+      commissionAmount: storedCommission ?? undefined,
+      netPayable: ownerPayout,
+      bookingTotalAmount: booking?.totalAmount,
+      transportFare: booking?.transportFare,
+      commissionPercent: storedPercent,
+    }) ?? Math.max(0, roundMoney(accommodationGross - ownerPayout));
+    status = "CALCULATED";
+  }
+
+  const derivedPercent = accommodationGross != null && accommodationGross > 0 && commissionAmount != null
+    ? Math.round((commissionAmount / accommodationGross) * 10000) / 100
+    : null;
+
+  return {
+    customerPaidTotal: invoiceTotal ?? bookingTotal,
+    accommodationGross,
+    transportFare,
+    commissionPercent: storedPercent ?? derivedPercent,
+    commissionAmount,
+    ownerPayout,
+    financialStatus: status,
+    financialReviewReason: null,
+  };
+}
+
+async function loadOwnerDisbursement(invoiceId: number) {
+  const disbursement = await prisma.disbursement.findFirst({
+    where: { sourceType: "OWNER_INVOICE", sourceId: invoiceId },
+    orderBy: { createdAt: "desc" },
+    select: { status: true, amount: true, currency: true, bankName: true, operator: true, paidAt: true },
+  });
+  return disbursement
+    ? {
+        status: disbursement.status,
+        amount: decimal(disbursement.amount),
+        currency: disbursement.currency,
+        channel: disbursement.operator ?? disbursement.bankName,
+        paidAt: disbursement.paidAt,
+      }
+    : null;
+}
+
+function formatReservation(r: any, ownerDisbursement: any = null) {
+  const bookingInvoices = Array.isArray(r.booking?.invoices) ? r.booking.invoices : [];
+  const marketplaceInvoice = bookingInvoices.find((invoice: any) => !String(invoice.invoiceNumber ?? "").startsWith("OINV-")) ?? null;
+  const ownerInvoice = bookingInvoices.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-")) ?? null;
+  const marketplaceFinancials = r.booking ? marketplaceFinancialBreakdown(r.booking, marketplaceInvoice) : null;
   const transferredToMaster = Array.isArray(r.masterFolioItems)
     ? r.masterFolioItems.filter((item: any) => !item.voidedAt).reduce((sum: number, item: any) => sum + Number(item.amount ?? 0), 0)
     : 0;
@@ -223,8 +342,12 @@ function formatReservation(r: any) {
     : Array.isArray(operationalAgentRequest?.guests) ? operationalAgentRequest.guests : [];
   const agentLead = agentGuests.find((guest: any) => guest.isLead && guest.fullName) ?? agentGuests.find((guest: any) => guest.fullName) ?? null;
   const agentAccount = operationalAgentRequest?.link?.agentAccount ?? null;
+  const approvedEarlyCheckIn = Array.isArray(r.events)
+    ? [...r.events].reverse().find((event: any) => event.type === "EARLY_CHECKIN_APPROVED")
+    : null;
   return {
     id: r.id,
+    reference: nrmsReservationReference(r.id),
     propertyId: r.propertyId,
     bookingId: r.bookingId,
     source: r.source,
@@ -263,6 +386,16 @@ function formatReservation(r: any) {
     effectivePaid,
     confirmedAt: r.confirmedAt,
     checkedInAt: r.checkedInAt,
+    earlyCheckInApproved: Boolean(approvedEarlyCheckIn),
+    earlyCheckInResolution: approvedEarlyCheckIn
+      ? {
+          resolution: "APPROVE_EARLY_CHECKIN",
+          reason: approvedEarlyCheckIn.data?.reason ?? null,
+          operationalArrival: approvedEarlyCheckIn.data?.operationalArrival ?? null,
+          createdAt: approvedEarlyCheckIn.createdAt,
+          actorId: approvedEarlyCheckIn.actorId,
+        }
+      : null,
     checkedOutAt: r.checkedOutAt,
     cancelledAt: r.cancelledAt,
     cancelReason: r.cancelReason,
@@ -283,6 +416,7 @@ function formatReservation(r: any) {
     marketplaceBooking: r.booking
       ? {
           id: r.booking.id,
+          reference: customerBookingReference(r.booking.id),
           status: r.booking.status,
           guestName: r.booking.guestName,
           guestPhone: r.booking.guestPhone,
@@ -292,13 +426,44 @@ function formatReservation(r: any) {
           ageGroup: r.booking.ageGroup,
           roomsQty: r.booking.roomsQty,
           totalAmount: decimal(r.booking.totalAmount),
+          customerPaidTotal: marketplaceFinancials?.customerPaidTotal ?? null,
+          accommodationGross: marketplaceFinancials?.accommodationGross ?? null,
+          transportFare: marketplaceFinancials?.transportFare ?? 0,
+          commissionPercent: marketplaceFinancials?.commissionPercent ?? null,
+          commissionAmount: marketplaceFinancials?.commissionAmount ?? null,
+          ownerPayout: marketplaceFinancials?.ownerPayout ?? null,
+          financialStatus: marketplaceFinancials?.financialStatus ?? "UNAVAILABLE",
+          financialReviewReason: marketplaceFinancials?.financialReviewReason ?? null,
           paymentStatus: marketplaceInvoice?.status ?? null,
           paymentMethod: marketplaceInvoice?.paymentMethod ?? null,
+          invoiceIssuedAt: marketplaceInvoice?.issuedAt ?? null,
+          invoiceVerifiedAt: marketplaceInvoice?.verifiedAt ?? null,
+          invoiceApprovedAt: marketplaceInvoice?.approvedAt ?? null,
+          invoicePaidAt: marketplaceInvoice?.paidAt ?? null,
+          receiptNumber: marketplaceInvoice?.receiptNumber ?? null,
+          ownerInvoice: ownerInvoice
+            ? {
+                reference: ownerInvoice.invoiceNumber,
+                status: ownerInvoice.status,
+                amount: decimal(ownerInvoice.netPayable ?? ownerInvoice.total),
+                issuedAt: ownerInvoice.issuedAt,
+                verifiedAt: ownerInvoice.verifiedAt,
+                approvedAt: ownerInvoice.approvedAt,
+                paidAt: ownerInvoice.paidAt,
+              }
+            : null,
+          ownerDisbursement,
+          /** The reference the guest holds and the payout reconciles against.
+           * Views show this rather than the internal booking id. */
+          invoiceNumber: marketplaceInvoice?.invoiceNumber ?? null,
+          /** ACTIVE, USED or VOID. Null when no code has been issued yet. */
+          checkInCodeStatus: r.booking.code?.status ?? null,
         }
       : null,
     agentBooking: operationalAgentRequest
       ? {
           requestId: operationalAgentRequest.id,
+          requestReference: nrmsAgentRequestReference(operationalAgentRequest.id),
           guestManifestStatus: operationalAgentRequest.guestManifestStatus,
           incidentalBilling: operationalAgentRequest.incidentalBilling,
           travellerCount: agentGuests.length,
@@ -315,6 +480,7 @@ function formatReservation(r: any) {
           roomTypeName: a.roomType?.name,
           roomUnitId: a.roomUnitId,
           roomUnitCode: a.roomUnit?.code ?? null,
+          roomUnitFloor: a.roomUnit?.floor ?? null,
           startDate: a.startDate,
           endDate: a.endDate,
           status: a.status,
@@ -463,16 +629,22 @@ const detailInclude = {
       ageGroup: true,
       roomsQty: true,
       totalAmount: true,
+      transportFare: true,
       user: { select: { email: true } },
+      // The single-use arrival code is the only thing that can check a
+      // marketplace stay in, so the front desk has to see its state before it
+      // sends anyone to the validation page. A USED or VOID code is a support
+      // case, not a check-in.
+      code: { select: { status: true } },
       invoices: {
         orderBy: { createdAt: "desc" as const },
-        take: 1,
-        select: { status: true, paymentMethod: true },
+        take: 10,
+        select: { id: true, status: true, total: true, commissionPercent: true, commissionAmount: true, netPayable: true, paymentMethod: true, invoiceNumber: true, receiptNumber: true, issuedAt: true, verifiedAt: true, approvedAt: true, paidAt: true, createdAt: true },
       },
     },
   },
   group: { select: reservationGroupSelect },
-  allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } } },
+  allocations: { include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true, floor: true } } } },
   payments: { orderBy: { createdAt: "asc" as const } },
   masterFolioItems: { orderBy: { createdAt: "asc" as const } },
   charges: {
@@ -516,11 +688,33 @@ const detailInclude = {
   events: { orderBy: { createdAt: "asc" as const } },
 };
 
+/**
+ * What a route is about to touch on a marketplace-linked stay.
+ *
+ * The question that decides access is not "is this a marketplace record?" but
+ * "whose money is this?". The commercial contract belongs to NoLSAF: the rate
+ * the guest paid for, that payment, its refund, the cancellation and the
+ * arrival code that releases the owner's payout. Everything inside the
+ * property's own four walls belongs to the hotel, and a NoLSAF guest must be
+ * servable exactly like any other guest.
+ *
+ * - COMMERCIAL (the default): dates, rate, room payment, cancel, no-show,
+ *   check-in. Refused, because the hotel and NoLSAF would otherwise disagree
+ *   about what the guest owes.
+ * - OPERATIONS: room assignment and other work with no money attached.
+ * - INCIDENTALS: the hotel's own revenue on the folio (restaurant, bar,
+ *   laundry, late checkout) and the payments that settle it. The room line is
+ *   zero on a marketplace reservation, so the outstanding balance these routes
+ *   compute is the incidental balance and nothing else.
+ * - SETTLEMENT: closing the stay and issuing its folio document.
+ */
+type MarketplaceAccess = "COMMERCIAL" | "OPERATIONS" | "INCIDENTALS" | "SETTLEMENT";
+
 async function loadOwnedReservation(
   res: Response,
   ownerId: number,
   id: number,
-  options: { allowMarketplace?: boolean } = {},
+  options: { marketplace?: MarketplaceAccess } = {},
 ) {
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "Invalid reservation id" });
@@ -531,14 +725,57 @@ async function loadOwnedReservation(
     res.status(404).json({ error: "Reservation not found" });
     return null;
   }
-  if (reservation.bookingId != null && !options.allowMarketplace) {
-    // Marketplace check-in remains protected by the existing single-use code
-    // flow. Specific NRMS operations (currently checkout) may opt in after
-    // they have implemented atomic synchronization back to Booking.
+  if (reservation.bookingId != null && (options.marketplace ?? "COMMERCIAL") === "COMMERCIAL") {
     res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
     return null;
   }
   return reservation;
+}
+
+async function loadReadableReservation(req: AuthedRequest, res: Response, id: number) {
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid reservation id" });
+    return null;
+  }
+  const scope = await prisma.reservation.findUnique({ where: { id }, select: { propertyId: true } });
+  if (!scope) {
+    res.status(404).json({ error: "Reservation not found" });
+    return null;
+  }
+  const access = await loadNrmsPropertyAccess(req, res, scope.propertyId, RESERVATION_READ_ROLES);
+  if (!access) return null;
+  const reservation = await prisma.reservation.findUnique({ where: { id }, include: detailInclude });
+  if (!reservation) {
+    res.status(404).json({ error: "Reservation not found" });
+    return null;
+  }
+  return { reservation, access };
+}
+
+/** Room assignment is reception work. Resolve the reservation's property first,
+ * then apply the shared reservation.modify capability so owner, manager and
+ * front desk all follow the same policy without weakening tenant scope. */
+async function loadRoomAssignmentReservation(req: AuthedRequest, res: Response, id: number) {
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid reservation id" });
+    return null;
+  }
+  const scope = await prisma.reservation.findUnique({ where: { id }, select: { propertyId: true } });
+  if (!scope) {
+    res.status(404).json({ error: "Reservation not found" });
+    return null;
+  }
+  const access = await requireNrmsPropertyCapability(req, res, scope.propertyId, "reservation.modify");
+  if (!access) return null;
+  const reservation = await prisma.reservation.findFirst({
+    where: { id, propertyId: scope.propertyId, ownerId: access.ownerId },
+    include: detailInclude,
+  });
+  if (!reservation) {
+    res.status(404).json({ error: "Reservation not found" });
+    return null;
+  }
+  return { reservation, access };
 }
 
 /** Sum of non-voided payments, used to keep Reservation.amountPaid honest. */
@@ -568,12 +805,20 @@ async function recomputeChargesTotal(tx: any, reservationId: number) {
  */
 router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const property = active.property;
+    // Staff aware, like the sibling group endpoints below. This resolved the
+    // property by `ownerId: req.user.id`, so a manager or front desk user got
+    // "Property not found" from the Groups page even though the sidebar
+    // offers it to them and every other call that page makes already permits
+    // the role. Rows are scoped by propertyId, which the access check has
+    // already authorised, so nothing here needed the caller to be the owner.
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), RESERVATION_READ_ROLES);
+    if (!access) return;
+    const property = access.property;
 
     const { status, source, from, to, q } = req.query;
+    const repairStart = from ? new Date(String(from)) : new Date(Date.now() - 366 * 86_400_000);
+    const repairEnd = to ? new Date(String(to)) : new Date(Date.now() + 730 * 86_400_000);
+    await connectExistingNoLsafBookings(prisma, property.id as number, repairStart, repairEnd);
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const requestedSort = String(req.query.sortBy ?? "checkIn");
@@ -598,12 +843,10 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     // database, because the approval, the invoice and the payment events all
     // hang off it, but it is kept out of the working list unless somebody asks
     // for cancelled reservations on purpose.
-    if (String(status || "").toUpperCase() !== "CANCELLED") {
-      where.NOT = [
-        ...(Array.isArray(where.NOT) ? where.NOT : []),
-        { AND: [{ status: "CANCELLED" }, { agentBookingRequest: { masterFolio: { blockId: { not: null } } } }] },
-      ];
-    }
+    where.NOT = [
+      ...(Array.isArray(where.NOT) ? where.NOT : []),
+      { AND: [{ status: "CANCELLED" }, { agentBookingRequest: { masterFolio: { blockId: { not: null } } } }] },
+    ];
     if (from) where.checkOut = { gt: new Date(String(from)) };
     if (to) where.checkIn = { lt: new Date(String(to)) };
     if (q) {
@@ -613,7 +856,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       };
     }
 
-    const [total, reservations] = await Promise.all([
+    const countWhere = { ...where };
+    delete countWhere.status;
+    const [total, reservations, groupedStatuses] = await Promise.all([
       prisma.reservation.count({ where }),
       prisma.reservation.findMany({
         where,
@@ -624,7 +869,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           group: { select: reservationGroupSelect },
           allocations: {
             where: { status: "ACTIVE" },
-            include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true } } },
+            include: { roomType: { select: { name: true } }, roomUnit: { select: { code: true, floor: true } } },
           },
           payments: { orderBy: { createdAt: "asc" } },
           masterFolioItems: { orderBy: { createdAt: "asc" } },
@@ -638,9 +883,44 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         take: limit,
         skip: offset,
       }),
+      prisma.reservation.groupBy({ by: ["status"], where: countWhere, _count: { _all: true } }),
     ]);
 
-    res.json({ total, limit, offset, sortBy, sortOrder, reservations: reservations.map(formatReservation) });
+    const ownerInvoiceIds = reservations.flatMap((reservation: any) => {
+      const invoiceId = reservation.booking?.invoices?.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-"))?.id;
+      return Number.isInteger(invoiceId) ? [invoiceId] : [];
+    });
+    const disbursements = ownerInvoiceIds.length > 0
+      ? await prisma.disbursement.findMany({
+          where: { sourceType: "OWNER_INVOICE", sourceId: { in: ownerInvoiceIds } },
+          orderBy: { createdAt: "desc" },
+          select: { sourceId: true, status: true, amount: true, currency: true, bankName: true, operator: true, paidAt: true },
+        })
+      : [];
+    const disbursementByInvoice = new Map<number, any>();
+    for (const disbursement of disbursements) {
+      if (disbursementByInvoice.has(disbursement.sourceId)) continue;
+      disbursementByInvoice.set(disbursement.sourceId, {
+        status: disbursement.status,
+        amount: decimal(disbursement.amount),
+        currency: disbursement.currency,
+        channel: disbursement.operator ?? disbursement.bankName,
+        paidAt: disbursement.paidAt,
+      });
+    }
+
+    res.json({
+      total,
+      limit,
+      offset,
+      sortBy,
+      sortOrder,
+      statusCounts: Object.fromEntries(groupedStatuses.map((row) => [row.status, row._count._all])),
+      reservations: reservations.map((reservation: any) => {
+        const invoiceId = reservation.booking?.invoices?.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-"))?.id;
+        return formatReservation(reservation, invoiceId != null ? disbursementByInvoice.get(invoiceId) ?? null : null);
+      }),
+    });
   } catch (err) {
     console.error("[owner.nrms.reservations] list failed", err);
     res.status(500).json({ error: "Failed to load reservations" });
@@ -704,6 +984,7 @@ function groupMemberSummary(member: any) {
   const amountPaid = (member.payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0);
   return {
     id: member.id,
+    reference: nrmsReservationReference(member.id),
     status: member.status,
     checkIn: member.checkIn,
     checkOut: member.checkOut,
@@ -732,12 +1013,15 @@ function groupMemberSummary(member: any) {
 }
 
 function formatGroup(group: any) {
+  const currentStatus = Array.isArray(group.reservations)
+    ? deriveGroupStatus(group.reservations.map((member: any) => member.status))
+    : group.status;
   return {
     id: group.id,
     reference: group.reference,
     name: group.name,
     notes: group.notes,
-    status: group.status,
+    status: currentStatus,
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     billingMode: group.block?.billingMode ?? "INDIVIDUAL",
@@ -748,6 +1032,9 @@ function formatGroup(group: any) {
           masterFolioReference: group.block.masterFolio?.reference ?? null,
           masterFolioStatus: group.block.masterFolio?.status ?? null,
           agentBookingRequestId: group.block.masterFolio?.agentBookingRequestId ?? null,
+          agentBookingRequestReference: group.block.masterFolio?.agentBookingRequestId != null
+            ? nrmsAgentRequestReference(group.block.masterFolio.agentBookingRequestId)
+            : null,
         }
       : null,
     memberCount: group._count?.reservations ?? group.reservations?.length ?? 0,
@@ -760,14 +1047,25 @@ type GroupBlocker = { code: string; message: string };
 function inspectGroupMember(
   member: any,
   action: "CHECK_IN" | "CHECK_OUT",
-  options: { overrideRoomReadiness: boolean; verifyCharges: boolean },
+  options: { overrideRoomReadiness: boolean; verifyCharges: boolean; businessDate?: string },
 ) {
   const blockers: GroupBlocker[] = [];
   const requiredChargeIds: number[] = [];
+  const complete = action === "CHECK_IN"
+    ? ["CHECKED_IN", "CHECKED_OUT"].includes(member.status)
+    : member.status === "CHECKED_OUT";
+  if (complete) return { eligible: false, complete: true, blockers, requiredChargeIds };
   if (action === "CHECK_IN") {
     if (member.status !== "CONFIRMED") {
-      blockers.push({ code: "INVALID_TRANSITION", message: "Only confirmed reservations can be checked in." });
+      return {
+        eligible: false,
+        complete: false,
+        blockers: [{ code: "INVALID_TRANSITION", message: "Only confirmed reservations can be checked in." }],
+        requiredChargeIds,
+      };
     }
+    const dateConflict = nrmsCheckInDateConflict(new Date(member.checkIn), options.businessDate ?? shiftDayKey(new Date()));
+    if (dateConflict) blockers.push({ code: dateConflict.code, message: dateConflict.message });
     if (!member.allocations?.length || member.allocations.some((allocation: any) => allocation.roomUnitId == null)) {
       blockers.push({ code: "ROOM_ASSIGNMENT_REQUIRED", message: "Assign a specific room before check-in." });
     }
@@ -784,7 +1082,12 @@ function inspectGroupMember(
     }
   } else {
     if (member.status !== "CHECKED_IN") {
-      blockers.push({ code: "INVALID_TRANSITION", message: "Only checked-in stays can be checked out." });
+      return {
+        eligible: false,
+        complete: false,
+        blockers: [{ code: "INVALID_TRANSITION", message: "Only checked-in stays can be checked out." }],
+        requiredChargeIds,
+      };
     }
     const openOrders = (member.outletOrders ?? []).filter((order: any) => ["CONFIRMED", "PREPARING", "SERVING"].includes(order.status));
     if (openOrders.length) blockers.push({ code: "OPEN_OUTLET_ORDERS", message: `${openOrders.length} restaurant or bar order(s) remain open.` });
@@ -812,14 +1115,29 @@ function inspectGroupMember(
       blockers.push({ code: "CHARGES_NOT_VERIFIED", message: `Verify ${requiredChargeIds.length} active extra charge(s).` });
     }
   }
-  return { eligible: blockers.length === 0, blockers, requiredChargeIds };
+  return { eligible: blockers.length === 0, complete: false, blockers, requiredChargeIds };
 }
 
-async function loadAccessibleGroup(req: AuthedRequest, res: Response, groupId: number) {
+async function loadAccessibleGroup(
+  req: AuthedRequest,
+  res: Response,
+  groupId: number,
+  roles: readonly (typeof RESERVATION_READ_ROLES)[number][] = GROUP_OPERATION_ROLES,
+) {
   if (!Number.isInteger(groupId) || groupId <= 0) {
     res.status(400).json({ error: "Invalid reservation group id" });
     return null;
   }
+  const scope = await prisma.nrmsReservationGroup.findUnique({
+    where: { id: groupId },
+    select: { propertyId: true },
+  });
+  if (!scope) {
+    res.status(404).json({ error: "Reservation group not found" });
+    return null;
+  }
+  const access = await loadNrmsPropertyAccess(req, res, scope.propertyId, roles);
+  if (!access) return null;
   const group = await prisma.nrmsReservationGroup.findUnique({
     where: { id: groupId },
     include: groupInclude,
@@ -828,14 +1146,13 @@ async function loadAccessibleGroup(req: AuthedRequest, res: Response, groupId: n
     res.status(404).json({ error: "Reservation group not found" });
     return null;
   }
-  const access = await loadNrmsPropertyAccess(req, res, group.propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
-  return access ? { group, access } : null;
+  return { group, access };
 }
 
 /** List operational reservation groups for one property. */
 router.get("/property/:propertyId/groups", (async (req: AuthedRequest, res: Response) => {
   try {
-    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), ["OWNER", "MANAGER", "FRONT_DESK"]);
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), RESERVATION_READ_ROLES);
     if (!access) return;
     const groups = await prisma.nrmsReservationGroup.findMany({
       where: { propertyId: access.property.id, ownerId: access.ownerId },
@@ -867,11 +1184,22 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
       await lockPropertyInventory(tx, propertyId);
       const members = await tx.reservation.findMany({
         where: { id: { in: reservationIds }, propertyId, ownerId, bookingId: null },
-        select: { id: true, status: true, groupId: true },
+        select: {
+          id: true,
+          status: true,
+          groupId: true,
+          checkIn: true,
+          checkOut: true,
+          agentPropertyLinkId: true,
+          materializedAgentBookingRequestId: true,
+          agentBookingRequest: { select: { id: true } },
+        },
       });
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
-      if (members.some((member: any) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_TERMINAL");
+      if (members.some((member: any) => !["HELD", "CONFIRMED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_LIFECYCLE");
+      if (members.some(isAgencyManagedGroupMember)) throw new Error("NRMS_GROUP_MEMBER_AGENCY_MANAGED");
+      if (!groupMembersShareCommonNight(members)) throw new Error("NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP");
       const group = await tx.nrmsReservationGroup.create({
         data: {
           propertyId,
@@ -898,7 +1226,9 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
-    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_TERMINAL") return res.status(409).json({ error: "Cancelled, expired or no-show reservations cannot be added to a group" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_LIFECYCLE") return res.status(409).json({ error: "Only held or confirmed reservations can be grouped before check-in", code: "GROUP_MEMBER_NOT_PRE_ARRIVAL" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_AGENCY_MANAGED") return res.status(409).json({ error: "Agency reservations must remain in their agency group and rooming-list workflow", code: "GROUP_MEMBER_AGENCY_MANAGED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP") return res.status(409).json({ error: "Every reservation in a group must share at least one common night", code: "GROUP_MEMBER_DATES_DO_NOT_OVERLAP" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while the group was being created" });
     console.error("[owner.nrms.reservations] group create failed", err);
     res.status(500).json({ error: "Failed to create reservation group" });
@@ -907,7 +1237,7 @@ router.post("/property/:propertyId/groups", (async (req: AuthedRequest, res: Res
 
 router.get("/groups/:groupId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId));
+    const loaded = await loadAccessibleGroup(req, res, Number(req.params.groupId), RESERVATION_READ_ROLES);
     if (!loaded) return;
     res.json({ group: formatGroup(loaded.group), accessRole: loaded.access.role });
   } catch (err) {
@@ -977,6 +1307,11 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
           id: true,
           status: true,
           groupId: true,
+          checkIn: true,
+          checkOut: true,
+          agentPropertyLinkId: true,
+          materializedAgentBookingRequestId: true,
+          agentBookingRequest: { select: { id: true } },
           currency: true,
           totalAmount: true,
           externalRef: true,
@@ -990,7 +1325,13 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
       });
       if (members.length !== reservationIds.length) throw new Error("NRMS_GROUP_MEMBER_NOT_FOUND");
       if (members.some((member: any) => member.groupId != null)) throw new Error("NRMS_GROUP_MEMBER_ALREADY_ASSIGNED");
-      if (members.some((member: any) => ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_TERMINAL");
+      if (members.some((member: any) => !["HELD", "CONFIRMED"].includes(member.status))) throw new Error("NRMS_GROUP_MEMBER_LIFECYCLE");
+      if (members.some(isAgencyManagedGroupMember)) throw new Error("NRMS_GROUP_MEMBER_AGENCY_MANAGED");
+      const existingMembers = await tx.reservation.findMany({
+        where: { groupId: group.id },
+        select: { checkIn: true, checkOut: true },
+      });
+      if (!groupMembersShareCommonNight([...existingMembers, ...members])) throw new Error("NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP");
       if (agencyBilling) {
         const conflict = members.map((member: any) => masterFolioJoinConflict(member, masterFolio)).find(Boolean);
         if (conflict === "CURRENCY_MISMATCH") throw new Error("NRMS_GROUP_MEMBER_CURRENCY_MISMATCH");
@@ -1034,7 +1375,9 @@ router.post("/groups/:groupId/members", (async (req: AuthedRequest, res: Respons
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_NOT_FOUND") return res.status(400).json({ error: "Every group member must be an NRMS reservation for this property" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_ALREADY_ASSIGNED") return res.status(409).json({ error: "One or more selected reservations already belong to a group", code: "GROUP_ALREADY_ASSIGNED" });
-    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_TERMINAL") return res.status(409).json({ error: "Cancelled, expired or no-show reservations cannot be added to a group" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_LIFECYCLE") return res.status(409).json({ error: "Only held or confirmed reservations can be added before check-in", code: "GROUP_MEMBER_NOT_PRE_ARRIVAL" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_AGENCY_MANAGED") return res.status(409).json({ error: "Agency reservations must remain in their agency group and rooming-list workflow", code: "GROUP_MEMBER_AGENCY_MANAGED" });
+    if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_DATES_DO_NOT_OVERLAP") return res.status(409).json({ error: "Every reservation in a group must share at least one common night", code: "GROUP_MEMBER_DATES_DO_NOT_OVERLAP" });
     if (err instanceof Error && err.message === "NRMS_GROUP_ASSIGNMENT_RACE") return res.status(409).json({ error: "A selected reservation changed while it was being added" });
     if (err instanceof Error && err.message === "NRMS_GROUP_AGENCY_BILLING_MANAGER_REQUIRED") return res.status(403).json({ error: "Only the property owner or manager can add an existing stay to an agency-billed group", code: "AGENCY_BILLING_MANAGER_REQUIRED" });
     if (err instanceof Error && err.message === "NRMS_GROUP_MEMBER_CURRENCY_MISMATCH") return res.status(409).json({ error: "Every reservation added to an agency bill must use the same currency as the master folio", code: "MASTER_FOLIO_CURRENCY_MISMATCH" });
@@ -1200,9 +1543,19 @@ router.post("/groups/:groupId/preview", (async (req: AuthedRequest, res: Respons
       : null;
     if (masterBlocker) {
       const blocker = masterCheckoutFailure(masterBlocker.code, masterBlocker.balance);
-      members = members.map((member: any) => ({ ...member, eligible: false, blockers: [...member.blockers, blocker] }));
+      members = members.map((member: any) => member.complete || member.reservation.status !== "CHECKED_IN"
+        ? member
+        : { ...member, eligible: false, blockers: [...member.blockers, blocker] });
     }
-    res.json({ group: formatGroup(group), action, eligibleCount: members.filter((member: any) => member.eligible).length, blockedCount: members.filter((member: any) => !member.eligible).length, masterFolioBlocker: masterBlocker, members });
+    res.json({
+      group: formatGroup(group),
+      action,
+      eligibleCount: members.filter((member: any) => member.eligible).length,
+      completedCount: members.filter((member: any) => member.complete).length,
+      blockedCount: members.filter((member: any) => !member.eligible && !member.complete).length,
+      masterFolioBlocker: masterBlocker,
+      members,
+    });
   } catch (err) {
     console.error("[owner.nrms.reservations] group preview failed", err);
     res.status(500).json({ error: "Failed to review the group action" });
@@ -1220,6 +1573,8 @@ function groupActionFailure(err: unknown): GroupBlocker {
   if (message.startsWith("NRMS_MASTER_BALANCE_DUE:")) return { code: "MASTER_BALANCE_DUE", message: "The agency master folio still has an amount due." };
   if (message.startsWith("NRMS_MASTER_CREDIT_REMAINS:")) return { code: "MASTER_CREDIT_REMAINS", message: "The agency master folio has an unresolved credit." };
   if (message.startsWith("NRMS_MASTER_FOLIO_MISSING:")) return { code: "MASTER_FOLIO_MISSING", message: "The agency master folio is missing." };
+  if (message === "NRMS_ROOM_VACANCY_CONFIRMATION_REQUIRED") return { code: "ROOM_VACANCY_CONFIRMATION_REQUIRED", message: "Confirm that the guest has physically left and the room is vacant." };
+  if (message === "NRMS_EARLY_DEPARTURE_REASON_REQUIRED") return { code: "EARLY_DEPARTURE_REASON_REQUIRED", message: "Record a reason for the early departure." };
   return { code: "ACTION_FAILED", message: "The reservation changed before the operation completed." };
 }
 
@@ -1248,31 +1603,41 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
       const { group } = loaded;
       const ownerId = loaded.access.ownerId;
       const results: any[] = [];
-      if (action === "CHECK_OUT") {
-        const masterBlocker = await getMasterCheckoutBlocker(prisma, group.id, { groupBatch: true });
-        if (masterBlocker) {
-          const blocker = masterCheckoutFailure(masterBlocker.code, masterBlocker.balance);
-          const blockedResults = group.reservations.map((member: any) => ({
-            reservationId: member.id,
-            guestName: member.guestProfile?.fullName ?? "Guest",
-            changed: false,
-            blockers: [blocker],
-          }));
-          return res.json({ action, groupId: group.id, groupStatus: group.status, changedCount: 0, blockedCount: blockedResults.length, masterFolioBlocker: masterBlocker, results: blockedResults });
-        }
-      }
+      const masterBlocker = action === "CHECK_OUT"
+        ? await getMasterCheckoutBlocker(prisma, group.id, { groupBatch: true })
+        : null;
       for (const existing of group.reservations) {
+        const alreadyComplete = action === "CHECK_IN"
+          ? ["CHECKED_IN", "CHECKED_OUT"].includes(existing.status)
+          : existing.status === "CHECKED_OUT";
+        if (alreadyComplete) {
+          results.push({ reservationId: existing.id, guestName: existing.guestProfile?.fullName ?? "Guest", changed: false, complete: true, blockers: [] });
+          continue;
+        }
         try {
           const outcome = await prisma.$transaction(async (tx: any) => {
             await lockPropertyInventory(tx, group.propertyId);
-            if (action === "CHECK_OUT") await assertNrmsBusinessDayWritable(tx, group.propertyId);
             const member = await tx.reservation.findFirst({
               where: { id: existing.id, groupId: group.id, propertyId: group.propertyId, ownerId, bookingId: null },
               include: groupMemberInclude,
             });
             if (!member) return { changed: false, blockers: [{ code: "MEMBER_NOT_FOUND", message: "Reservation is no longer in this group." }] };
-            const inspection = inspectGroupMember(member, action, parsed.data);
+            const nowComplete = action === "CHECK_IN"
+              ? ["CHECKED_IN", "CHECKED_OUT"].includes(member.status)
+              : member.status === "CHECKED_OUT";
+            if (nowComplete) return { changed: false, complete: true, blockers: [] };
+            const businessDate = await assertNrmsBusinessDayWritable(tx, group.propertyId);
+            const inspection = inspectGroupMember(member, action, {
+              ...parsed.data,
+              // Arrival eligibility follows the property's calendar date.
+              // The accounting business day may intentionally remain open
+              // after midnight and must not make today's arrivals look early.
+              businessDate: action === "CHECK_IN" ? shiftDayKey(new Date()) : businessDate,
+            });
             if (!inspection.eligible) return { changed: false, blockers: inspection.blockers };
+            if (masterBlocker && action === "CHECK_OUT") {
+              return { changed: false, blockers: [masterCheckoutFailure(masterBlocker.code, masterBlocker.balance)] };
+            }
             if (action === "CHECK_IN") {
               const changed = await tx.reservation.updateMany({
                 where: { id: member.id, ownerId, groupId: group.id, status: "CONFIRMED" },
@@ -1285,7 +1650,12 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
               await queueNrmsCheckInWelcome(tx, member.id);
               return { changed: true };
             }
-            const billing = await finalizeNrmsCheckout(tx, member, actorId, inspection.requiredChargeIds);
+            const billing = await finalizeNrmsCheckout(tx, member, ownerId, inspection.requiredChargeIds, {
+              businessDate,
+              actorId,
+              roomVacantConfirmed: parsed.data.roomVacantConfirmed,
+              earlyDepartureReason: parsed.data.earlyDepartureReason,
+            });
             return { changed: true, billing };
           }, EXTENDED_TX_OPTIONS);
           results.push({ reservationId: existing.id, guestName: existing.guestProfile?.fullName ?? "Guest", ...outcome });
@@ -1294,7 +1664,16 @@ function executeGroupAction(action: "CHECK_IN" | "CHECK_OUT") {
         }
       }
       const status = await refreshGroupStatus(prisma, group.id);
-      res.json({ action, groupId: group.id, groupStatus: status, changedCount: results.filter((result) => result.changed).length, blockedCount: results.filter((result) => !result.changed).length, results });
+      res.json({
+        action,
+        groupId: group.id,
+        groupStatus: status,
+        changedCount: results.filter((result) => result.changed).length,
+        completedCount: results.filter((result) => result.complete).length,
+        blockedCount: results.filter((result) => !result.changed && !result.complete).length,
+        masterFolioBlocker: masterBlocker,
+        results,
+      });
     } catch (err) {
       console.error(`[owner.nrms.reservations] group ${action.toLowerCase()} failed`, err);
       res.status(500).json({ error: `Failed to run group ${action === "CHECK_IN" ? "check-in" : "checkout"}` });
@@ -1319,7 +1698,14 @@ router.get("/groups/:groupId/rooms", (async (req: AuthedRequest, res: Response) 
     if (!loaded) return;
     const { group } = loaded;
 
-    const members = group.reservations.filter((member: any) => ASSIGNABLE_STATUSES.includes(member.status));
+    const agencyBilled = billingUsesMasterFolio(group.block?.billingMode);
+    const members = group.reservations.filter((member: any) => ASSIGNABLE_STATUSES.includes(member.status) && roomAssignmentPaymentReady({
+      totalAmount: member.totalAmount,
+      chargesTotal: (member.charges ?? []).reduce((sum: number, charge: any) => sum + Number(charge.amount ?? 0), 0),
+      amountPaid: (member.payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount ?? 0), 0),
+      agencyBilled,
+      masterFolioStatus: group.block?.masterFolio?.status,
+    }));
     const roomTypeIds = Array.from(new Set(members.flatMap((member: any) => (member.allocations ?? []).map((allocation: any) => allocation.roomTypeId))));
     const units = roomTypeIds.length
       ? await prisma.roomUnit.findMany({
@@ -1508,12 +1894,19 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
     }), prisma.nrmsMasterFolio.findMany({
       where: {
         propertyId: active.property.id as number,
-        ...(from || to ? { block: { checkIn } } : {}),
+        ...(from || to ? {
+          OR: [
+            { block: { checkIn } },
+            { agentBookingRequest: { checkIn } },
+          ],
+        } : {}),
       },
       select: {
         id: true,
         currency: true,
+        createdAt: true,
         block: { select: { checkIn: true } },
+        agentBookingRequest: { select: { checkIn: true } },
         items: { where: { voidedAt: null }, select: { amount: true } },
         payments: { where: { voidedAt: null }, select: { amount: true, currency: true, method: true } },
         refunds: { where: { voidedAt: null }, select: { amount: true, currency: true, method: true } },
@@ -1637,7 +2030,7 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
       bucket.amountDue += settlement.due;
       if (settlement.due > 0.005) bucket.agencyFoliosDue += 1;
 
-      const month = folio.block.checkIn.toISOString().slice(0, 7);
+      const month = resolveAnalyticsMasterFolioStayDate(folio).toISOString().slice(0, 7);
       const monthBucket = bucket.monthly.get(month) ?? { month, confirmed: 0, collected: 0 };
       monthBucket.collected += settlement.paid;
       bucket.monthly.set(month, monthBucket);
@@ -1741,12 +2134,45 @@ router.get("/property/:propertyId/analytics", (async (req: AuthedRequest, res: R
 /**
  * GET /api/owner/nrms/reservations/:id
  */
+/**
+ * GET /api/owner/nrms/reservations/property/:propertyId/resolve/:reference
+ * Page URLs carry the opaque rs_ reference, never the row id. The HMAC cannot
+ * be reversed, so match it against this property's reservations, the same way
+ * the owner booking routes resolve bk_ references.
+ */
+router.get("/property/:propertyId/resolve/:reference", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const reference = String(req.params.reference || "").trim();
+    if (!isNrmsReservationReference(reference)) return res.status(400).json({ error: "Invalid reservation reference" });
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), RESERVATION_READ_ROLES);
+    if (!access) return;
+    const candidates = await prisma.reservation.findMany({
+      where: { propertyId: access.property.id as number },
+      select: { id: true },
+    });
+    const match = candidates.find((candidate) => matchesNrmsReservationReference(reference, candidate.id));
+    if (!match) return res.status(404).json({ error: "Reservation not found" });
+    res.json({ id: match.id, reference });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] resolve reference failed", err);
+    res.status(500).json({ error: "Failed to open reservation" });
+  }
+}) as RequestHandler);
+
 router.get("/:id", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { allowMarketplace: true });
-    if (!reservation) return;
-    res.json({ reservation: formatReservation(reservation) });
+    const readable = await loadReadableReservation(req, res, Number(req.params.id));
+    if (!readable) return;
+    const ownerInvoiceId = readable.reservation.booking?.invoices?.find((invoice: any) => String(invoice.invoiceNumber ?? "").startsWith("OINV-"))?.id ?? null;
+    const ownerDisbursement = ownerInvoiceId != null
+      ? await loadOwnerDisbursement(ownerInvoiceId)
+      : null;
+    const reservation = formatReservation(readable.reservation, ownerDisbursement);
+    res.json({
+      reservation: readable.access.role === "SALES_EXECUTIVE"
+        ? { ...reservation, payments: [], charges: [], outletOrders: [], events: [] }
+        : reservation,
+    });
   } catch (err) {
     console.error("[owner.nrms.reservations] detail failed", err);
     res.status(500).json({ error: "Failed to load reservation" });
@@ -2064,18 +2490,170 @@ router.patch("/:id", (async (req: AuthedRequest, res: Response) => {
   }
 }) as RequestHandler);
 
+/**
+ * POST /:id/early-check-in-resolution
+ * Resolves legacy checked-in stays whose scheduled arrival is still in the
+ * future. Reception may either correct a mistaken arrival date or explicitly
+ * approve a genuine early arrival. The actual checkedInAt timestamp is never
+ * rewritten, and every decision is retained in the immutable event timeline.
+ */
+router.post("/:id/early-check-in-resolution", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid reservation id" });
+    const parsed = earlyCheckInResolutionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Choose a resolution and record a reason", details: parsed.error.flatten() });
+
+    const scope = await prisma.reservation.findUnique({ where: { id }, select: { propertyId: true } });
+    if (!scope) return res.status(404).json({ error: "Reservation not found" });
+    const access = await loadNrmsPropertyAccess(req, res, scope.propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
+    if (!access) return;
+
+    const reservation = await prisma.reservation.findUnique({ where: { id }, include: detailInclude });
+    if (!reservation) return res.status(404).json({ error: "Reservation not found" });
+    if (reservation.status !== "CHECKED_IN" || !reservation.checkedInAt) {
+      return res.status(409).json({ error: "Only a checked-in stay with an actual check-in time can be resolved", code: "EARLY_CHECKIN_NOT_APPLICABLE" });
+    }
+    if (reservation.events.some((event: any) => event.type === "EARLY_CHECKIN_APPROVED")) {
+      return res.status(409).json({ error: "This early check-in has already been approved", code: "EARLY_CHECKIN_ALREADY_RESOLVED" });
+    }
+    const actualArrival = new Date(reservation.checkedInAt);
+    if (reservationDateKey(reservation.checkIn.toISOString()) <= dateKeyInNrmsTimeZone(actualArrival)) {
+      return res.status(409).json({ error: "The arrival date is already consistent with the actual check-in", code: "EARLY_CHECKIN_ALREADY_RESOLVED" });
+    }
+    if (reservation.bookingId != null && parsed.data.resolution === "CORRECT_ARRIVAL_DATE") {
+      return res.status(409).json({
+        error: "A NoLSAF marketplace booking date cannot be rewritten from Front Desk. Approve the operational early check-in or use the marketplace correction process.",
+        code: "MARKETPLACE_DATE_CORRECTION_FORBIDDEN",
+      });
+    }
+
+    const operationalCheckIn = new Date(`${dateKeyInNrmsTimeZone(actualArrival)}T00:00:00.000Z`);
+    if (reservation.checkOut.getTime() <= operationalCheckIn.getTime()) {
+      return res.status(409).json({ error: "The actual arrival is not before the scheduled check-out date", code: "INVALID_STAY_DATES" });
+    }
+    const reason = sanitizeText(parsed.data.reason);
+    if (reason.trim().length < 2) return res.status(400).json({ error: "Record a meaningful reason for this correction" });
+    const oldCheckIn = reservation.checkIn;
+    const eventType = parsed.data.resolution === "CORRECT_ARRIVAL_DATE" ? "ARRIVAL_DATE_CORRECTED" : "EARLY_CHECKIN_APPROVED";
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, reservation.propertyId);
+      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
+      const current = await tx.reservation.findUnique({
+        where: { id: reservation.id },
+        select: { status: true, checkIn: true, checkOut: true, checkedInAt: true },
+      });
+      if (!current
+        || current.status !== "CHECKED_IN"
+        || !current.checkedInAt
+        || current.checkIn.getTime() !== reservation.checkIn.getTime()
+        || current.checkOut.getTime() !== reservation.checkOut.getTime()
+        || current.checkedInAt.getTime() !== reservation.checkedInAt.getTime()) {
+        throw new Error("NRMS_EARLY_CHECKIN_STALE");
+      }
+      const existingApproval = await tx.reservationEvent.findFirst({
+        where: { reservationId: reservation.id, type: "EARLY_CHECKIN_APPROVED" },
+        select: { id: true },
+      });
+      if (existingApproval) throw new Error("NRMS_EARLY_CHECKIN_ALREADY_RESOLVED");
+      const activeAllocations = await tx.reservationRoomAllocation.findMany({
+        where: { reservationId: reservation.id, status: "ACTIVE" },
+        select: { id: true, roomTypeId: true, roomUnitId: true },
+      });
+      const requestedByType = new Map<number, number>();
+      for (const allocation of activeAllocations) requestedByType.set(allocation.roomTypeId, (requestedByType.get(allocation.roomTypeId) ?? 0) + 1);
+      for (const [roomTypeId, requested] of requestedByType) {
+        const capacity = await getRoomTypeAvailability(tx, reservation.propertyId, roomTypeId, operationalCheckIn, reservation.checkOut, {
+          excludeReservationId: reservation.id,
+        });
+        if (capacity.available < requested) return { capacityConflict: { roomTypeId, requested, ...capacity } };
+      }
+      for (const allocation of activeAllocations.filter((item: any) => item.roomUnitId != null)) {
+        const conflicts = await findUnitConflicts(allocation.roomUnitId, operationalCheckIn, reservation.checkOut, {
+          excludeReservationId: reservation.id,
+          db: tx,
+        });
+        if (conflicts.length) return { conflict: { roomUnitId: allocation.roomUnitId, conflicts } };
+      }
+
+      await tx.reservationRoomAllocation.updateMany({
+        where: { reservationId: reservation.id, status: "ACTIVE" },
+        data: { startDate: operationalCheckIn },
+      });
+      if (parsed.data.resolution === "CORRECT_ARRIVAL_DATE") {
+        await tx.reservation.update({ where: { id: reservation.id }, data: { checkIn: operationalCheckIn } });
+      }
+      await tx.reservationEvent.create({
+        data: {
+          reservationId: reservation.id,
+          type: eventType,
+          actorId: access.actorId,
+          data: {
+            resolution: parsed.data.resolution,
+            reason,
+            scheduledArrival: oldCheckIn.toISOString(),
+            operationalArrival: operationalCheckIn.toISOString(),
+            actualCheckedInAt: actualArrival.toISOString(),
+            financialReviewRequired: true,
+            pricingChanged: false,
+          },
+        },
+      });
+      return { ok: true };
+    }, EXTENDED_TX_OPTIONS);
+
+    if ("conflict" in result && result.conflict) {
+      return res.status(409).json({ error: "The earlier arrival conflicts with another stay in the assigned room", code: "ROOM_CONFLICT", conflict: result.conflict });
+    }
+    if ("capacityConflict" in result && result.capacityConflict) {
+      return res.status(409).json({ error: "There is insufficient room availability for the earlier arrival", code: "ROOM_TYPE_CAPACITY_CONFLICT", conflict: result.capacityConflict });
+    }
+    const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
+    res.json({
+      reservation: formatReservation(updated),
+      financialReviewRequired: true,
+      message: parsed.data.resolution === "CORRECT_ARRIVAL_DATE"
+        ? "Arrival date corrected. Review the folio because pricing was not changed automatically."
+        : "Early check-in approved. The scheduled arrival and pricing were preserved for audit; review the folio if an additional night should be charged.",
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_EARLY_CHECKIN_STALE") {
+      return res.status(409).json({ error: "The reservation changed before this correction was saved. Refresh and review it again.", code: "EARLY_CHECKIN_STALE" });
+    }
+    if (err instanceof Error && err.message === "NRMS_EARLY_CHECKIN_ALREADY_RESOLVED") {
+      return res.status(409).json({ error: "This early check-in has already been approved", code: "EARLY_CHECKIN_ALREADY_RESOLVED" });
+    }
+    if (rejectLockedBusinessDay(res, err)) return;
+    console.error("[owner.nrms.reservations] early check-in resolution failed", err);
+    res.status(500).json({ error: "Failed to resolve the early check-in" });
+  }
+}) as RequestHandler);
+
 /** Shared transition helper: guards allowed source statuses and writes the audit event. */
 function transition(
   eventType: string,
   allowedFrom: string[],
   buildData: (reason: string | null) => Record<string, unknown>,
-  opts?: { releaseAllocations?: boolean; requireAssignedRooms?: boolean; requireRoomsReady?: boolean; voidMasterRoom?: boolean },
+  opts?: { releaseAllocations?: boolean; requireAssignedRooms?: boolean; requireRoomsReady?: boolean; requireArrivalStarted?: boolean; voidMasterRoom?: boolean },
 ) {
   return (async (req: AuthedRequest, res: Response) => {
     try {
       const ownerId = req.user!.id;
-      const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
-      if (!reservation) return;
+      const reservationId = Number(req.params.id);
+      if (!Number.isInteger(reservationId) || reservationId <= 0) return res.status(400).json({ error: "Invalid reservation id" });
+      // Check lifecycle gates before loading the full financial/detail graph.
+      // A blocked arrival needs only its status and active room allocations.
+      const reservation = await prisma.reservation.findFirst({
+        where: { id: reservationId, ownerId },
+        select: {
+          id: true, propertyId: true, groupId: true, status: true, bookingId: true,
+          agentPropertyLinkId: true, checkIn: true,
+          allocations: { where: { status: "ACTIVE" }, select: { status: true, roomUnitId: true } },
+        },
+      });
+      if (!reservation) return res.status(404).json({ error: "Reservation not found" });
+      if (reservation.bookingId != null) return res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
       if (!allowedFrom.includes(reservation.status)) {
         return res.status(409).json({
           error: `Cannot ${eventType.toLowerCase().replace(/_/g, " ")} a ${reservation.status.toLowerCase()} reservation`,
@@ -2150,6 +2728,12 @@ function transition(
 
       await prisma.$transaction(async (tx: any) => {
         await lockPropertyInventory(tx, reservation.propertyId);
+        if (opts?.requireArrivalStarted) {
+          await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
+          const calendarDate = shiftDayKey(new Date());
+          const conflict = nrmsCheckInDateConflict(new Date(reservation.checkIn), calendarDate);
+          if (conflict) throw new Error(`NRMS_CHECKIN_BEFORE_ARRIVAL:${conflict.arrivalDate}:${conflict.businessDate}`);
+        }
         if (opts?.requireAssignedRooms) {
           const activeAllocations = await tx.reservationRoomAllocation.findMany({
             where: { reservationId: reservation.id, status: "ACTIVE" },
@@ -2201,11 +2785,22 @@ function transition(
           data: { reservationId: reservation.id, type: eventType, actorId: ownerId, data: Object.keys(eventData).length ? eventData : undefined },
         });
         if (eventType === "CHECKED_IN") await queueNrmsCheckInWelcome(tx, reservation.id);
+        if (reservation.groupId != null) await refreshGroupStatus(tx, reservation.groupId);
       }, EXTENDED_TX_OPTIONS);
 
       const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
       res.json({ reservation: formatReservation(updated) });
     } catch (err) {
+      if (err instanceof Error && err.message.startsWith("NRMS_CHECKIN_BEFORE_ARRIVAL:")) {
+        const [, arrivalDate, businessDate] = err.message.split(":");
+        return res.status(409).json({
+          error: `Check-in opens on the arrival business date, ${arrivalDate}.`,
+          code: "CHECKIN_BEFORE_ARRIVAL",
+          arrivalDate,
+          businessDate,
+        });
+      }
+      if (rejectLockedBusinessDay(res, err)) return;
       if (err instanceof Error && err.message === "NRMS_ROOM_ASSIGNMENT_REQUIRED") {
         return res.status(409).json({
           error: "Assign a specific room to every active allocation before check-in",
@@ -2262,7 +2857,7 @@ router.post("/:id/confirm", (async (req: AuthedRequest, res: Response) => {
 /** POST /:id/check-in - CONFIRMED -> CHECKED_IN (owner-authorized, doc 7.4) */
 router.post(
   "/:id/check-in",
-  transition("CHECKED_IN", ["CONFIRMED"], () => ({ status: "CHECKED_IN", checkedInAt: new Date() }), { requireAssignedRooms: true, requireRoomsReady: true }),
+  transition("CHECKED_IN", ["CONFIRMED"], () => ({ status: "CHECKED_IN", checkedInAt: new Date() }), { requireAssignedRooms: true, requireRoomsReady: true, requireArrivalStarted: true }),
 );
 
 /**
@@ -2274,15 +2869,22 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     const verification = checkoutVerificationSchema.safeParse(req.body ?? {});
     if (!verification.success) return res.status(400).json({ error: "Invalid charge verification list" });
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { allowMarketplace: true });
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "SETTLEMENT" });
     if (!reservation) return;
     const activeProperty = await loadOwnedActiveNrmsProperty(res, ownerId, reservation.propertyId);
     if (!activeProperty) return;
     if (reservation.status !== "CHECKED_IN") return res.status(409).json({ error: "Only checked-in stays can be checked out", code: "INVALID_TRANSITION" });
     const billing = await prisma.$transaction(async (tx: any) => {
       await lockPropertyInventory(tx, reservation.propertyId);
-      await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
-      return finalizeNrmsCheckout(tx, reservation, ownerId, verification.data.verifiedChargeIds);
+      const businessDate = await assertNrmsBusinessDayWritable(tx, reservation.propertyId);
+      const result = await finalizeNrmsCheckout(tx, reservation, ownerId, verification.data.verifiedChargeIds, {
+        businessDate,
+        actorId: ownerId,
+        roomVacantConfirmed: verification.data.roomVacantConfirmed,
+        earlyDepartureReason: verification.data.earlyDepartureReason,
+      });
+      if (reservation.groupId != null) await refreshGroupStatus(tx, reservation.groupId);
+      return result;
     }, EXTENDED_TX_OPTIONS);
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated), billing });
@@ -2338,6 +2940,12 @@ router.post("/:id/check-out", (async (req: AuthedRequest, res: Response) => {
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_FOLIO_MISSING:")) {
       return res.status(409).json({ error: "Checkout blocked because the agency master folio is missing.", code: "MASTER_FOLIO_MISSING" });
     }
+    if (err instanceof Error && err.message === "NRMS_ROOM_VACANCY_CONFIRMATION_REQUIRED") {
+      return res.status(409).json({ error: "Confirm that the guest has physically left and the room is vacant.", code: "ROOM_VACANCY_CONFIRMATION_REQUIRED" });
+    }
+    if (err instanceof Error && err.message === "NRMS_EARLY_DEPARTURE_REASON_REQUIRED") {
+      return res.status(409).json({ error: "Record a reason for the early departure before checkout.", code: "EARLY_DEPARTURE_REASON_REQUIRED" });
+    }
     if (err instanceof Error && err.message === "NRMS_INVALID_TRANSITION_RACE") {
       return res.status(409).json({ error: "Reservation changed before checkout confirmation", code: "INVALID_TRANSITION" });
     }
@@ -2372,17 +2980,94 @@ router.post(
 );
 
 /**
+ * POST /:id/room-assignment/prepare
+ * Restores the booked category before a physical room is chosen. Marketplace
+ * bookings are repaired from their authoritative NoLSAF room selection; no
+ * category is guessed or silently changed.
+ */
+router.post("/:id/room-assignment/prepare", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const loaded = await loadRoomAssignmentReservation(req, res, Number(req.params.id));
+    if (!loaded) return;
+    const { reservation } = loaded;
+    if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
+      return res.status(409).json({
+        error: `Room assignment is unavailable on a ${reservation.status.toLowerCase()} reservation`,
+        code: "ROOM_ASSIGNMENT_STATUS_REQUIRED",
+      });
+    }
+
+    const active = reservation.allocations.filter((allocation: any) => allocation.status === "ACTIVE");
+    if (active.length > 0) {
+      return res.json({ reservation: formatReservation(reservation), repaired: false });
+    }
+
+    if (reservation.bookingId == null) {
+      return res.status(409).json({
+        error: "This reservation has no booked room category. A manager must correct the reservation record before a room number can be assigned.",
+        code: "ROOM_CATEGORY_RECORD_MISSING",
+      });
+    }
+
+    await syncNoLsafBookingToNrms(prisma, reservation.bookingId);
+    const repaired = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
+    const repairedActive = repaired?.allocations?.filter((allocation: any) => allocation.status === "ACTIVE") ?? [];
+    if (repaired && repairedActive.length > 0) {
+      return res.json({ reservation: formatReservation(repaired), repaired: true });
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: reservation.bookingId },
+      select: { roomCode: true, property: { select: { roomsSpec: true } } },
+    });
+    const bookedRoomCategory = roomTypeCodeFromSpec(booking?.property?.roomsSpec, booking?.roomCode ?? null);
+    return res.status(409).json({
+      error: bookedRoomCategory
+        ? `The booked category “${bookedRoomCategory}” is not mapped to an active NRMS room type. Add or map that category, then retry here.`
+        : "This NoLSAF booking does not contain a usable room category. Correct the booking category before assigning a room number.",
+      code: "ROOM_CATEGORY_MAPPING_REQUIRED",
+      bookedRoomCategory,
+    });
+  } catch (err) {
+    console.error("[owner.nrms.reservations] room assignment preparation failed", err);
+    res.status(500).json({ error: "Failed to prepare room assignment" });
+  }
+}) as RequestHandler);
+
+/**
  * POST /:id/move-room
  * Releases the old allocation and creates a new one so history is preserved
  * (doc 7.4: record room assignment changes).
  */
 router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
-    if (!reservation) return;
-    if (!["CONFIRMED", "CHECKED_IN", "HELD"].includes(reservation.status)) {
+    // Which physical room a guest sleeps in is the property's decision, not a
+    // commercial one. Without this a marketplace stay could never be given a
+    // room number and would sit on the front desk as permanently unassigned.
+    const loaded = await loadRoomAssignmentReservation(req, res, Number(req.params.id));
+    if (!loaded) return;
+    const { reservation, access } = loaded;
+    if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot move rooms on a ${reservation.status.toLowerCase()} reservation` });
+    }
+    const financial = formatReservation(reservation) as any;
+    const effectivePaid = Number(financial.effectivePaid ?? financial.amountPaid ?? 0);
+    const total = Number(financial.totalAmount ?? 0) + Number(financial.chargesTotal ?? 0);
+    const isMarketplaceReservation = reservation.bookingId != null;
+    const paymentReady = isMarketplaceReservation
+      ? ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN"].includes(String(financial.marketplaceBooking?.status || "").toUpperCase())
+      : financial.agencySettlement
+        ? financial.agencySettlement.settled === true
+        : Number(financial.balance ?? total - effectivePaid) <= 0.005 && (total <= 0.005 || effectivePaid > 0);
+    if (!paymentReady) {
+      return res.status(409).json({
+        error: isMarketplaceReservation
+          ? "Confirm the NoLSAF booking before assigning its paid room category"
+          : "Record the guest payment before assigning a room",
+        code: isMarketplaceReservation
+          ? "ROOM_ASSIGNMENT_BOOKING_CONFIRMATION_REQUIRED"
+          : "ROOM_ASSIGNMENT_PAYMENT_REQUIRED",
+      });
     }
     const parsed = moveRoomSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2398,44 +3083,36 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
       select: { id: true, roomTypeId: true, code: true },
     });
     if (!unit) return res.status(400).json({ error: "Target room is not an active room of this property" });
-
-    const result = await prisma.$transaction(async (tx: any) => {
-      await lockPropertyInventory(tx, reservation.propertyId);
-      const conflicts = await findUnitConflicts(roomUnitId, allocation.startDate, allocation.endDate, {
-        excludeReservationId: reservation.id,
-        db: tx,
+    if (reservation.source === "NOLSAF" && unit.roomTypeId !== allocation.roomTypeId) {
+      return res.status(409).json({
+        error: "Choose a room number from the room type paid for by the guest",
+        code: "ROOM_TYPE_MISMATCH",
       });
-      if (conflicts.length > 0) return { conflict: { roomUnitId, conflicts } };
+    }
 
-      await tx.reservationRoomAllocation.update({ where: { id: allocation.id }, data: { status: "RELEASED" } });
-      const next = await tx.reservationRoomAllocation.create({
-        data: {
-          reservationId: reservation.id,
-          roomTypeId: unit.roomTypeId,
-          roomUnitId: unit.id,
-          startDate: allocation.startDate,
-          endDate: allocation.endDate,
-        },
-      });
-      await tx.reservationEvent.create({
-        data: {
-          reservationId: reservation.id,
-          type: "ROOM_MOVED",
-          actorId: ownerId,
-          data: {
-            fromAllocationId: allocation.id,
-            fromRoomUnitId: allocation.roomUnitId,
-            toRoomUnitId: unit.id,
-            toRoomCode: unit.code,
-            ...(reason ? { reason: sanitizeText(reason) } : {}),
-          },
-        },
-      });
-      return { allocationId: next.id };
-    }, EXTENDED_TX_OPTIONS);
+    const result = await prisma.$transaction((tx: any) => moveRoomAllocation(tx, {
+      reservation, unit, allocationId, roomUnitId, ownerId: access.actorId, reason,
+    }), EXTENDED_TX_OPTIONS);
 
+    if ("stale" in result) return res.status(409).json({ error: "This room allocation has changed. Reload the reservation before assigning again.", code: "ROOM_ALLOCATION_CHANGED" });
     if ("conflict" in result && result.conflict) {
       return res.status(409).json({ error: "The target room is not available for these dates", code: "ROOM_CONFLICT", conflict: result.conflict });
+    }
+    // NRMS check-in refuses to run without an assigned room, so the welcome
+    // SMS always has one to name. Marketplace check-in happens against the
+    // guest's code instead and carries no such gate, so a NoLSAF guest can be
+    // in house with no unit, which skips the welcome as NO_ASSIGNED_ROOM and
+    // leaves them with no room-ordering link for the rest of the stay.
+    // Assigning the room is the moment that becomes possible. The unique
+    // (template, reservation) delivery key makes the retry harmless for a
+    // guest who was already sent one, and a failure here must not undo a
+    // completed room move.
+    if (reservation.status === "CHECKED_IN") {
+      try {
+        await queueNrmsCheckInWelcome(prisma, reservation.id);
+      } catch (err) {
+        console.error("[owner.nrms.reservations] welcome retry after room move failed", err);
+      }
     }
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
@@ -2452,7 +3129,7 @@ router.post("/:id/move-room", (async (req: AuthedRequest, res: Response) => {
 router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     if (["CANCELLED", "EXPIRED"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot record a payment on a ${reservation.status.toLowerCase()} reservation` });
@@ -2587,7 +3264,7 @@ router.post("/:id/payments", (async (req: AuthedRequest, res: Response) => {
 router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     const paymentId = Number(req.params.paymentId);
     const payment = reservation.payments.find((p: any) => p.id === paymentId);
@@ -2617,7 +3294,7 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
           data: { paymentId, ...(reason ? { reason } : {}) },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
@@ -2637,7 +3314,7 @@ router.post("/:id/payments/:paymentId/void", (async (req: AuthedRequest, res: Re
 router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     if (!["CONFIRMED", "CHECKED_IN"].includes(reservation.status)) {
       return res.status(409).json({ error: `Cannot post a charge on a ${reservation.status.toLowerCase().replace(/_/g, " ")} reservation`, code: "CHARGE_INVALID_STATUS" });
@@ -2673,7 +3350,7 @@ router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
           data: { chargeId: charge.id, category: data.category, amount: data.amount },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.status(201).json({ reservation: formatReservation(updated) });
@@ -2696,7 +3373,7 @@ router.post("/:id/charges", (async (req: AuthedRequest, res: Response) => {
 router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id));
+    const reservation = await loadOwnedReservation(res, ownerId, Number(req.params.id), { marketplace: "INCIDENTALS" });
     if (!reservation) return;
     const chargeId = Number(req.params.chargeId);
     const charge = (reservation as any).charges.find((c: any) => c.id === chargeId);
@@ -2723,7 +3400,7 @@ router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Resp
           data: { chargeId, ...(reason ? { reason } : {}) },
         },
       });
-    });
+    }, EXTENDED_TX_OPTIONS);
 
     const updated = await prisma.reservation.findUnique({ where: { id: reservation.id }, include: detailInclude });
     res.json({ reservation: formatReservation(updated) });
@@ -2742,7 +3419,16 @@ router.post("/:id/charges/:chargeId/void", (async (req: AuthedRequest, res: Resp
 router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.user!.id;
-    const id = Number(req.params.id);
+    // The PDF opens in its own tab, so the browser shows this URL. Accept the
+    // opaque rs_ reference (matched against this owner's reservations) so the
+    // row id never has to appear there.
+    const rawId = String(req.params.id || "").trim();
+    let id = Number(rawId);
+    if (isNrmsReservationReference(rawId)) {
+      const candidates = await prisma.reservation.findMany({ where: { ownerId }, select: { id: true } });
+      id = candidates.find((candidate) => matchesNrmsReservationReference(rawId, candidate.id))?.id ?? Number.NaN;
+      if (!Number.isInteger(id)) return res.status(404).json({ error: "Reservation not found" });
+    }
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid reservation id" });
     const reservation = await prisma.reservation.findFirst({
       where: { id, ownerId },
@@ -2752,9 +3438,6 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       },
     });
     if (!reservation) return res.status(404).json({ error: "Reservation not found" });
-    if (reservation.bookingId != null) {
-      return res.status(409).json({ error: "NoLSAF bookings are managed through the marketplace booking flow", code: "MARKETPLACE_BOOKING" });
-    }
     if (!["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(reservation.status)) {
       return res.status(409).json({ error: "An invoice is only available for confirmed, checked-in or checked-out stays", code: "INVOICE_INVALID_STATUS" });
     }
@@ -2763,7 +3446,26 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       .filter(Boolean)
       .join(", ");
     const activeAllocations = reservation.allocations.filter((a: any) => a.status === "ACTIVE");
-    const amountPaid = decimal(reservation.amountPaid) ?? 0;
+    // A marketplace stay keeps its money on Booking, so the reservation's own
+    // room total and amountPaid are zero. The guest still stayed in this
+    // property's room and is entitled to this property's folio, so the
+    // accommodation is read from the booking and presented as already settled
+    // through NoLSAF. Anything the desk posted here is the property's own
+    // incidental revenue and prints exactly as it does for any other stay.
+    const marketplace = (reservation as any).booking ?? null;
+    const marketplaceInvoiceRow = marketplace?.invoices?.find(
+      (invoice: any) => !String(invoice.invoiceNumber ?? "").startsWith("OINV-"),
+    ) ?? null;
+    const marketplaceRoomTotal = marketplace ? decimal(marketplace.totalAmount) ?? 0 : 0;
+    const marketplacePayments = marketplace && marketplaceRoomTotal > 0
+      ? [{
+          date: marketplaceInvoiceRow?.createdAt ?? reservation.confirmedAt ?? reservation.createdAt,
+          method: "NOLSAF_MARKETPLACE",
+          reference: marketplaceInvoiceRow?.invoiceNumber ?? null,
+          amount: marketplaceRoomTotal,
+        }]
+      : [];
+    const amountPaid = (decimal(reservation.amountPaid) ?? 0) + marketplaceRoomTotal;
     const transferredToMaster = reservation.masterFolioItems
       .filter((item: any) => !item.voidedAt)
       .reduce((sum: number, item: any) => sum + (decimal(item.amount) ?? 0), 0);
@@ -2778,7 +3480,8 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
     // For an agency stay the folio is the ledger, so the document reports what
     // the agency paid there rather than the reservation's own figure.
     const collected = agentSettlement ? agentSettlement.paidAmount : amountPaid;
-    const balanceDue = computeGuestBalance(reservation.totalAmount, reservation.chargesTotal, collected + settledTransfer);
+    const effectiveRoomTotal = marketplace ? marketplaceRoomTotal : decimal(reservation.totalAmount) ?? 0;
+    const balanceDue = computeGuestBalance(effectiveRoomTotal, reservation.chargesTotal, collected + settledTransfer);
     const validPayments = reservation.payments.filter((payment) => !payment.voidedAt);
     const validOutletPayments = reservation.outletOrders.filter((order: any) =>
       order.settlementMode === "OUTLET_PAYMENT" && order.status === "SETTLED" && !order.voidedAt,
@@ -2788,6 +3491,7 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
     const settlementDates = [
       ...validPayments.map((payment) => payment.createdAt),
       ...validOutletPayments.map((order: any) => order.settledAt || order.createdAt),
+      ...marketplacePayments.map((payment) => new Date(payment.date)),
     ];
     const issuedAt = settled && settlementDates.length
       ? settlementDates.reduce((latest, date) => date > latest ? date : latest, settlementDates[0])
@@ -2837,13 +3541,16 @@ router.get("/:id/invoice.pdf", (async (req: AuthedRequest, res: Response) => {
       checkOut: reservation.checkOut,
       rooms: activeAllocations.map((a: any) => ({ label: a.roomUnit?.code ?? a.roomType?.name ?? "Room" })),
       currency: reservation.currency,
-      roomTotal: decimal(reservation.totalAmount) ?? 0,
+      roomTotal: effectiveRoomTotal,
       charges: (reservation as any).charges
         .filter((c: any) => !c.voidedAt)
         .map((c: any) => ({ date: c.createdAt, category: c.category, description: c.description, amount: decimal(c.amount) ?? 0 })),
-      payments: reservation.payments
-        .filter((p: any) => !p.voidedAt)
-        .map((p: any) => ({ date: p.createdAt, method: p.method, reference: p.reference, amount: decimal(p.amount) ?? 0 })),
+      payments: [
+        ...marketplacePayments,
+        ...reservation.payments
+          .filter((p: any) => !p.voidedAt)
+          .map((p: any) => ({ date: p.createdAt, method: p.method, reference: p.reference, amount: decimal(p.amount) ?? 0 })),
+      ],
       outletPayments: validOutletPayments.map((order: any) => ({
         date: order.settledAt || order.createdAt,
         orderNumber: order.orderNumber,

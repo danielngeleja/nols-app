@@ -14,6 +14,7 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { nrmsOrderPlacementSettlement } from "../lib/nrmsOrders.js";
 import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
 import { readStayOrderingToken } from "../lib/nrmsStayToken.js";
+import { activeStayReservationWhere } from "../lib/nrmsActiveStay.js";
 import {
   limitPublicQrMenu,
   limitPublicQrOrderCreate,
@@ -77,11 +78,10 @@ async function findStayForPoint(point: {
     where: {
       roomUnitId: point.roomUnitId,
       status: "ACTIVE",
-      reservation: {
+      reservation: activeStayReservationWhere({
         propertyId: point.propertyId,
-        status: "CHECKED_IN",
-        ...(point.boundReservationId ? { id: point.boundReservationId } : {}),
-      },
+        ...(point.boundReservationId ? { reservationId: point.boundReservationId } : {}),
+      }),
     },
     select: {
       reservation: {
@@ -114,7 +114,7 @@ function pointCustomerLabel(point: { type: string; label: string }): string {
  */
 async function loadPointForStayToken(reservationId: number) {
   const reservation = await db.reservation.findFirst({
-    where: { id: reservationId, status: "CHECKED_IN" },
+    where: activeStayReservationWhere({ reservationId }),
     select: {
       id: true,
       propertyId: true,
@@ -397,6 +397,23 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
     outletCurrency: outlet.currency,
   });
 
+  // A permanent room QR still supports pay-now service after checkout. When it
+  // is used inside the stay's original date window and no new guest occupies
+  // that room, retain a review signal against the departed stay. It is evidence
+  // for integrity review, not an automatic charge: a guest may legitimately be
+  // finishing a paid order after leaving the room.
+  const postCheckoutStay = !stay && point.type === "ROOM" && point.roomUnitId != null
+    ? await db.reservationRoomAllocation.findFirst({
+        where: {
+          roomUnitId: point.roomUnitId,
+          status: "ACTIVE",
+          reservation: { propertyId: point.propertyId, status: "CHECKED_OUT", checkOut: { gt: new Date() }, checkedOutAt: { not: null } },
+        },
+        select: { reservationId: true, reservation: { select: { checkedOutAt: true, checkOut: true } } },
+        orderBy: { reservation: { checkedOutAt: "desc" } },
+      })
+    : null;
+
   // Abuse cap: a point can only hold a handful of unfinished orders at once.
   const openOrders = await db.nrmsOutletOrder.count({
     where: { orderPointId: point.id, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] } },
@@ -436,7 +453,7 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
     // Staff declining the order gives the quantity back (cancel route).
     order = await db.$transaction(async (tx: any) => {
       await reserveMenuStock(tx, menuItems, requested);
-      return tx.nrmsOutletOrder.create({
+      const createdOrder = await tx.nrmsOutletOrder.create({
         data: {
           propertyId: point.propertyId,
           outletId: outlet.id,
@@ -462,6 +479,23 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
           items: { orderBy: { id: "asc" } },
         },
       });
+      if (postCheckoutStay) {
+        await tx.reservationEvent.create({
+          data: {
+            reservationId: postCheckoutStay.reservationId,
+            type: "POST_CHECKOUT_ROOM_ACTIVITY",
+            data: {
+              orderId: createdOrder.id,
+              orderPointId: point.id,
+              roomUnitId: point.roomUnitId,
+              settlementMode: settlement.settlementMode,
+              checkedOutAt: postCheckoutStay.reservation.checkedOutAt,
+              plannedCheckOut: postCheckoutStay.reservation.checkOut,
+            },
+          },
+        });
+      }
+      return createdOrder;
     });
   } catch (error) {
     if (error instanceof StockError) {

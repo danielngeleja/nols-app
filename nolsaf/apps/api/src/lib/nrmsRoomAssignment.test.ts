@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { assignGroupRooms } from "./nrmsRoomAssignment.js";
+import { assignGroupRooms, roomAssignmentPaymentReady } from "./nrmsRoomAssignment.js";
 
 const availability = vi.hoisted(() => ({ findUnitConflicts: vi.fn() }));
 
@@ -14,11 +14,15 @@ type UnitSpec = { id: number; code: string; roomTypeId: number; housekeepingStat
 
 function fakeTx(members: MemberSpec[], units: UnitSpec[]) {
   return {
+    nrmsGroupBlock: { findUnique: vi.fn().mockResolvedValue(null) },
     updates: [] as Array<{ id: number; roomUnitId: number }>,
     reservation: {
       findMany: vi.fn().mockResolvedValue(
         members.map((member) => ({
           id: member.id,
+          totalAmount: 100,
+          chargesTotal: 0,
+          amountPaid: 100,
           guestProfile: { fullName: member.name },
           allocations: [{ id: member.allocationId, roomTypeId: member.roomTypeId, roomUnitId: member.roomUnitId ?? null, startDate: START, endDate: END }],
         })),
@@ -45,6 +49,10 @@ beforeEach(() => {
 });
 
 describe("group room assignment", () => {
+  it("uses the agency folio rather than charging the traveller again", () => {
+    expect(roomAssignmentPaymentReady({ totalAmount: 100, amountPaid: 0, agencyBilled: true, masterFolioStatus: "SETTLED" })).toBe(true);
+    expect(roomAssignmentPaymentReady({ totalAmount: 100, amountPaid: 100, agencyBilled: true, masterFolioStatus: "OPEN" })).toBe(false);
+  });
   it("fills every unassigned stay in one pass", async () => {
     tx = fakeTx(
       [

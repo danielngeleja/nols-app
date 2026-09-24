@@ -1,5 +1,6 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
+import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { Prisma } from "@prisma/client";
 import { blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
 import { confirmedCustomerPayment } from "../services/payouts/eligibility.js";
@@ -17,7 +18,6 @@ import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import type { AuthedRequest } from "../middleware/auth.js";
 
 export const router = Router();
-import type { RequestHandler } from "express";
 
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler);
 
@@ -366,7 +366,8 @@ router.post("/:id/pay", async (req, res) => {
     const nextCommissionAmount = resolveCommissionAmount({
       invoiceNumber: inv.invoiceNumber,
       invoiceTotal: inv.total,
-      commissionAmount: inv.commissionAmount,
+      // undefined, not null: the helper reads Number(null) as a recorded 0.
+      commissionAmount: inv.commissionAmount ?? undefined,
       netPayable,
       bookingTotalAmount: (inv as any)?.booking?.totalAmount,
       transportFare: (inv as any)?.booking?.transportFare,
@@ -585,7 +586,7 @@ router.post("/:id/reject", async (req, res) => {
  * - stamps PAID, generates receiptNumber, QR payload & PNG
  * - emits socket "admin:invoice:paid" so Admin UI auto-refreshes
  */
-router.post("/:id/mark-paid", async (req, res) => {
+router.post("/:id/mark-paid", blockImpersonated as RequestHandler, requireAdminFinanceGrant as RequestHandler, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const authReq = req as AuthedRequest;

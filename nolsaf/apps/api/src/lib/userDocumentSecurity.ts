@@ -22,6 +22,9 @@ const OWNER_DOCUMENT_TYPES = new Set([
 const AGENT_DOCUMENT_TYPES = new Set([
   "NATIONAL_ID",
   "PASSPORT",
+  // One combined slot on the operator upload page, mirrored by the admin review
+  // panel. Without it every National ID / Passport upload was rejected with 400.
+  "NATIONAL_ID_OR_PASSPORT",
   "CONTRACT",
   "CERTIFICATE",
   "LICENSE",

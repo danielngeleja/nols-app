@@ -16,7 +16,7 @@ import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
 import { hashCode } from '../lib/otp.js';
-import { maybeAuth, requireAuth } from '../middleware/auth.js';
+import { maybeAuth, requireAuth, blockImpersonated } from '../middleware/auth.js';
 import { invalidateAuthSessionCacheForUser } from '../lib/authSessionCache.js';
 import { limitAccountCheck, limitOtpSend, limitOtpVerify, limitLoginAttempts, limitRegisterAttempts } from '../middleware/rateLimit.js';
 import { isEmailLocked, recordFailedAttempt, clearFailedAttempts } from '../lib/loginAttemptTracker.js';
@@ -26,10 +26,29 @@ import { getRedis } from '../lib/redis.js';
 import { invalidateAuthSessionCacheForToken } from '../lib/authSessionCache.js';
 import { getLoginAppRoleError, normalizeAccountRole } from '../lib/loginAppRolePolicy.js';
 import { beginAdminMfaChallenge } from './auth.adminMfa.js';
+import { accountMfaRouter, beginAccountMfaChallenge } from './auth.accountMfa.js';
+import { requiresAccountTotp } from '../lib/accountMfaPolicy.js';
 import { resolveRegistrationSource } from '../lib/registrationLifecycle.js';
 import { attributePropertyShare } from '../lib/propertyShareAttribution.js';
+import { referralCandidates, type ReferralKind } from '../lib/referralCode.js';
+
+/**
+ * Who a referral code belongs to. A driver code only credits an actual driver;
+ * a customer code credits any existing account (the same rules as the old
+ * CUSTOMER-<id> / DRIVER-<id> parser this replaced).
+ */
+async function resolveReferrer(code: string): Promise<{ id: number; kind: ReferralKind } | null> {
+  for (const candidate of referralCandidates(code)) {
+    const referrer = await prisma.user.findUnique({ where: { id: candidate.id }, select: { id: true, role: true } });
+    if (!referrer) continue;
+    if (candidate.kind === 'DRIVER' && String(referrer.role || '').toUpperCase() !== 'DRIVER') continue;
+    return { id: referrer.id, kind: candidate.kind };
+  }
+  return null;
+}
 
 const router = Router();
+router.use(accountMfaRouter);
 
 router.get('/password-policy', async (_req, res) => {
   const policy = await getPublicPasswordPolicy();
@@ -342,6 +361,7 @@ function maskEmailForAudit(email: string): string {
 }
 
 function normalizeSignupRole(input: any): 'CUSTOMER' | 'OWNER' | 'DRIVER' | 'RESET' | null {
+  if (typeof input !== 'string') return null;
   const v = String(input ?? '').trim().toUpperCase();
   if (!v) return null;
   if (v === 'RESET') return 'RESET';
@@ -609,6 +629,9 @@ router.post('/send-otp', limitOtpSend, async (req, res) => {
   const genericOtpResponse = { ok: true, message: 'If this destination can receive a code, one has been sent.', channel };
 
   const normalizedRole = normalizeSignupRole(role);
+  if (role != null && role !== '' && !normalizedRole) {
+    return res.status(400).json({ error: 'invalid_role', message: 'Choose a valid account role.' });
+  }
   let resumeRegistration = false;
 
   // If no role is provided, treat this as a LOGIN OTP request.
@@ -822,6 +845,9 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
   const verifiedAtField = channel === 'PHONE' ? 'phoneVerifiedAt' : 'emailVerifiedAt';
 
   const requestedRole = normalizeSignupRole(role);
+  if (role != null && role !== '' && !requestedRole) {
+    return res.status(400).json({ error: 'invalid_role', message: 'Choose a valid account role.' });
+  }
 
   const entry = await getOtpEntry(channel, destination);
   if (!entry) {
@@ -874,7 +900,7 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
     try {
       const existing = await prisma.user.findFirst({
         where: destinationWhere,
-        select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true, kycStatus: true, kycNote: true },
+        select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true, kycStatus: true, kycNote: true, twoFactorEnabled: true, twoFactorMethod: true },
       });
       if (!existing) {
         return res.status(404).json({
@@ -918,6 +944,7 @@ router.post('/verify-otp', limitOtpVerify, async (req, res) => {
         // ignore update failures; login can still proceed
       }
 
+      if (requiresAccountTotp(existing)) return await beginAccountMfaChallenge(req, res, existing.id);
       const token = await signUserJwt({ id: existing.id, role: existing.role as any, email: existing.email });
       await setAuthCookie(res, token, existing.role as any);
       return res.json({
@@ -1140,7 +1167,11 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
       });
     }
 
-    const identifier = email.trim();
+    const rawIdentifier = email.trim();
+    const isEmailIdentifier = rawIdentifier.includes('@');
+    const identifier = isEmailIdentifier
+      ? rawIdentifier.toLowerCase()
+      : normalizePhoneForAuth(rawIdentifier);
     if (!identifier || !password) {
       return res.status(400).json({ error: "email and password required" });
     }
@@ -1178,23 +1209,11 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     
     let user;
     try {
-      const phoneCandidates = (() => {
-        const v = identifier;
-        const out: string[] = [];
-        out.push(v);
-        if (/^\d+$/.test(v) && v.length <= 12) out.push(`+255${v}`);
-        if (v.startsWith('0') && /^\d+$/.test(v.slice(1))) out.push(`+255${v.slice(1)}`);
-        return Array.from(new Set(out));
-      })();
-
+      // Display names are not login identifiers. An OR across name/email/phone
+      // can select a different account before password verification. Select
+      // only the canonical identifier supplied by this login request.
       user = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { email: identifier },
-            { name: identifier },
-            ...phoneCandidates.map((p) => ({ phone: p } as any)),
-          ] as any,
-        } as any,
+        where: isEmailIdentifier ? { email: identifier } : { phone: identifier },
         select: {
           id: true,
           role: true,
@@ -1355,6 +1374,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     if (String(user.role || '').toUpperCase() === 'ADMIN') {
       return await beginAdminMfaChallenge(req, res, user as any);
     }
+    if (requiresAccountTotp(user)) return await beginAccountMfaChallenge(req, res, user.id);
 
     // Generate JWT token with error handling
     let token: string;
@@ -1598,7 +1618,11 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
   if (!cleanName) return res.status(400).json({ error: 'name_required', message: 'Full name is required.' });
   if (!password || String(password).length < 1) return res.status(400).json({ error: 'password required' });
 
-  const desiredRole = normalizeSignupRole(role) || 'CUSTOMER';
+  const parsedRole = normalizeSignupRole(role);
+  if (role != null && role !== '' && !parsedRole) {
+    return res.status(400).json({ error: 'invalid_role', message: 'Choose a valid account role.' });
+  }
+  const desiredRole = parsedRole || 'CUSTOMER';
   if (desiredRole === 'RESET') return res.status(400).json({ error: 'invalid role' });
 
   const normalizedPhone = phone ? normalizePhoneForAuth(String(phone)) : null;
@@ -1643,24 +1667,11 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
     let referrerKind: 'DRIVER' | 'CUSTOMER' | null = null;
     if (referralCode) {
       try {
-        // Driver referral code format: DRIVER-XXXXXX
-        const driverMatch = String(referralCode).match(/^DRIVER-(\d+)$/i);
-        // Customer (invite friends) referral code format: CUSTOMER-XXXXXX
-        const customerMatch = String(referralCode).match(/^CUSTOMER-(\d+)$/i);
-        if (driverMatch) {
-          const candidateId = parseInt(driverMatch[1], 10);
-          const driver = await prisma.user.findUnique({ where: { id: candidateId, role: 'DRIVER' } as any });
-          if (driver) {
-            referredBy = candidateId;
-            referrerKind = 'DRIVER';
-          }
-        } else if (customerMatch) {
-          const candidateId = parseInt(customerMatch[1], 10);
-          const referrer = await prisma.user.findUnique({ where: { id: candidateId }, select: { id: true } });
-          if (referrer) {
-            referredBy = candidateId;
-            referrerKind = 'CUSTOMER';
-          }
+        // Opaque codes (C7K2M-9QX) and legacy CUSTOMER-<id> / DRIVER-<id> links both resolve here.
+        const resolved = await resolveReferrer(String(referralCode));
+        if (resolved) {
+          referredBy = resolved.id;
+          referrerKind = resolved.kind;
         }
       } catch (e) {
         console.warn('Failed to process referral code', referralCode, e);
@@ -1825,7 +1836,7 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
  * Creates or updates user profile after OTP verification and onboarding
  * Body: FormData with role, name, email, and optional referralCode
  */
-router.post('/profile', upload.none(), async (req, res) => {
+router.post('/profile', requireAuth, blockImpersonated, upload.none(), async (req, res) => {
   try {
     // Parse form data (multer handles multipart/form-data)
     const body = req.body;
@@ -1865,30 +1876,9 @@ router.post('/profile', upload.none(), async (req, res) => {
       return Number.isNaN(parsed.getTime()) ? undefined : parsed;
     };
     
-    // Get user from token (Authorization: Bearer OR httpOnly cookie)
-    const token =
-      req.headers.authorization?.replace('Bearer ', '') ||
-      (() => {
-        const raw = req.headers.cookie || "";
-        const part = raw.split(";").map((s) => s.trim()).find((s) => s.startsWith("nolsaf_token="));
-        if (!part) return "";
-        return decodeURIComponent(part.slice("nolsaf_token=".length));
-      })();
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const secret = getJwtSecret();
-    if (!secret) return res.status(500).json({ error: 'server_misconfigured' });
-
-    let userId: number | null = null;
-    try {
-      const decoded = jwt.verify(token, secret) as any;
-      userId = decoded?.sub ? Number(decoded.sub) : null;
-    } catch {
-      userId = null;
-    }
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    // Onboarding can set credentials and identity fields. It must use the same
+    // live session, revocation and account-status checks as other account writes.
+    const userId = (req as any).user.id as number;
 
     // Enforce that the role in the request (if any) matches the user's role (prevents role hopping)
     let dbRole: string | null = null;
@@ -1950,24 +1940,11 @@ router.post('/profile', upload.none(), async (req, res) => {
     let referrerKind: 'DRIVER' | 'CUSTOMER' | null = null;
     if (referralCode) {
       try {
-        // Driver referral code format: DRIVER-XXXXXX
-        const driverMatch = String(referralCode).match(/^DRIVER-(\d+)$/i);
-        // Customer (invite friends) referral code format: CUSTOMER-XXXXXX
-        const customerMatch = String(referralCode).match(/^CUSTOMER-(\d+)$/i);
-        if (driverMatch) {
-          const candidateId = parseInt(driverMatch[1], 10);
-          const driver = await prisma.user.findUnique({ where: { id: candidateId, role: 'DRIVER' } as any });
-          if (driver) {
-            referredBy = candidateId;
-            referrerKind = 'DRIVER';
-          }
-        } else if (customerMatch) {
-          const candidateId = parseInt(customerMatch[1], 10);
-          const referrer = await prisma.user.findUnique({ where: { id: candidateId }, select: { id: true } });
-          if (referrer) {
-            referredBy = candidateId;
-            referrerKind = 'CUSTOMER';
-          }
+        // Opaque codes (C7K2M-9QX) and legacy CUSTOMER-<id> / DRIVER-<id> links both resolve here.
+        const resolved = await resolveReferrer(String(referralCode));
+        if (resolved) {
+          referredBy = resolved.id;
+          referrerKind = resolved.kind;
         }
       } catch (e) {
         console.warn('Failed to process referral code', referralCode, e);
@@ -2513,9 +2490,9 @@ router.post('/passkeys/verify', async (req, res) => {
         expectedChallenge: entry.challenge,
         expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
-        authenticator: {
-          credentialID: stored.credentialId,
-          credentialPublicKey: fromBase64UrlToBuffer(stored.publicKey),
+        credential: {
+          id: stored.credentialId,
+          publicKey: fromBase64UrlToBuffer(stored.publicKey),
           counter: typeof stored.signCount === 'number' ? stored.signCount : 0,
         },
         requireUserVerification: true,
@@ -2556,6 +2533,7 @@ router.post('/passkeys/verify', async (req, res) => {
     }
 
     const isAdmin = String((user as any).role || '').toUpperCase() === 'ADMIN';
+    if (requiresAccountTotp(user)) return await beginAccountMfaChallenge(req, res, (user as any).id);
     const token = await signUserJwt(
       { id: (user as any).id, role: (user as any).role, email: (user as any).email },
       isAdmin ? { adminMfa: 'passkey' } : undefined,

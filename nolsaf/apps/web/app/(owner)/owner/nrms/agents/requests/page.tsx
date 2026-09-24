@@ -7,13 +7,15 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { BedDouble, CheckCircle2, Clock, Inbox, Loader2, Users, X, XCircle } from "lucide-react";
 import { useNrms } from "../../_components/NrmsProvider";
+import { useNrmsAccessRole } from "../../_components/NrmsAccessRole";
 
 type IncidentalCover = { billing: string | null; scope: string | null; categories: string[]; capAmount: number | null; capBasis: string | null; headline: string; detail: string };
 type Request = {
-  id: number; status: string; agency: { legalName: string; reference: string } | null; bookingMode: string | null;
+  id: number; reference?: string; status: string; agency: { legalName: string; reference: string } | null; bookingMode: string | null;
   roomType: string | null; checkIn: string; checkOut: string; adults: number; children: number; rooms: number;
   currency: string; total: number; holdExpiresAt: string | null; decidedAt: string | null; decisionReason: string | null;
   notes: string | null; createdAt: string;
+  commercial: { folioStatus: string | null; invoiceStatus: string | null; invoiceDueAt: string | null; invoiceSentAt: string | null; agencyMarkedPaid: boolean };
   manifest: { status: string; incidentalBilling: "AGENCY" | "INDIVIDUAL_GUEST" | null; incidentalCover: IncidentalCover; guestsAdded: number; requiredGuests: number; documentsUploaded: number; reviewNote: string | null };
 };
 
@@ -44,6 +46,8 @@ function timeLeft(iso: string | null): { text: string; urgent: boolean } | null 
 
 export default function AgentRequestsPage() {
   const { selectedPropertyId } = useNrms();
+  const { accessRole } = useNrmsAccessRole();
+  const canOpenFinancialFollowUp = accessRole === "OWNER";
   const [requests, setRequests] = useState<Request[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -179,7 +183,8 @@ export default function AgentRequestsPage() {
                       </ActivityCell>
                       <ActivityCell label="Booking total" className="xl:text-right"><p className="m-0 text-[14px] font-extrabold text-neutral-900">{r.currency} {money(r.total)}</p><span className="text-[10px] text-neutral-400">total stay value</span></ActivityCell>
                       <ActivityCell label="Action" className="xl:text-right">
-                        {r.status === "CONFIRMED" ? <Link href={`/owner/nrms/agents/requests/${r.id}/guests`} className={`inline-flex min-h-9 items-center justify-center rounded-lg border border-solid px-3 py-1.5 text-[11px] font-bold no-underline transition ${r.manifest.status === "SUBMITTED" ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400"}`}>{actionLabel}</Link> : <span className="text-[11px] font-semibold text-neutral-400">Decision completed</span>}
+                        {r.status === "CONFIRMED" && canOpenFinancialFollowUp ? <Link href={`/owner/nrms/agents/requests/${encodeURIComponent(r.reference ?? String(r.id))}/guests`} className={`inline-flex min-h-9 items-center justify-center rounded-lg border border-solid px-3 py-1.5 text-[11px] font-bold no-underline transition ${r.manifest.status === "SUBMITTED" ? "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800" : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-400"}`}>{actionLabel}</Link> : <span className="text-[11px] font-semibold text-neutral-400">{r.status === "CONFIRMED" ? "Owner follow-up" : "Decision completed"}</span>}
+                        {r.status === "CONFIRMED" && !canOpenFinancialFollowUp && <span className="mt-1 block text-[10px] text-neutral-500">{r.commercial.folioStatus === "SETTLED" ? "Payment confirmed" : r.commercial.agencyMarkedPaid ? "Payment awaiting confirmation" : r.commercial.invoiceSentAt ? "Invoice sent" : "Invoice not issued"}</span>}
                       </ActivityCell>
                     </li>
                   );

@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from "../middleware/auth.js";
 import { Prisma } from "@prisma/client";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { hashTripCode, normalizeTripCode } from "../lib/tripCode.js";
+import { referralCodeFor } from "../lib/referralCode.js";
 import { sendSms } from "../lib/sms.js";
 import { sendMail } from "../lib/mailer.js";
 import { baseEmail, infoCard, calloutBox, ctaButton, BRAND_TEAL, BRAND_DARK } from "../lib/emailBase.js";
@@ -4674,8 +4675,8 @@ router.get("/:id(\\d+)/referrals", async (req, res) => {
     });
     if (!driver) return res.status(404).json({ error: "Driver not found" });
 
-    const referralCode = `DRIVER-${driverId}`;
-    const referralLink = `${process.env.FRONTEND_URL || process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000'}/register?ref=${referralCode}`;
+    const referralCode = referralCodeFor("DRIVER", driverId);
+    const referralLink = `${process.env.FRONTEND_URL || process.env.WEB_ORIGIN || process.env.APP_ORIGIN || 'http://localhost:3000'}/register?ref=${encodeURIComponent(referralCode)}`;
 
     let referrals: any[] = [];
     let totalReferrals = 0;
@@ -4824,7 +4825,8 @@ router.get("/:id(\\d+)/referrals", async (req, res) => {
         try {
           let ors: any[] = [
             { referredBy: driverId },
-            { referralCode: referralCode },
+            // Sign-ups store the code as typed: the opaque form or an older DRIVER-<id> link.
+            { referralCode: { in: [referralCode, `DRIVER-${driverId}`] } },
             { referralId: driverId },
           ];
 

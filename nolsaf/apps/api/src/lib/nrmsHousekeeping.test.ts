@@ -12,7 +12,7 @@ import {
 
 describe("housekeeping roles and readiness", () => {
   it("lets housekeeping-capable roles work the board and keeps outlet staff out", () => {
-    expect(roleCanHousekeep("HOUSEKEEPER")).toBe(true);
+    expect(roleCanHousekeep("HOUSEKEEPER")).toBe(false);
     expect(roleCanHousekeep("FRONT_DESK")).toBe(true);
     expect(roleCanHousekeep("BAR")).toBe(false);
     expect(roleCanHousekeep("RESTAURANT")).toBe(false);

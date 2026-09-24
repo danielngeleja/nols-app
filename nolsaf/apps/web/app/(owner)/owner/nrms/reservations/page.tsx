@@ -4,14 +4,20 @@
 // reservations, and run the stay lifecycle with payments and balances.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import TablePagination from "@/components/TablePagination";
-import { AlertTriangle, ArrowRight, ArrowUpDown, BedDouble, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, FileClock, Globe2, History, Loader2, LockKeyhole, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowRight, ArrowUpDown, BadgeCheck, BedDouble, Building2, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronUp, CircleDollarSign, Clock3, DoorOpen, FileClock, Filter, Globe2, History, Loader2, LockKeyhole, LogOut, Mail, Minus, Phone, Plus, Printer, ReceiptText, Search, ShieldCheck, Store, UserRound, Users, WalletCards } from "lucide-react";
 import { NRMS_CHARGE_CATEGORIES, NRMS_CHARGE_CATEGORY_LABELS } from "@nolsaf/shared";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 import { useNrms } from "../_components/NrmsProvider";
+import { useNrmsAccessRole } from "../_components/NrmsAccessRole";
 import ModalFrame from "../_components/NrmsModalFrame";
+import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/NrmsBillingBlockModal";
+import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
+import { roomReadiness, roomAssignmentRequirement } from "@/lib/nrmsRoomReadiness";
+import NrmsRoomAssignmentPicker from "../_components/NrmsRoomAssignmentPicker";
 
 type Allocation = {
   id: number;
@@ -19,6 +25,7 @@ type Allocation = {
   roomTypeName?: string;
   roomUnitId: number | null;
   roomUnitCode: string | null;
+  roomUnitFloor?: number | null;
   status: string;
 };
 
@@ -74,11 +81,23 @@ type OutletOrder = {
 
 type Reservation = {
   id: number;
+  /** Opaque rs_ reference used in page URLs instead of the row id. */
+  reference?: string;
   bookingId: number | null;
   source: string;
   status: string;
   checkIn: string;
   checkOut: string;
+  checkedInAt?: string | null;
+  checkedOutAt?: string | null;
+  earlyCheckInApproved?: boolean;
+  earlyCheckInResolution?: {
+    resolution: "APPROVE_EARLY_CHECKIN";
+    reason: string | null;
+    operationalArrival: string | null;
+    createdAt: string;
+    actorId: number | null;
+  } | null;
   adults: number;
   children: number;
   currency: string;
@@ -104,6 +123,7 @@ type Reservation = {
   guestProfile: { id: number; fullName: string; phone: string | null; email: string | null; nationality: string | null } | null;
   marketplaceBooking: {
     id: number;
+    reference: string;
     status: string;
     guestName: string | null;
     guestPhone: string | null;
@@ -113,8 +133,40 @@ type Reservation = {
     ageGroup: string | null;
     roomsQty: number;
     totalAmount: number | null;
+    customerPaidTotal: number | null;
+    accommodationGross: number | null;
+    transportFare: number;
+    commissionPercent: number | null;
+    commissionAmount: number | null;
+    ownerPayout: number | null;
+    financialStatus: "RECORDED" | "CALCULATED" | "UNAVAILABLE";
+    financialReviewReason: string | null;
     paymentStatus: string | null;
     paymentMethod: string | null;
+    invoiceIssuedAt: string | null;
+    invoiceVerifiedAt: string | null;
+    invoiceApprovedAt: string | null;
+    invoicePaidAt: string | null;
+    receiptNumber: string | null;
+    ownerInvoice: {
+      reference: string | null;
+      status: string;
+      amount: number | null;
+      issuedAt: string | null;
+      verifiedAt: string | null;
+      approvedAt: string | null;
+      paidAt: string | null;
+    } | null;
+    ownerDisbursement: {
+      status: string;
+      amount: number | null;
+      currency: string;
+      channel: string | null;
+      paidAt: string | null;
+    } | null;
+    /** The reference the guest holds, shown instead of the internal id. */
+    invoiceNumber: string | null;
+    checkInCodeStatus: string | null;
   } | null;
   allocations?: Allocation[];
   payments?: Payment[];
@@ -123,6 +175,8 @@ type Reservation = {
   group: { id: number; reference: string; name: string; status: string } | null;
   agentBooking: {
     requestId: number;
+    /** Opaque ar_ reference used in page URLs instead of the request id. */
+    requestReference?: string;
     guestManifestStatus: string;
     incidentalBilling: string | null;
     travellerCount: number;
@@ -152,7 +206,7 @@ type RoomType = {
   name: string;
   baseRate: number | null;
   currency: string;
-  units: Array<{ id: number; code: string; status: string }>;
+  units: Array<{ id: number; code: string; floor?: number | null; status: string; housekeepingStatus?: string | null }>;
 };
 type CreateDefaults = { checkIn?: string; roomTypeId?: number; roomUnitId?: number };
 type SortField = "guest" | "phone" | "nationality" | "checkIn" | "source" | "adults" | "amountPaid" | "balance" | "status";
@@ -268,6 +322,177 @@ function money(v: number | null, currency: string): string {
   return v == null ? "-" : `${currency} ${v.toLocaleString()}`;
 }
 
+function allocationRoomLabel(allocation: Allocation): string | undefined {
+  if ((allocation.roomUnitId == null || !allocation.roomUnitCode)) return allocation.roomTypeName;
+  if (allocation.roomUnitFloor == null) return allocation.roomUnitCode;
+  return `${allocation.roomUnitCode} · ${allocation.roomUnitFloor === 0 ? "Floor G" : `Floor ${allocation.roomUnitFloor}`}`;
+}
+
+function ReservationRoomIdentity({ allocations }: { allocations: Allocation[] }) {
+  const active = allocations.filter((allocation) => allocation.status === "ACTIVE");
+  const assigned = active.filter((allocation) => allocation.roomUnitId != null && allocation.roomUnitCode);
+  const unassigned = active.filter((allocation) => (allocation.roomUnitId == null || !allocation.roomUnitCode));
+  const roomNames = tallyRoomLabels(assigned.map((allocation) => allocation.roomUnitCode), "");
+  const categoryNames = tallyRoomLabels(unassigned.map((allocation) => allocation.roomTypeName), "Room");
+  const floors = [...new Set(assigned.flatMap((allocation) => allocation.roomUnitFloor == null ? [] : [allocation.roomUnitFloor]))].sort((a, b) => a - b);
+  const floorText = floors.length === 1
+    ? floors[0] === 0 ? "Ground" : `Floor ${floors[0]}`
+    : floors.length > 1
+      ? `${floors.length} floors`
+      : null;
+  const title = tallyRoomLabels(active.map(allocationRoomLabel), "Unassigned");
+
+  if (assigned.length === 0) {
+    return <div className="grid w-full min-w-[13rem] max-w-[15rem] grid-cols-[28px_minmax(0,1fr)_1px_74px] items-center gap-2 whitespace-nowrap" title={`${categoryNames} · unit unassigned`}>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200"><DoorOpen className="h-3.5 w-3.5" /></span>
+      <span className="min-w-0 truncate text-xs font-bold text-amber-800">{categoryNames}</span>
+      <span className="h-4 w-px bg-amber-200" aria-hidden="true" />
+      <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-amber-700">Pending</span>
+    </div>;
+  }
+
+  return <div className="grid w-full min-w-[13rem] max-w-[15rem] grid-cols-[28px_minmax(0,1fr)_1px_74px] items-center gap-2 whitespace-nowrap" title={title}>
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100"><BedDouble className="h-3.5 w-3.5" /></span>
+    <span className="min-w-0 truncate text-xs font-bold text-neutral-900">{roomNames}</span>
+    <span className="h-4 w-px bg-neutral-200" aria-hidden="true" />
+    {floorText ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-neutral-500"><Building2 className="h-3 w-3 shrink-0 text-emerald-700" />{floorText}</span> : <span className={`text-[10px] font-medium ${unassigned.length > 0 ? "text-amber-700" : "text-neutral-300"}`}>{unassigned.length > 0 ? "+ pending" : "No floor"}</span>}
+  </div>;
+}
+
+/** Agency traveller register link by opaque reference, never the request id. */
+function agentRequestHref(agentBooking: { requestId: number; requestReference?: string }): string {
+  return `/owner/nrms/agents/requests/${encodeURIComponent(agentBooking.requestReference ?? String(agentBooking.requestId))}/guests`;
+}
+
+function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
+  const marketplace = reservation.marketplaceBooking;
+  if (!marketplace) return null;
+  const customerPaymentStatus = (marketplace.paymentStatus ?? "PENDING").toUpperCase();
+  const customerPaymentLabel = ["PAID", "CUSTOMER_PAID"].includes(customerPaymentStatus)
+    ? "received"
+    : customerPaymentStatus.replace(/_/g, " ").toLowerCase();
+  const hasAccommodationCommission = (marketplace.commissionPercent ?? 0) > 0 || (marketplace.commissionAmount ?? 0) > 0;
+  const ownerDisbursement = marketplace.ownerDisbursement;
+  const ownerDisbursed = ownerDisbursement?.status?.toUpperCase() === "PAID";
+  const ownerInvoiceStatus = marketplace.ownerInvoice?.status?.toUpperCase() ?? null;
+  const ownerClaimRank: Record<string, number> = { DRAFT: 0, REQUESTED: 1, VERIFIED: 2, APPROVED: 3, PROCESSING: 3, PAID: 3 };
+  const ownerWorkflowRank = ownerDisbursed ? 4 : ownerClaimRank[ownerInvoiceStatus ?? ""] ?? 0;
+  const ownerWorkflowStages = ["Requested", "Verified", "Approved", "Disbursed"];
+  const ownerDisbursementLabel = ownerDisbursed
+    ? "Disbursed"
+    : ownerDisbursement?.status?.replace(/_/g, " ").toLowerCase()
+      ?? (["PAID", "PROCESSING"].includes(ownerInvoiceStatus ?? "")
+        ? "Awaiting disbursement"
+        : ownerInvoiceStatus?.replace(/_/g, " ").toLowerCase())
+      ?? "Not requested";
+
+  const guestPaid = ["PAID", "CUSTOMER_PAID"].includes(customerPaymentStatus);
+  const accommodationGross = marketplace.accommodationGross ?? 0;
+  const payoutShare = accommodationGross > 0 && marketplace.ownerPayout != null
+    ? Math.min(100, Math.max(0, (marketplace.ownerPayout / accommodationGross) * 100))
+    : 100;
+  const percentText = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+  // The next stage still to happen is the "current" one on the stepper.
+  const currentStage = ownerDisbursed ? -1 : ownerWorkflowRank;
+  const statusTone = ownerDisbursed
+    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+    : ownerDisbursement || ownerWorkflowRank > 0
+      ? "bg-blue-50 text-blue-700 ring-blue-200"
+      : "bg-neutral-100 text-neutral-600 ring-neutral-200";
+
+  // Preflight is off in this app: every border here needs border-solid, and
+  // directional borders need border-0 first or they draw all four sides.
+  return <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-card">
+    <header className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck className="h-5 w-5" /></span>
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-bold text-neutral-950">Marketplace settlement</p>
+          <p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">NoLSAF holds the guest&apos;s payment and releases the room payout to the property. Incidentals stay on the NRMS folio.</p>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${guestPaid ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${guestPaid ? "bg-emerald-500" : "bg-amber-500"}`} aria-hidden="true" />
+          Guest payment {customerPaymentLabel}
+        </span>
+        <span className="font-mono text-[11px] text-neutral-400">{marketplace.invoiceNumber ?? marketplace.reference}</span>
+      </div>
+    </header>
+
+    <div className="px-5 pb-5">
+      <div className={`grid gap-2 ${hasAccommodationCommission ? "sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.2fr)]" : "sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)]"}`}>
+        <div className="rounded-xl bg-neutral-50 px-4 py-3.5">
+          <p className="m-0 text-[11px] font-semibold text-neutral-500">Guest paid</p>
+          <p className="mb-0 mt-1 text-lg font-bold tabular-nums text-neutral-950">{money(marketplace.customerPaidTotal, reservation.currency)}</p>
+          <p className="mb-0 mt-0.5 text-[11px] leading-5 text-neutral-500">
+            {marketplace.transportFare > 0
+              ? `Room ${money(marketplace.accommodationGross, reservation.currency)} · transport ${money(marketplace.transportFare, reservation.currency)}`
+              : "Collected through NoLSAF"}
+          </p>
+        </div>
+        {hasAccommodationCommission && <>
+          <span className="hidden items-center justify-center text-base font-bold text-neutral-300 sm:flex" aria-hidden="true"><Minus className="h-4 w-4" /></span>
+          <div className="rounded-xl bg-neutral-50 px-4 py-3.5">
+            <p className="m-0 text-[11px] font-semibold text-neutral-500">NoLSAF commission{marketplace.commissionPercent != null ? ` · ${percentText(marketplace.commissionPercent)}` : ""}</p>
+            <p className="mb-0 mt-1 text-lg font-bold tabular-nums text-neutral-950">{money(marketplace.commissionAmount, reservation.currency)}</p>
+            <p className="mb-0 mt-0.5 text-[11px] leading-5 text-neutral-500">Added on top of the room rate</p>
+          </div>
+        </>}
+        <span className="hidden items-center justify-center text-lg font-bold text-neutral-300 sm:flex" aria-hidden="true">=</span>
+        <div className="rounded-xl bg-emerald-50 px-4 py-3.5 ring-1 ring-inset ring-emerald-200">
+          <p className="m-0 text-[11px] font-semibold text-emerald-800">Property payout</p>
+          <p className="mb-0 mt-1 text-2xl font-bold tabular-nums leading-tight text-emerald-800">{money(marketplace.ownerPayout, reservation.currency)}</p>
+          <p className="mb-0 mt-0.5 text-[11px] leading-5 text-emerald-900/70">
+            {ownerDisbursed ? `Paid to the property${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : "Room revenue owed to the property"}
+          </p>
+        </div>
+      </div>
+
+      {hasAccommodationCommission && accommodationGross > 0 && (
+        <div className="mt-4">
+          <div className="flex h-2 overflow-hidden rounded-full bg-neutral-100" role="img" aria-label={`Property ${money(marketplace.ownerPayout, reservation.currency)}, NoLSAF ${money(marketplace.commissionAmount, reservation.currency)}`}>
+            <span className="h-full bg-emerald-600" style={{ width: `${payoutShare}%` }} />
+            <span className="h-full bg-neutral-300" style={{ width: `${100 - payoutShare}%` }} />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-500">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />Property <strong className="font-bold tabular-nums text-neutral-800">{money(marketplace.ownerPayout, reservation.currency)}</strong></span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neutral-300" aria-hidden="true" />NoLSAF <strong className="font-bold tabular-nums text-neutral-800">{money(marketplace.commissionAmount, reservation.currency)}</strong></span>
+          </div>
+        </div>
+      )}
+    </div>
+
+    <div className="border-0 border-t border-solid border-neutral-100 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-xs font-bold text-neutral-900">Payout progress</p>
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ring-1 ring-inset ${statusTone}`}>{ownerDisbursementLabel}</span>
+      </div>
+      <ol className="m-0 mt-4 grid list-none grid-cols-4 p-0" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
+        {ownerWorkflowStages.map((stage, index) => {
+          const reached = ownerWorkflowRank >= index + 1;
+          const current = index === currentStage;
+          const nextReached = ownerWorkflowRank >= index + 2;
+          return <li key={stage} className="relative flex min-w-0 flex-col items-center gap-1.5 text-center">
+            {index < ownerWorkflowStages.length - 1 && (
+              <span className={`absolute left-[calc(50%+14px)] right-[calc(-50%+14px)] top-[11px] h-0.5 rounded-full ${nextReached ? "bg-emerald-500" : "bg-neutral-200"}`} aria-hidden="true" />
+            )}
+            <span className={`relative flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${reached ? "bg-emerald-600 text-white" : current ? "bg-white text-emerald-700 ring-2 ring-emerald-500" : "bg-neutral-100 text-neutral-400"}`}>
+              {reached ? <Check className="h-3.5 w-3.5" /> : index + 1}
+            </span>
+            <span className={`truncate text-[11px] font-semibold ${reached ? "text-neutral-900" : current ? "text-emerald-700" : "text-neutral-400"}`}>{stage}</span>
+          </li>;
+        })}
+      </ol>
+    </div>
+
+    <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-0 border-t border-solid border-neutral-100 bg-neutral-50 px-5 py-3 text-[11px] text-neutral-500">
+      <span>Incidentals on NRMS folio <strong className="font-bold tabular-nums text-neutral-800">{money(reservation.chargesTotal ?? 0, reservation.currency)}</strong> · collected by the property</span>
+      {marketplace.receiptNumber && <span className="font-mono text-neutral-400">{marketplace.receiptNumber}</span>}
+    </footer>
+  </section>;
+}
+
 function paymentMethodSummary(payments: Payment[] | undefined): { label: string; title: string } {
   const methods = [...new Set((payments ?? []).filter((payment) => !payment.voidedAt).map((payment) => PAYMENT_METHOD_LABEL[payment.method] ?? payment.method.replace(/_/g, " ").toLowerCase()))];
   if (methods.length === 0) return { label: "Not recorded", title: "No payment method recorded" };
@@ -332,8 +557,92 @@ function nightsBetween(checkIn: string, checkOut: string): number {
   return Math.max(1, Math.round((end - start) / (24 * 60 * 60 * 1000)));
 }
 
+function groupSelectionEligibility(reservation: Reservation): { eligible: boolean; reason: string } {
+  if (reservation.group) return { eligible: false, reason: `Already belongs to ${reservation.group.name}` };
+  if (reservation.bookingId != null) return { eligible: false, reason: "NoLSAF marketplace bookings cannot be moved into NRMS groups" };
+  if (reservation.agentBooking) return { eligible: false, reason: "Agency reservations are managed through their agency group and rooming list" };
+  if (!["HELD", "CONFIRMED"].includes(reservation.status)) {
+    return { eligible: false, reason: "Only held or confirmed reservations can be grouped before check-in" };
+  }
+  return { eligible: true, reason: "Select for a group reservation" };
+}
+
+function reservationsShareCommonNight(reservations: Reservation[]): boolean {
+  if (reservations.length < 2) return true;
+  const latestArrival = Math.max(...reservations.map((reservation) => new Date(reservation.checkIn).getTime()));
+  const earliestDeparture = Math.min(...reservations.map((reservation) => new Date(reservation.checkOut).getTime()));
+  return Number.isFinite(latestArrival) && Number.isFinite(earliestDeparture) && latestArrival < earliestDeparture;
+}
+
+function groupSelectionEligibilityForCohort(reservation: Reservation, selected: Reservation[]): { eligible: boolean; reason: string } {
+  const base = groupSelectionEligibility(reservation);
+  if (!base.eligible || selected.some((item) => item.id === reservation.id) || selected.length === 0) return base;
+  if (!reservationsShareCommonNight([...selected, reservation])) {
+    return { eligible: false, reason: "This stay does not share a common night with the selected party" };
+  }
+  return base;
+}
+
+function StayProgress({ reservation }: { reservation: Reservation }) {
+  const checkIn = reservation.checkIn.slice(0, 10);
+  const checkOut = reservation.checkOut.slice(0, 10);
+  const today = localDateKey();
+  const nights = nightsBetween(checkIn, checkOut);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const elapsed = Math.max(0, Math.floor((new Date(`${today}T00:00:00`).getTime() - new Date(`${checkIn}T00:00:00`).getTime()) / dayMs));
+  const overdueDays = Math.max(0, Math.floor((new Date(`${today}T00:00:00`).getTime() - new Date(`${checkOut}T00:00:00`).getTime()) / dayMs));
+  const closed = ["CANCELLED", "NO_SHOW", "EXPIRED"].includes(reservation.status);
+  const overdue = reservation.status === "CHECKED_IN" && today > checkOut;
+  const completed = reservation.status === "CHECKED_OUT";
+  const inHouse = reservation.status === "CHECKED_IN";
+  const filled = completed || overdue ? 5 : inHouse ? Math.min(5, Math.max(1, Math.ceil(((elapsed + 1) / Math.max(nights, 1)) * 5))) : 0;
+  const fillClass = overdue ? "bg-red-500" : completed || inHouse ? "bg-emerald-500" : "bg-neutral-300";
+  const label = overdue
+    ? `${overdueDays} ${overdueDays === 1 ? "day" : "days"} overdue`
+    : completed
+      ? "Completed"
+      : inHouse
+        ? `Night ${Math.min(elapsed + 1, nights)} of ${nights}`
+        : closed
+          ? "Stay closed"
+          : today >= checkIn
+            ? "Arrival due"
+            : "Not started";
+
+  return (
+    <span className="inline-flex flex-col items-start gap-1.5" title={label}>
+      <span className="inline-flex items-end gap-[3px]" aria-hidden="true">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span key={index} className={`w-[3px] rounded-sm ${index < filled ? fillClass : "bg-neutral-200"}`} style={{ height: `${6 + index * 2.5}px` }} />
+        ))}
+      </span>
+      <span className={`whitespace-nowrap text-[10px] font-semibold ${overdue ? "text-red-600" : inHouse || completed ? "text-emerald-700" : "text-neutral-400"}`}>{label}</span>
+    </span>
+  );
+}
+
+function SelectionCheckbox({ checked, onChange, label, disabled = false, title }: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <label className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition focus-within:ring-2 focus-within:ring-emerald-500/20 ${checked ? "bg-emerald-50" : "bg-transparent"} ${disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-white hover:shadow-sm"}`} title={title}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} className="sr-only" aria-label={label} />
+      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-md border border-solid shadow-sm transition ${checked ? "border-emerald-700 bg-emerald-700 text-white ring-2 ring-emerald-100" : "border-neutral-300 bg-white text-transparent hover:border-emerald-400"}`} aria-hidden="true">
+        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+      </span>
+    </label>
+  );
+}
+
 export default function NrmsReservationsPage() {
+  const router = useRouter();
   const { selectedPropertyId } = useNrms();
+  const { accessRole } = useNrmsAccessRole();
+  const isSalesExecutive = accessRole === "SALES_EXECUTIVE";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -341,12 +650,21 @@ export default function NrmsReservationsPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [view, setView] = useState<"cards" | "list">("list");
   const [sortBy, setSortBy] = useState<SortField>("checkIn");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState<CreateDefaults>({});
   const [selectedReservationId, setSelectedReservationId] = useState<number | null>(null);
+  const [roomAssignment, setRoomAssignment] = useState<Reservation | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const selectedReservations = useMemo(
+    () => reservations.filter((reservation) => selectedIds.includes(reservation.id)),
+    [reservations, selectedIds],
+  );
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -358,6 +676,7 @@ export default function NrmsReservationsPage() {
           params: {
             ...(statusFilter ? { status: statusFilter } : {}),
             ...(sourceFilter ? { source: sourceFilter } : {}),
+            ...(debouncedQuery ? { q: debouncedQuery } : {}),
             limit: PAGE_SIZE,
             offset: (page - 1) * PAGE_SIZE,
             sortBy,
@@ -367,17 +686,32 @@ export default function NrmsReservationsPage() {
       ]);
       setReservations(reservationResponse.data?.reservations ?? []);
       setTotalReservations(Number(reservationResponse.data?.total ?? 0));
-      setSelectedIds((current) => current.filter((id) => (reservationResponse.data?.reservations ?? []).some((reservation: Reservation) => reservation.id === id)));
+      setStatusCounts(reservationResponse.data?.statusCounts ?? {});
+      setSelectedIds((current) => current.filter((id) => (reservationResponse.data?.reservations ?? []).some((reservation: Reservation) => reservation.id === id && groupSelectionEligibility(reservation).eligible)));
     } catch (e: any) {
       setError(e?.response?.data?.error || "Failed to load reservations");
     } finally {
       setLoading(false);
     }
-  }, [page, selectedPropertyId, sortBy, sortOrder, sourceFilter, statusFilter]);
+  }, [debouncedQuery, page, selectedPropertyId, sortBy, sortOrder, sourceFilter, statusFilter]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { setDebouncedQuery(query.trim()); setPage(1); }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
+    try { setView(window.localStorage.getItem("nrms.reservations.view") === "cards" ? "cards" : "list"); } catch {}
+  }, []);
+
+  const changeView = (next: "cards" | "list") => {
+    setView(next);
+    try { window.localStorage.setItem("nrms.reservations.view", next); } catch {}
+  };
 
 
   useEffect(() => {
@@ -394,83 +728,81 @@ export default function NrmsReservationsPage() {
     setPage(1);
   };
 
-  const openReservation = (reservationId: number) => {
-    setSelectedReservationId(reservationId);
+  // The URL carries the opaque rs_ reference, never the numeric reservation id.
+  const openReservation = (reservation: Pick<Reservation, "id" | "reference">) => {
+    setSelectedReservationId(reservation.id);
     const url = new URL(window.location.href);
-    url.searchParams.set("reservationId", String(reservationId));
+    url.searchParams.delete("reservationId");
+    if (reservation.reference) url.searchParams.set("reservation", reservation.reference);
+    else url.searchParams.delete("reservation");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
   const closeReservation = () => {
     setSelectedReservationId(null);
     const url = new URL(window.location.href);
+    url.searchParams.delete("reservation");
     url.searchParams.delete("reservationId");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
   useEffect(() => {
+    if (!selectedPropertyId) return;
+    const requestedReference = new URLSearchParams(window.location.search).get("reservation");
+    if (!requestedReference) return;
+    let cancelled = false;
+    apiClient.get<{ id: number }>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/resolve/${encodeURIComponent(requestedReference)}`)
+      .then((response) => { if (!cancelled && response.data?.id) setSelectedReservationId(response.data.id); })
+      .catch(() => { if (!cancelled) closeReservation(); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPropertyId]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const requestedReservationId = Number(params.get("reservationId"));
-    if (Number.isInteger(requestedReservationId) && requestedReservationId > 0) {
-      setSelectedReservationId(requestedReservationId);
+    // Old links carried the numeric id. Drop it from the address bar; the
+    // opaque reference is the only way a reservation opens from a URL now.
+    if (params.has("reservationId")) {
+      params.delete("reservationId");
+      const cleanedQuery = params.toString();
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}${cleanedQuery ? `?${cleanedQuery}` : ""}`);
     }
 
     if (params.get("create") !== "1") return;
 
-    const roomTypeId = Number(params.get("roomTypeId"));
-    const roomUnitId = Number(params.get("roomUnitId"));
-    setCreateDefaults({
-      checkIn: params.get("checkIn") || undefined,
-      roomTypeId: Number.isInteger(roomTypeId) && roomTypeId > 0 ? roomTypeId : undefined,
-      roomUnitId: Number.isInteger(roomUnitId) && roomUnitId > 0 ? roomUnitId : undefined,
-    });
-    setShowCreate(true);
+    if (!isSalesExecutive) {
+      const roomTypeId = Number(params.get("roomTypeId"));
+      const roomUnitId = Number(params.get("roomUnitId"));
+      setCreateDefaults({
+        checkIn: params.get("checkIn") || undefined,
+        roomTypeId: Number.isInteger(roomTypeId) && roomTypeId > 0 ? roomTypeId : undefined,
+        roomUnitId: Number.isInteger(roomUnitId) && roomUnitId > 0 ? roomUnitId : undefined,
+      });
+      setShowCreate(true);
+    }
     params.delete("create");
     params.delete("checkIn");
     params.delete("roomTypeId");
     params.delete("roomUnitId");
     const remainingQuery = params.toString();
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ""}`);
-  }, []);
+  }, [isSalesExecutive]);
 
   if (!selectedPropertyId) {
     return <p className="text-sm text-neutral-500 py-10 text-center">Add a property first to manage reservations.</p>;
   }
 
+  const reservationStages = [
+    { key: "HELD", label: "Held", hint: "Awaiting confirmation or payment", count: statusCounts.HELD ?? 0, icon: Clock3, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50" },
+    { key: "CONFIRMED", label: "Confirmed", hint: "Arrival is secured", count: statusCounts.CONFIRMED ?? 0, icon: BadgeCheck, text: "text-blue-700", bar: "bg-blue-500", soft: "bg-blue-50" },
+    { key: "CHECKED_IN", label: "Checked in", hint: "Guest is currently in house", count: statusCounts.CHECKED_IN ?? 0, icon: DoorOpen, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50" },
+    { key: "CHECKED_OUT", label: "Checked out", hint: "Stay has been completed", count: statusCounts.CHECKED_OUT ?? 0, icon: LogOut, text: "text-neutral-600", bar: "bg-neutral-400", soft: "bg-neutral-100" },
+  ];
+  const activeStageLabel = reservationStages.find((stage) => stage.key === statusFilter)?.label;
+
   return (
-    <div className="pb-10">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
-            }}
-            className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {Object.keys(STATUS_CLS).map((s) => (
-              <option key={s} value={s}>
-                {s.replace(/_/g, " ").toLowerCase()}
-              </option>
-            ))}
-          </select>
-          <select
-            value={sourceFilter}
-            onChange={(e) => {
-              setSourceFilter(e.target.value);
-              setPage(1);
-            }}
-            className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm"
-            aria-label="Filter by reservation source"
-          >
-            <option value="">All sources</option>
-            {SOURCES.map((source) => <option key={source} value={source}>{SOURCE_LABEL[source] ?? source}</option>)}
-          </select>
-        </div>
-        <button
+    <div className="space-y-5 pb-10">
+      {!isSalesExecutive && <div className="flex justify-end"><button
           type="button"
           onClick={() => {
             setCreateDefaults({});
@@ -479,17 +811,20 @@ export default function NrmsReservationsPage() {
           className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-3 py-2"
         >
           <Plus className="w-4 h-4" /> New reservation
-        </button>
-      </div>
+        </button></div>}
 
-      {selectedIds.length > 0 && (
+      <NrmsLifecycleRail stages={reservationStages} selected={statusFilter} onSelect={(next) => { setStatusFilter(next); setPage(1); }} />
+
+      {!isSalesExecutive && selectedIds.length > 0 && (
         <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><Users className="h-4 w-4" /></span>
             <div className="min-w-0">
               <p className="m-0 text-sm font-bold text-emerald-950">{selectedIds.length} selected</p>
               <p className="m-0 mt-0.5 text-xs text-emerald-800">
-                {selectedIds.length < 2 ? "Select at least two stays to work them as one party." : "Carry them over to Group reservations to create a group or add to an existing one."}
+                {selectedIds.length < 2
+                  ? "Select another direct pre-arrival stay that overlaps this guest's dates."
+                  : `Common stay ${fmtDate(new Date(Math.max(...selectedReservations.map((reservation) => new Date(reservation.checkIn).getTime()))).toISOString())} to ${fmtDate(new Date(Math.min(...selectedReservations.map((reservation) => new Date(reservation.checkOut).getTime()))).toISOString())} · Each folio remains separate.`}
               </p>
             </div>
           </div>
@@ -506,6 +841,32 @@ export default function NrmsReservationsPage() {
         </section>
       )}
 
+      <NrmsDirectoryShell
+        title={activeStageLabel ? `${activeStageLabel} reservations` : "All reservations"}
+        count={totalReservations}
+        loading={loading}
+        query={query}
+        onQueryChange={setQuery}
+        placeholder="Search guest name or phone"
+        view={view}
+        onViewChange={changeView}
+        toolbar={<div className="relative">
+          <Filter className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} className="h-10 appearance-none rounded-lg border border-neutral-200 bg-white pl-8 pr-8 text-xs font-semibold text-neutral-700 shadow-sm shadow-neutral-100/70 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15" aria-label="Filter by reservation status"><option value="">All statuses</option>{Object.keys(STATUS_CLS).map((status) => <option key={status} value={status}>{status.replace(/_/g, " ").toLowerCase()}</option>)}</select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+        </div>}
+        secondaryToolbar={<div className="flex min-w-0 items-center gap-3">
+          <div className="hidden shrink-0 items-center gap-2 border-r border-neutral-200 pr-3 sm:flex"><Globe2 className="h-3.5 w-3.5 text-neutral-400" /><span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-500">Booking source</span></div>
+          <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto" role="group" aria-label="Filter reservations by booking source">
+            <button type="button" onClick={() => { setSourceFilter(""); setPage(1); }} aria-pressed={!sourceFilter} className={`shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-[10px] font-bold transition ${!sourceFilter ? "border-neutral-900 bg-neutral-900 text-white" : "border-transparent text-neutral-500 hover:border-neutral-200 hover:bg-neutral-50"}`}>All</button>
+            {SOURCES.map((source) => {
+              const style = SOURCE_STYLE[source] ?? DEFAULT_SOURCE_STYLE;
+              const active = sourceFilter === source;
+              return <button key={source} type="button" onClick={() => { setSourceFilter(active ? "" : source); setPage(1); }} aria-pressed={active} className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-[10px] font-bold transition ${active ? style.badge : "border-transparent text-neutral-500 hover:border-neutral-200 hover:bg-neutral-50"}`}><span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />{SOURCE_LABEL[source] ?? source}</button>;
+            })}
+          </div>
+        </div>}
+      >
       {loading ? (
         <div className="flex justify-center py-16 text-neutral-400">
           <Loader2 className="w-6 h-6 animate-spin" />
@@ -513,51 +874,42 @@ export default function NrmsReservationsPage() {
       ) : error ? (
         <div className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">{error}</div>
       ) : reservations.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-neutral-300 bg-white py-14 text-center">
+        <div className="border-t border-neutral-100 py-14 text-center">
           <p className="text-sm font-semibold text-neutral-700">No reservations found</p>
-          <p className="mt-1 text-xs text-neutral-400">Record a walk-in, phone or external reservation to begin.</p>
+          <p className="mt-1 text-xs text-neutral-400">{isSalesExecutive ? "No reservations match the current filters." : "Record a walk-in, phone or external reservation to begin."}</p>
+        </div>
+      ) : view === "cards" ? (
+        <div className="grid grid-cols-1 gap-3 border-t border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3">
+          {reservations.map((reservation) => {
+            const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
+            // Keep this identical to ReservationRoomIdentity: if the row says
+            // the physical room is pending, the assignment action must exist.
+            const unassignedAllocation = activeAllocations.find((allocation) => (allocation.roomUnitId == null || !allocation.roomUnitCode)) ?? null;
+            const guest = reservation.guestProfile?.fullName ?? reservation.agentBooking?.leadGuest?.fullName ?? "Guest";
+            const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
+            const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
+            return <article key={reservation.id} className="overflow-hidden rounded-xl border border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
+              <button type="button" onClick={() => openReservation(reservation)} className={`block w-full border-0 px-4 py-3 text-left ${sourceStyle.row}`}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="m-0 truncate text-sm font-bold text-neutral-900">{guest}</p><p className="mb-0 mt-0.5 truncate text-xs text-neutral-500">{reservation.guestProfile?.phone ?? reservation.agentBooking?.leadGuest?.phone ?? "No phone recorded"}</p></div><span className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>{reservation.status.replace(/_/g, " ").toLowerCase()}</span></div>
+              </button>
+              <div className="grid grid-cols-2 gap-px bg-neutral-100"><div className="bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Stay</p><p className="mb-0 mt-1 text-xs font-bold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</p></div><div className="min-w-0 bg-white px-4 py-3"><p className="m-0 text-[10px] font-semibold text-neutral-400">Room</p><div className="mt-1 min-w-0 overflow-hidden"><ReservationRoomIdentity allocations={activeAllocations} /></div><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{SOURCE_LABEL[reservation.source] ?? reservation.source}</p></div></div>
+              <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3"><StayProgress reservation={reservation} /><div className="flex items-center justify-end gap-2">{!isSalesExecutive && unassignedAllocation && ["CONFIRMED", "CHECKED_IN"].includes(reservation.status) && <button type="button" onClick={() => setRoomAssignment(reservation)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white"><DoorOpen className="h-3.5 w-3.5" />Assign room</button>}<button type="button" onClick={() => openReservation(reservation)} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 hover:bg-neutral-50">View</button></div></div>
+            </article>;
+          })}
+          <div className="col-span-full"><TablePagination page={page} pageSize={PAGE_SIZE} total={totalReservations} onPageChange={setPage} /></div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-30px_rgba(15,23,42,0.4)]">
-          <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white px-4 py-3" aria-label="Reservation source color legend">
-            <span className="mr-1 text-[10px] font-bold uppercase tracking-wide text-neutral-400">Source colours</span>
-            {SOURCES.map((source) => {
-              const style = SOURCE_STYLE[source] ?? DEFAULT_SOURCE_STYLE;
-              const active = sourceFilter === source;
-              return (
-                <button
-                  key={source}
-                  type="button"
-                  onClick={() => {
-                    setSourceFilter(active ? "" : source);
-                    setPage(1);
-                  }}
-                  aria-pressed={active}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${style.badge} ${active ? "ring-2 ring-neutral-900/15 ring-offset-1" : "opacity-80 hover:opacity-100"}`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-                  {SOURCE_LABEL[source] ?? source}
-                </button>
-              );
-            })}
-          </div>
+        <div className="overflow-hidden border-t border-neutral-100 bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1500px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1600px] border-collapse text-left text-sm [&_th]:whitespace-nowrap">
               <thead>
                 <tr className="border-b border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
-                  <th className="w-11 px-3 py-3 text-center">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all ungrouped reservations on this page"
-                      checked={reservations.some((reservation) => !reservation.group && reservation.bookingId == null) && reservations.filter((reservation) => !reservation.group && reservation.bookingId == null).every((reservation) => selectedIds.includes(reservation.id))}
-                      onChange={(event) => setSelectedIds(event.target.checked ? reservations.filter((reservation) => !reservation.group && reservation.bookingId == null).map((reservation) => reservation.id) : [])}
-                      className="h-4 w-4 accent-emerald-700"
-                    />
-                  </th>
+                  {!isSalesExecutive && <th className="w-11 px-3 py-3 text-center"><Users className="mx-auto h-3.5 w-3.5 text-neutral-400" aria-label="Build a reservation group" /></th>}
                   <SortableHeader label="Guest" field="guest" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Phone" field="phone" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Nationality" field="nationality" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <SortableHeader label="Stay" field="checkIn" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
+                  <th className="px-4 py-3">Stay progress</th>
                   <SortableHeader label="Source" field="source" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} />
                   <th className="px-4 py-3">Room</th>
                   <SortableHeader label="Guests" field="adults" sortBy={sortBy} sortOrder={sortOrder} onSort={changeSort} align="center" />
@@ -570,37 +922,66 @@ export default function NrmsReservationsPage() {
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {reservations.map((reservation) => {
-                  const rooms = tallyRoomLabels((reservation.allocations ?? []).map((allocation) => allocation.roomUnitCode ?? allocation.roomTypeName));
+                  const activeAllocations = (reservation.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE");
+                  // `roomUnitCode` is the physical-room fact displayed in the
+                  // Room column. Using roomUnitId here previously let the row
+                  // show Pending while silently hiding Assign room.
+                  const unassignedAllocation = activeAllocations.find((allocation) => (allocation.roomUnitId == null || !allocation.roomUnitCode)) ?? null;
                   const agentLead = reservation.agentBooking?.leadGuest ?? null;
                   const nights = nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10));
                   const paymentMethod = reservationPaymentMethod(reservation);
                   const sourceStyle = SOURCE_STYLE[reservation.source] ?? DEFAULT_SOURCE_STYLE;
                   const isMarketplace = reservation.bookingId != null;
+                  const groupEligibility = groupSelectionEligibilityForCohort(reservation, selectedReservations);
                   const agencySettlement = reservation.agencySettlement;
                   const agencyBillDue = Boolean(agencySettlement && !agencySettlement.settled);
+                  const ownerDisbursement = reservation.marketplaceBooking?.ownerDisbursement ?? null;
+                  const ownerDisbursementStatus = ownerDisbursement?.status?.toUpperCase() ?? null;
+                  const ownerDisbursed = ownerDisbursementStatus === "PAID";
+                  const ownerInvoiceStatus = reservation.marketplaceBooking?.ownerInvoice?.status?.toUpperCase() ?? null;
+                  const ownerDisbursementLabel = ownerDisbursed
+                    ? "Disbursed"
+                    : ownerDisbursementStatus
+                      ? ownerDisbursementStatus.replace(/_/g, " ").toLowerCase()
+                      : ["PAID", "PROCESSING"].includes(ownerInvoiceStatus ?? "")
+                        ? "Awaiting disbursement"
+                        : ownerInvoiceStatus
+                          ? ownerInvoiceStatus.replace(/_/g, " ").toLowerCase()
+                        : "Not requested";
                   // The API resolves which ledger holds the money for this
                   // stay. The local sum is only a fallback for an older payload.
                   const countsTransferSeparately = agencySettlement?.settled && agencySettlement.source !== "AGENT_BOOKING";
                   const effectivePaid = reservation.effectivePaid ?? (Number(reservation.amountPaid ?? 0) + (countsTransferSeparately ? Number(reservation.transferredToMaster ?? 0) : 0));
                   return (
-                    <tr key={reservation.id} className={`transition-colors ${sourceStyle.row}`}>
-                      <td className="px-3 py-3.5 text-center">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
+                    <tr
+                      key={reservation.id}
+                      tabIndex={0}
+                      aria-label={`Open reservation for ${reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "guest"}`}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest("button, a, input, select, textarea, label, [role='button']")) return;
+                        openReservation(reservation);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                        event.preventDefault();
+                        openReservation(reservation);
+                      }}
+                      className={`cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-600 ${sourceStyle.row}`}
+                    >
+                      {!isSalesExecutive && <td className="px-3 py-3.5 text-center">
+                        {groupEligibility.eligible ? <SelectionCheckbox
+                          label={`Select ${reservation.guestProfile?.fullName ?? "reservation"}`}
                           checked={selectedIds.includes(reservation.id)}
-                          disabled={Boolean(reservation.group) || isMarketplace}
-                          title={reservation.group ? `Already in ${reservation.group.name}` : isMarketplace ? "NoLSAF bookings cannot be added to NRMS groups" : "Select for a group"}
-                          onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, reservation.id] : current.filter((id) => id !== reservation.id))}
-                          className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-35"
-                        />
-                      </td>
+                          title={groupEligibility.reason}
+                          onChange={(checked) => setSelectedIds((current) => checked ? [...new Set([...current, reservation.id])] : current.filter((id) => id !== reservation.id))}
+                        /> : <span className="inline-block h-8 w-8" title={groupEligibility.reason} aria-label={groupEligibility.reason} />}
+                      </td>}
                       {/* Two lines, never more. A long name and a long agency
                           each used to wrap, dragging every row taller. */}
                       <td className="max-w-[15rem] px-4 py-3.5">
                         <div className="truncate font-bold text-neutral-900" title={reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "Guest"}>{reservation.guestProfile?.fullName ?? agentLead?.fullName ?? "Guest"}</div>
                         {reservation.group && <Link href="/owner/nrms/groups" title={reservation.group.name} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-emerald-700 no-underline hover:underline">{reservation.group.name}</Link>}
-                        {reservation.agentBooking && <Link href={`/owner/nrms/agents/requests/${reservation.agentBooking.requestId}/guests`} title={reservation.agentBooking.agencyName ?? "Agency booking"} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-teal-700 no-underline hover:underline">{reservation.agentBooking.agencyName ?? "Agency booking"}</Link>}
+                        {reservation.agentBooking && <Link href={agentRequestHref(reservation.agentBooking)} title={reservation.agentBooking.agencyName ?? "Agency booking"} className="mt-0.5 block truncate text-[10px] font-bold uppercase tracking-wide text-teal-700 no-underline hover:underline">{reservation.agentBooking.agencyName ?? "Agency booking"}</Link>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 font-medium text-neutral-600">
                         {reservation.guestProfile?.phone ?? agentLead?.phone ?? "—"}
@@ -612,20 +993,26 @@ export default function NrmsReservationsPage() {
                         <div className="font-semibold text-neutral-800">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)}</div>
                         <div className="mt-0.5 text-xs text-neutral-400">{nights} {nights === 1 ? "night" : "nights"}</div>
                       </td>
+                      <td className="whitespace-nowrap px-4 py-3.5"><StayProgress reservation={reservation} /></td>
                       <td className="px-4 py-3.5">
                         <span className={`inline-flex whitespace-nowrap items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${sourceStyle.badge}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
                           {SOURCE_LABEL[reservation.source] ?? reservation.source}
                         </span>
                       </td>
-                      <td className="max-w-44 px-4 py-3.5">
-                        <span className="block truncate font-medium text-neutral-700" title={rooms || "Unassigned"}>{rooms || "Unassigned"}</span>
+                      <td className="w-60 px-4 py-3.5">
+                        <ReservationRoomIdentity allocations={activeAllocations} />
                       </td>
                       <td className="px-4 py-3.5 text-center text-neutral-600">
                         {isMarketplace ? <>{reservation.marketplaceBooking?.roomsQty ?? 1}<span className="ml-1 text-xs text-neutral-400">room(s)</span></> : <>{reservation.adults + reservation.children}<span className="ml-1 text-xs text-neutral-400">total</span></>}
                       </td>
-                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${effectivePaid > 0 ? "text-emerald-700" : agencyBillDue ? "text-amber-700" : "text-neutral-400"}`}>
-                        {reservation.supersededByRooms ? <span className="text-neutral-400">On the room stays</span> : isMarketplace ? "NoLSAF managed" : (
+                      <td className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${isMarketplace || effectivePaid > 0 ? "text-emerald-700" : agencyBillDue ? "text-amber-700" : "text-neutral-400"}`}>
+                        {reservation.supersededByRooms ? <span className="text-neutral-400">On the room stays</span> : isMarketplace ? (
+                          <>
+                            <span className="block">{money(reservation.marketplaceBooking?.ownerPayout ?? null, reservation.currency)}</span>
+                            <span className={`mt-0.5 block text-[9px] font-bold uppercase tracking-wide ${ownerDisbursed ? "text-emerald-700" : "text-neutral-500"}`}>{ownerDisbursed ? "Disbursed to property" : "Owner entitlement"}</span>
+                          </>
+                        ) : (
                           <>
                             <span className="block">{money(effectivePaid, reservation.currency)}</span>
                             {agencySettlement && (
@@ -638,31 +1025,44 @@ export default function NrmsReservationsPage() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3.5 text-center">
                         <span
-                          title={paymentMethod.title}
-                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : agencyBillDue ? "bg-amber-50 text-amber-700" : paymentMethod.agency ? "bg-teal-50 text-teal-700" : "bg-emerald-50 text-emerald-700"}`}
+                          title={isMarketplace ? `${ownerDisbursementLabel}${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : paymentMethod.title}
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${isMarketplace ? ownerDisbursed ? "bg-emerald-50 text-emerald-700" : ownerDisbursement ? "bg-blue-50 text-blue-700" : "bg-neutral-100 text-neutral-500" : paymentMethod.label === "Not recorded" ? "bg-neutral-100 text-neutral-400" : agencyBillDue ? "bg-amber-50 text-amber-700" : paymentMethod.agency ? "bg-teal-50 text-teal-700" : "bg-emerald-50 text-emerald-700"}`}
                         >
-                          {reservation.supersededByRooms ? "Split into rooms" : isMarketplace ? (PAYMENT_METHOD_LABEL[reservation.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF") : paymentMethod.label}
+                          {reservation.supersededByRooms ? "Split into rooms" : isMarketplace ? ownerDisbursementLabel : paymentMethod.label}
                         </span>
                       </td>
                       <td
                         title={agencySettlement ? `${agencySettlement.masterFolioReference} · ${agencySettlement.settled ? "settled" : "payment outstanding"}` : undefined}
                         className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold ${reservation.balance != null && reservation.balance > 0 || agencyBillDue ? "text-amber-700" : "text-emerald-700"}`}
                       >
-                        {reservation.supersededByRooms ? <span className="font-semibold text-neutral-400">Replaced by rooms</span> : isMarketplace ? "NoLSAF managed" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
+                        {reservation.supersededByRooms ? <span className="font-semibold text-neutral-400">Replaced by rooms</span> : isMarketplace ? "No guest balance" : reservation.balance != null && reservation.balance > 0 ? money(reservation.balance, reservation.currency) : agencyBillDue ? "Agency bill due" : "Paid in full"}
                       </td>
                       <td className="px-4 py-3.5 text-center">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
+                        <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${STATUS_CLS[reservation.status] ?? "bg-neutral-100 text-neutral-500"}`}>
                           {reservation.status.replace(/_/g, " ").toLowerCase()}
                         </span>
                       </td>
                       <td className="px-4 py-3.5 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openReservation(reservation.id)}
-                          className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                        >
-                          View
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {!isSalesExecutive && unassignedAllocation && ["CONFIRMED", "CHECKED_IN"].includes(reservation.status) && (
+                            <button
+                              type="button"
+                              onClick={() => setRoomAssignment(reservation)}
+                              title="Assign a room number from the paid room category"
+                              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-800"
+                            >
+                              <DoorOpen className="h-3.5 w-3.5" />
+                              Assign room
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openReservation(reservation)}
+                            className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                          >
+                            View
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -673,8 +1073,9 @@ export default function NrmsReservationsPage() {
           <TablePagination page={page} pageSize={PAGE_SIZE} total={totalReservations} onPageChange={setPage} />
         </div>
       )}
+      </NrmsDirectoryShell>
 
-      {showCreate && (
+      {!isSalesExecutive && showCreate && (
         <CreateReservationModal
           propertyId={selectedPropertyId}
           initialCheckIn={createDefaults.checkIn}
@@ -691,11 +1092,180 @@ export default function NrmsReservationsPage() {
       {selectedReservationId && (
         <ReservationDetailModal
           reservationId={selectedReservationId}
+          readOnly={isSalesExecutive}
           onClose={closeReservation}
           onChanged={load}
+          onAssignRoom={(reservation) => { closeReservation(); setRoomAssignment(reservation); }}
+        />
+      )}
+      {roomAssignment && selectedPropertyId && (
+        <AssignRoomModal
+          propertyId={selectedPropertyId}
+          reservation={roomAssignment}
+          onClose={() => setRoomAssignment(null)}
+          onRecordPayment={() => {
+            if (roomAssignment.agencySettlement) {
+              router.push(roomAssignment.agentBooking ? agentRequestHref(roomAssignment.agentBooking) : "/owner/nrms/groups");
+              return;
+            }
+            const target = roomAssignment;
+            setRoomAssignment(null);
+            openReservation(target);
+          }}
+          onAssigned={async () => {
+            const response = await apiClient.get<any>("/api/owner/nrms/reservations/" + roomAssignment.id);
+            const updated = response.data?.reservation as Reservation | undefined;
+            if (!updated) throw new Error("Could not reload room assignment");
+            if (roomReadiness(updated).ready) { setRoomAssignment(null); openReservation(updated); }
+            else setRoomAssignment(updated);
+            await load();
+          }}
         />
       )}
     </div>
+  );
+}
+
+function AssignRoomModal({
+  propertyId,
+  reservation,
+  onClose,
+  onRecordPayment,
+  onAssigned,
+}: {
+  propertyId: number;
+  reservation: Reservation;
+  onClose: () => void;
+  onRecordPayment: () => void;
+  onAssigned: () => Promise<void>;
+}) {
+  const allocation = (reservation.allocations ?? []).find((item) => item.status === "ACTIVE" && (item.roomUnitId == null || !item.roomUnitCode)) ?? null;
+  const requirement = roomAssignmentRequirement(reservation);
+  const [units, setUnits] = useState<Array<{ id: number; code: string; floor?: number | null; housekeepingStatus?: string | null }>>([]);
+  const [totalFloors, setTotalFloors] = useState<number | null>(null);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | "">("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const guestName = reservation.guestProfile?.fullName ?? reservation.marketplaceBooking?.guestName ?? "Guest";
+
+  useEffect(() => {
+    if (!allocation || !requirement.ready) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setSelectedUnitId("");
+    setError(null);
+    Promise.all([
+      apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}`),
+      apiClient.get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, {
+        params: {
+          roomTypeId: allocation.roomTypeId,
+          checkIn: reservation.checkIn,
+          checkOut: reservation.checkOut,
+          allocationId: allocation.id,
+        },
+      }),
+    ])
+      .then(([roomsResponse, availabilityResponse]) => {
+        if (cancelled) return;
+        setTotalFloors(roomsResponse.data?.property?.totalFloors ?? null);
+        const roomType = (roomsResponse.data?.roomTypes ?? []).find((item: RoomType) => item.id === allocation.roomTypeId) as RoomType | undefined;
+        const availableIds = new Set<number>(
+          (availabilityResponse.data?.units ?? [])
+            .filter((item: any) => item.available)
+            .map((item: any) => Number(item.id)),
+        );
+        setUnits((roomType?.units ?? []).filter((unit) => unit.status === "ACTIVE" && availableIds.has(unit.id)));
+      })
+      .catch((requestError: any) => {
+        if (!cancelled) setError(requestError?.response?.data?.error || "Could not load available room numbers");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [allocation, propertyId, requirement.ready, reservation.checkIn, reservation.checkOut]);
+
+  const assign = async () => {
+    if (!allocation || selectedUnitId === "") return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiClient.post(`/api/owner/nrms/reservations/${reservation.id}/move-room`, {
+        allocationId: allocation.id,
+        roomUnitId: Number(selectedUnitId),
+        reason: "Assigned from the NRMS reservations register",
+      });
+      await onAssigned();
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.error || "The room could not be assigned");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalFrame
+      title="Assign a room"
+      subtitle={guestName}
+      icon={<DoorOpen className="h-5 w-5" />}
+      onClose={onClose}
+      wide
+      footer={requirement.ready ? (
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={() => void assign()} disabled={busy || selectedUnitId === "" || loading} className="inline-flex min-w-32 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {busy ? "Assigning..." : "Assign room"}
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} className="whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-50">Cancel</button>
+          {requirement.kind === "RECORD_PAYMENT" && (
+            <button type="button" onClick={onRecordPayment} className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-800"><CircleDollarSign className="h-4 w-4" />{reservation.agencySettlement ? "Open agency folio" : "Record payment"}</button>
+          )}
+        </div>
+      )}
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-y border-neutral-100 py-3">
+          <div className="min-w-0">
+            <p className="m-0 truncate text-sm font-bold text-neutral-950">{guestName}</p>
+            <p className="mb-0 mt-1 text-xs text-neutral-500">{fmtDate(reservation.checkIn)} to {fmtDate(reservation.checkOut)} · {nightsBetween(reservation.checkIn.slice(0, 10), reservation.checkOut.slice(0, 10))} nights</p>
+          </div>
+          <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold ${requirement.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+            {requirement.ready ? <ShieldCheck className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {requirement.ready ? (reservation.bookingId != null ? "NoLSAF booking confirmed" : "Payment recorded") : "Action required"}
+          </span>
+        </div>
+
+        {requirement.ready ? (
+          <NrmsRoomAssignmentPicker
+            roomTypeName={allocation?.roomTypeName ?? "Room type unavailable"}
+            units={units}
+            totalFloors={totalFloors}
+            selectedUnitId={selectedUnitId}
+            onSelect={setSelectedUnitId}
+            loading={loading}
+            disabled={busy || !allocation}
+          />
+        ) : (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 ring-1 ring-amber-200"><AlertTriangle className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-bold">Room assignment is not ready</p>
+              <p className="mb-0 mt-1 text-xs leading-5 text-amber-800">{requirement.message}</p>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">{error}</div>}
+      </div>
+    </ModalFrame>
   );
 }
 
@@ -734,75 +1304,6 @@ function SortableHeader({
         )}
       </button>
     </th>
-  );
-}
-
-type BillingBlock = {
-  status: string;
-  title: string;
-  detail: string;
-  action: "PAY" | "STATUS" | "SUPPORT";
-  outstanding: number;
-  limit: number;
-  currency: string;
-};
-
-/**
- * Shown in place of the plain error toast when the API refuses a new external
- * stay on billing grounds. The three blocking states need different copy and a
- * different destination, so the server sends both and this only renders them.
- */
-function NrmsBillingBlockCard({ block }: { block: BillingBlock }) {
-  const tone = block.status === "PAYMENT_REQUIRED"
-    ? { border: "border-red-200", bg: "bg-red-50", chipBg: "bg-red-100", text: "text-red-700", Icon: AlertTriangle }
-    : block.status === "PAYMENT_PENDING"
-      ? { border: "border-amber-200", bg: "bg-amber-50", chipBg: "bg-amber-100", text: "text-amber-700", Icon: Clock3 }
-      : { border: "border-neutral-200", bg: "bg-neutral-50", chipBg: "bg-neutral-100", text: "text-neutral-700", Icon: LockKeyhole };
-  const chipLabel = block.status === "PAYMENT_REQUIRED" ? "Payment required" : block.status === "PAYMENT_PENDING" ? "Payment pending" : "Account closed";
-  const amount = (value: number) => `${block.currency} ${Math.round(value).toLocaleString()}`;
-  const overLimit = block.limit > 0 && block.outstanding > block.limit;
-  const actionHref = block.action === "SUPPORT" ? "/owner/nrms/help" : "/owner/nrms/billing";
-  const actionLabel = block.action === "PAY" ? `Pay ${amount(block.outstanding)} now` : block.action === "STATUS" ? "Check payment status" : "Contact support";
-  return (
-    <div role="alert" className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
-      <div className={`border-b ${tone.border} ${tone.bg} px-4 py-3.5`}>
-        <span className={`inline-flex items-center gap-1.5 rounded-full ${tone.chipBg} px-2.5 py-1 text-[11px] font-semibold ${tone.text}`}>
-          <tone.Icon className="h-3.5 w-3.5" />{chipLabel}
-        </span>
-        <p className="mb-0 mt-2.5 text-sm font-semibold text-neutral-900">{block.title}</p>
-        <p className="mb-0 mt-1 text-[13px] leading-relaxed text-neutral-600">{block.detail}</p>
-      </div>
-      <div className="px-4 py-3.5">
-        {block.action === "PAY" && (
-          <>
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <p className="mb-0 text-[11px] text-neutral-500">Outstanding balance</p>
-                <p className="mb-0 mt-0.5 text-2xl font-semibold text-neutral-900">{amount(block.outstanding)}</p>
-              </div>
-              {block.limit > 0 && <p className="mb-0 text-[11px] text-neutral-500">Limit {amount(block.limit)}</p>}
-            </div>
-            {block.limit > 0 && (
-              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                <div className={`h-1.5 rounded-full ${overLimit ? "bg-red-600" : "bg-amber-500"}`} style={{ width: `${Math.min(100, (block.outstanding / block.limit) * 100)}%` }} />
-              </div>
-            )}
-          </>
-        )}
-        <div className="mt-3.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-          <p className="mb-0 text-xs font-semibold text-emerald-800">Still working normally</p>
-          <p className="mb-0 mt-1 text-[11px] leading-relaxed text-emerald-700">Check-ins, checkouts, folio postings, outlet orders and every existing reservation are unaffected. Only opening a new external stay is paused.</p>
-        </div>
-        <div className="mt-3.5 flex flex-wrap gap-2">
-          <a href={actionHref} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-800 px-4 text-[13px] font-semibold text-white no-underline">
-            <WalletCards className="h-4 w-4" />{actionLabel}
-          </a>
-          <a href="/owner/nrms/billing" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-[13px] font-semibold text-neutral-700 no-underline">
-            <ReceiptText className="h-4 w-4" />View statement
-          </a>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -897,7 +1398,7 @@ function CreateReservationModal({
   const [guestHistory, setGuestHistory] = useState<GuestHistory | null>(null);
   const [searchingGuests, setSearchingGuests] = useState(false);
   const [guestSearchError, setGuestSearchError] = useState<string | null>(null);
-  const [billingBlock, setBillingBlock] = useState<BillingBlock | null>(null);
+  const [billingBlock, setBillingBlock] = useState<NrmsBillingBlock | null>(null);
   const [showGuestMatches, setShowGuestMatches] = useState(false);
   const [guestSearchField, setGuestSearchField] = useState<"name" | "phone" | null>(null);
   const [source, setSource] = useState("WALK_IN");
@@ -1105,7 +1606,7 @@ function CreateReservationModal({
       await onSaved();
     } catch (e: any) {
       const billing = e?.response?.status === 402 ? e?.response?.data?.billing : null;
-      if (billing) { setBillingBlock(billing as BillingBlock); setError(null); }
+      if (billing) { setBillingBlock(billing as NrmsBillingBlock); setError(null); }
       else setError(e?.response?.data?.error || "Failed to create reservation");
       setBusy(false);
     }
@@ -1349,17 +1850,7 @@ function CreateReservationModal({
           </div>
         </section>
 
-        {billingBlock && (
-          <ModalFrame
-            title="External stay paused"
-            subtitle="The reservation was not created"
-            icon={<WalletCards className="h-5 w-5" />}
-            elevated
-            onClose={() => setBillingBlock(null)}
-          >
-            <NrmsBillingBlockCard block={billingBlock} />
-          </ModalFrame>
-        )}
+        {billingBlock && <NrmsBillingBlockModal block={billingBlock} title="External stay paused" subtitle="The reservation was not created" reassurance="Check-ins, checkouts, folio postings, outlet orders and every existing reservation are unaffected. Only opening a new external stay is paused." onClose={() => setBillingBlock(null)} />}
         {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">{error}</p>}
 
         {previewGuest && (
@@ -1370,15 +1861,16 @@ function CreateReservationModal({
             onClose={() => { setPreviewGuest(null); setPreviewDetail(null); }}
             elevated
             wide
+            compactFooter
             footer={
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-2 text-xs text-neutral-500">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex max-w-sm items-start gap-2 text-[11px] leading-4 text-neutral-500">
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
                   <span>Using this profile keeps the new stay attached to the guest&apos;s existing history.</span>
                 </div>
-                <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row">
-                  <button type="button" onClick={() => { setPreviewGuest(null); setPreviewDetail(null); }} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-neutral-300 bg-white px-5 text-sm font-bold text-neutral-700 transition hover:bg-neutral-50">Cancel</button>
-                  <button type="button" onClick={confirmPreviewGuest} disabled={previewLoading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50"><Check className="h-4 w-4" />Use this guest</button>
+                <div className="flex shrink-0 flex-col-reverse gap-2 min-[400px]:flex-row">
+                  <button type="button" onClick={() => { setPreviewGuest(null); setPreviewDetail(null); }} className="inline-flex h-9 min-h-0 items-center justify-center rounded-lg border border-neutral-200 bg-white px-4 text-xs font-medium text-neutral-600 transition hover:bg-neutral-50 hover:text-neutral-900">Cancel</button>
+                  <button type="button" onClick={confirmPreviewGuest} disabled={previewLoading} className="inline-flex h-9 min-h-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50"><Check className="h-3.5 w-3.5" />Use this guest</button>
                 </div>
               </div>
             }
@@ -1386,44 +1878,40 @@ function CreateReservationModal({
             {previewLoading ? (
               <div className="flex min-h-72 flex-col items-center justify-center gap-3 text-neutral-400"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /><span className="text-xs">Loading guest relationship…</span></div>
             ) : (
-              <div className="space-y-5">
-                <section className="overflow-hidden rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white">
-                  <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-6">
+                <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_14px_38px_-34px_rgba(15,23,42,0.45)]">
+                  <div className="flex flex-col gap-4 bg-gradient-to-r from-emerald-50/70 via-white to-white p-5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-4">
-                      <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-xl font-black text-white shadow-sm">
-                        {(previewDetail?.fullName ?? previewGuest.fullName).split(/\s+/).slice(0, 2).map((name) => name[0]).join("").toUpperCase()}
+                      <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm ring-4 ring-white" aria-hidden="true">
+                        <UserRound className="h-6 w-6" strokeWidth={1.8} />
                       </span>
                       <div className="min-w-0">
-                        <span className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700"><History className="h-3 w-3" />Returning guest</span>
-                        <h4 className="m-0 truncate text-xl font-black tracking-tight text-neutral-950 sm:text-2xl">{previewDetail?.fullName ?? previewGuest.fullName}</h4>
-                        <p className="mb-0 mt-1 text-xs text-neutral-500">{previewDetail?.createdAt ? `Guest relationship since ${fmtDate(previewDetail.createdAt)}` : "Existing property guest profile"}</p>
+                        <h4 className="m-0 truncate text-xl font-semibold tracking-[-0.02em] text-neutral-950 sm:text-2xl">{previewDetail?.fullName ?? previewGuest.fullName}</h4>
+                        <p className="mb-0 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-500"><span className="inline-flex items-center gap-1.5 text-emerald-700"><History className="h-3.5 w-3.5" />Returning guest</span><span className="text-neutral-300" aria-hidden>•</span><span>{previewDetail?.createdAt ? `Guest since ${fmtDate(previewDetail.createdAt)}` : "Existing guest profile"}</span></p>
                       </div>
                     </div>
-                    <div className="rounded-lg border border-emerald-100 bg-white/90 px-3 py-2 text-left sm:text-right">
-                      <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Profile status</p>
-                      <p className="mb-0 mt-1 flex items-center gap-1.5 text-xs font-bold text-emerald-700 sm:justify-end"><Check className="h-3.5 w-3.5" />Recognised guest</p>
-                    </div>
+                    <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full border border-emerald-100 bg-white/90 px-3 py-1.5 text-xs font-medium text-emerald-700 shadow-sm"><Check className="h-3.5 w-3.5" />Recognised profile</span>
                   </div>
-                  <div className="grid border-t border-emerald-100 bg-white/70 sm:grid-cols-3">
-                    <div className="flex items-center gap-3 border-b border-emerald-100 px-5 py-4 sm:border-b-0 sm:border-r"><BedDouble className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Recorded stays</p><p className="mb-0 mt-1 text-base font-black text-neutral-950">{previewStats.stays}</p></div></div>
-                    <div className="flex items-center gap-3 border-b border-emerald-100 px-5 py-4 sm:border-b-0 sm:border-r"><CircleDollarSign className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Lifetime value</p><p className="mb-0 mt-1 text-base font-black text-neutral-950">{previewStats.currency} {previewStats.spend.toLocaleString()}</p></div></div>
-                    <div className="flex items-center gap-3 px-5 py-4"><WalletCards className={`h-5 w-5 ${previewStats.balance > 0 ? "text-amber-600" : "text-emerald-700"}`} /><div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Open balance</p><p className={`mb-0 mt-1 text-base font-black ${previewStats.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{previewStats.currency} {Math.max(0, previewStats.balance).toLocaleString()}</p></div></div>
+                  <div className="grid gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 p-3 sm:grid-cols-3">
+                    <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><BedDouble className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Recorded stays</p><p className="mb-0 mt-0.5 text-base font-semibold text-neutral-900">{previewStats.stays}</p></div></div>
+                    <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-600"><CircleDollarSign className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Lifetime value</p><p className="mb-0 mt-0.5 text-base font-semibold text-neutral-900">{previewStats.currency} {previewStats.spend.toLocaleString()}</p></div></div>
+                    <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-neutral-100"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${previewStats.balance > 0 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}><WalletCards className="h-4 w-4" /></span><div><p className="m-0 text-[10px] text-neutral-500">Open balance</p><p className={`mb-0 mt-0.5 text-base font-semibold ${previewStats.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{previewStats.currency} {Math.max(0, previewStats.balance).toLocaleString()}</p></div></div>
                   </div>
                 </section>
 
                 <section>
-                  <div className="mb-2 flex items-center justify-between gap-3"><h4 className="m-0 text-xs font-bold uppercase tracking-[0.13em] text-neutral-500">Guest details</h4><span className="text-[10px] text-neutral-400">Property record</span></div>
-                  <div className="grid overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50 sm:grid-cols-3">
-                    <div className="flex min-w-0 items-start gap-3 border-b border-neutral-200 p-4 sm:border-b-0 sm:border-r"><Phone className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Phone</p><p className="mb-0 mt-1 truncate text-sm font-bold text-neutral-900">{previewDetail?.phone || previewGuest.phone || "Not recorded"}</p></div></div>
-                    <div className="flex min-w-0 items-start gap-3 border-b border-neutral-200 p-4 sm:border-b-0 sm:border-r"><Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-sm font-bold text-neutral-900" title={previewDetail?.email || previewGuest.email || "Not recorded"}>{previewDetail?.email || previewGuest.email || "Not recorded"}</p></div></div>
-                    <div className="flex min-w-0 items-start gap-3 p-4"><Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Nationality</p><p className="mb-0 mt-1 truncate text-sm font-bold text-neutral-900">{previewDetail?.nationality || previewGuest.nationality || "Not recorded"}</p></div></div>
+                  <div className="mb-2.5 flex items-center justify-between gap-3"><h4 className="m-0 text-sm font-medium text-neutral-700">Guest details</h4><span className="text-[10px] text-neutral-400">Property record</span></div>
+                  <div className="grid gap-2 rounded-2xl bg-neutral-50 p-2 sm:grid-cols-3">
+                    <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Phone className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Phone</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800">{previewDetail?.phone || previewGuest.phone || "Not recorded"}</p></div></div>
+                    <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Mail className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800" title={previewDetail?.email || previewGuest.email || "Not recorded"}>{previewDetail?.email || previewGuest.email || "Not recorded"}</p></div></div>
+                    <div className="flex min-w-0 items-center gap-3 rounded-xl bg-white p-3.5 ring-1 ring-neutral-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-neutral-50 text-emerald-600"><Globe2 className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[10px] text-neutral-400">Nationality</p><p className="mb-0 mt-1 truncate text-sm font-medium text-neutral-800">{previewDetail?.nationality || previewGuest.nationality || "Not recorded"}</p></div></div>
                   </div>
                 </section>
 
-                {previewDetail?.notes && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950"><p className="m-0 font-bold">Front-desk note</p><p className="mb-0 mt-1 leading-5 text-amber-900">{previewDetail.notes}</p></div>}
+                {previewDetail?.notes && <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs text-amber-950"><p className="m-0 font-medium">Front-desk note</p><p className="mb-0 mt-1 leading-5 text-amber-800">{previewDetail.notes}</p></div>}
 
                 <section>
-                  <div className="mb-2 flex items-end justify-between gap-3"><div><h4 className="m-0 text-xs font-bold uppercase tracking-[0.13em] text-neutral-500">Stay records</h4><p className="mb-0 mt-1 text-[11px] text-neutral-400">Most recent property reservations</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">{previewStats.rows.length} total</span></div>
+                  <div className="mb-2.5 flex items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-medium text-neutral-700">Stay records</h4><p className="mb-0 mt-1 text-[11px] text-neutral-400">Most recent property reservations</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-500">{previewStats.rows.length} total</span></div>
                   {previewStats.rows.length ? (
                     <div className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white">
                       {previewStats.rows.slice(0, 8).map((row) => {
@@ -1433,13 +1921,13 @@ function CreateReservationModal({
                           <div className="flex min-w-0 items-center gap-3">
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500"><BedDouble className="h-4 w-4" /></span>
                             <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-bold text-neutral-900">{fmtDate(row.checkIn)} to {fmtDate(row.checkOut)}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${STATUS_CLS[row.status] ?? "bg-neutral-100 text-neutral-600"}`}>{row.status.replace(/_/g, " ")}</span></div>
+                              <div className="flex flex-wrap items-center gap-2"><p className="m-0 text-xs font-medium text-neutral-800">{fmtDate(row.checkIn)} to {fmtDate(row.checkOut)}</p><span className={`rounded-full px-2 py-0.5 text-[9px] font-medium uppercase ${STATUS_CLS[row.status] ?? "bg-neutral-100 text-neutral-600"}`}>{row.status.replace(/_/g, " ")}</span></div>
                               <p className="mb-0 mt-1 text-[10px] text-neutral-500">{SOURCE_LABEL[row.source] ?? row.source}</p>
                             </div>
                           </div>
                           <div className="grid grid-cols-2 gap-5 text-right sm:min-w-52">
-                            <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Stay total</p><p className="mb-0 mt-1 text-xs font-black text-neutral-900">{row.currency} {(row.totalAmount ?? 0).toLocaleString()}</p></div>
-                            <div><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{row.commercialManaged ? "Payment" : rowBalance > 0 ? "Balance" : "Payment"}</p><p className={`mb-0 mt-1 text-xs font-black ${row.commercialManaged ? "text-emerald-700" : rowBalance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{row.commercialManaged ? "NoLSAF managed" : rowBalance > 0 ? `${row.currency} ${rowBalance.toLocaleString()}` : "Settled"}</p></div>
+                            <div><p className="m-0 text-[9px] uppercase tracking-wide text-neutral-400">Stay total</p><p className="mb-0 mt-1 text-xs font-semibold text-neutral-800">{row.currency} {(row.totalAmount ?? 0).toLocaleString()}</p></div>
+                            <div><p className="m-0 text-[9px] uppercase tracking-wide text-neutral-400">{row.commercialManaged ? "Payment" : rowBalance > 0 ? "Balance" : "Payment"}</p><p className={`mb-0 mt-1 text-xs font-semibold ${row.commercialManaged ? "text-emerald-700" : rowBalance > 0 ? "text-amber-700" : "text-emerald-700"}`}>{row.commercialManaged ? "NoLSAF managed" : rowBalance > 0 ? `${row.currency} ${rowBalance.toLocaleString()}` : "Settled"}</p></div>
                           </div>
                         </div>
                       )})}
@@ -1457,20 +1945,47 @@ function CreateReservationModal({
   );
 }
 
+function SalesReservationSummary({ reservation: r }: { reservation: Reservation }) {
+  const guestName = r.guestProfile?.fullName ?? r.agentBooking?.leadGuest?.fullName ?? "Guest";
+  const rooms = tallyRoomLabels((r.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE").map(allocationRoomLabel), "Unassigned");
+  const partySize = r.bookingId != null ? `${r.marketplaceBooking?.roomsQty ?? 1} room(s)` : `${r.adults + r.children} guest(s)`;
+  return <div className="space-y-4 text-sm">
+    <section className="flex flex-wrap items-start justify-between gap-3 border border-neutral-200 bg-neutral-50 px-4 py-3">
+      <div className="min-w-0"><p className="m-0 truncate text-base font-semibold text-neutral-950">{guestName}</p><p className="mb-0 mt-1 text-xs text-neutral-500">{fmtDate(r.checkIn)} to {fmtDate(r.checkOut)} · {SOURCE_LABEL[r.source] ?? r.source}</p></div>
+      <span className={`inline-flex px-2.5 py-1 text-[10px] font-semibold capitalize ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>{r.status.replace(/_/g, " ").toLowerCase()}</span>
+    </section>
+    <div className="grid gap-px bg-neutral-200 ring-1 ring-neutral-200 sm:grid-cols-3">
+      {[["Room", rooms], ["Party", partySize], ["Reservation value", money(r.bookingId != null ? r.marketplaceBooking?.totalAmount ?? null : r.totalAmount, r.currency)]].map(([label, value]) => <div key={label} className="bg-white px-4 py-3"><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">{label}</p><p className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{value}</p></div>)}
+    </div>
+    <section className="grid gap-3 border border-neutral-200 bg-white p-4 sm:grid-cols-2">
+      <div><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Phone</p><p className="mb-0 mt-1 text-xs font-medium text-neutral-800">{r.guestProfile?.phone ?? r.agentBooking?.leadGuest?.phone ?? "Not recorded"}</p></div>
+      <div><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Email</p><p className="mb-0 mt-1 truncate text-xs font-medium text-neutral-800">{r.guestProfile?.email ?? "Not recorded"}</p></div>
+      {r.group && <div className="sm:col-span-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Group</p><Link href="/owner/nrms/groups" className="mb-0 mt-1 inline-block text-xs font-semibold text-emerald-800 no-underline hover:underline">{r.group.name}</Link></div>}
+      {r.agentBooking && <div className="sm:col-span-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Travel agency</p><Link href={agentRequestHref(r.agentBooking)} className="mb-0 mt-1 inline-block text-xs font-semibold text-emerald-800 no-underline hover:underline">{r.agentBooking.agencyName ?? "Agency booking"}</Link></div>}
+    </section>
+    <div className="flex items-start gap-2 border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" /><span>This reservation is read-only in the Sales workspace. Ask Reception or a manager to assign rooms, change the stay, record payments, check in, or check out the guest.</span></div>
+  </div>;
+}
+
 function ReservationDetailModal({
   reservationId,
+  readOnly,
   onClose,
   onChanged,
+  onAssignRoom,
 }: {
   reservationId: number;
+  readOnly: boolean;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  onAssignRoom: (reservation: Reservation) => void;
 }) {
   const { selectedPropertyId } = useNrms();
   const [reservation, setReservation] = useState<Reservation | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
+  const [roomPreparationIssue, setRoomPreparationIssue] = useState<{ message: string; code: string | null } | null>(null);
   const [payAmount, setPayAmount] = useState("");
   const [payAmountManuallyEdited, setPayAmountManuallyEdited] = useState(false);
   const [payMethod, setPayMethod] = useState("CASH");
@@ -1483,6 +1998,12 @@ function ReservationDetailModal({
   const [voidError, setVoidError] = useState<string | null>(null);
   const [verifiedChargeIds, setVerifiedChargeIds] = useState<number[]>([]);
   const [tenderCorrections, setTenderCorrections] = useState<Record<number, string>>({});
+  const [checkoutConfirmOpen, setCheckoutConfirmOpen] = useState(false);
+  const [roomVacantConfirmed, setRoomVacantConfirmed] = useState(false);
+  const [earlyDepartureReason, setEarlyDepartureReason] = useState("");
+  // The server decides early departure on the hotel's business day (it only
+  // advances when the night audit closes); the browser cannot see that day.
+  const [departureDeclarationNeeded, setDepartureDeclarationNeeded] = useState(false);
 
   const reload = useCallback(async () => {
     const r = await apiClient.get<any>(`/api/owner/nrms/reservations/${reservationId}`);
@@ -1514,12 +2035,45 @@ function ReservationDetailModal({
       await apiClient.post(`/api/owner/nrms/reservations/${reservationId}/${action}`, body ?? {});
       await reload();
       await onChanged();
+      return true;
     } catch (e: any) {
       if (action === "check-in" && e?.response?.data?.code === "ROOM_NOT_READY") {
         setRoomNotReady(e?.response?.data?.error || "The assigned room has not been cleaned yet.");
+      } else if (action === "check-in" && e?.response?.data?.code === "ROOM_ASSIGNMENT_REQUIRED") {
+        setError("Room setup is incomplete. Review the room assignment section above before checking in.");
+        // Another operator may have changed allocations since this detail opened.
+        await reload().catch(() => undefined);
+      } else if (action === "check-out" && ["ROOM_VACANCY_CONFIRMATION_REQUIRED", "EARLY_DEPARTURE_REASON_REQUIRED"].includes(e?.response?.data?.code)) {
+        setDepartureDeclarationNeeded(true);
+        setError("NRMS records this as an early departure. Tick the room-vacant box and add a reason in the Early departure section, then confirm check-out again.");
       } else {
         setError(e?.response?.data?.error || "Action failed");
       }
+      return false;
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const prepareRoomAssignment = async () => {
+    setBusyAction("prepare-room-assignment");
+    setError(null);
+    setRoomPreparationIssue(null);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/reservations/${reservationId}/room-assignment/prepare`);
+      const updated = response.data?.reservation as Reservation | undefined;
+      if (!updated || roomReadiness(updated).missingAllocation) {
+        setRoomPreparationIssue({ message: "The booked room category could not be restored.", code: null });
+        return;
+      }
+      setReservation(updated);
+      await onChanged();
+      onAssignRoom(updated);
+    } catch (requestError: any) {
+      setRoomPreparationIssue({
+        message: requestError?.response?.data?.error || "The booked room category could not be prepared.",
+        code: requestError?.response?.data?.code ?? null,
+      });
     } finally {
       setBusyAction(null);
     }
@@ -1624,6 +2178,9 @@ function ReservationDetailModal({
   };
 
   const r = reservation;
+  const checkoutGuestName = r?.guestProfile?.fullName ?? r?.agentBooking?.leadGuest?.fullName ?? "Guest";
+  const checkoutRoomLabel = tallyRoomLabels((r?.allocations ?? []).filter((allocation) => allocation.status === "ACTIVE").map((allocation) => allocation.roomUnitCode ?? `Any ${allocation.roomTypeName ?? "room"}`), "assigned room");
+  const readiness = roomReadiness(r ?? {});
   const isMarketplace = r?.bookingId != null;
   const paymentLocked = r?.balance != null && r.balance <= 0;
   const activeCharges = (r?.charges ?? []).filter((charge) => !charge.voidedAt);
@@ -1645,114 +2202,156 @@ function ReservationDetailModal({
     .reduce((sum, order) => sum + (order.total ?? 0), 0);
   const folioTotal = (r?.totalAmount ?? 0) + (r?.chargesTotal ?? 0);
   const totalGuestSpend = folioTotal + settledAtOutletTotal;
-  const totalCollected = (r?.amountPaid ?? 0) + settledAtOutletTotal;
+  const guestCollected = (r?.amountPaid ?? 0) + settledAtOutletTotal;
+  const agencyFolioAmount = Math.max(0, r?.transferredToMaster ?? 0);
   const folioBalanceBlocked = r?.status === "CHECKED_IN" && (r.balance == null || Math.abs(r.balance) > 0.005);
+  const folioAmountDue = r?.status === "CHECKED_IN" && r.balance != null && r.balance > 0.005 ? r.balance : 0;
+  const folioCredit = r?.status === "CHECKED_IN" && r.balance != null && r.balance < -0.005 ? Math.abs(r.balance) : 0;
   const chargesNeedVerification = r?.status === "CHECKED_IN" && chargesRequiringVerification.some((charge) => !verifiedChargeIds.includes(charge.id));
   const outletReconciliationBlocked = r?.status === "CHECKED_IN" && unclassifiedOutletPayments.length > 0;
   const checkoutBlocked = folioBalanceBlocked || chargesNeedVerification || outletReconciliationBlocked;
-  const canPostCharges = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
-  const canPrintInvoice = r != null && !isMarketplace && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
+  const plannedCheckOutKey = r?.checkOut?.slice(0, 10) ?? "";
+  const departureDateKey = localDateKey();
+  const earlyDeparture = Boolean(r?.status === "CHECKED_IN" && (plannedCheckOutKey > departureDateKey || departureDeclarationNeeded));
+  const actualCheckInDateKey = r?.checkedInAt ? localDateKey(new Date(r.checkedInAt)) : "";
+  const unresolvedEarlyCheckIn = Boolean(
+    r?.status === "CHECKED_IN"
+      && actualCheckInDateKey
+      && r.checkIn.slice(0, 10) > actualCheckInDateKey
+      && !r.earlyCheckInApproved,
+  );
+  const checkoutDeclarationReady = roomVacantConfirmed && (!earlyDeparture || earlyDepartureReason.trim().length >= 2);
+  const checkoutReady = checkoutDeclarationReady;
+  const checkoutNextStep = earlyDeparture && earlyDepartureReason.trim().length < 2
+      ? "Add the reason for the early departure."
+      : !roomVacantConfirmed
+        ? "Confirm that the room is vacant."
+        : "Ready to complete checkout.";
+  // Incidentals and the folio document are the property's own business on a
+  // marketplace stay: only the accommodation rate and its payment belong to
+  // NoLSAF. A NoLSAF guest orders from the bar and takes a receipt like anyone.
+  const canPostCharges = r != null && ["CONFIRMED", "CHECKED_IN"].includes(r.status);
+  const canPrintInvoice = r != null && ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"].includes(r.status);
+  // Confirm, check-in, no-show and cancel are commercial state a marketplace
+  // booking owns: check-in happens against the guest's code, and the rest would
+  // let NRMS and NoLSAF disagree about what the guest owes. Check-out is the
+  // property closing its own stay, and the folio opened above has to be
+  // settleable from the same place it is posted.
   const actions: Array<{ key: string; label: string; show: boolean; disabled?: boolean }> = r
-    && !isMarketplace
     ? [
-        { key: "confirm", label: "Confirm", show: ["DRAFT", "HELD"].includes(r.status) },
-        { key: "check-in", label: "Check in", show: r.status === "CONFIRMED" },
-        { key: "check-out", label: folioBalanceBlocked ? "Settle balance first" : outletReconciliationBlocked ? "Classify outlet payments" : chargesNeedVerification ? "Verify every charge" : "Check out", show: r.status === "CHECKED_IN", disabled: checkoutBlocked },
-        { key: "no-show", label: "No show", show: r.status === "CONFIRMED" },
-        { key: "cancel", label: "Cancel", show: ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
+        { key: "confirm", label: "Confirm", show: !isMarketplace && ["DRAFT", "HELD"].includes(r.status) },
+        { key: "check-in", label: "Check in", show: !isMarketplace && r.status === "CONFIRMED", disabled: !readiness.ready },
+        {
+          key: "check-out",
+          label: folioAmountDue > 0
+            ? `Payment due · ${money(folioAmountDue, r.currency)}`
+            : folioCredit > 0
+              ? `Resolve credit · ${money(folioCredit, r.currency)}`
+              : folioBalanceBlocked
+                ? "Review folio balance"
+                : outletReconciliationBlocked
+                  ? "Classify outlet payments"
+                  : chargesNeedVerification
+                    ? "Verify every charge"
+                    : "Check out",
+          show: r.status === "CHECKED_IN",
+          disabled: checkoutBlocked,
+        },
+        { key: "no-show", label: "No show", show: !isMarketplace && r.status === "CONFIRMED" },
+        { key: "cancel", label: "Cancel", show: !isMarketplace && ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
       ]
     : [];
 
   return (
     <>
-    <ModalFrame title="Reservation" onClose={onClose} closeOnEscape={!voidingCharge} extraWide>
+    <ModalFrame title="Reservation" onClose={onClose} closeOnEscape={!voidingCharge && !checkoutConfirmOpen} extraWide>
       {!r ? (
         <div className="flex justify-center py-10 text-neutral-400">
           <Loader2 className="w-5 h-5 animate-spin" />
         </div>
+      ) : readOnly ? (
+        <SalesReservationSummary reservation={r} />
       ) : (
         <div className="space-y-3 text-sm">
-          <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-3">
+          <section className="flex min-w-0 flex-wrap items-stretch justify-between overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1 px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
                 {/* An agency stay is billed to the agency, so the drawer leads
                     with the agency and keeps the traveller underneath. */}
                 <div className="truncate font-bold text-neutral-900">{r.agentBooking?.agencyName ?? r.guestProfile?.fullName ?? r.agentBooking?.leadGuest?.fullName ?? "Guest"}</div>
-                <div className="mt-0.5 text-[11px] text-neutral-500">
+                <div className="mt-1 text-xs text-neutral-500">
                   {r.agentBooking ? <>{r.guestProfile?.fullName ?? r.agentBooking.leadGuest?.fullName ?? "Travellers on the manifest"} · </> : null}
                   {fmtDate(r.checkIn)} to {fmtDate(r.checkOut)} · {SOURCE_LABEL[r.source] ?? r.source} · {r.adults} adult{r.adults === 1 ? "" : "s"}
                 </div>
               </div>
               {r.allocations && r.allocations.length > 0 && (
-                <div className="border-l border-neutral-200 pl-5">
-                  <div className="text-[9px] font-bold uppercase tracking-wide text-neutral-400">Room</div>
-                  <div className="mt-0.5 text-xs font-semibold text-neutral-700">{tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active")}</div>
+                <div className="border-l border-neutral-200 px-5 py-3.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Room</div>
+                  <div className="mt-1 text-[13px] font-semibold text-neutral-800">{tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active")}</div>
                 </div>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 border-l border-neutral-200 bg-neutral-50 px-3.5 py-3">
               {canPrintInvoice && (
                 <button
                   type="button"
-                  onClick={() => window.open(`/api/owner/nrms/reservations/${r.id}/invoice.pdf`, "_blank", "noopener")}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-[11px] font-semibold text-neutral-600 hover:bg-neutral-50"
+                  onClick={() => window.open(`/api/owner/nrms/reservations/${encodeURIComponent(r.reference ?? String(r.id))}/invoice.pdf`, "_blank", "noopener")}
+                  className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
                 >
                   <Printer className="h-3.5 w-3.5" />
                   Print invoice
                 </button>
               )}
-              <span className={`text-[11px] font-medium rounded-full px-2.5 py-1 ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>
+              <span className={`rounded-full px-2.5 py-1.5 text-[11px] font-semibold ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>
                 {r.status.replace(/_/g, " ").toLowerCase()}
               </span>
             </div>
           </section>
 
-          {isMarketplace && (
-            <section className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
-              <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-bold">Connected NoLSAF marketplace booking #{r.marketplaceBooking?.id ?? r.bookingId}</p>
-                  <p className="mb-0 mt-1 text-[11px] leading-5 text-emerald-800">Guest identity, dates and room allocation are synchronized into NRMS. Payment and stay-status changes remain managed by NoLSAF to prevent duplicate records.</p>
-                  <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-emerald-900">
-                    <span><strong>Phone:</strong> {r.guestProfile?.phone ?? "Not provided"}</span>
-                    <span><strong>Email:</strong> {r.guestProfile?.email ?? "Not provided"}</span>
-                    <span><strong>Nationality:</strong> {r.guestProfile?.nationality ?? "Not provided"}</span>
-                    <span><strong>Sex:</strong> {r.marketplaceBooking?.sex ?? "Not provided"}</span>
-                    <span><strong>Age group:</strong> {r.marketplaceBooking?.ageGroup ?? "Not provided"}</span>
-                  </div>
-                </div>
-              </div>
+          {["CONFIRMED", "CHECKED_IN"].includes(r.status) && !readiness.ready && (
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-4" aria-label="Room assignment required">
+              <p className="m-0 font-semibold">{readiness.missingAllocation ? "Booked room category needs recovery" : readiness.assigned + " of " + readiness.total + " rooms assigned"}</p>
+              <p className="my-2 text-xs">{readiness.missingAllocation ? "Restore the category already recorded by the booking source, then choose a room number from that category." : roomAssignmentRequirement(r).message}</p>
+              {readiness.missingAllocation && <button type="button" disabled={busyAction != null} onClick={() => void prepareRoomAssignment()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">{busyAction === "prepare-room-assignment" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{busyAction === "prepare-room-assignment" ? "Restoring category..." : "Continue to room assignment"}</button>}
+              {!readiness.missingAllocation && <button type="button" disabled={busyAction != null} onClick={() => onAssignRoom(r)} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Assign room</button>}
+              {roomPreparationIssue && <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-xs text-red-700"><p className="m-0 font-semibold">{roomPreparationIssue.message}</p>{roomPreparationIssue.code === "ROOM_CATEGORY_MAPPING_REQUIRED" && <Link href="/owner/nrms/rooms" className="mt-2 inline-flex font-bold text-red-800 underline">Open room categories</Link>}</div>}
             </section>
           )}
 
-          <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+          {isMarketplace && <MarketplaceSettlement reservation={r} />}
+
+          {!isMarketplace && <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-4">
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Booking value" : "Room"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(isMarketplace ? r.marketplaceBooking?.totalAmount ?? null : r.totalAmount, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Room</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.totalAmount, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Payment record" : "Folio extras"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{isMarketplace ? (r.marketplaceBooking?.paymentStatus?.replace(/_/g, " ").toLowerCase() ?? "NoLSAF managed") : money(r.chargesTotal ?? 0, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Folio extras</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.chargesTotal ?? 0, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "NRMS folio" : "Outlet paid"}</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? "Read only" : money(settledAtOutletTotal, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Outlet paid</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{money(settledAtOutletTotal, r.currency)}</p>
               {unclassifiedOutletPayments.length > 0 && <p className="mb-0 mt-0.5 text-[9px] font-semibold text-amber-700">Payment method missing</p>}
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Rooms booked" : "Total spend"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{isMarketplace ? (r.marketplaceBooking?.roomsQty ?? 1) : money(totalGuestSpend, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total spend</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(totalGuestSpend, r.currency)}</p>
             </div>
             <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{isMarketplace ? "Payment method" : "Total collected"}</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{isMarketplace ? (PAYMENT_METHOD_LABEL[r.marketplaceBooking?.paymentMethod ?? ""] ?? "NoLSAF managed") : money(totalCollected, r.currency)}</p>
+              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Guest collected</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{money(guestCollected, r.currency)}</p>
             </div>
+            {agencyFolioAmount > 0 && <div className={`min-w-0 px-3 py-3 ${r.agencySettlement?.settled ? "bg-blue-50" : "bg-amber-50"}`}>
+              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.agencySettlement?.settled ? "text-blue-700" : "text-amber-700"}`}>Agency folio</p>
+              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(agencyFolioAmount, r.currency)}</p>
+              <p className={`mb-0 mt-0.5 text-[9px] font-semibold ${r.agencySettlement?.settled ? "text-blue-700" : "text-amber-700"}`}>{r.agencySettlement?.settled ? "Agency settled" : "Agency payment pending"}</p>
+            </div>}
             <div className={`min-w-0 px-3 py-3 ${r.balance != null && r.balance > 0 && !isMarketplace ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 && !isMarketplace ? "text-amber-700" : "text-emerald-700"}`}>{isMarketplace ? "Commercial owner" : "Amount due"}</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 && !isMarketplace ? "text-amber-900" : "text-emerald-900"}`}>{isMarketplace ? "NoLSAF" : r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : "Paid in full"}</p>
+              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>Guest amount due</p>
+              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 ? "text-amber-900" : "text-emerald-900"}`}>{r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : agencyFolioAmount > 0 ? "Guest folio settled" : "Paid in full"}</p>
             </div>
-          </section>
+          </section>}
 
           {(canPostCharges || (r.charges && r.charges.length > 0) || outletPaidOrders.length > 0) && (
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
@@ -1824,12 +2423,12 @@ function ReservationDetailModal({
               {r.charges && r.charges.length > 0 && (
                 <section className="space-y-2">
                   <div className="flex items-end justify-between gap-3 px-0.5">
-                    <div><h4 className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Room folio charges</h4><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Outlet-posted charges are verified by their completed workflow. Only manual entries require front-desk confirmation.</p></div>
+                    <div><h4 className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Room folio charges</h4><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Verify manual charges here. Verification confirms the charge is correct; payment is recorded separately below.</p></div>
                     <div className="shrink-0 text-right"><span className="block text-[9px] font-bold uppercase tracking-wide text-neutral-400">Charges total</span><strong className="mt-0.5 block text-xs tabular-nums text-neutral-800">{money(r.chargesTotal ?? 0, r.currency)}</strong></div>
                   </div>
                   <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
-                    <div className="hidden min-w-0 grid-cols-[3rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] items-center gap-3 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-[9px] font-bold uppercase tracking-wide text-neutral-400 md:grid">
-                      <span>Control</span><span>Charge</span><span>Source or reference</span><span>Posted</span><span className="text-right">Amount</span><span className="text-right">Action</span>
+                    <div className="hidden min-w-0 grid-cols-[7.75rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] items-center gap-3 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-[9px] font-bold uppercase tracking-wide text-neutral-400 md:grid">
+                      <span>Verification</span><span>Charge</span><span>Source or reference</span><span>Posted</span><span className="text-right">Amount</span><span className="text-right">Action</span>
                     </div>
                     <div className="divide-y divide-neutral-200">
                       {r.charges.map((c) => {
@@ -1838,14 +2437,20 @@ function ReservationDetailModal({
                         const workflowVerified = !c.voidedAt && !needsManualVerification;
                         const categoryLabel = NRMS_CHARGE_CATEGORY_LABELS[c.category as keyof typeof NRMS_CHARGE_CATEGORY_LABELS] ?? c.category.replace(/_/g, " ").toLowerCase();
                         return (
-                          <div key={c.id} className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 py-2.5 md:grid-cols-[3rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] md:gap-3 ${c.voidedAt ? "bg-neutral-50 opacity-60" : checked || workflowVerified ? "bg-emerald-50/50" : "bg-white"}`}>
+                          <div key={c.id} className={`grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-3 py-2.5 md:grid-cols-[7.75rem_minmax(8rem,1fr)_minmax(13rem,1.4fr)_9.5rem_7rem_3.5rem] md:gap-3 ${c.voidedAt ? "bg-neutral-50 opacity-60" : checked || workflowVerified ? "bg-emerald-50/50" : "bg-white"}`}>
                             <div className="row-span-3 flex items-center md:row-auto">
                               {r.status === "CHECKED_IN" && needsManualVerification ? (
-                                <label className={`flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md border ${checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-neutral-300 bg-white text-transparent hover:border-emerald-400"}`}>
-                                  <input type="checkbox" checked={checked} onChange={(event) => setVerifiedChargeIds((current) => event.target.checked ? [...current, c.id] : current.filter((id) => id !== c.id))} aria-label={`Verify charge ${c.description || c.category}`} className="sr-only" />
-                                  <Check className="h-3.5 w-3.5" />
-                                </label>
-                              ) : workflowVerified ? <span title="Verified by completed outlet workflow" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-100 text-emerald-700"><Check className="h-3.5 w-3.5" /></span> : <span className="text-[10px] font-bold text-neutral-400">—</span>}
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={checked}
+                                  onClick={() => setVerifiedChargeIds((current) => checked ? current.filter((id) => id !== c.id) : [...current, c.id])}
+                                  className={`inline-flex h-9 min-w-[7rem] items-center justify-center gap-2 rounded-lg border px-3 text-[10px] font-bold transition ${checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-amber-300 bg-amber-50 text-amber-900 hover:border-emerald-500 hover:bg-emerald-50"}`}
+                                >
+                                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-white/70 bg-white/15" : "border-amber-500 bg-white"}`} aria-hidden="true">{checked && <Check className="h-3 w-3" />}</span>
+                                  {checked ? "Verified" : "Verify charge"}
+                                </button>
+                              ) : workflowVerified ? <span title="Verified by completed outlet workflow" className="inline-flex h-9 min-w-[7rem] items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-100 px-3 text-[10px] font-bold text-emerald-800"><Check className="h-3.5 w-3.5" />Workflow verified</span> : <span className="text-[10px] font-bold text-neutral-400">—</span>}
                             </div>
                             <div className={`min-w-0 md:col-auto ${c.voidedAt ? "line-through" : ""}`}>
                               <span className="block truncate text-xs font-bold text-neutral-800">{categoryLabel}</span>
@@ -1905,25 +2510,25 @@ function ReservationDetailModal({
             </section>
           )}
 
-          {!isMarketplace && !["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
-            <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
-              <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-emerald-100 bg-gradient-to-r from-emerald-50/90 to-white px-4 py-3.5">
+          {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
+            <section id="guest-payment" className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700">
                     <WalletCards className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <p className="m-0 text-xs font-bold text-neutral-950">Record guest payment</p>
-                    <p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Post money already received directly to this guest folio.</p>
+                    <p className="m-0 text-[13px] font-bold text-neutral-950">Record guest payment</p>
+                    <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">Post money already received directly to this guest folio.</p>
                   </div>
                 </div>
-                <span className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-bold text-emerald-800">
+                <span className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-1.5 text-[11px] font-bold text-emerald-800">
                   Outstanding&nbsp; {money(r.balance, r.currency)}
                 </span>
               </header>
               {paymentLocked ? (
-                <div className="m-4 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700"><LockKeyhole className="h-3.5 w-3.5" /></span>
+                <div className="m-4 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-white text-emerald-700"><LockKeyhole className="h-3.5 w-3.5" /></span>
                   This folio is fully paid. Additional payment entry is locked.
                 </div>
               ) : (
@@ -1931,21 +2536,21 @@ function ReservationDetailModal({
                   <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
                     <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 sm:col-span-2 xl:col-span-5">
                       <span className="flex items-center justify-between gap-2"><span>Amount received</span><span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] text-neutral-600">{r.currency}</span></span>
-                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-xl border border-neutral-200 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-neutral-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
+                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-md border border-neutral-300 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-neutral-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
                     </label>
                     <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 xl:col-span-3">
                       Payment method
                       <span className="mt-1.5 block">
-                        <select className="box-border !h-11 w-full min-w-0 rounded-xl border border-neutral-200 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
+                        <select className="box-border !h-11 w-full min-w-0 rounded-md border border-neutral-300 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
                           <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
                         </select>
                       </span>
                     </label>
-                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:col-span-2 xl:col-span-4">
+                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:col-span-2 xl:col-span-4">
                       {busyAction === "payments" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Recording payment...</> : <><CircleDollarSign className="h-4 w-4" />Confirm received payment</>}
                     </button>
                   </div>
-                  <div className="mt-3 flex items-start gap-2 rounded-xl bg-neutral-50 px-3 py-2.5 text-[10px] leading-4 text-neutral-500">
+                  <div className="mt-3 flex items-start gap-2 border-t border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[11px] leading-4 text-neutral-600">
                     <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
                     <span>The amount cannot exceed {money(r.balance, r.currency)}. Confirm the actual payment method before recording.</span>
                   </div>
@@ -1988,8 +2593,16 @@ function ReservationDetailModal({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <strong>Checkout blocked.</strong>
-                {folioBalanceBlocked && <p className="m-0 mt-1">Record the full outstanding payment or resolve the guest credit.</p>}
+                {folioAmountDue > 0 && <p className="m-0 mt-1">The folio still has {money(folioAmountDue, r.currency)} to collect. Verifying a charge confirms it is correct; it does not record money received.</p>}
+                {folioCredit > 0 && <p className="m-0 mt-1">Resolve the guest credit of {money(folioCredit, r.currency)} before checkout.</p>}
+                {folioBalanceBlocked && folioAmountDue === 0 && folioCredit === 0 && <p className="m-0 mt-1">The folio balance could not be confirmed. Refresh and review its payments.</p>}
                 {chargesNeedVerification && <p className="m-0 mt-1">Verify the {chargesRequiringVerification.length} manual room-folio {chargesRequiringVerification.length === 1 ? "charge" : "charges"} listed above. Charges posted through the completed outlet workflow are already verified.</p>}
+                {outletReconciliationBlocked && <p className="m-0 mt-1">Classify the payment method for every settled outlet order.</p>}
+                {folioAmountDue > 0 && (
+                  <button type="button" onClick={() => document.getElementById("guest-payment")?.scrollIntoView({ behavior: "smooth", block: "center" })} className="mt-2 inline-flex h-8 items-center rounded-md border border-red-300 bg-white px-3 text-[10px] font-bold text-red-800 hover:bg-red-100">
+                    Go to payment entry
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1999,7 +2612,19 @@ function ReservationDetailModal({
               <button
                 type="button"
                 key={a.key}
-                onClick={() => runAction(a.key, a.key === "check-out" ? { verifiedChargeIds } : undefined)}
+                onClick={() => {
+                  if (a.key === "check-out") {
+                    if (!earlyDeparture) {
+                      void runAction("check-out", { verifiedChargeIds });
+                      return;
+                    }
+                    setRoomVacantConfirmed(false);
+                    setEarlyDepartureReason("");
+                    setCheckoutConfirmOpen(true);
+                    return;
+                  }
+                  void runAction(a.key);
+                }}
                 disabled={busyAction != null || a.disabled}
                 className={`rounded-lg text-xs font-semibold px-3 py-2 disabled:opacity-60 ${
                   a.key === "cancel" || a.key === "no-show"
@@ -2014,6 +2639,99 @@ function ReservationDetailModal({
         </div>
       )}
     </ModalFrame>
+    {checkoutConfirmOpen && r?.status === "CHECKED_IN" && (
+      <ModalFrame title={earlyDeparture ? "Early checkout" : "Guest checkout"} subtitle={`${checkoutGuestName} · ${checkoutRoomLabel}`} icon={<LogOut className="h-5 w-5" />} onClose={() => setCheckoutConfirmOpen(false)} elevated wide footer={
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className={`m-0 text-sm font-medium ${checkoutReady ? "text-emerald-700" : "text-neutral-500"}`}>{checkoutNextStep}</p>
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            <button type="button" onClick={() => setCheckoutConfirmOpen(false)} disabled={busyAction === "check-out"} className="inline-flex h-11 items-center justify-center rounded-lg border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Not yet</button>
+            {checkoutReady && (
+              <button
+                type="button"
+                disabled={busyAction === "check-out"}
+                onClick={async () => {
+                  const completed = await runAction("check-out", {
+                    verifiedChargeIds,
+                    roomVacantConfirmed,
+                    earlyDepartureReason: earlyDeparture ? earlyDepartureReason.trim() : undefined,
+                  });
+                  if (completed) setCheckoutConfirmOpen(false);
+                }}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-bold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-60"
+              >
+                {busyAction === "check-out" ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                Check out guest
+              </button>
+            )}
+          </div>
+        </div>
+      }>
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <section className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4">
+              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Stay details</p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-[1.35fr_1fr_1fr] sm:items-end">
+                <div>
+                  <span className="text-xs font-medium text-neutral-500">Guest</span>
+                  <h4 className="mb-0 mt-1 text-base font-bold text-neutral-950">{checkoutGuestName}</h4>
+                </div>
+                <dl className="m-0 contents">
+                  <div>
+                    <dt className="text-xs font-medium text-neutral-500">Room</dt>
+                    <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{checkoutRoomLabel}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-neutral-500">Planned departure</dt>
+                    <dd className="mb-0 mt-1 text-sm font-semibold text-neutral-900">{fmtDate(r.checkOut)}</dd>
+                  </div>
+                </dl>
+              </div>
+            </section>
+            {earlyDeparture && (
+              <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950">
+                <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                <p className="m-0 text-sm leading-5"><span className="font-bold">Future inventory will be released.</span> Existing room charges and any marketplace booking price are not recalculated automatically.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="min-w-0 border-t border-solid border-neutral-200 pt-5">
+            <div className="space-y-5">
+                {unresolvedEarlyCheckIn && (
+                  <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                    <span><strong>Arrival record needs management review.</strong> The recorded check-in is {fmtDate(r.checkedInAt!)} while the reservation arrival is {fmtDate(r.checkIn)}. Checkout will preserve both dates in audit history and will not create retroactive room occupancy.</span>
+                  </div>
+                )}
+                {earlyDeparture && (
+                  <label className="block text-sm font-bold text-neutral-900">
+                    Why is the guest leaving early?
+                    <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={5} maxLength={300} placeholder="Example: Guest changed travel plans" className="mt-2 box-border w-full resize-none rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-normal text-neutral-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={roomVacantConfirmed}
+                  onClick={() => setRoomVacantConfirmed((confirmed) => !confirmed)}
+                  className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-5 rounded-2xl border p-5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600/30 ${roomVacantConfirmed ? "border-emerald-400 bg-emerald-50" : "border-neutral-300 bg-white hover:border-emerald-300 hover:bg-emerald-50/30"}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-base font-bold text-neutral-950">Confirm the room is vacant</span>
+                    <span className="mt-1 block text-sm leading-6 text-neutral-600">{checkoutGuestName} has left {checkoutRoomLabel} and the room is ready for the departure workflow.</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className={`hidden text-sm font-semibold sm:inline ${roomVacantConfirmed ? "text-emerald-700" : "text-neutral-500"}`}>{roomVacantConfirmed ? "Confirmed" : "Confirm"}</span>
+                    <span className={`relative block h-7 w-12 rounded-full transition-colors ${roomVacantConfirmed ? "bg-emerald-700" : "bg-neutral-300"}`} aria-hidden="true">
+                      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${roomVacantConfirmed ? "translate-x-5" : "translate-x-0.5"}`} />
+                    </span>
+                  </span>
+                </button>
+              </div>
+          </div>
+        </div>
+      </ModalFrame>
+    )}
     {voidingCharge && (
       <ModalFrame title="Void extra charge" onClose={closeVoidCharge} elevated compact>
         <div className="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-3">

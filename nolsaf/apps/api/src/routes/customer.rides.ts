@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { customerRecordReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -84,6 +85,7 @@ router.get("/", async (req, res) => {
 
         return {
           id: ride.id,
+          rideReference: customerRecordReference("ride", ride.id),
           scheduledDate: ride.scheduledDate || ride.createdAt,
           pickupTime: ride.pickupTime || null,
           dropoffTime: ride.dropoffTime || null,

@@ -3,13 +3,30 @@ import { typedPrisma as prisma } from "@nolsaf/prisma";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { findOpenRestrictionCase, RESTRICTION_SCOPE } from "./restrictionCases.js";
 import { getNrmsEnrollment, isNrmsEntitled } from "./nrms.js";
+import { NRMS_STAFF_ROLES, type NrmsStaffRole } from "./nrmsStaffRoles.js";
+import {
+  authorizeNrmsAccess,
+  buildNrmsEffectiveAccessManifest,
+  isNrmsRole,
+  type NrmsAuthorizationInput,
+  type NrmsCapability,
+  type NrmsEffectiveAccessManifest,
+} from "./nrmsAuthorization.js";
 
-export type NrmsPropertyAccessRole = "OWNER" | "MANAGER" | "FRONT_DESK" | "HOUSEKEEPER" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
+/** The owner plus every staff role. Derived so a new sub-role is granted
+ *  access-type coverage automatically instead of being silently excluded. */
+export type NrmsPropertyAccessRole = "OWNER" | NrmsStaffRole;
 
 export type NrmsPropertyAccess = {
   role: NrmsPropertyAccessRole;
   actorId: number;
   ownerId: number;
+  outletId: number | null;
+  membershipId: number | null;
+  /** Null for an owner, who holds no membership row. */
+  membershipStatus: string | null;
+  membershipConfirmed: boolean;
+  effectiveAccess: NrmsEffectiveAccessManifest;
   property: {
     id: number;
     ownerId: number;
@@ -17,7 +34,17 @@ export type NrmsPropertyAccess = {
     status: string;
     currency: string | null;
     nrmsActivatedAt: Date | null;
+    nrmsMenuPublic: boolean;
+    housekeepingDailyServiceEnabled: boolean;
+    housekeepingDailyServiceTime: string;
   };
+  /**
+   * The property's PAYG account, already loaded here to run the frozen and
+   * entitlement checks. Returned so a caller needing a quota such as
+   * `maxAgents` does not have to fetch the same row again, which is what the
+   * owner-only helper it replaces already gave them.
+   */
+  account: { id: number; status: string; maxAgents: number; maxStaff: number; maxOutlets: number; maxRooms: number };
 };
 
 /**
@@ -37,7 +64,17 @@ export async function loadNrmsPropertyAccess(
   const actorId = req.user!.id;
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
-    select: { id: true, ownerId: true, title: true, status: true, currency: true, nrmsActivatedAt: true },
+    select: {
+      id: true,
+      ownerId: true,
+      title: true,
+      status: true,
+      currency: true,
+      nrmsActivatedAt: true,
+      nrmsMenuPublic: true,
+      housekeepingDailyServiceEnabled: true,
+      housekeepingDailyServiceTime: true,
+    },
   });
   if (!property) {
     res.status(404).json({ error: "Property not found" });
@@ -45,15 +82,27 @@ export async function loadNrmsPropertyAccess(
   }
 
   let role: NrmsPropertyAccessRole | null = null;
+  let outletId: number | null = null;
+  let membershipId: number | null = null;
+  let membershipVersion = 0;
+  let membershipStatus: string | null = null;
+  let membershipConfirmed = false;
   if (req.user!.role === "OWNER" && property.ownerId === actorId) {
     role = "OWNER";
   } else {
     const membership = await prisma.nrmsStaffMembership.findFirst({
-      where: { propertyId, userId: actorId, status: "ACTIVE" },
-      select: { role: true },
+      where: { propertyId, userId: actorId, status: "ACTIVE", confirmedAt: { not: null } },
+      select: { id: true, role: true, outletId: true, inviteVersion: true, status: true, confirmedAt: true },
       orderBy: { id: "asc" },
     });
-    role = (membership?.role as NrmsPropertyAccessRole | undefined) ?? null;
+    if (membership && isNrmsRole(membership.role) && membership.role !== "OWNER") {
+      role = membership.role;
+      outletId = membership.outletId;
+      membershipId = membership.id;
+      membershipVersion = membership.inviteVersion;
+      membershipStatus = membership.status;
+      membershipConfirmed = membership.confirmedAt != null;
+    }
   }
   if (!role || !allowedRoles.includes(role)) {
     res.status(403).json({ error: "You do not have access to this NRMS property", code: "NRMS_PROPERTY_FORBIDDEN" });
@@ -85,5 +134,52 @@ export async function loadNrmsPropertyAccess(
   if (account.status === "TRIAL" && new Date() >= account.trialEndsAt) {
     await prisma.ownerPaygAccount.update({ where: { id: account.id }, data: { status: "ACTIVE" } });
   }
-  return { role, actorId, ownerId: property.ownerId, property };
+  return {
+    role,
+    actorId,
+    ownerId: property.ownerId,
+    outletId,
+    membershipId,
+    membershipStatus,
+    membershipConfirmed,
+    effectiveAccess: buildNrmsEffectiveAccessManifest({ propertyId, role, outletId, membershipVersion }),
+    property,
+    account,
+  };
+}
+
+/**
+ * Capability-first entry point for protected property routes. New and migrated
+ * handlers should use this instead of declaring route-local role allowlists.
+ */
+export async function requireNrmsPropertyCapability(
+  req: AuthedRequest,
+  res: Response,
+  propertyId: number,
+  capability: NrmsCapability,
+  context: Partial<Pick<NrmsAuthorizationInput, "targetPropertyId" | "targetOutletId" | "amount" | "approvalLimit" | "requesterId">> = {},
+): Promise<NrmsPropertyAccess | null> {
+  const access = await loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", ...NRMS_STAFF_ROLES]);
+  if (!access) return null;
+  const decision = authorizeNrmsAccess({
+    actorId: access.actorId,
+    role: access.role,
+    capability,
+    propertyId,
+    // Carry the row's real state rather than asserting it: the loader filters on
+    // ACTIVE/confirmed today, and hardcoding that here would rubber-stamp the
+    // membership checks if that filter ever loosens.
+    membershipStatus: access.membershipStatus ?? undefined,
+    membershipConfirmed: access.membershipConfirmed,
+    assignedOutletId: access.outletId,
+    ...context,
+  });
+  if (!decision.allowed) {
+    res.status(403).json({
+      error: "You do not have permission to perform this NRMS operation",
+      code: decision.reasonCode,
+    });
+    return null;
+  }
+  return access;
 }

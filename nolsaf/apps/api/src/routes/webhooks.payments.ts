@@ -32,7 +32,7 @@ import { normalizePhone } from "../lib/azampay.helpers.js";
 import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabilityBlocks.js";
 import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
-import { confirmNoLsafBooking } from "../lib/nolsafMarketplaceNrms.js";
+import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS } from "../lib/nolsafMarketplaceNrms.js";
 import {
   expectedInvoicePaymentAmount,
   isPaymentAmountWithinTolerance,
@@ -249,7 +249,7 @@ async function ensurePaidBookingReady(bookingId: number) {
   // notification must never attempt to revive a cancelled accommodation.
   const current = await prisma.booking.findUnique({ where: { id: bookingId }, select: { status: true } });
   if (!current || current.status === "CANCELED") return;
-  const booking = await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, bookingId));
+  const booking = await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, bookingId), MARKETPLACE_CONNECT_TX_OPTIONS);
   if (!booking) return;
   if (["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"].includes(booking.status)) {
     await generateBookingCodeForBooking(bookingId);

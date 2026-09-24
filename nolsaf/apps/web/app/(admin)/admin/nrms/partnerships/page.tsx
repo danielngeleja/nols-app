@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowLeft, Ban, Building2, CheckCircle2,
+  AlertTriangle, ArrowLeft, ArrowRightLeft, Ban, ChevronDown, LockKeyhole, Building2, CheckCircle2,
   ChevronLeft, ChevronRight, CircleDollarSign, Handshake, Hotel, Loader2,
   Eye, RefreshCw, RotateCcw, Save, Search, ShieldCheck, Users, X,
 } from "lucide-react";
@@ -61,6 +61,7 @@ export default function AdminNrmsPartnershipsPage() {
   const [resumeReason, setResumeReason] = useState("");
   const [confirmResume, setConfirmResume] = useState(false);
   const [lifecycleReady, setLifecycleReady] = useState(true);
+  const [dangerOpen, setDangerOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -89,7 +90,7 @@ export default function AdminNrmsPartnershipsPage() {
     return () => { document.body.style.overflow = priorOverflow; window.removeEventListener("keydown", closeOnEscape); };
   }, [detailOpen]);
 
-  const selectRow = (row: Partnership) => { setSelectedId(row.id); setDetailOpen(true); setNotice(null); setError(null); setSuspendReason(""); setConfirmSuspend(false); setResumeReason(""); setConfirmResume(false); };
+  const selectRow = (row: Partnership) => { setSelectedId(row.id); setDetailOpen(true); setNotice(null); setError(null); setSuspendReason(""); setConfirmSuspend(false); setResumeReason(""); setConfirmResume(false); setDangerOpen(false); setLimitReason(""); };
   const financeError = (cause: any, fallback: string) => cause?.response?.data?.require2fa ? "Finance OTP verification is required. Complete re-authentication and retry." : cause?.response?.data?.error || fallback;
 
   const saveLimit = async () => {
@@ -112,7 +113,7 @@ export default function AdminNrmsPartnershipsPage() {
     setSaving(true); setError(null); setNotice(null);
     try {
       await apiClient.post(`/api/admin/nrms/commercial/partnerships/${selected.id}/suspend`, { reason: suspendReason.trim() });
-      setNotice("Partnership suspended. New booking activity is blocked and both parties were notified."); setSuspendReason(""); setConfirmSuspend(false); await load();
+      setNotice("Partnership suspended. New booking activity is blocked and both parties were notified."); setSuspendReason(""); setConfirmSuspend(false); setDangerOpen(false); await load();
     } catch (cause: any) { setError(financeError(cause, "Partnership could not be suspended")); }
     finally { setSaving(false); }
   };
@@ -124,7 +125,7 @@ export default function AdminNrmsPartnershipsPage() {
     setSaving(true); setError(null); setNotice(null);
     try {
       await apiClient.post(`/api/admin/nrms/commercial/partnerships/${selected.id}/resume`, { reason: resumeReason.trim() });
-      setNotice("Partnership resumed by central authority. Both parties were notified."); setResumeReason(""); setConfirmResume(false); await load();
+      setNotice("Partnership resumed by central authority. Both parties were notified."); setResumeReason(""); setConfirmResume(false); setDangerOpen(false); await load();
     } catch (cause: any) { setError(financeError(cause, "Partnership could not be resumed")); }
     finally { setSaving(false); }
   };
@@ -133,16 +134,16 @@ export default function AdminNrmsPartnershipsPage() {
   const pendingCount = (summary.REQUESTED ?? 0) + (summary.INVITED ?? 0) + (summary.AGENT_ACCEPTED ?? 0);
 
   return (
-    <main id="nrms-partnership-portfolio" className="mx-auto w-full max-w-[1320px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:px-6 lg:pb-10">
+    <main id="nrms-partnership-portfolio" className="w-full min-w-0 max-w-none px-3 pb-5 pt-4 sm:px-5 sm:pt-5 lg:px-6">
       <style>{`#nrms-partnership-portfolio, #nrms-partnership-portfolio * { box-sizing: border-box; }`}</style>
-      <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-[0_24px_65px_-52px_rgba(15,23,42,.48)]">
-      <header className="relative overflow-hidden bg-[linear-gradient(135deg,#ffffff_0%,#f3faf7_62%,#ebf7f3_100%)] p-4 sm:p-5">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <header className="partnership-workspace-header relative overflow-hidden bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 sm:p-5">
         <div className="pointer-events-none absolute -right-10 -top-16 h-44 w-44 rounded-full border border-emerald-700/[.06]" />
         <div className="relative flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-emerald-900/[.06] pb-3"><Link href="/admin/nrms" className="inline-flex min-h-8 items-center gap-2 text-[11px] font-bold text-emerald-700 no-underline hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> NRMS directory</Link><span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-neutral-400"><ShieldCheck className="h-3.5 w-3.5" /> Every control is audited</span></div>
         <div className="relative mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3.5"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-800 text-white shadow-sm"><Handshake className="h-5 w-5" /></span><div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-700">NRMS commercial trust</p><h1 className="m-0 mt-1 text-xl font-extrabold tracking-tight text-neutral-950 sm:text-2xl">Accommodation partnerships</h1><p className="m-0 mt-1 max-w-2xl text-xs leading-5 text-neutral-500">Review consent, compliance and property capacity without leaving the portfolio.</p></div></div><button type="button" onClick={() => void load()} disabled={loading} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 shadow-sm hover:border-emerald-200 hover:text-emerald-800 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh</button></div>
       </header>
 
-      <section className="grid border-0 border-t border-solid border-neutral-100 bg-white sm:grid-cols-2 lg:grid-cols-4">
+      <section className="partnership-metrics grid min-w-0 border-0 border-t border-solid border-neutral-100 bg-slate-50/70 min-[480px]:grid-cols-2 lg:grid-cols-4">
         {[
           { label: "Relationships", value: total, detail: "Filtered portfolio", Icon: Handshake, tone: "bg-emerald-50 text-emerald-700", divider: "" },
           { label: "Active", value: activeCount, detail: "Booking eligible", Icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-700", divider: "border-0 border-t border-solid border-neutral-100 sm:border-l sm:border-t-0" },
@@ -153,15 +154,17 @@ export default function AdminNrmsPartnershipsPage() {
       {(error || notice) && <div className={`mx-4 mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm sm:mx-5 ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`} role={error ? "alert" : "status"}>{error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}<span>{error || notice}</span></div>}
       {!lifecycleReady && <div className="mx-4 mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs leading-5 text-amber-900 sm:mx-5"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="m-0 font-bold">Partnership lifecycle activation is pending</p><p className="m-0 mt-0.5 text-amber-800">Legacy hotel–agent relationships remain visible. Consent and suspension controls unlock after the prepared lifecycle migration is applied.</p></div></div>}
 
-      <section className="mt-4 flex flex-col gap-3 border-0 border-t border-solid border-neutral-100 bg-white p-4 sm:flex-row sm:items-center sm:px-5">
+      <section className="partnership-filters grid min-w-0 grid-cols-1 items-center gap-3 border-0 border-t border-solid border-neutral-100 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_minmax(160px,220px)] sm:px-5 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
         <label className="relative min-w-0 flex-1"><span className="sr-only">Search partnerships</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search hotel, operator or registration" className="min-h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 py-2 pl-9 pr-3 text-xs outline-none focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" /></label>
         <label className="sm:w-56"><span className="sr-only">Relationship status</span><select value={status} onChange={(event) => setStatus(event.target.value as LinkStatus | "ALL")} className="min-h-11 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-xs font-semibold text-neutral-700 outline-none focus:border-emerald-400 focus:bg-white"><option value="ALL">All relationship states</option>{Object.entries(STATUS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</select></label>
         <span className="inline-flex min-h-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 px-3 text-[10px] font-bold text-emerald-800">{total} {total === 1 ? "relationship" : "relationships"}</span>
       </section>
 
       <div className="border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 p-4 sm:p-5">{loading ? <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white p-5"><div className="flex items-center gap-3"><div className="h-10 w-10 animate-pulse rounded-xl bg-neutral-100" /><div className="space-y-2"><div className="h-3 w-40 animate-pulse rounded bg-neutral-100" /><div className="h-2.5 w-64 max-w-full animate-pulse rounded bg-neutral-100" /></div></div><div className="mt-5 space-y-2">{[0, 1, 2].map((item) => <div key={item} className="h-16 animate-pulse rounded-xl bg-neutral-50" />)}</div></section> : rows.length === 0 ? <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white"><div className="mx-auto flex min-h-[260px] max-w-lg flex-col items-center justify-center px-6 py-9 text-center"><span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Handshake className="h-6 w-6" /></span><p className="m-0 mt-4 text-base font-extrabold text-neutral-900">{query.trim() || status !== "ALL" ? "No partnerships match these filters" : "No accommodation partnerships yet"}</p><p className="m-0 mt-1.5 text-xs leading-5 text-neutral-500">{query.trim() || status !== "ALL" ? "Clear the search or choose another relationship state." : "Verified operators and hotel invitations will appear here as soon as a bilateral relationship is created."}</p><div className="mt-5 flex flex-wrap justify-center gap-2">{query.trim() || status !== "ALL" ? <button type="button" onClick={() => { setQuery(""); setStatus("ALL"); }} className="inline-flex min-h-10 items-center rounded-xl border border-emerald-700 bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800">Clear filters</button> : <Link href="/admin/nrms/agents" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-xs font-bold text-emerald-800 no-underline hover:bg-emerald-100"><ShieldCheck className="h-4 w-4" /> Review agency identities</Link>}<Link href="/admin/nrms" className="inline-flex min-h-10 items-center rounded-xl border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 no-underline hover:bg-neutral-50">NRMS directory</Link></div></div></section> : <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
-        <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1050px] border-collapse text-left">
+        <div className="hidden w-full min-w-0 max-w-full overflow-x-auto md:block">
+          <table className="partnership-register w-full min-w-[1200px] table-fixed border-collapse text-left">
+            <caption className="sr-only">Accommodation partnership portfolio</caption>
+            <colgroup>{[17, 15, 13, 11, 15, 13, 9, 7].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
             <thead><tr className="border-0 border-b border-solid border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[.11em] text-neutral-400"><th className="px-4 py-3">Operator</th><th className="px-4 py-3">Hotel</th><th className="px-4 py-3">Relationship</th><th className="px-4 py-3">Verification</th><th className="px-4 py-3">Consent</th><th className="px-4 py-3">Terms</th><th className="px-4 py-3">Activity</th><th className="px-4 py-3 text-right">Details</th></tr></thead>
             <tbody>{rows.map((row) => <tr key={row.id} onClick={() => selectRow(row)} className="cursor-pointer border-0 border-b border-solid border-neutral-100 text-xs transition-colors last:border-b-0 hover:bg-emerald-50"><td className="max-w-52 px-4 py-3.5"><p className="m-0 truncate font-extrabold text-neutral-900">{displayName(row)}</p><p className="m-0 mt-1 truncate text-[10px] text-neutral-400">{row.agentAccount.legalName} · {row.agentAccount.countryCode}</p></td><td className="max-w-48 px-4 py-3.5"><p className="m-0 truncate font-bold text-neutral-800">{row.property.title}</p><p className="m-0 mt-1 truncate text-[10px] text-neutral-400">{row.property.region || "Region not recorded"}</p></td><td className="px-4 py-3.5"><span className={`inline-flex rounded-full border px-2 py-1 text-[9px] font-bold ${STATUS[row.status].badge}`}>{STATUS[row.status].label}</span><p className="m-0 mt-1.5 text-[9px] text-neutral-400">{row.initiatedBy === "AGENT" ? "Operator initiated" : "Hotel initiated"}</p></td><td className="px-4 py-3.5"><span className={`inline-flex items-center gap-1.5 text-[10px] font-bold ${row.agentAccount.verificationStatus === "VERIFIED" ? "text-emerald-700" : "text-amber-700"}`}><span className={`h-1.5 w-1.5 rounded-full ${row.agentAccount.verificationStatus === "VERIFIED" ? "bg-emerald-500" : "bg-amber-500"}`} />{row.agentAccount.verificationStatus}</span></td><td className="px-4 py-3.5"><p className="m-0 text-[10px] font-semibold text-neutral-700">Hotel: {row.hotelConsentStatus}</p><p className="m-0 mt-1 text-[10px] font-semibold text-neutral-500">Operator: {row.agentConsentStatus}</p></td><td className="px-4 py-3.5"><p className="m-0 text-[10px] font-bold text-neutral-700">{row.currency} · {row.bookingMode}</p><p className="m-0 mt-1 text-[10px] text-neutral-400">{row.paymentTerms} · {row._count.rateAccess} rate grants</p></td><td className="px-4 py-3.5"><p className="m-0 text-[10px] font-bold text-neutral-700">{row._count.bookingRequests} requests</p><p className="m-0 mt-1 text-[10px] text-neutral-400">{row._count.reservations} reservations</p></td><td className="px-4 py-3.5 text-right"><button type="button" onClick={(event) => { event.stopPropagation(); selectRow(row); }} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100" aria-label={`View ${displayName(row)} partnership details`} title="View details"><Eye className="h-4 w-4" /></button></td></tr>)}</tbody>
           </table>
@@ -170,163 +173,392 @@ export default function AdminNrmsPartnershipsPage() {
         {pages > 1 && <div className="flex items-center justify-between border-0 border-t border-solid border-neutral-100 p-3"><button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="grid h-9 w-9 place-items-center rounded-lg border border-neutral-200 bg-white disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button><span className="text-[10px] font-bold text-neutral-500">Page {page} of {pages}</span><button type="button" disabled={page >= pages} onClick={() => setPage((value) => Math.min(pages, value + 1))} className="grid h-9 w-9 place-items-center rounded-lg border border-neutral-200 bg-white disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button></div>}
       </section>}</div>
 
-      {mounted && detailOpen && selected && createPortal(
+      {mounted && detailOpen && selected && createPortal((() => {
+        const pretty = (v: string | null | undefined) => {
+          const t = String(v || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+          return t ? t.charAt(0).toUpperCase() + t.slice(1) : "Not recorded";
+        };
+        const daysBetween = (a?: string | null, b?: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000)) : null);
+        const dayOnly = (v?: string | null) => (v ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(v)) : null);
+
+        // Readiness with a plain-language fix for anything pending.
+        const steps = [
+          { label: "Agency identity", value: pretty(selected.agentAccount.verificationStatus), ready: selected.agentAccount.status === "ACTIVE" && selected.agentAccount.verificationStatus === "VERIFIED", fix: "Verify the operator's agency identity", href: "/admin/nrms/agents" },
+          { label: "Hotel consent", value: pretty(selected.hotelConsentStatus), ready: selected.hotelConsentStatus === "ACCEPTED", fix: "Waiting for the hotel to accept", href: null },
+          { label: "Operator consent", value: pretty(selected.agentConsentStatus), ready: selected.agentConsentStatus === "ACCEPTED", fix: "Waiting for the operator to accept", href: null },
+          { label: "Property billing", value: pretty(selected.property.billingStatus || "Unavailable"), ready: ["TRIAL", "ACTIVE", "WARNING"].includes(selected.property.billingStatus || ""), fix: "Property must settle NRMS billing", href: `/admin/nrms/${selected.property.id}` },
+        ];
+        const done = steps.filter((s) => s.ready).length;
+        const blockers = steps.filter((s) => !s.ready);
+        const eligible = selected.status === "ACTIVE" && blockers.length === 0;
+
+        // Relationship journey.
+        const journey = [
+          { label: selected.initiatedBy === "AGENT" ? "Operator requested" : "Hotel invited", at: selected.requestedAt, done: true },
+          { label: "Hotel accepted", at: selected.hotelConsentedAt, done: selected.hotelConsentStatus === "ACCEPTED" },
+          { label: "Operator accepted", at: selected.agentConsentedAt, done: selected.agentConsentStatus === "ACCEPTED" },
+          selected.status === "SUSPENDED"
+            ? { label: `Suspended${selected.suspensionAuthority ? ` by ${selected.suspensionAuthority === "ADMIN" ? "NoLSAF" : "hotel"}` : ""}`, at: selected.suspendedAt, done: true, danger: true }
+            : selected.status === "TERMINATED" || selected.status === "REJECTED"
+              ? { label: STATUS[selected.status].label, at: selected.terminatedAt, done: true, danger: true }
+              : { label: "Active", at: selected.activatedAt, done: selected.status === "ACTIVE" },
+        ] as Array<{ label: string; at: string | null; done: boolean; danger?: boolean }>;
+        const consentDays = daysBetween(selected.requestedAt, [selected.hotelConsentedAt, selected.agentConsentedAt].filter(Boolean).sort().pop() || null);
+
+        // Capacity preview.
+        const used = selected.property.seatsInUse;
+        const cap = selected.property.maxAgents;
+        const draft = Number(limitValue);
+        const draftValid = Number.isInteger(draft) && draft >= used && draft <= 1000;
+        const delta = draftValid ? draft - cap : 0;
+        const previewCap = draftValid ? draft : cap;
+        const capacityReady = draftValid && delta !== 0 && limitReason.trim().length >= 5;
+        const capacityHint = !Number.isInteger(draft) || limitValue === ""
+          ? "Enter a whole number"
+          : draft < used
+            ? `Cannot go below the ${used} seats already in use`
+            : draft > 1000
+              ? "The maximum is 1000"
+              : delta === 0
+                ? "No change yet"
+                : limitReason.trim().length < 5
+                  ? `${5 - limitReason.trim().length} more characters in the reason`
+                  : `${delta > 0 ? "Adds" : "Removes"} ${Math.abs(delta)} ${Math.abs(delta) === 1 ? "seat" : "seats"}`;
+
+        const conversion = selected._count.bookingRequests > 0 ? Math.round((selected._count.reservations / selected._count.bookingRequests) * 100) : null;
+        const canSuspend = lifecycleReady && selected.status === "ACTIVE";
+        const canResume = lifecycleReady && selected.status === "SUSPENDED" && selected.suspensionAuthority === "ADMIN";
+
+        return (
         <div
           id="nrms-partnership-detail-modal"
-          className="box-border fixed inset-0 z-[90] flex items-center justify-center bg-neutral-950/55 p-3 backdrop-blur-sm sm:p-6"
+          className="box-border fixed inset-0 z-[90] flex items-stretch justify-center bg-neutral-950/55 p-0 backdrop-blur-sm sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="partnership-detail-title"
           onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailOpen(false); }}
         >
           <style>{`#nrms-partnership-detail-modal, #nrms-partnership-detail-modal * { box-sizing: border-box; }`}</style>
-          <aside className="box-border relative flex h-[90vh] w-full max-w-[1400px] flex-col overflow-hidden rounded-xl bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)] sm:border sm:border-white/20">
-            <header className="flex shrink-0 items-center justify-between gap-4 border-0 border-b border-solid border-neutral-100 bg-[linear-gradient(135deg,#ffffff_0%,#f3faf7_62%,#ebf7f3_100%)] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-              <div className="flex min-w-0 items-center gap-4">
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-sm ring-1 ring-inset ring-emerald-800/10"><Handshake className="h-5 w-5" /></span>
-                <div className="min-w-0">
-                  <span className="block text-[10px] font-bold uppercase tracking-[.18em] text-emerald-700">Partnership #{selected.id}</span>
-                  <h2 id="partnership-detail-title" className="m-0 mt-1 truncate text-xl font-extrabold tracking-tight text-neutral-950 sm:text-2xl">{displayName(selected)}</h2>
-                  <p className="m-0 mt-1.5 flex items-center gap-1.5 text-xs text-neutral-500"><Hotel className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{selected.property.title}{selected.property.region ? ` · ${selected.property.region}` : ""}</span></p>
+          <aside className="box-border relative flex h-full w-full min-w-0 max-w-[1400px] flex-col overflow-hidden bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)] sm:rounded-2xl">
+            {/* Header */}
+            <header className="shrink-0 border-0 border-b border-solid border-neutral-200 bg-white">
+              <div className="flex items-start gap-4 px-4 pt-4 sm:px-6 sm:pt-5">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#102b3a] text-emerald-300"><Handshake className="h-5 w-5" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                    <span className="font-mono">Partnership #{selected.id}</span>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2 py-0.5 text-[11px] font-semibold ${STATUS[selected.status].badge}`}><span className={`h-1.5 w-1.5 rounded-full ${STATUS[selected.status].dot}`} />{STATUS[selected.status].label}</span>
+                    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${eligible ? "text-emerald-700" : "text-amber-700"}`}>
+                      {eligible ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                      {eligible ? "Booking eligible" : selected.status !== "ACTIVE" ? "Not taking bookings" : `Blocked by ${blockers.map((b) => b.label.toLowerCase()).join(", ")}`}
+                    </span>
+                  </p>
+                  <h2 id="partnership-detail-title" className="m-0 mt-1 flex min-w-0 flex-wrap items-center gap-x-2 text-xl font-bold tracking-tight text-neutral-950">
+                    <span className="truncate">{displayName(selected)}</span>
+                    <ArrowRightLeft className="h-4 w-4 flex-shrink-0 text-neutral-300" aria-hidden />
+                    <span className="truncate text-neutral-700">{selected.property.title}</span>
+                  </h2>
                 </div>
+                <button type="button" onClick={() => setDetailOpen(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-800" aria-label="Close partnership details"><X className="h-4 w-4" /></button>
               </div>
-              <div className="flex shrink-0 items-center gap-2.5 sm:gap-3.5">
-                <span className={`hidden items-center rounded-full border px-3 py-1 text-[10px] font-bold sm:inline-flex ${STATUS[selected.status].badge}`}>{STATUS[selected.status].label}</span>
-                <button type="button" onClick={() => setDetailOpen(false)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-neutral-200 bg-white text-neutral-500 transition hover:border-neutral-300 hover:text-neutral-800" aria-label="Close partnership details"><X className="h-4 w-4" /></button>
-              </div>
+
+              {/* Journey */}
+              <ol className="m-0 mt-4 flex list-none gap-0 overflow-x-auto px-4 pb-4 sm:px-6">
+                {journey.map((step, i) => (
+                  <li key={step.label} className="flex min-w-[9.5rem] flex-1 items-start gap-2">
+                    <span className="flex flex-col items-center">
+                      <span className={`grid h-6 w-6 place-items-center rounded-full ${step.danger ? "bg-rose-600 text-white" : step.done ? "bg-emerald-600 text-white" : "border-2 border-solid border-neutral-300 bg-white text-neutral-300"}`}>
+                        {step.danger ? <Ban className="h-3.5 w-3.5" /> : step.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-neutral-300" />}
+                      </span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className={`truncate text-xs font-semibold ${step.danger ? "text-rose-700" : step.done ? "text-neutral-900" : "text-neutral-400"}`}>{step.label}</span>
+                        {i < journey.length - 1 && <span className={`hidden h-px flex-1 sm:block ${journey[i + 1].done ? "bg-emerald-300" : "bg-neutral-200"}`} />}
+                      </span>
+                      <span className="block truncate text-[11px] text-neutral-400">{step.at ? dayOnly(step.at) : step.done ? "Date not recorded" : "Pending"}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </header>
 
-            {(error || notice) && <div className={`mx-4 mt-4 flex shrink-0 items-start gap-2 rounded-xl border p-3 text-xs sm:mx-6 lg:mx-8 ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`} role={error ? "alert" : "status"}>{error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}<span>{error || notice}</span></div>}
+            {(error || notice) && (
+              <div className={`mx-4 mt-3 flex shrink-0 items-start gap-2 rounded-xl border border-solid px-3 py-2.5 text-xs sm:mx-6 ${error ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`} role={error ? "alert" : "status"}>
+                {error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+                <span className="flex-1">{error || notice}</span>
+                <button type="button" onClick={() => { setError(null); setNotice(null); }} className="border-0 bg-transparent p-0 text-xs font-semibold opacity-80 hover:underline">Dismiss</button>
+              </div>
+            )}
 
             <div className="min-h-0 flex-1 overflow-y-auto">
-             <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
-              <aside className="border-0 border-b border-solid border-neutral-200 bg-neutral-50 p-4 sm:p-5 lg:border-b-0 lg:border-r lg:p-6">
-                <section>
-                  <p className="m-0 mb-3 text-[9px] font-bold uppercase tracking-[.14em] text-neutral-400">Relationship parties</p>
-                  <div className="space-y-2.5">
-                    <div className="flex items-center gap-3 rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-inset ring-neutral-200/70"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-sm"><Users className="h-5 w-5" /></span><div className="min-w-0 flex-1"><p className="m-0 text-[9px] font-bold uppercase tracking-wider text-emerald-600">Tour operator</p><p className="m-0 mt-0.5 truncate text-sm font-extrabold text-neutral-900">{displayName(selected)}</p><p className="m-0 mt-0.5 truncate text-[10px] text-neutral-500">{selected.agentAccount.legalName}</p></div><span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold text-neutral-600">{selected.agentAccount.countryCode}</span></div>
-                    <div className="flex items-center gap-3 rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-inset ring-neutral-200/70"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sky-500 to-sky-700 text-white shadow-sm"><Hotel className="h-5 w-5" /></span><div className="min-w-0 flex-1"><p className="m-0 text-[9px] font-bold uppercase tracking-wider text-sky-600">Accommodation</p><p className="m-0 mt-0.5 truncate text-sm font-extrabold text-neutral-900">{selected.property.title}</p><p className="m-0 mt-0.5 truncate text-[10px] text-neutral-500">{selected.property.region || "Region not recorded"}</p></div></div>
-                  </div>
-                </section>
-
-                {(() => {
-                  const steps = [
-                    { label: "Agency identity", value: selected.agentAccount.verificationStatus, ready: selected.agentAccount.status === "ACTIVE" && selected.agentAccount.verificationStatus === "VERIFIED" },
-                    { label: "Hotel consent", value: selected.hotelConsentStatus, ready: selected.hotelConsentStatus === "ACCEPTED" },
-                    { label: "Operator consent", value: selected.agentConsentStatus, ready: selected.agentConsentStatus === "ACCEPTED" },
-                    { label: "Property billing", value: selected.property.billingStatus || "Unavailable", ready: ["TRIAL", "ACTIVE", "WARNING"].includes(selected.property.billingStatus || "") },
-                  ];
-                  const done = steps.filter((step) => step.ready).length;
-                  const allReady = done === steps.length;
-                  return (
-                    <section className="mt-6">
-                      <div className="mb-3 flex items-center justify-between gap-2">
-                        <p className="m-0 text-[9px] font-bold uppercase tracking-[.14em] text-neutral-400">Control readiness</p>
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold ${allReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}><ShieldCheck className="h-3 w-3" />{done}/{steps.length}</span>
-                      </div>
-                      <ol className="relative m-0 list-none rounded-2xl bg-white p-4 shadow-sm ring-1 ring-inset ring-neutral-200/70">
-                        {steps.map((step, index) => (
-                          <li key={step.label} className="relative flex gap-3 pb-4 last:pb-0">
-                            {index < steps.length - 1 && <span aria-hidden className="absolute left-[13px] top-8 h-[calc(100%-1.25rem)] w-px bg-neutral-200" />}
-                            <span className={`relative z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full ${step.ready ? "bg-emerald-600 text-white shadow-sm" : "bg-white text-amber-500 ring-2 ring-inset ring-amber-300"}`}>{step.ready ? <CheckCircle2 className="h-4 w-4" /> : <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}</span>
-                            <div className="min-w-0 flex-1 pt-0.5">
-                              <p className="m-0 text-[9px] font-bold uppercase tracking-wider text-neutral-400">{step.label}</p>
-                              <p className="m-0 mt-0.5 truncate text-xs font-extrabold text-neutral-900">{step.value.replaceAll("_", " ")}</p>
-                            </div>
-                            <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${step.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{step.ready ? "Ready" : "Pending"}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-                  );
-                })()}
-
-                <section className="mt-6">
-                  <p className="m-0 mb-3 text-[9px] font-bold uppercase tracking-[.14em] text-neutral-400">Portfolio activity</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[["Rates", selected._count.rateAccess], ["Requests", selected._count.bookingRequests], ["Bookings", selected._count.reservations]].map(([label, value]) => (
-                      <div key={label} className="rounded-2xl bg-white p-3 text-center shadow-sm ring-1 ring-inset ring-neutral-200/70">
-                        <p className="m-0 text-2xl font-black leading-none text-neutral-900">{value}</p>
-                        <p className="m-0 mt-1.5 text-[8px] font-bold uppercase tracking-wide text-neutral-400">{label}</p>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </aside>
-
-              <div className="bg-neutral-50/60 p-4 sm:p-6 lg:p-8">
-                <div className="mx-auto max-w-[980px] space-y-5">
-                  <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-inset ring-neutral-200/70">
-                    <div className="flex items-center gap-3 border-0 border-b border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3.5 sm:px-5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-sm"><CircleDollarSign className="h-4 w-4" /></span><div><h3 className="m-0 text-sm font-extrabold text-neutral-900">Agreement overview</h3><p className="m-0 mt-0.5 text-[10px] text-neutral-500">Commercial terms, consent record and relationship evidence.</p></div></div>
-                    <div className="grid gap-5 p-4 sm:p-5 xl:grid-cols-2">
-                      <div><p className="m-0 text-[9px] font-bold uppercase tracking-[.13em] text-neutral-400">Commercial terms</p><dl className="mb-0 mt-3 grid grid-cols-2 gap-2.5"><DetailField label="Currency" value={selected.currency} /><DetailField label="Payment" value={selected.paymentTerms} /><DetailField label="Booking mode" value={selected.bookingMode} /><DetailField label="Rate grants" value={selected._count.rateAccess} /></dl></div>
-                      <div><p className="m-0 text-[9px] font-bold uppercase tracking-[.13em] text-neutral-400">Relationship record</p><dl className="mb-0 mt-3 grid grid-cols-2 gap-2.5"><DetailField label="Initiated by" value={selected.initiatedBy === "AGENT" ? "Tour operator" : "Hotel"} /><DetailField label="Requested" value={dateTime(selected.requestedAt)} /><DetailField label="Hotel consent" value={selected.hotelConsentedAt ? dateTime(selected.hotelConsentedAt) : selected.hotelConsentStatus} /><DetailField label="Operator consent" value={selected.agentConsentedAt ? dateTime(selected.agentConsentedAt) : selected.agentConsentStatus} /></dl></div>
+              <div className="grid lg:grid-cols-[320px_minmax(0,1fr)]">
+                {/* Left rail */}
+                <aside className="space-y-6 border-0 border-b border-solid border-neutral-200 bg-neutral-50 p-4 sm:p-5 lg:border-b-0 lg:border-r">
+                  {/* Readiness */}
+                  <section>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="m-0 text-xs font-semibold text-neutral-800">Booking readiness</p>
+                      <span className="text-[11px] tabular-nums text-neutral-500">{done} of {steps.length}</span>
                     </div>
-                  </section>
-
-                  <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-inset ring-emerald-200/70">
-                    <div className="flex flex-col gap-3 border-0 border-b border-solid border-emerald-100 bg-emerald-50/50 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div className="flex items-center gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-sm"><Building2 className="h-4 w-4" /></span><div><h3 className="m-0 text-sm font-extrabold text-neutral-900">Property partner capacity</h3><p className="m-0 mt-0.5 text-[10px] text-neutral-500">Control how many active agency relationships this property can hold.</p></div></div><span className="w-fit shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[9px] font-bold text-emerald-800">Finance OTP protected</span></div>
-                    <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,250px)_minmax(0,1fr)]">
-                      {(() => {
-                        const used = selected.property.seatsInUse;
-                        const cap = selected.property.maxAgents;
-                        const remaining = Math.max(0, cap - used);
-                        const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
-                        const full = cap > 0 && used >= cap;
-                        return (
-                          <div className="flex flex-col justify-between gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
-                            <div>
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="m-0 text-[9px] font-bold uppercase tracking-wider text-emerald-700">Seats in use</p>
-                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${full ? "bg-amber-100 text-amber-800" : "bg-white text-emerald-700"}`}>{full ? "Full" : `${remaining} open`}</span>
-                              </div>
-                              {cap > 0 && cap <= 12
-                                ? <div className="mt-3 flex flex-wrap gap-1.5">{Array.from({ length: cap }).map((_, index) => <span key={index} className={`h-7 w-7 rounded-lg transition ${index < used ? "bg-emerald-600 shadow-sm ring-1 ring-inset ring-emerald-700" : "border border-dashed border-emerald-300 bg-white"}`} />)}</div>
-                                : <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-emerald-100"><div className={`h-full rounded-full ${full ? "bg-amber-500" : "bg-emerald-600"}`} style={{ width: `${pct}%` }} /></div>}
-                            </div>
-                            <p className="m-0 flex items-baseline gap-1.5"><span className="text-3xl font-black leading-none text-neutral-900">{used}</span><span className="text-base font-bold text-neutral-400">/ {cap}</span><span className="ml-0.5 text-[11px] font-semibold text-neutral-500">occupied</span></p>
+                    <div className="mt-2 flex gap-1" aria-hidden>
+                      {steps.map((s) => <span key={s.label} className={`h-1.5 flex-1 rounded-full ${s.ready ? "bg-emerald-500" : "bg-amber-400"}`} />)}
+                    </div>
+                    <ul className="m-0 mt-3 list-none space-y-1.5 p-0">
+                      {steps.map((s) => (
+                        <li key={s.label} className={`rounded-lg px-3 py-2 ${s.ready ? "bg-white" : "border border-solid border-amber-200 bg-amber-50/60"}`}>
+                          <div className="flex items-center gap-2">
+                            {s.ready ? <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" /> : <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600" />}
+                            <span className="min-w-0 flex-1 text-xs text-neutral-600">{s.label}</span>
+                            <span className={`truncate text-xs font-semibold ${s.ready ? "text-neutral-900" : "text-amber-800"}`}>{s.value}</span>
                           </div>
-                        );
-                      })()}
-                      <div className="flex flex-col justify-center gap-3">
-                        <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
-                          <label className="grid content-start text-[9px] font-bold uppercase tracking-wider text-neutral-500">Maximum partners<input type="number" min={selected.property.seatsInUse} max={1000} value={limitValue} onChange={(event) => setLimitValue(event.target.value)} className="mt-1.5 min-h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm font-bold text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" /></label>
-                          <label className="grid content-start text-[9px] font-bold uppercase tracking-wider text-neutral-500">Audit reason<input value={limitReason} onChange={(event) => setLimitReason(event.target.value)} maxLength={300} placeholder="Explain why this capacity is changing" className="mt-1.5 min-h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-xs font-normal normal-case tracking-normal outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" /></label>
+                          {!s.ready && (
+                            <p className="m-0 mt-1 flex items-center gap-1 pl-6 text-[11px] text-amber-800">
+                              {s.fix}
+                              {s.href && <Link href={s.href} className="ml-auto inline-flex items-center gap-0.5 font-semibold text-amber-900 no-underline hover:underline">Open <ChevronRight className="h-3 w-3" /></Link>}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  {/* Parties */}
+                  <section>
+                    <p className="m-0 text-xs font-semibold text-neutral-800">Parties</p>
+                    <div className="mt-2 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+                      <div className="flex items-center gap-3 px-3 py-2.5">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><Users className="h-4 w-4" /></span>
+                        <div className="min-w-0 flex-1">
+                          <p className="m-0 text-[11px] text-neutral-400">Tour operator · {selected.agentAccount.countryCode}</p>
+                          <p className="m-0 truncate text-sm font-semibold text-neutral-900">{displayName(selected)}</p>
+                          {selected.agentAccount.tradingName && selected.agentAccount.tradingName !== selected.agentAccount.legalName && <p className="m-0 truncate text-[11px] text-neutral-500">Legal: {selected.agentAccount.legalName}</p>}
                         </div>
-                        <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-emerald-100 pt-3"><p className="m-0 hidden items-center gap-1.5 text-[10px] font-medium text-neutral-400 sm:flex"><ShieldCheck className="h-3.5 w-3.5" /> Verified with a finance OTP before it applies.</p><button type="button" onClick={() => void saveLimit()} disabled={saving} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-800 bg-emerald-800 px-5 text-xs font-bold text-white transition hover:bg-emerald-900 disabled:opacity-50 sm:ml-auto sm:w-auto">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save capacity</button></div>
+                      </div>
+                      <div className="flex items-center gap-3 border-0 border-t border-solid border-neutral-100 px-3 py-2.5">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-50 text-sky-700"><Hotel className="h-4 w-4" /></span>
+                        <div className="min-w-0 flex-1">
+                          <p className="m-0 text-[11px] text-neutral-400">Accommodation · {selected.property.region || "Region not recorded"}</p>
+                          <p className="m-0 truncate text-sm font-semibold text-neutral-900">{selected.property.title}</p>
+                        </div>
+                        <Link href={`/admin/nrms/${selected.property.id}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 no-underline hover:bg-neutral-100 hover:text-neutral-700" aria-label="Open property"><ChevronRight className="h-4 w-4" /></Link>
                       </div>
                     </div>
                   </section>
 
-                  <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-inset ring-red-200/70">
-                    <div className="flex items-start gap-3 bg-red-50 px-4 py-3.5 sm:px-5"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-red-500 to-red-700 text-white shadow-sm"><Ban className="h-4 w-4" /></span><div><h3 className="m-0 text-sm font-extrabold text-neutral-900">Emergency suspension</h3><p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">Stops new booking activity immediately while preserving existing reservation records and audit evidence.</p></div></div>
-                    <div className="p-4 sm:p-5">
-                      {lifecycleReady && selected.status === "ACTIVE" ? (
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-                          <label className="text-[9px] font-bold uppercase tracking-wider text-neutral-500">Suspension reason<textarea value={suspendReason} onChange={(event) => setSuspendReason(event.target.value)} maxLength={300} rows={4} placeholder="Record the compliance, security or commercial reason…" className="mt-1.5 w-full resize-none rounded-xl border border-red-200 bg-white p-3 text-xs font-normal leading-5 normal-case tracking-normal outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100" /></label>
-                          <div className="rounded-xl border border-red-100 bg-red-50/60 p-3.5"><label className="flex cursor-pointer items-start gap-2.5 text-xs leading-5 text-neutral-700"><input type="checkbox" checked={confirmSuspend} onChange={(event) => setConfirmSuspend(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-neutral-300 text-red-600 focus:ring-red-500" /><span>I confirm that new booking activity must stop immediately.</span></label><button type="button" onClick={() => void suspend()} disabled={saving || !confirmSuspend} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-700 bg-red-700 px-5 text-xs font-bold text-white transition hover:bg-red-800 disabled:opacity-45">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />} Suspend partnership</button></div>
+                  {/* Activity funnel */}
+                  <section>
+                    <p className="m-0 text-xs font-semibold text-neutral-800">Activity</p>
+                    <div className="mt-2 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200">
+                      {[["Rate grants", selected._count.rateAccess], ["Requests", selected._count.bookingRequests], ["Bookings", selected._count.reservations]].map(([label, value]) => (
+                        <div key={label} className="bg-white px-2 py-2.5 text-center">
+                          <p className="m-0 text-xl font-bold tabular-nums leading-none text-neutral-900">{value}</p>
+                          <p className="m-0 mt-1 text-[10px] text-neutral-500">{label}</p>
                         </div>
-                      ) : lifecycleReady && selected.status === "SUSPENDED" && selected.suspensionAuthority === "ADMIN" ? (
-                        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-                          <label className="text-[9px] font-bold uppercase tracking-wider text-neutral-500">Resumption reason<textarea value={resumeReason} onChange={(event) => setResumeReason(event.target.value)} maxLength={300} rows={4} placeholder="Record why the central suspension can now be cleared…" className="mt-1.5 w-full resize-none rounded-xl border border-emerald-200 bg-white p-3 text-xs font-normal leading-5 normal-case tracking-normal outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" /></label>
-                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3.5"><label className="flex cursor-pointer items-start gap-2.5 text-xs leading-5 text-neutral-700"><input type="checkbox" checked={confirmResume} onChange={(event) => setConfirmResume(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-neutral-300 text-emerald-600 focus:ring-emerald-500" /><span>I confirm that central review is complete and booking activity may resume.</span></label><button type="button" onClick={() => void resume()} disabled={saving || !confirmResume} className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-800 bg-emerald-800 px-5 text-xs font-bold text-white transition hover:bg-emerald-900 disabled:opacity-45">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resume partnership</button></div>
-                        </div>
-                      ) : (
-                        <div className="flex items-start gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs font-semibold leading-5 text-neutral-500"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><span>{!lifecycleReady ? "Suspension controls unlock after the lifecycle migration is applied." : selected.status === "SUSPENDED" ? "This hotel-owned suspension can be managed by the hotel; central controls cannot silently override it." : `Suspension is available only for an active partnership. Current state: ${STATUS[selected.status].label}.`}</span></div>
-                      )}
+                      ))}
                     </div>
+                    <p className="m-0 mt-2 text-[11px] text-neutral-500">
+                      {conversion == null ? "No booking requests yet." : <><span className="font-semibold text-neutral-900">{conversion}%</span> of requests became bookings.</>}
+                      {selected._count.rateAccess === 0 && " No rates shared, so the operator cannot quote."}
+                    </p>
+                  </section>
+                </aside>
+
+                {/* Main */}
+                <div className="min-w-0 space-y-5 p-4 sm:p-6">
+                  {/* Agreement */}
+                  <section className="rounded-xl border border-solid border-neutral-200 bg-white">
+                    <div className="flex items-center gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-3 sm:px-5">
+                      <CircleDollarSign className="h-4 w-4 text-neutral-500" />
+                      <h3 className="m-0 text-sm font-semibold text-neutral-900">Agreement</h3>
+                      <span className="ml-auto text-[11px] text-neutral-400">Updated {dayOnly(selected.updatedAt)}</span>
+                    </div>
+                    <div className="grid gap-px bg-neutral-100 sm:grid-cols-2 xl:grid-cols-4">
+                      {[
+                        { label: "Currency", value: selected.currency, sub: null },
+                        { label: "Payment", value: pretty(selected.paymentTerms), sub: selected.paymentTerms === "PREPAID" ? "Operator pays before arrival" : null },
+                        { label: "Booking mode", value: pretty(selected.bookingMode), sub: selected.bookingMode === "INSTANT" ? "Confirms without hotel approval" : selected.bookingMode === "REQUEST" ? "Hotel approves each booking" : null },
+                        { label: "Initiated by", value: selected.initiatedBy === "AGENT" ? "Tour operator" : "Hotel", sub: consentDays != null ? `Both sides agreed in ${consentDays} ${consentDays === 1 ? "day" : "days"}` : null },
+                      ].map((f) => (
+                        <div key={f.label} className="min-w-0 bg-white px-4 py-3 sm:px-5">
+                          <p className="m-0 text-[11px] text-neutral-400">{f.label}</p>
+                          <p className="m-0 mt-0.5 truncate text-sm font-semibold text-neutral-900">{f.value}</p>
+                          {f.sub && <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-500">{f.sub}</p>}
+                        </div>
+                      ))}
+                    </div>
+                    <dl className="m-0 grid gap-x-6 gap-y-2 border-0 border-t border-solid border-neutral-100 px-4 py-3 text-xs sm:grid-cols-3 sm:px-5">
+                      <div className="flex justify-between gap-2 sm:block"><dt className="text-neutral-400">Requested</dt><dd className="m-0 text-neutral-800">{dateTime(selected.requestedAt)}</dd></div>
+                      <div className="flex justify-between gap-2 sm:block"><dt className="text-neutral-400">Hotel consent</dt><dd className="m-0 text-neutral-800">{selected.hotelConsentedAt ? dateTime(selected.hotelConsentedAt) : pretty(selected.hotelConsentStatus)}</dd></div>
+                      <div className="flex justify-between gap-2 sm:block"><dt className="text-neutral-400">Operator consent</dt><dd className="m-0 text-neutral-800">{selected.agentConsentedAt ? dateTime(selected.agentConsentedAt) : pretty(selected.agentConsentStatus)}</dd></div>
+                    </dl>
+                    {(selected.decisionReason || selected.terminationReason) && (
+                      <p className="m-0 border-0 border-t border-solid border-neutral-100 px-4 py-2.5 text-xs italic text-neutral-600 sm:px-5">&ldquo;{selected.terminationReason || selected.decisionReason}&rdquo;</p>
+                    )}
+                  </section>
+
+                  {/* Capacity */}
+                  <section className="rounded-xl border border-solid border-neutral-200 bg-white">
+                    <div className="flex flex-wrap items-center gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-3 sm:px-5">
+                      <Building2 className="h-4 w-4 text-neutral-500" />
+                      <h3 className="m-0 text-sm font-semibold text-neutral-900">Partner capacity for {selected.property.title}</h3>
+                      <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-neutral-500"><LockKeyhole className="h-3 w-3" /> Finance OTP</span>
+                    </div>
+                    <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      {/* Live seat map */}
+                      <div>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="m-0 text-xs text-neutral-500">Seats</p>
+                          <p className="m-0 text-xs text-neutral-500">
+                            <span className="text-2xl font-bold tabular-nums text-neutral-900">{used}</span> / {previewCap} used
+                            {delta !== 0 && <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${delta > 0 ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{delta > 0 ? `+${delta}` : delta}</span>}
+                          </p>
+                        </div>
+                        {previewCap <= 40 ? (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {Array.from({ length: Math.max(previewCap, cap) }).map((_, i) => {
+                              const inUse = i < used;
+                              const removed = i >= previewCap;
+                              const added = i >= cap && i < previewCap;
+                              return (
+                                <span
+                                  key={i}
+                                  className={`h-6 w-6 rounded-md transition ${
+                                    inUse ? "bg-emerald-600" : removed ? "border border-dashed border-rose-300 bg-rose-50" : added ? "border-2 border-solid border-emerald-400 bg-emerald-50" : "border border-solid border-neutral-200 bg-white"
+                                  }`}
+                                  title={inUse ? "In use" : removed ? "Will be removed" : added ? "New seat" : "Open"}
+                                />
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="mt-2.5 h-2.5 w-full overflow-hidden rounded-full bg-neutral-100"><div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.min(100, (used / previewCap) * 100)}%` }} /></div>
+                        )}
+                        <p className="m-0 mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+                          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-600" /> In use</span>
+                          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-solid border-neutral-300 bg-white" /> Open</span>
+                          {delta > 0 && <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border-2 border-solid border-emerald-400 bg-emerald-50" /> New</span>}
+                          {delta < 0 && <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-dashed border-rose-300 bg-rose-50" /> Removed</span>}
+                        </p>
+                      </div>
+
+                      {/* Editor */}
+                      <div className="space-y-3">
+                        <div>
+                          <p className="m-0 text-xs font-semibold text-neutral-800">Maximum partners</p>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="inline-flex h-10 items-center overflow-hidden rounded-lg border border-solid border-neutral-200">
+                              <button type="button" onClick={() => setLimitValue(String(Math.max(used, (Number(limitValue) || cap) - 1)))} disabled={saving || Number(limitValue) <= used} className="h-full w-10 border-0 bg-white text-lg text-neutral-500 hover:bg-neutral-50 disabled:opacity-40" aria-label="Decrease">-</button>
+                              <input
+                                type="number"
+                                min={used}
+                                max={1000}
+                                value={limitValue}
+                                onChange={(event) => setLimitValue(event.target.value)}
+                                className="h-full w-16 border-0 border-x border-solid border-neutral-200 bg-white text-center font-mono text-sm font-semibold tabular-nums text-neutral-900 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                aria-label="Maximum partners"
+                              />
+                              <button type="button" onClick={() => setLimitValue(String(Math.min(1000, (Number(limitValue) || cap) + 1)))} disabled={saving || Number(limitValue) >= 1000} className="h-full w-10 border-0 bg-white text-lg text-neutral-500 hover:bg-neutral-50 disabled:opacity-40" aria-label="Increase">+</button>
+                            </div>
+                            {delta !== 0 && (
+                              <button type="button" onClick={() => setLimitValue(String(cap))} className="border-0 bg-transparent p-0 text-xs font-semibold text-neutral-500 hover:text-neutral-800 hover:underline">Reset to {cap}</button>
+                            )}
+                            <span className="ml-auto text-[11px] text-neutral-400">Min {used}</span>
+                          </div>
+                        </div>
+                        <label className="block text-xs font-semibold text-neutral-800">
+                          Audit reason
+                          <input value={limitReason} onChange={(event) => setLimitReason(event.target.value)} maxLength={300} placeholder="Why this capacity is changing" className="mt-1.5 min-h-10 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm font-normal text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+                        </label>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className={`m-0 text-xs ${capacityReady ? "text-emerald-700" : draftValid || limitValue === "" ? "text-neutral-500" : "text-rose-600"}`}>{capacityHint}</p>
+                          <button type="button" onClick={() => void saveLimit()} disabled={saving || !capacityReady} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45">
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {delta !== 0 && draftValid ? `Set capacity to ${draft}` : "Save capacity"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Danger zone */}
+                  <section className={`rounded-xl border border-solid ${canSuspend ? "border-rose-200" : canResume ? "border-emerald-200" : "border-neutral-200"} bg-white`}>
+                    <button
+                      type="button"
+                      onClick={() => setDangerOpen((v) => !v)}
+                      disabled={!canSuspend && !canResume}
+                      aria-expanded={dangerOpen}
+                      className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-3 text-left disabled:cursor-default sm:px-5"
+                    >
+                      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${canResume ? "bg-emerald-50 text-emerald-700" : canSuspend ? "bg-rose-50 text-rose-600" : "bg-neutral-100 text-neutral-400"}`}>
+                        {canResume ? <RotateCcw className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-neutral-900">{canResume ? "Resume partnership" : "Emergency suspension"}</span>
+                        <span className="block text-xs text-neutral-500">
+                          {canSuspend
+                            ? "Stops new bookings now. Existing reservations and audit records stay."
+                            : canResume
+                              ? "Suspended by NoLSAF. Clear it once central review is complete."
+                              : !lifecycleReady
+                                ? "Unlocks after the lifecycle migration is applied."
+                                : selected.status === "SUSPENDED"
+                                  ? "Suspended by the hotel. Only the hotel can lift it."
+                                  : `Only available for active partnerships. Current state: ${STATUS[selected.status].label}.`}
+                        </span>
+                      </span>
+                      {(canSuspend || canResume) && <ChevronDown className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform ${dangerOpen ? "rotate-180" : ""}`} />}
+                    </button>
+
+                    {dangerOpen && canSuspend && (
+                      <div className="space-y-3 border-0 border-t border-solid border-rose-100 bg-rose-50/40 px-4 py-4 sm:px-5">
+                        <label className="block text-xs font-semibold text-neutral-800">
+                          Suspension reason
+                          <textarea value={suspendReason} onChange={(event) => setSuspendReason(event.target.value)} maxLength={300} rows={3} placeholder="The compliance, security or commercial reason" className="mt-1.5 w-full resize-none rounded-lg border border-solid border-rose-200 bg-white p-3 font-[inherit] text-sm font-normal text-neutral-900 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2.5 text-xs text-neutral-700">
+                          <input type="checkbox" checked={confirmSuspend} onChange={(event) => setConfirmSuspend(event.target.checked)} className="mt-0.5 h-4 w-4 accent-rose-600" />
+                          <span>New bookings between <b>{displayName(selected)}</b> and <b>{selected.property.title}</b> must stop immediately. Both parties will be notified.</span>
+                        </label>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setDangerOpen(false)} className="h-10 rounded-lg border-0 bg-transparent px-3 text-sm font-semibold text-neutral-500 hover:text-neutral-800">Cancel</button>
+                          <button type="button" onClick={() => void suspend()} disabled={saving || !confirmSuspend || suspendReason.trim().length < 5} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border-0 bg-rose-600 px-4 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-45">
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />} Suspend now
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {dangerOpen && canResume && (
+                      <div className="space-y-3 border-0 border-t border-solid border-emerald-100 bg-emerald-50/40 px-4 py-4 sm:px-5">
+                        <label className="block text-xs font-semibold text-neutral-800">
+                          Resumption reason
+                          <textarea value={resumeReason} onChange={(event) => setResumeReason(event.target.value)} maxLength={300} rows={3} placeholder="Why the central suspension can now be cleared" className="mt-1.5 w-full resize-none rounded-lg border border-solid border-emerald-200 bg-white p-3 font-[inherit] text-sm font-normal text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2.5 text-xs text-neutral-700">
+                          <input type="checkbox" checked={confirmResume} onChange={(event) => setConfirmResume(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-600" />
+                          <span>Central review is complete and booking activity may resume.</span>
+                        </label>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setDangerOpen(false)} className="h-10 rounded-lg border-0 bg-transparent px-3 text-sm font-semibold text-neutral-500 hover:text-neutral-800">Cancel</button>
+                          <button type="button" onClick={() => void resume()} disabled={saving || !confirmResume || resumeReason.trim().length < 5} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45">
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Resume now
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </section>
                 </div>
               </div>
-             </div>
             </div>
 
-            <footer className="flex shrink-0 items-center justify-between gap-3 border-0 border-t border-solid border-neutral-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
-              <p className="m-0 hidden items-center gap-1.5 text-[10px] font-semibold text-neutral-400 sm:flex"><ShieldCheck className="h-3.5 w-3.5" /> Every protected change is written to the NRMS audit trail.</p>
-              <button type="button" onClick={() => setDetailOpen(false)} className="ml-auto inline-flex min-h-10 items-center justify-center rounded-xl border border-neutral-200 bg-white px-5 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50">Close details</button>
+            <footer className="flex shrink-0 items-center gap-3 border-0 border-t border-solid border-neutral-200 bg-white px-4 py-2.5 sm:px-6">
+              <p className="m-0 hidden items-center gap-1.5 text-[11px] text-neutral-400 sm:flex"><ShieldCheck className="h-3.5 w-3.5" /> Every protected change is written to the NRMS audit trail.</p>
+              <button type="button" onClick={() => setDetailOpen(false)} className="ml-auto inline-flex h-9 items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50">Close</button>
             </footer>
           </aside>
-        </div>,
+        </div>
+        );
+      })(),
         document.body
       )}
       </section>

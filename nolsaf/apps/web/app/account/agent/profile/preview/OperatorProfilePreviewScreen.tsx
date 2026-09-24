@@ -42,6 +42,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import OperatorPublicProfile, { type PublicOperatorProfileData } from "./OperatorPublicProfile";
 
 
 const api = apiClient;
@@ -513,10 +514,10 @@ function experienceVibeStyle(value: string): { badge: string; icon: string } {
 
 export function OperatorProfilePreviewScreen({
   adminAgentId: adminAgentIdProp,
-  publicAgentId: publicAgentIdProp,
+  publicAgentKey: publicAgentKeyProp,
 }: {
   adminAgentId?: number;
-  publicAgentId?: number;
+  publicAgentKey?: string;
 } = {}) {
   const searchParams = useSearchParams();
   const adminAgentIdRaw = String(searchParams.get("adminAgentId") || "").trim();
@@ -524,13 +525,12 @@ export function OperatorProfilePreviewScreen({
   const adminAgentId = Number.isFinite(Number(adminAgentIdProp)) && Number(adminAgentIdProp) > 0
     ? Number(adminAgentIdProp)
     : adminAgentIdFromQuery;
-  const publicAgentId = Number.isFinite(Number(publicAgentIdProp)) && Number(publicAgentIdProp) > 0
-    ? Number(publicAgentIdProp)
-    : NaN;
+  const publicAgentKey = String(publicAgentKeyProp || "").trim().toLowerCase();
   const isAdminPreview = Number.isFinite(adminAgentId) && adminAgentId > 0;
-  const isPublicPreview = !isAdminPreview && Number.isFinite(publicAgentId) && publicAgentId > 0;
+  const isPublicPreview = !isAdminPreview && /^[a-z0-9]{20,40}$/.test(publicAgentKey);
+  const [resolvedPublicAgentId, setResolvedPublicAgentId] = useState(0);
   // Resolved agent ID used for booking links (public or admin preview)
-  const effectiveAgentId = (isAdminPreview ? adminAgentId : publicAgentId) || 0;
+  const effectiveAgentId = (isAdminPreview ? adminAgentId : resolvedPublicAgentId) || 0;
   const backHref = isAdminPreview
     ? `/admin/agents/${adminAgentId}?tab=profile`
     : isPublicPreview
@@ -582,7 +582,7 @@ export function OperatorProfilePreviewScreen({
         const res = isAdminPreview
           ? await api.get(`/api/admin/agents/${adminAgentId}`)
           : isPublicPreview
-            ? await api.get(`/api/public/agents/${publicAgentId}`)
+            ? await api.get(`/api/public/agents/${encodeURIComponent(publicAgentKey)}`)
           : await api.get("/api/agent/me");
         if (isAdminPreview) {
           const settingsRes = await api.get("/api/admin/settings");
@@ -604,6 +604,10 @@ export function OperatorProfilePreviewScreen({
         }
         const payload = (res as any)?.data;
         const agent = payload?.agent ?? payload?.data ?? payload ?? null;
+        if (isPublicPreview) {
+          const resolvedId = Number(agent?.id || 0);
+          setResolvedPublicAgentId(Number.isFinite(resolvedId) && resolvedId > 0 ? resolvedId : 0);
+        }
         const raw = agent?.operatorProfile ?? agent?.profile ?? null;
         const verification = agent?.verification;
         setOperatorVerification(
@@ -701,7 +705,7 @@ export function OperatorProfilePreviewScreen({
         setLoading(false);
       }
     })();
-  }, [isAdminPreview, adminAgentId, isPublicPreview, publicAgentId]);
+  }, [isAdminPreview, adminAgentId, isPublicPreview, publicAgentKey]);
 
   useEffect(() => {
     if (!isAdminPreview || !Number.isFinite(adminTargetUserId) || Number(adminTargetUserId) <= 0) {
@@ -1069,10 +1073,12 @@ export function OperatorProfilePreviewScreen({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* -- Sticky topbar -- */}
+    <div className={isAdminPreview ? "min-h-screen bg-slate-50" : `min-h-screen bg-white text-slate-900${isPublicPreview ? " header-offset" : ""}`}>
+      {/* -- Sticky topbar: admin review and the operator's own preview only.
+          The public page is laid out like a stay page and carries its own "All tours" back pill. -- */}
+      {isPublicPreview && !isAdminPreview ? null : (
       <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+        <div className={isAdminPreview ? "mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3" : "public-container flex items-center justify-between gap-3 py-3"}>
           <Link
             href={backHref}
             aria-label={backLabel}
@@ -1090,6 +1096,7 @@ export function OperatorProfilePreviewScreen({
           ) : <div />}
         </div>
       </div>
+      )}
 
       {reviewToast ? (
         <div className="fixed right-4 top-20 z-[70] w-[min(420px,calc(100vw-2rem))] rounded-xl border bg-white p-3.5 shadow-xl">
@@ -1105,7 +1112,7 @@ export function OperatorProfilePreviewScreen({
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6">
+      <div className={isAdminPreview ? "mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6" : "public-container py-6 sm:py-8"}>
         {isAdminPreview ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${reviewBadgeClass}`}>
@@ -1470,6 +1477,29 @@ export function OperatorProfilePreviewScreen({
           </div>
         ) : null}
 
+        {/* Customers (and the operator previewing what customers see) get the
+            booking-first profile. The admin review keeps the full audit layout below. */}
+        {!isAdminPreview && p ? (
+          <OperatorPublicProfile
+            profile={p as unknown as PublicOperatorProfileData}
+            logoUrl={logoUrl}
+            verified={agentStatus === "ACTIVE"}
+            verification={isPublicPreview && operatorVerification ? {
+              certificateId: operatorVerification.certificateId,
+              approvedAt: operatorVerification.approvedAt,
+              verificationUrl: operatorVerification.verificationUrl,
+            } : null}
+            bookingKey={isPublicPreview && effectiveAgentId > 0 ? publicAgentKey : null}
+            displayPrice={(raw) => {
+              const base = Number(raw);
+              if (!Number.isFinite(base)) return NaN;
+              return shouldShowCommissionAdjustedPrice ? base * (1 + displayCommissionRate) : base;
+            }}
+            previewOnly={!isPublicPreview}
+          />
+        ) : null}
+
+        {isAdminPreview ? (<>
         {/* -- All-in-one journey banner (public preview only) -- */}
         {isPublicPreview ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#02665e]/15 bg-[#02665e]/5 px-4 py-3">
@@ -2055,11 +2085,11 @@ export function OperatorProfilePreviewScreen({
                     href="#tour-packages"
                     onClick={(e) => {
                       // If there's exactly one package, go directly to the booking form
-                      if (effectiveAgentId > 0 && p?.packageItems?.length === 1) {
+                      if (effectiveAgentId > 0 && isPublicPreview && p?.packageItems?.length === 1) {
                         e.preventDefault();
                         const firstPkg = p.packageItems[0] as any;
                         const pkgId = String(firstPkg?.id ?? 0);
-                        window.location.href = `/public/booking/tour-confirm?agentId=${effectiveAgentId}&packageId=${encodeURIComponent(pkgId)}`;
+                        window.location.href = `/public/booking/tour-confirm?agentKey=${encodeURIComponent(publicAgentKey)}&packageId=${encodeURIComponent(pkgId)}`;
                       }
                     }}
                     className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white no-underline shadow-sm transition-all duration-200 hover:brightness-110 hover:shadow-md hover:shadow-[#02665e]/30"
@@ -2578,9 +2608,9 @@ export function OperatorProfilePreviewScreen({
                               <p className="text-sm font-black text-slate-800">Ready to book this package?</p>
                               <p className="mt-0.5 text-[11px] text-slate-500">Availability is live. Secure your spot in seconds.</p>
                             </div>
-                            {effectiveAgentId > 0 ? (
+                            {effectiveAgentId > 0 && isPublicPreview ? (
                               <Link
-                                href={`/public/booking/tour-confirm?agentId=${effectiveAgentId}&packageId=${encodeURIComponent(String((pkg as any).id ?? idx))}`}
+                                href={`/public/booking/tour-confirm?agentKey=${encodeURIComponent(publicAgentKey)}&packageId=${encodeURIComponent(String((pkg as any).id ?? idx))}`}
                                 className="no-underline flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2.5 text-[12px] font-bold text-white shadow-md transition-all hover:brightness-110 hover:shadow-lg hover:shadow-[#02665e]/30"
                                 style={{ background: "linear-gradient(135deg, #02665e 0%, #028a7e 100%)" }}
                               >
@@ -3112,6 +3142,7 @@ export function OperatorProfilePreviewScreen({
               </>
             )}
         </div>
+        </>) : null}
 
         {/* Footer note */}
         {!isAdminPreview && !isPublicPreview ? (

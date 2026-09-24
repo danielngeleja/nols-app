@@ -23,10 +23,13 @@ import { startIcalCalendarSyncWorker } from "../lib/channels/icalSync.js";
 import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
+import { startNrmsInquiryFollowUpWorker } from "./nrmsInquiryFollowUps.js";
+import { startSalesLeadReminderWorker } from "./salesLeadReminders.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
+import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -112,7 +115,13 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startNrmsGuestAutomationWorker();
       startNrmsMetaMessagingWorker();
       startSalesCommissionLifecycleWorker();
+      // Sales partners: follow-up dates that have arrived, and lead claims about to lapse.
+      startSalesLeadReminderWorker();
+      startNrmsInquiryFollowUpWorker();
       startAuditRetentionWorker();
+      // Twiga threads an agent took and then left go to Resolved after 12 quiet
+      // hours, so the Open view only holds chats someone still has to act on.
+      startTwigaAutoResolveWorker();
       // Fallback for missed/delayed AzamPay disbursement callbacks: polls
       // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
       // applies the result through the same idempotent ledger path a callback

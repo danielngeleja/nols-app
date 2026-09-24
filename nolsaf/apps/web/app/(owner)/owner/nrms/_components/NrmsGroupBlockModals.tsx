@@ -9,6 +9,7 @@ import DatePickerField from "@/components/DatePickerField";
 import { AlertTriangle, ArrowLeftRight, BedDouble, Building2, CalendarClock, Check, CircleDollarSign, Download, Eye, EyeOff, FileText, Landmark, Link2, Loader2, LockKeyhole, Mail, Plus, ReceiptText, Send, ShieldCheck, Trash2, UserPlus, UserRound, X } from "lucide-react";
 import ModalFrame from "./NrmsModalFrame";
 import NrmsRoomingListModal from "./NrmsRoomingListModal";
+import NrmsBillingBlockModal, { type NrmsBillingBlock } from "./NrmsBillingBlockModal";
 
 export type GroupBlockRoom = {
   id: number;
@@ -130,7 +131,7 @@ export type GroupBlock = {
   rooms: GroupBlockRoom[];
 };
 
-type RoomTypeOption = { id: number; name: string; baseRate: number | null };
+type RoomTypeOption = { id: number; name: string; baseRate: number | null; staffRateFloor: number | null };
 
 type DraftLine = { roomTypeId: number | ""; quantity: number; nightlyRate: string };
 
@@ -331,11 +332,18 @@ export function CreateGroupBlockModal({
   propertyId,
   onClose,
   onSaved,
+  accessRole = "OWNER",
 }: {
   propertyId: number;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  accessRole?: string;
 }) {
+  // Agreeing a standard group is sales work. Waiving the room minimum for a
+  // smaller contracted party is the hotel's own policy decision, and the API
+  // refuses it for anyone else (SMALL_GROUP_APPROVAL_NOT_PERMITTED), so the
+  // option is not offered here rather than being offered and then rejected.
+  const canApproveSmallGroup = ["OWNER", "MANAGER"].includes(accessRole);
   const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([]);
   const [name, setName] = useState("");
   const [agencyName, setAgencyName] = useState("");
@@ -351,6 +359,7 @@ export function CreateGroupBlockModal({
   const [smallGroupApprovalReason, setSmallGroupApprovalReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [billingBlock, setBillingBlock] = useState<NrmsBillingBlock | null>(null);
 
   useEffect(() => {
     apiClient
@@ -358,6 +367,20 @@ export function CreateGroupBlockModal({
       .then((r) => setRoomTypes(r.data?.roomTypes ?? []))
       .catch(() => setRoomTypes([]));
   }, [propertyId]);
+
+  // Mirrors checkStaffRateFloor on the API: an unset floor holds staff at the
+  // base rate, 0 lifts the limit, an unpriced room type has nothing to floor
+  // against. Advisory only, the server refuses regardless; this exists so the
+  // person sees the number in place instead of discovering it on submit.
+  const rateFloorFor = (roomTypeId: number | ""): number | null => {
+    // The owner sets this limit and is not bound by it. A manager is: they are
+    // staff, and the API floors them the same way.
+    if (!roomTypeId || accessRole === "OWNER") return null;
+    const roomType = roomTypes.find((option) => option.id === roomTypeId);
+    if (!roomType) return null;
+    const floor = roomType.staffRateFloor ?? roomType.baseRate;
+    return floor != null && floor > 0 ? floor : null;
+  };
 
   const nights = nightsBetween(checkIn, checkOut);
   const cutOffLabel = fmtLongDate(cutOffAt);
@@ -392,8 +415,20 @@ export function CreateGroupBlockModal({
       nightlyRate: Number(line.nightlyRate || 0),
     }));
     if (!rooms.length) return setError("Add at least one room type to hold");
+    // The API refuses this too (RATE_BELOW_STAFF_FLOOR). Checking here saves the
+    // round trip and lets the message name every offending line at once.
+    const belowFloor = lines
+      .map((line) => ({ line, floor: rateFloorFor(line.roomTypeId) }))
+      .filter(({ line, floor }) => floor != null && Number(line.nightlyRate || 0) < floor);
+    if (belowFloor.length > 0) {
+      const named = belowFloor
+        .map(({ line, floor }) => `${roomTypes.find((option) => option.id === line.roomTypeId)?.name ?? "Room type"} at ${Number(line.nightlyRate || 0).toLocaleString()} is below ${floor!.toLocaleString()}`)
+        .join("; ");
+      return setError(`${named}. Ask the owner to agree these rates, or to lower the limit for these room types.`);
+    }
     const agreedRooms = rooms.reduce((sum, room) => sum + room.quantity, 0);
     if (agreedRooms < APPROVED_SMALL_GROUP_MIN_ROOMS) return setError("One room is a normal reservation, not a group. Create it from Reservations instead.");
+    if (agreedRooms < STANDARD_GROUP_MIN_ROOMS && !canApproveSmallGroup) return setError(`Standard groups start at ${STANDARD_GROUP_MIN_ROOMS} rooms. A smaller contracted party has to be approved by the owner or a manager, so add rooms or ask them to agree this one.`);
     if (agreedRooms < STANDARD_GROUP_MIN_ROOMS && !approveSmallGroup) return setError(`Standard groups start at ${STANDARD_GROUP_MIN_ROOMS} rooms. Approve this contracted party as a small group, or use normal reservations.`);
     if (agreedRooms < STANDARD_GROUP_MIN_ROOMS && smallGroupApprovalReason.trim().length < SMALL_GROUP_REASON_MIN_LENGTH) return setError(`Explain the small-group exception in at least ${SMALL_GROUP_REASON_MIN_LENGTH} characters.`);
     setBusy(true);
@@ -415,7 +450,10 @@ export function CreateGroupBlockModal({
       await onSaved();
     } catch (e: any) {
       const data = e?.response?.data;
-      if (data?.code === "ROOM_TYPE_CAPACITY_CONFLICT" && data.conflict) {
+      if (e?.response?.status === 402 && data?.billing) {
+        setBillingBlock(data.billing as NrmsBillingBlock);
+        setError(null);
+      } else if (data?.code === "ROOM_TYPE_CAPACITY_CONFLICT" && data.conflict) {
         setError(`Only ${data.conflict.available} of that room type are free for these dates, and ${data.conflict.requested} were requested.`);
       } else {
         setError(data?.error || "Failed to create the group block");
@@ -425,6 +463,7 @@ export function CreateGroupBlockModal({
   };
 
   return (
+    <>
     <ModalFrame title="New group block" subtitle="Hold rooms for a party before the names are known" onClose={onClose} extraWide>
       <div className="space-y-5">
         <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4">
@@ -525,8 +564,11 @@ export function CreateGroupBlockModal({
             <span className="text-xs font-semibold text-neutral-500">{nights} {nights === 1 ? "night" : "nights"}</span>
           </div>
           <div className="space-y-2">
-            {lines.map((line, index) => (
-              <div key={index} className="grid grid-cols-[minmax(0,1fr)_84px_minmax(0,140px)_32px] items-center gap-2">
+            {lines.map((line, index) => {
+              const floor = rateFloorFor(line.roomTypeId);
+              const belowFloor = floor != null && line.nightlyRate !== "" && Number(line.nightlyRate) < floor;
+              return (
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_84px_minmax(0,140px)_32px] items-start gap-2">
                 <select
                   aria-label="Room type"
                   required
@@ -557,7 +599,7 @@ export function CreateGroupBlockModal({
                   min={0}
                   aria-label="Agreed nightly rate"
                   placeholder="Rate per night"
-                  className="box-border h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-sm tabular-nums"
+                  className={`box-border h-10 w-full min-w-0 rounded-lg border border-solid bg-white px-2.5 text-sm tabular-nums ${belowFloor ? "border-red-400" : "border-neutral-300"}`}
                   value={line.nightlyRate}
                   onChange={(e) => setLine(index, { nightlyRate: e.target.value })}
                 />
@@ -570,8 +612,16 @@ export function CreateGroupBlockModal({
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
+                {floor != null ? (
+                  <p className={`col-span-4 m-0 text-[10px] leading-4 ${belowFloor ? "font-bold text-red-600" : "text-neutral-400"}`}>
+                    {belowFloor
+                      ? `Below the lowest rate you may agree for this room type (${floor.toLocaleString()}). Ask the owner to agree it, or to lower the limit.`
+                      : `Lowest you may agree: ${floor.toLocaleString()} per night.`}
+                  </p>
+                ) : null}
               </div>
-            ))}
+              );
+            })}
           </div>
           <button
             type="button"
@@ -618,15 +668,27 @@ export function CreateGroupBlockModal({
                 </span>
               </Link>
 
-              <button type="button" aria-pressed={approveSmallGroup} onClick={() => { setApproveSmallGroup((current) => !current); setError(null); }} className={`relative flex cursor-pointer items-start gap-3 rounded-xl border border-solid p-3 text-left shadow-sm transition ${approveSmallGroup ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/15" : "border-neutral-200 bg-white hover:border-emerald-300 hover:shadow-md"}`}>
-                {approveSmallGroup && <span className="absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-2.5 w-2.5" strokeWidth={3} /></span>}
-                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${approveSmallGroup ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}><Building2 className="h-3.5 w-3.5" /></span>
-                <span className="min-w-0 flex-1 pr-4">
-                  <span className="block text-xs font-bold text-neutral-950">Contracted small group</span>
-                  <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">One deadline, rooming list, or shared billing.</span>
-                  <span className={`mt-1.5 block text-[10px] font-bold ${approveSmallGroup ? "text-emerald-800" : "text-neutral-700"}`}>{approveSmallGroup ? "Selected" : "Approve this option"}</span>
-                </span>
-              </button>
+              {canApproveSmallGroup ? (
+                <button type="button" aria-pressed={approveSmallGroup} onClick={() => { setApproveSmallGroup((current) => !current); setError(null); }} className={`relative flex cursor-pointer items-start gap-3 rounded-xl border border-solid p-3 text-left shadow-sm transition ${approveSmallGroup ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-500/15" : "border-neutral-200 bg-white hover:border-emerald-300 hover:shadow-md"}`}>
+                  {approveSmallGroup && <span className="absolute right-2.5 top-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-white"><Check className="h-2.5 w-2.5" strokeWidth={3} /></span>}
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${approveSmallGroup ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}><Building2 className="h-3.5 w-3.5" /></span>
+                  <span className="min-w-0 flex-1 pr-4">
+                    <span className="block text-xs font-bold text-neutral-950">Contracted small group</span>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">One deadline, rooming list, or shared billing.</span>
+                    <span className={`mt-1.5 block text-[10px] font-bold ${approveSmallGroup ? "text-emerald-800" : "text-neutral-700"}`}>{approveSmallGroup ? "Selected" : "Approve this option"}</span>
+                  </span>
+                </button>
+              ) : (
+                <div className="flex items-start gap-3 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-200 text-neutral-600"><Building2 className="h-3.5 w-3.5" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-bold text-neutral-950">Contracted small group</span>
+                    <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">
+                      Waiving the {STANDARD_GROUP_MIN_ROOMS} room minimum is the owner or manager&apos;s decision. Ask them to agree this party, or add rooms until it qualifies on its own.
+                    </span>
+                  </span>
+                </div>
+              )}
             </div>
 
             {approveSmallGroup && (
@@ -667,6 +729,8 @@ export function CreateGroupBlockModal({
         </div>
       </div>
     </ModalFrame>
+    {billingBlock && <NrmsBillingBlockModal block={billingBlock} title="Group hold paused" subtitle="No rooms were held" reassurance="Existing group blocks, reservations, check-ins, checkouts and daily hotel operations continue normally. Only this new room hold is paused." onClose={() => setBillingBlock(null)} />}
+    </>
   );
 }
 
@@ -1080,7 +1144,12 @@ export function GroupBlockDetailModal({
   const live = block ? ["HELD", "PARTIALLY_PICKED_UP"].includes(block.status) : false;
   const canPickupRooms = ["OWNER", "MANAGER", "FRONT_DESK"].includes(accessRole);
   const canWorkRoomingList = ["OWNER", "MANAGER", "FRONT_DESK"].includes(accessRole);
-  const canManageBlockAgreement = accessRole === "OWNER";
+  // Editing the agreement, extending the cut-off, releasing the held rooms and
+  // cancelling a block that produced nothing. This mirrors loadGroupManageAccess
+  // on the API, which admits the sales executive who agreed the block in the
+  // first place. Front desk is absent by design: they pick guests up from a
+  // block, they do not renegotiate it.
+  const canManageBlockAgreement = ["OWNER", "MANAGER", "SALES_EXECUTIVE"].includes(accessRole);
   const canVoidAgencyPayment = accessRole === "OWNER" || accessRole === "MANAGER";
   const canManageAgencyRefunds = accessRole === "OWNER" || accessRole === "MANAGER";
   const hasPaidConfirmedRooms = block?.chargeRegister.some((row) => row.sourceType === "ROOM" && ["PAID_BY_AGENCY", "GUEST_FOLIO_SETTLED"].includes(row.settlementStatus)) ?? false;
@@ -1089,6 +1158,8 @@ export function GroupBlockDetailModal({
     <ModalFrame title={block?.name || "Group block"} onClose={onClose} extraWide>
       {loading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-emerald-700" /></div>
+      ) : error ? (
+        <p role="alert" className="m-0 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
       ) : !block ? (
         <p className="m-0 py-10 text-center text-sm text-neutral-500">Group block not found.</p>
       ) : (
@@ -1110,7 +1181,7 @@ export function GroupBlockDetailModal({
             </div>
           </div>
 
-          {block.billingMode !== "INDIVIDUAL" && (
+          {block.billingMode !== "INDIVIDUAL" && accessRole !== "SALES_EXECUTIVE" && (
             <div className="rounded-xl border border-solid border-sky-200 bg-sky-50 p-4">
               {!block.masterFolio ? (
                 <div>
@@ -1363,7 +1434,7 @@ export function GroupBlockDetailModal({
             </div>
           )}
 
-          {block.groupId && <GroupChargeRegister block={block} />}
+          {block.groupId && accessRole !== "SALES_EXECUTIVE" && <GroupChargeRegister block={block} />}
 
           {block.cutOffPassed && live && (
             <div className="flex items-start gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">

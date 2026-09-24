@@ -104,13 +104,31 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     where: { propertyId: active.property.id }, include: {
       policy: true,
       events: { orderBy: [{ serviceDate: "desc" }, { id: "desc" }], take: 500, include: { reservation: { select: { source: true, guestProfile: { select: { fullName: true } } } }, allocation: { include: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } } } },
-      statements: { orderBy: { id: "desc" }, include: { tokens: { orderBy: { id: "desc" } }, _count: { select: { items: true } } } },
+      statements: { orderBy: { id: "desc" }, include: { tokens: { orderBy: { id: "desc" }, include: { payment: { select: { id: true, provider: true, providerRef: true, status: true, verifiedAt: true, amount: true, currency: true } } } }, _count: { select: { items: true } } } },
     },
   });
   res.json({ account });
 }) as RequestHandler);
 
 const methodSchema = z.object({ method: z.enum(["MOBILE_MONEY", "CARD", "BANK"]) });
+// Receipts are now rendered in the browser from GET /tokens/:token/receipt.
+// Pages loaded before that change still ask for the old PDF URL; tell them to
+// reload rather than returning a bare "Not found".
+router.get("/tokens/:token/receipt.pdf", ((_req: AuthedRequest, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(410).json({ error: "This page is out of date. Please refresh the page and download the receipt again.", code: "RECEIPT_ENDPOINT_MOVED" });
+}) as RequestHandler);
+router.get("/tokens/:token/receipt",(async (req: AuthedRequest, res: Response) => {
+  const row = await (prisma as any).nrmsServicePaymentToken.findFirst({
+    where: { token: req.params.token, statement: { account: { ownerId: req.user!.id } } },
+    include: { payment: true, statement: { include: { account: { include: { property: { select: { title: true } } } } } } },
+  });
+  if (!row) return res.status(404).json({ error: "Payment not found" });
+  if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) return res.status(409).json({ error: "A verified receipt is not available for this payment" });
+  res.setHeader('Cache-Control', 'private, no-store');
+  const manual = row.payment.status === 'MANUALLY_VERIFIED' || row.payment.provider === 'ADMIN_MANUAL';
+  res.json({receipt:{reference:`NRMS-RCPT-${row.payment.id}`,settlementReference:`NRMS-${row.statementId}-${String(row.token).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase().padStart(4,'0')}`,statementId:row.statementId,propertyTitle:row.statement.account.property.title,amount:Number(row.payment.amount),currency:row.payment.currency,method:row.method,manual,paidAt:manual?null:row.statement.paidAt,verifiedAt:row.payment.verifiedAt,providerReference:row.payment.providerRef}});
+}) as RequestHandler);
 router.post("/tokens/:token/declare", (async (req: AuthedRequest, res: Response) => {
   const parsed = methodSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Select a supported payment method" });

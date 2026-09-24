@@ -6,7 +6,7 @@
 //
 // The reservations table hands a selection over as ?select=1,2,3 rather than
 // duplicating the create flow on both pages.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
@@ -89,6 +89,13 @@ function fmtDate(v: string): string {
   return new Date(v).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+function reservationsShareCommonNight(reservations: GroupPickReservation[]): boolean {
+  if (reservations.length < 2) return true;
+  const latestArrival = Math.max(...reservations.map((reservation) => new Date(reservation.checkIn).getTime()));
+  const earliestDeparture = Math.min(...reservations.map((reservation) => new Date(reservation.checkOut).getTime()));
+  return Number.isFinite(latestArrival) && Number.isFinite(earliestDeparture) && latestArrival < earliestDeparture;
+}
+
 /** Earliest arrival and latest departure across the members, the party's window. */
 function groupWindow(group: ReservationGroup): string {
   const dates = group.members.flatMap((member) => [member.checkIn, member.checkOut]).filter(Boolean);
@@ -101,6 +108,15 @@ export default function NrmsGroupReservationsPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
   const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const ownerWorkspace = accessRole === "OWNER";
+  // Two different jobs on one page, and only one of them is the owner's alone.
+  //
+  // A block is a commercial agreement with an agency: rooms held before any
+  // guest exists. That is the sales executive's own work and the API now admits
+  // them (loadGroupManageAccess). Building a GROUP, on the other hand, gathers
+  // reservations that already exist into one travelling party, which is a
+  // reservations action sales holds no capability for, so it stays with
+  // ownerWorkspace below.
+  const canManageBlocks = ["OWNER", "MANAGER", "SALES_EXECUTIVE"].includes(accessRole);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [groups, setGroups] = useState<ReservationGroup[]>([]);
@@ -124,14 +140,22 @@ export default function NrmsGroupReservationsPage() {
     [selectParam],
   );
 
-  // ?group=<id> opens that party straight away, so a verified agency manifest
-  // can hand the desk to its rooms in one click.
-  const groupParam = Number(searchParams.get("group"));
+  // ?group=<GRP- reference> opens that party straight away, so a verified
+  // agency manifest can hand the desk to its rooms in one click. The URL carries
+  // the group's random reference, never its numeric id; it is matched against
+  // the groups this property already loads.
+  const groupParam = searchParams.get("group");
+  // Open once per link: the list reloads after every group action, and a
+  // closed group must not pop back open.
+  const openedGroupParam = useRef<string | null>(null);
   useEffect(() => {
-    if (!Number.isInteger(groupParam) || groupParam <= 0) return;
+    if (!groupParam || openedGroupParam.current === groupParam) return;
+    const match = groups.find((group) => group.reference === groupParam);
+    if (!match) return;
+    openedGroupParam.current = groupParam;
     setTab("GROUPS");
-    setOpenGroupId(groupParam);
-  }, [groupParam]);
+    setOpenGroupId(match.id);
+  }, [groupParam, groups]);
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -175,6 +199,21 @@ export default function NrmsGroupReservationsPage() {
         const picked = all.filter((reservation) => selectedIds.includes(reservation.id));
         if (picked.length !== selectedIds.length) {
           setPendingError("Some selected reservations are no longer available for grouping. Reopen the selection from Reservations.");
+          setPending(null);
+          return;
+        }
+        if (picked.some((reservation) => reservation.agentBooking)) {
+          setPendingError("Agency reservations stay in their agency group and rooming-list workflow.");
+          setPending(null);
+          return;
+        }
+        if (picked.some((reservation) => !["HELD", "CONFIRMED"].includes(reservation.status))) {
+          setPendingError("Only held or confirmed reservations can form a group before check-in.");
+          setPending(null);
+          return;
+        }
+        if (!reservationsShareCommonNight(picked)) {
+          setPendingError("The selected reservations do not share a common night and cannot form one travelling party.");
           setPending(null);
           return;
         }
@@ -222,11 +261,11 @@ export default function NrmsGroupReservationsPage() {
             <div className="min-w-0">
               <h1 className="m-0 text-xl font-bold tracking-tight text-neutral-950">Group reservations</h1>
               <p className="mb-0 mt-1 max-w-3xl text-xs leading-5 text-neutral-500 sm:text-sm">
-                Manage room blocks and travelling parties while each reservation keeps its own room, folio, payments and audit trail.
+                Build travelling parties only from ungrouped Held or Confirmed NRMS reservations before check-in. Every member keeps their own room, folio, payment and audit trail.
               </p>
             </div>
           </div>
-          {ownerWorkspace && tab === "BLOCKS" ? (
+          {canManageBlocks && tab === "BLOCKS" ? (
             <button
               type="button"
               onClick={() => setShowCreateBlock(true)}
@@ -247,7 +286,7 @@ export default function NrmsGroupReservationsPage() {
         <nav aria-label="Group reservation views" className="flex gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-3 py-3 sm:px-5">
           {([
             ["BLOCKS", "Blocks", blocks.filter((block) => block.roomsHeld > 0).length],
-            ["GROUPS", "Groups in house", groups.length],
+            ["GROUPS", "Reservation groups", groups.length],
           ] as const).map(([value, label, count]) => {
             const active = tab === value;
             return (
@@ -316,7 +355,7 @@ export default function NrmsGroupReservationsPage() {
             <p className="m-0 mx-auto mt-1 max-w-lg text-xs leading-5 text-neutral-500">
               A block holds rooms for a party before anyone knows the guest names. Agree the rooms, dates and rate with the agency now, collect the names later, and nobody can sell those rooms in the meantime.
             </p>
-            {ownerWorkspace && <button
+            {canManageBlocks && <button
               type="button"
               onClick={() => setShowCreateBlock(true)}
               className="mt-4 inline-flex cursor-pointer appearance-none items-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-800"
@@ -465,6 +504,7 @@ export default function NrmsGroupReservationsPage() {
       {showCreateBlock && selectedPropertyId && (
         <CreateGroupBlockModal
           propertyId={selectedPropertyId}
+          accessRole={accessRole}
           onClose={() => setShowCreateBlock(false)}
           onSaved={async () => { setShowCreateBlock(false); await load(); }}
         />

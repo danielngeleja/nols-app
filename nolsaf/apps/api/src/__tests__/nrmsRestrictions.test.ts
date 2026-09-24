@@ -149,6 +149,11 @@ describe("resolveRoomTypeIdForCode", () => {
     await expect(resolveRoomTypeIdForCode(db, 7, "Deluxe Suite 1 King")).resolves.toBe(12);
   });
 
+  it("matches marketplace labels despite case, separators, and extra spacing", async () => {
+    const db = fakeDb([{ id: 11, name: "Single Room", sourceSpecKey: "Single Room" }]);
+    await expect(resolveRoomTypeIdForCode(db, 7, " single-room   1 Queen ")).resolves.toBe(11);
+  });
+
   it("returns null when nothing matches", async () => {
     const db = fakeDb([{ id: 11, name: "Single", sourceSpecKey: "Single" }]);
     await expect(resolveRoomTypeIdForCode(db, 7, "Cottage 1 King")).resolves.toBeNull();

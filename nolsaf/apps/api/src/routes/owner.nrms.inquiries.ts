@@ -2,7 +2,8 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { requireNrmsPropertyCapability } from "../lib/nrmsPropertyAccess.js";
+import type { NrmsCapability } from "../lib/nrmsAuthorization.js";
 import { NRMS_BILLING_BLOCKING_STATUSES, nrmsBillingBlockPayload } from "../lib/nrms.js";
 import { createInquiryRoomHold } from "../lib/nrmsInquiryConversion.js";
 import { buildInquiryConversionReport } from "../lib/nrmsInquiryReporting.js";
@@ -21,8 +22,13 @@ const updateSchema = z.object({
   version: z.number().int().positive(),
   status: z.enum(STATUSES).optional(),
   assignedToId: z.number().int().positive().nullable().optional(),
+  priority: z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]).optional(),
+  expectedValue: z.number().nonnegative().max(1_000_000_000).nullable().optional(),
+  nextFollowUpAt: z.string().datetime().nullable().optional(),
+  lostReason: z.string().trim().min(2).max(300).nullable().optional(),
+  quotationStatus: z.enum(["ACCEPTED", "DECLINED"]).optional(),
   note: z.string().trim().max(1000).nullable().optional(),
-}).refine((value) => value.status !== undefined || value.assignedToId !== undefined || Boolean(value.note), { message: "Nothing to update" });
+}).refine((value) => value.status !== undefined || value.assignedToId !== undefined || value.priority !== undefined || value.expectedValue !== undefined || value.nextFollowUpAt !== undefined || value.lostReason !== undefined || value.quotationStatus !== undefined || Boolean(value.note), { message: "Nothing to update" });
 const messageSchema = z.object({ version: z.number().int().positive(), body: z.string().trim().min(1).max(4000), direction: z.enum(["OUTBOUND", "INTERNAL"]).default("OUTBOUND"), deliveryMode: z.enum(["SEND", "RECORD"]).default("RECORD") });
 const convertToHoldSchema = z.object({
   version: z.number().int().positive(),
@@ -34,6 +40,14 @@ const convertToHoldSchema = z.object({
   roomTypeId: z.number().int().positive(),
   adults: z.number().int().min(1).max(50).default(1),
   children: z.number().int().min(0).max(50).default(0),
+  negotiatedNightlyRate: z.number().positive().max(1_000_000_000).nullable().optional(),
+});
+const quotationSchema = z.object({
+  version: z.number().int().positive(),
+  amount: z.number().positive().max(1_000_000_000),
+  currency: z.string().trim().length(3).transform((value) => value.toUpperCase()),
+  validUntil: z.string().datetime(),
+  note: z.string().trim().max(500).nullable().optional(),
 });
 
 const includeInquiry = {
@@ -46,16 +60,18 @@ const includeInquiry = {
 function serializeInquiry(inquiry: any) {
   return {
     ...inquiry,
+    expectedValue: inquiry.expectedValue == null ? null : Number(inquiry.expectedValue),
+    quotationAmount: inquiry.quotationAmount == null ? null : Number(inquiry.quotationAmount),
     roomType: inquiry.roomType ? { ...inquiry.roomType, baseRate: inquiry.roomType.baseRate == null ? null : Number(inquiry.roomType.baseRate) } : null,
   };
 }
 
-async function access(req: AuthedRequest, res: Response, propertyId: number) {
-  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
+async function access(req: AuthedRequest, res: Response, propertyId: number, capability: NrmsCapability = "sales.inquiry.read") {
+  return requireNrmsPropertyCapability(req, res, propertyId, capability);
 }
 
-async function loadInquiry(req: AuthedRequest, res: Response, propertyId: number, inquiryId: number) {
-  const allowed = await access(req, res, propertyId); if (!allowed) return null;
+async function loadInquiry(req: AuthedRequest, res: Response, propertyId: number, inquiryId: number, capability: NrmsCapability = "sales.inquiry.read") {
+  const allowed = await access(req, res, propertyId, capability); if (!allowed) return null;
   const inquiry = await prisma.nrmsGuestInquiry.findFirst({ where: { id: inquiryId, propertyId, ownerId: allowed.ownerId }, include: includeInquiry });
   if (!inquiry) { res.status(404).json({ error: "Inquiry not found" }); return null; }
   return { allowed, inquiry };
@@ -92,7 +108,11 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     prisma.nrmsGuestInquiry.count({ where }),
     prisma.nrmsGuestInquiry.findMany({ where, include: includeInquiry, orderBy: [{ status: "asc" }, { lastMessageAt: "desc" }, { createdAt: "desc" }], skip: (page - 1) * pageSize, take: pageSize }),
     prisma.user.findUnique({ where: { id: allowed.ownerId }, select: { id: true, name: true, fullName: true, email: true } }),
-    prisma.nrmsStaffMembership.findMany({ where: { propertyId, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } }, select: { user: { select: { id: true, name: true, fullName: true, email: true } }, role: true }, orderBy: { id: "asc" } }),
+    // Who an inquiry can be assigned to. Sales executives hold
+    // sales.inquiry.manage and are the role this queue exists for, so leaving
+    // them out meant the inbox could not be handed to the person whose job it
+    // is. Outlet staff stay out: they hold no inquiry capability at all.
+    prisma.nrmsStaffMembership.findMany({ where: { propertyId, status: "ACTIVE", role: { in: ["MANAGER", "SALES_EXECUTIVE", "FRONT_DESK"] } }, select: { user: { select: { id: true, name: true, fullName: true, email: true } }, role: true }, orderBy: { id: "asc" } }),
     prisma.roomType.findMany({ where: { propertyId, status: "ACTIVE", baseRate: { not: null } }, select: { id: true, name: true, baseRate: true, currency: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
     prisma.nrmsPublicMetric.findMany({ where: { propertyId, metricDate: { gte: metricSince }, kind: { startsWith: "DIRECT:PAGE_OPEN:" } }, select: { kind: true, count: true } }),
     prisma.nrmsGuestInquiry.findMany({ where: { propertyId, createdAt: { gte: since } }, select: { source: true, createdAt: true, firstResponseAt: true, reservationId: true, reservation: { select: { status: true } } } }),
@@ -116,12 +136,15 @@ router.get("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res: 
 router.patch("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res: Response) => {
   const parsed = updateSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Invalid inquiry update" });
   const propertyId = Number(req.params.propertyId); const inquiryId = Number(req.params.inquiryId);
-  const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
+  const loaded = await loadInquiry(req, res, propertyId, inquiryId, "sales.inquiry.manage"); if (!loaded) return;
   if (["RESOLVED", "CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
+  if (parsed.data.status === "CLOSED" && !(parsed.data.lostReason || loaded.inquiry.lostReason)) {
+    return res.status(400).json({ error: "Add a lost-booking reason before closing this inquiry", code: "LOST_REASON_REQUIRED" });
+  }
   if (parsed.data.assignedToId) {
     const isOwner = parsed.data.assignedToId === loaded.allowed.ownerId;
-    const isStaff = isOwner ? true : Boolean(await prisma.nrmsStaffMembership.findFirst({ where: { propertyId, userId: parsed.data.assignedToId, status: "ACTIVE", role: { in: ["MANAGER", "FRONT_DESK"] } }, select: { id: true } }));
-    if (!isStaff) return res.status(400).json({ error: "Choose an active manager or front-desk team member" });
+    const isStaff = isOwner ? true : Boolean(await prisma.nrmsStaffMembership.findFirst({ where: { propertyId, userId: parsed.data.assignedToId, status: "ACTIVE", role: { in: ["MANAGER", "SALES_EXECUTIVE", "FRONT_DESK"] } }, select: { id: true } }));
+    if (!isStaff) return res.status(400).json({ error: "Choose an active manager, sales executive or front-desk team member" });
   }
   const now = new Date();
   const changed = await prisma.$transaction(async (tx) => {
@@ -134,6 +157,14 @@ router.patch("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res
           ...(closesActiveConversation(parsed.data.status) ? { activeConversationKey: null } : {}),
         } : {}),
         ...(parsed.data.assignedToId !== undefined ? { assignedToId: parsed.data.assignedToId } : {}),
+        ...(parsed.data.priority !== undefined ? { priority: parsed.data.priority } : {}),
+        ...(parsed.data.expectedValue !== undefined ? { expectedValue: parsed.data.expectedValue } : {}),
+        ...(parsed.data.nextFollowUpAt !== undefined ? {
+          nextFollowUpAt: parsed.data.nextFollowUpAt ? new Date(parsed.data.nextFollowUpAt) : null,
+          followUpRemindedAt: null,
+        } : {}),
+        ...(parsed.data.lostReason !== undefined ? { lostReason: parsed.data.lostReason ? sanitizeText(parsed.data.lostReason) : null } : {}),
+        ...(parsed.data.quotationStatus !== undefined ? { quotationStatus: parsed.data.quotationStatus } : {}),
         version: { increment: 1 },
       },
     });
@@ -150,7 +181,7 @@ router.patch("/property/:propertyId/:inquiryId", (async (req: AuthedRequest, res
 router.post("/property/:propertyId/:inquiryId/messages", (async (req: AuthedRequest, res: Response) => {
   const parsed = messageSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Write a valid response or note" });
   const propertyId = Number(req.params.propertyId); const inquiryId = Number(req.params.inquiryId);
-  const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
+  const loaded = await loadInquiry(req, res, propertyId, inquiryId, "sales.inquiry.manage"); if (!loaded) return;
   if (["RESOLVED", "CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
   const now = new Date();
   const sendLive = parsed.data.direction === "OUTBOUND" && parsed.data.deliveryMode === "SEND";
@@ -209,11 +240,53 @@ router.get("/property/:propertyId/:inquiryId/messages/:messageId/media", (async 
 
 router.post("/property/:propertyId/messaging-failures/replay", (async (req: AuthedRequest, res: Response) => {
   const propertyId = Number(req.params.propertyId);
-  const allowed = await access(req, res, propertyId); if (!allowed) return;
+  const allowed = await access(req, res, propertyId, "sales.inquiry.manage"); if (!allowed) return;
   if (allowed.role !== "OWNER" && allowed.role !== "MANAGER") return res.status(403).json({ error: "Only an owner or manager can replay failed messages" });
   const replayed = await replayMetaMessagingFailures(propertyId);
   await emitNrmsInboxUpdate(propertyId, { reason: "failures-replayed" });
   res.json({ replayed });
+}) as RequestHandler);
+
+router.post("/property/:propertyId/:inquiryId/quotation", (async (req: AuthedRequest, res: Response) => {
+  const parsed = quotationSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Complete the quotation details", details: parsed.error.flatten() });
+  const propertyId = Number(req.params.propertyId); const inquiryId = Number(req.params.inquiryId);
+  const loaded = await loadInquiry(req, res, propertyId, inquiryId, "sales.inquiry.manage"); if (!loaded) return;
+  if (["RESOLVED", "CONVERTED", "CLOSED"].includes(loaded.inquiry.status)) return res.status(409).json({ error: "This inquiry is already closed" });
+  const reference = loaded.inquiry.quotationReference || `QT-${propertyId}-${inquiryId}-${Date.now().toString(36).toUpperCase()}`;
+  const data = parsed.data;
+  const changed = await prisma.$transaction(async (tx) => {
+    const updated = await tx.nrmsGuestInquiry.updateMany({
+      where: { id: inquiryId, propertyId, version: data.version },
+      data: {
+        quotationReference: reference,
+        quotationStatus: "SENT",
+        quotationAmount: data.amount,
+        quotationCurrency: data.currency,
+        quotationValidUntil: new Date(data.validUntil),
+        quotationSentAt: new Date(),
+        expectedValue: data.amount,
+        version: { increment: 1 },
+      },
+    });
+    if (!updated.count) return false;
+    await tx.nrmsGuestMessage.create({
+      data: {
+        inquiryId,
+        channel: loaded.inquiry.channel,
+        direction: "INTERNAL",
+        body: sanitizeText(`Quotation ${reference} recorded as sent: ${data.currency} ${data.amount.toLocaleString()}${data.note ? `. ${data.note}` : ""}`),
+        senderName: req.user!.name ?? req.user!.email ?? "Sales team",
+        sentById: req.user!.id,
+        metadata: { quotation: { reference, amount: data.amount, currency: data.currency, validUntil: data.validUntil } },
+      },
+    });
+    return true;
+  });
+  if (!changed) return res.status(409).json({ error: "This inquiry changed on another device. Refresh and try again.", code: "VERSION_CONFLICT" });
+  await emitNrmsInboxUpdate(propertyId, { reason: "quotation-recorded", inquiryId });
+  const inquiry = await prisma.nrmsGuestInquiry.findUnique({ where: { id: inquiryId }, include: includeInquiry });
+  res.status(201).json({ inquiry: serializeInquiry(inquiry), quotation: { reference, status: "SENT" } });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/:inquiryId/hold", (async (req: AuthedRequest, res: Response) => {
@@ -221,7 +294,7 @@ router.post("/property/:propertyId/:inquiryId/hold", (async (req: AuthedRequest,
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Complete the room hold details", details: parsed.error.flatten() });
   const propertyId = Number(req.params.propertyId);
   const inquiryId = Number(req.params.inquiryId);
-  const loaded = await loadInquiry(req, res, propertyId, inquiryId); if (!loaded) return;
+  const loaded = await loadInquiry(req, res, propertyId, inquiryId, "sales.inquiry.convert"); if (!loaded) return;
 
   const account = await prisma.ownerPaygAccount.findUnique({ where: { propertyId } });
   if (!account) return res.status(403).json({ error: "NRMS operations are not active for this property", code: "NRMS_NOT_ACTIVE" });
@@ -234,12 +307,13 @@ router.post("/property/:propertyId/:inquiryId/hold", (async (req: AuthedRequest,
       propertyId,
       ownerId: loaded.allowed.ownerId,
       actorId: loaded.allowed.actorId,
+      actorRole: loaded.allowed.role,
       actorName: req.user!.name ?? req.user!.email ?? "Reception",
       inquiryId,
       ...parsed.data,
     });
     if (!result.ok) {
-      const status = ["INVALID_DATES", "ROOM_TYPE_NOT_FOUND", "ROOM_TYPE_MISMATCH"].includes(result.code) ? 400 : 409;
+      const status = result.code === "RATE_BELOW_STAFF_FLOOR" ? 403 : ["INVALID_DATES", "ROOM_TYPE_NOT_FOUND", "ROOM_TYPE_MISMATCH"].includes(result.code) ? 400 : 409;
       return res.status(status).json({ error: result.message, code: result.code });
     }
     await emitNrmsInboxUpdate(propertyId, { reason: "inquiry-converted", inquiryId });

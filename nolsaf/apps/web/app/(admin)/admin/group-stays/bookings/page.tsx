@@ -6,6 +6,8 @@ import apiClient from "@/lib/apiClient";
 import Chart from "@/components/Chart";
 import type { ChartData } from "chart.js";
 import Image from "next/image";
+import Link from "next/link";
+import TablePagination from "@/components/TablePagination";
 import { useSearchParams } from "next/navigation";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
@@ -48,6 +50,48 @@ type GroupBookingRow = {
   depositAmount?: number | null;
   currency?: string | null;
 };
+
+// Wording for the Quick Actions confirmation dialog in the booking details modal.
+const STATUS_ACTION_COPY = {
+  REVIEWING: { title: "Start reviewing?", verb: "start reviewing", confirmLabel: "Start reviewing", detail: "The customer will be notified that their request is under review." },
+  PROCESSING: { title: "Start processing?", verb: "start processing", confirmLabel: "Start processing", detail: "The customer will be notified that their booking is being processed." },
+  CONFIRMED: { title: "Confirm this booking?", verb: "confirm", confirmLabel: "Confirm booking", detail: "The customer will be notified that their group stay is confirmed." },
+  COMPLETED: { title: "Mark as completed?", verb: "mark as completed", confirmLabel: "Mark completed", detail: "This closes the booking as a finished stay and the customer will be notified." },
+  CANCELED: { title: "Cancel this booking?", verb: "cancel", confirmLabel: "Yes, cancel booking", detail: "The customer will be notified. This cannot be undone from here." },
+} as const;
+
+// NRMS-style status pill tones (see STATUS_CLS in owner/nrms/reservations).
+function statusPillClasses(v: string) {
+  switch (v) {
+    case "AWAITING_DEPOSIT": return "bg-amber-50 text-amber-700";
+    case "CONFIRMED": return "bg-emerald-50 text-emerald-700";
+    case "PROCESSING": return "bg-blue-50 text-blue-700";
+    case "REVIEWING": return "bg-purple-50 text-purple-700";
+    case "COMPLETED": return "bg-teal-50 text-teal-700";
+    case "CANCELED":
+    case "CANCELLED": return "bg-rose-50 text-rose-700";
+    default: return "bg-neutral-100 text-neutral-600";
+  }
+}
+
+function humanizeGroupLabel(value: string | null | undefined) {
+  const text = String(value || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";
+}
+
+// "dar-es-salaam" -> "Dar es Salaam", "ILALA CBD" -> "Ilala CBD".
+function formatPlaceName(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word, i) => {
+      if (i > 0 && ["es", "la", "wa", "na", "ya"].includes(word.toLowerCase())) return word.toLowerCase();
+      // Keep real abbreviations only; "DAR" in "DAR es Salaam" is a word, not one.
+      if (["CBD", "UDSM", "JNIA", "KIA"].includes(word.toUpperCase())) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
 
 function badgeClasses(v: string) {
   switch (v) {
@@ -128,32 +172,9 @@ export default function AdminGroupStaysBookingsPage() {
   const [conversationMessages, setConversationMessages] = useState<any[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [showConversation, setShowConversation] = useState(false);
-  const [adminSuggestions, setAdminSuggestions] = useState({
-    accommodationOptions: "",
-    pricing: "",
-    recommendations: "",
-    nextSteps: "",
-  });
-  const [pricingDetails, setPricingDetails] = useState({
-    pricePerNight: "",
-    totalNights: "",
-    totalAmount: "",
-    currency: "TZS",
-    notes: "",
-    headcount: "",
-    roomsNeeded: "",
-    privateRoomCount: "",
-  });
-  const [discountEnabled, setDiscountEnabled] = useState(false);
-  const [discountDetails, setDiscountDetails] = useState({
-    type: "percentage", // "percentage" or "amount"
-    value: "",
-    criteria: "nights", // "nights", "headcount", "both"
-    minNights: "",
-    minHeadcount: "",
-  });
-  const [submittingSuggestions, setSubmittingSuggestions] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [showArrangementNotes, setShowArrangementNotes] = useState(false);
+  const [pendingStatusAction, setPendingStatusAction] = useState<keyof typeof STATUS_ACTION_COPY | null>(null);
 
   // Property recommendation state
   const [showPropertySearch, setShowPropertySearch] = useState(false);
@@ -260,45 +281,6 @@ export default function AdminGroupStaysBookingsPage() {
         setRecommendedPropertyIds(r.data.recommendedPropertyIds);
       } else {
         setRecommendedPropertyIds([]);
-      }
-      
-      // Parse adminNotes if available
-      if (r.data.adminNotes) {
-        try {
-          const parsed = typeof r.data.adminNotes === 'string' ? JSON.parse(r.data.adminNotes) : r.data.adminNotes;
-          setAdminSuggestions({
-            accommodationOptions: parsed.accommodationOptions || "",
-            pricing: parsed.pricing || "",
-            recommendations: parsed.recommendations || "",
-            nextSteps: parsed.nextSteps || "",
-          });
-        } catch (e) {
-          console.error("Failed to parse adminNotes:", e);
-        }
-      }
-      
-      // Auto-fill pricing details from booking data
-      if (r.data) {
-        // Calculate total nights from checkIn and checkOut
-        let calculatedNights = "";
-        if (r.data.checkIn && r.data.checkOut) {
-          const checkInDate = new Date(r.data.checkIn);
-          const checkOutDate = new Date(r.data.checkOut);
-          const diffTime = Math.abs(checkOutDate.getTime() - checkInDate.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          calculatedNights = diffDays > 0 ? diffDays.toString() : "";
-        }
-        
-        setPricingDetails({
-          pricePerNight: "",
-          totalNights: calculatedNights,
-          totalAmount: "",
-          currency: "TZS",
-          notes: "",
-          headcount: r.data.headcount?.toString() || "",
-          roomsNeeded: r.data.roomsNeeded?.toString() || "",
-          privateRoomCount: (r.data as any).needsPrivateRoom ? ((r.data as any).privateRoomCount?.toString() || "0") : "",
-        });
       }
       
       setShowDetailsModal(true);
@@ -603,36 +585,13 @@ export default function AdminGroupStaysBookingsPage() {
     setBookingDetails(null);
     setQuickMessage("");
     setShowPassengers(false);
+    setShowArrangementNotes(false);
     setPassengers([]);
     setClaimsData(null);
     setSelectedClaimIds([]);
     setClaimsFilter("all");
     setComparisonView("grid");
     setShowShortlistOnly(true);
-    setAdminSuggestions({
-      accommodationOptions: "",
-      pricing: "",
-      recommendations: "",
-      nextSteps: "",
-    });
-    setPricingDetails({
-      pricePerNight: "",
-      totalNights: "",
-      totalAmount: "",
-      currency: "TZS",
-      notes: "",
-      headcount: "",
-      roomsNeeded: "",
-      privateRoomCount: "",
-    });
-    setDiscountEnabled(false);
-    setDiscountDetails({
-      type: "percentage",
-      value: "",
-      criteria: "nights",
-      minNights: "",
-      minHeadcount: "",
-    });
   };
 
   // Handle sending quick message to customer
@@ -674,101 +633,6 @@ export default function AdminGroupStaysBookingsPage() {
       alert(err?.response?.data?.error || "Failed to send message. Please try again.");
     } finally {
       setSendingMessage(false);
-    }
-  };
-
-  // Handle submitting admin suggestions
-  const handleSubmitSuggestions = async () => {
-    if (!bookingDetails) return;
-    
-    setSubmittingSuggestions(true);
-    try {
-      // Format pricing details into a structured text
-      let pricingText = "";
-      if (pricingDetails.pricePerNight || pricingDetails.totalAmount) {
-        pricingText = `**Pricing Details:**\n`;
-        if (pricingDetails.pricePerNight && pricingDetails.totalNights) {
-          pricingText += `• Price per Night: ${pricingDetails.pricePerNight} ${pricingDetails.currency}\n`;
-          pricingText += `• Total Nights: ${pricingDetails.totalNights}\n`;
-        }
-        
-        const subtotal = Number(pricingDetails.totalAmount) || (Number(pricingDetails.pricePerNight) * Number(pricingDetails.roomsNeeded || 1) * Number(pricingDetails.totalNights));
-        let finalAmount = subtotal;
-        let discountInfo = "";
-        
-        // Calculate discount if enabled
-        if (discountEnabled && discountDetails.value) {
-          let discountAmount = 0;
-          if (discountDetails.type === "percentage") {
-            discountAmount = (subtotal * Number(discountDetails.value)) / 100;
-          } else {
-            discountAmount = Number(discountDetails.value);
-          }
-          finalAmount = Math.max(0, subtotal - discountAmount);
-          
-          discountInfo = `\n**🎉 Special Discount:**\n`;
-          discountInfo += `• Original Price: ${subtotal.toLocaleString()} ${pricingDetails.currency}\n`;
-          discountInfo += `• Discount: ${discountDetails.type === "percentage" ? discountDetails.value + "%" : discountDetails.value + " " + pricingDetails.currency}\n`;
-          discountInfo += `• Discount Amount: ${discountAmount.toLocaleString()} ${pricingDetails.currency}\n`;
-          discountInfo += `• **Final Price: ${finalAmount.toLocaleString()} ${pricingDetails.currency}**\n`;
-          discountInfo += `• **💰 You Save: ${discountAmount.toLocaleString()} ${pricingDetails.currency}!**\n`;
-          
-          if (discountDetails.criteria !== "nights") {
-            if (discountDetails.criteria === "headcount" && discountDetails.minHeadcount) {
-              discountInfo += `• Minimum Headcount: ${discountDetails.minHeadcount} people\n`;
-            } else if (discountDetails.criteria === "both") {
-              if (discountDetails.minNights) discountInfo += `• Minimum Nights: ${discountDetails.minNights}\n`;
-              if (discountDetails.minHeadcount) discountInfo += `• Minimum Headcount: ${discountDetails.minHeadcount} people\n`;
-            }
-          } else if (discountDetails.minNights) {
-            discountInfo += `• Minimum Nights: ${discountDetails.minNights}\n`;
-          }
-        } else {
-          pricingText += `• Total Amount: ${subtotal.toLocaleString()} ${pricingDetails.currency}\n`;
-        }
-        
-        pricingText += discountInfo;
-        
-        if (pricingDetails.notes) {
-          pricingText += `\n**Additional Notes:**\n${pricingDetails.notes}`;
-        }
-      }
-      
-      // Combine with existing pricing field if it has content
-      const finalPricing = pricingText || adminSuggestions.pricing;
-      
-      await api.patch(`/api/admin/group-stays/bookings/${bookingDetails.id}`, {
-        adminSuggestions: {
-          ...adminSuggestions,
-          pricing: finalPricing,
-        },
-        status: bookingDetails.status === "PENDING" || bookingDetails.status === "REVIEWING" ? "PROCESSING" : bookingDetails.status, // Update status when suggestions are provided
-      });
-      
-      // Reload audit history and conversation
-      await loadAuditHistory(bookingDetails.id);
-      await loadConversationMessages(bookingDetails.id);
-      
-      window.dispatchEvent(
-        new CustomEvent("nols:toast", {
-          detail: { 
-            type: "success", 
-            title: "Suggestions Submitted", 
-            message: "Your suggestions have been saved and sent to the customer.", 
-            duration: 3000 
-          },
-        })
-      );
-      
-      // Reload booking details
-      if (bookingDetails.id) {
-        loadBookingDetails(bookingDetails.id);
-      }
-    } catch (err) {
-      console.error("Failed to submit suggestions", err);
-      alert("Failed to submit suggestions. Please try again.");
-    } finally {
-      setSubmittingSuggestions(false);
     }
   };
 
@@ -988,251 +852,189 @@ export default function AdminGroupStaysBookingsPage() {
   }, [histogramData, histogramPeriod]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="w-full min-w-0 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex flex-col items-center text-center">
-          <div className="h-16 w-16 rounded-full bg-gradient-to-br from-purple-50 to-purple-100 flex items-center justify-center mb-4">
-            <UsersRound className="h-8 w-8 text-purple-600" />
+      <div className="flex w-full min-w-0 flex-col gap-3 rounded-xl border border-solid border-gray-200 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-600 ring-1 ring-inset ring-purple-100 sm:h-12 sm:w-12">
+            <UsersRound className="h-5 w-5 sm:h-6 sm:w-6" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 truncate text-base font-bold tracking-tight text-gray-900 sm:text-xl">Group Stay Bookings</h1>
+            <p className="m-0 mt-0.5 text-xs text-gray-500 sm:text-sm">View and manage all group accommodation bookings</p>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Group Stay Bookings</h1>
-          <p className="text-sm text-gray-500 mt-1">View and manage all group accommodation bookings</p>
         </div>
+        <Link
+          href="/admin/group-stays"
+          className="inline-flex h-9 flex-shrink-0 items-center justify-center gap-1.5 self-start rounded-lg border border-solid border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 no-underline transition-colors hover:border-gray-300 hover:bg-gray-50 hover:no-underline sm:self-auto"
+        >
+          <BarChart3 className="h-3.5 w-3.5 text-purple-600" />
+          Group Stays overview
+        </Link>
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm overflow-hidden box-border">
-        <div className="flex flex-col gap-4 w-full">
-          {/* Top Row: Search and Date Picker */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
-            {/* Search Box */}
-            <div className="relative w-full sm:flex-1 min-w-0">
-              <div className="relative w-full">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm box-border"
-                  placeholder="Search bookings..."
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  aria-label="Search bookings"
-                  title="Search bookings"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      setPage(1);
-                      load();
-                    }
-                  }}
-                  style={{ width: '100%', maxWidth: '100%' }}
-                />
-                {q && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQ("");
-                      setPage(1);
-                      load();
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    aria-label="Clear search"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Date Picker */}
-            <div className="relative w-full sm:w-auto sm:flex-shrink-0">
+      <div className="rounded-xl border border-solid border-gray-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden box-border">
+        {/* Top Row: Search and Date Picker */}
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:px-5">
+          <div className="relative w-full min-w-0 sm:flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              ref={searchRef}
+              type="text"
+              className="box-border h-10 w-full rounded-lg border border-solid border-gray-200 bg-gray-50/60 pl-10 pr-10 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 hover:border-gray-300 focus:border-purple-400 focus:bg-white focus:ring-4 focus:ring-purple-100"
+              placeholder="Search bookings"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              aria-label="Search bookings"
+              title="Search bookings"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setPage(1);
+                  load();
+                }
+              }}
+            />
+            {q && (
               <button
                 type="button"
                 onClick={() => {
-                  setPickerAnim(true);
-                  setTimeout(() => setPickerAnim(false), 350);
-                  setPickerOpen((v) => !v);
+                  setQ("");
+                  setPage(1);
+                  load();
                 }}
-                className={`w-full px-3 py-2 rounded-lg border border-gray-300 text-sm flex items-center justify-center gap-2 text-gray-700 bg-white transition-all ${
-                  pickerAnim ? "ring-2 ring-purple-100" : "hover:bg-gray-50"
-                } box-border`}
-                style={{ width: '100%', maxWidth: '100%' }}
+                className="absolute right-2.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Clear search"
               >
-                <Calendar className="h-4 w-4" />
-                <span>Date</span>
+                <X className="h-3.5 w-3.5" />
               </button>
-              {pickerOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
-                  <div className="fixed z-50 top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                    <DatePicker
-                      selected={date || undefined}
-                      onSelectAction={(s) => {
-                        setDate(s as string | string[]);
-                        setPage(1);
-                      }}
-                      onCloseAction={() => setPickerOpen(false)}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+            )}
           </div>
 
-          {/* Status Cards - Clean Modern Design */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[
-              { 
-                label: "All Bookings", 
-                value: "", 
-                icon: UsersRound, 
-                iconBg: "bg-purple-100",
-                iconColor: "text-purple-600",
-                activeBg: "bg-purple-50",
-                activeBorder: "border-purple-500",
-                activeText: "text-purple-700",
-                hoverBg: "hover:bg-purple-50",
-                hoverBorder: "hover:border-purple-300"
-              },
-              { 
-                label: "Pending", 
-                value: "PENDING", 
-                icon: Clock, 
-                iconBg: "bg-gray-100",
-                iconColor: "text-gray-600",
-                activeBg: "bg-gray-50",
-                activeBorder: "border-gray-500",
-                activeText: "text-gray-700",
-                hoverBg: "hover:bg-gray-50",
-                hoverBorder: "hover:border-gray-300"
-              },
-              { 
-                label: "Confirmed", 
-                value: "CONFIRMED", 
-                icon: CheckCircle, 
-                iconBg: "bg-blue-100",
-                iconColor: "text-blue-600",
-                activeBg: "bg-blue-50",
-                activeBorder: "border-blue-500",
-                activeText: "text-blue-700",
-                hoverBg: "hover:bg-blue-50",
-                hoverBorder: "hover:border-blue-300"
-              },
-              { 
-                label: "Processing", 
-                value: "PROCESSING", 
-                icon: Loader2, 
-                iconBg: "bg-amber-100",
-                iconColor: "text-amber-600",
-                activeBg: "bg-amber-50",
-                activeBorder: "border-amber-500",
-                activeText: "text-amber-700",
-                hoverBg: "hover:bg-amber-50",
-                hoverBorder: "hover:border-amber-300"
-              },
-              { 
-                label: "Completed", 
-                value: "COMPLETED", 
-                icon: CheckCircle, 
-                iconBg: "bg-green-100",
-                iconColor: "text-green-600",
-                activeBg: "bg-green-50",
-                activeBorder: "border-green-500",
-                activeText: "text-green-700",
-                hoverBg: "hover:bg-green-50",
-                hoverBorder: "hover:border-green-300"
-              },
-              { 
-                label: "Canceled", 
-                value: "CANCELED", 
-                icon: XCircle, 
-                iconBg: "bg-red-100",
-                iconColor: "text-red-600",
-                activeBg: "bg-red-50",
-                activeBorder: "border-red-500",
-                activeText: "text-red-700",
-                hoverBg: "hover:bg-red-50",
-                hoverBorder: "hover:border-red-300"
-              },
-            ].map((s) => {
-              const Icon = s.icon;
-              const isActive = status === s.value;
-              const count = statusCounts[s.value] || 0;
-              
+          {/* Date Picker */}
+          <div className="relative w-full sm:w-auto sm:flex-shrink-0">
+            {(() => {
+              const dateCount = Array.isArray(date) ? date.filter(Boolean).length : date ? 1 : 0;
               return (
                 <button
-                  key={s.value}
                   type="button"
                   onClick={() => {
-                    setStatus(s.value);
-                    // Clear groupType filter when clicking "All Bookings" to show all types
-                    if (s.value === "") {
-                      setGroupType("");
-                    }
-                    setPage(1);
-                    setTimeout(() => load(), 0);
+                    setPickerAnim(true);
+                    setTimeout(() => setPickerAnim(false), 350);
+                    setPickerOpen((v) => !v);
                   }}
-                  className={`group relative overflow-hidden rounded-2xl border transition-all duration-300 ${
-                    isActive
-                      ? `${s.activeBg} ${s.activeBorder} border-2 shadow-lg scale-105`
-                      : `bg-white border-gray-200 ${s.hoverBg} ${s.hoverBorder} hover:shadow-md hover:scale-[1.02]`
-                  }`}
+                  className={`box-border inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-solid px-3.5 text-sm font-medium transition-all sm:w-auto ${
+                    dateCount > 0
+                      ? "border-purple-300 bg-purple-50 text-purple-700"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                  } ${pickerAnim ? "ring-4 ring-purple-100" : ""}`}
                 >
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-2.5">
-                      <div className={`w-10 h-10 rounded-lg ${isActive ? s.iconBg : "bg-gray-100"} flex items-center justify-center transition-colors duration-300`}>
-                        <Icon className={`h-5 w-5 ${isActive ? s.iconColor : "text-gray-500"} ${s.value === "PROCESSING" && isActive ? "animate-spin" : ""} transition-colors duration-300`} />
-                      </div>
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className={`text-[10px] font-semibold uppercase tracking-wider ${isActive ? s.activeText : "text-gray-500"} transition-colors duration-300`}>
-                        {s.label}
-                      </p>
-                      <p className={`text-2xl font-bold ${isActive ? s.activeText : "text-gray-900"} transition-colors duration-300`}>
-                        {loading && !statusCounts[s.value] ? "..." : count.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                  {isActive && (
-                    <div className="absolute inset-0 pointer-events-none">
-                      <div className="absolute top-0 right-0 w-20 h-20 bg-white/20 rounded-full -mr-10 -mt-10 blur-xl"></div>
-                      <div className="absolute bottom-0 left-0 w-16 h-16 bg-white/10 rounded-full -ml-8 -mb-8 blur-lg"></div>
-                    </div>
-                  )}
+                  <Calendar className="h-4 w-4" />
+                  <span>{dateCount === 0 ? "Any date" : dateCount === 1 ? "1 date" : `${dateCount} dates`}</span>
                 </button>
               );
-            })}
+            })()}
+            {pickerOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
+                <div className="fixed z-50 top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                  <DatePicker
+                    selected={date || undefined}
+                    onSelectAction={(s) => {
+                      setDate(s as string | string[]);
+                      setPage(1);
+                    }}
+                    onCloseAction={() => setPickerOpen(false)}
+                  />
+                </div>
+              </>
+            )}
           </div>
+        </div>
 
-          {/* Group Type Filters */}
-          <div className="flex gap-2 items-center justify-center w-full overflow-x-auto pb-1 scrollbar-hide">
+        {/* Status tiles */}
+        <div className="grid grid-cols-2 gap-2.5 px-4 pb-4 sm:grid-cols-3 sm:px-5 lg:grid-cols-6">
+          {[
+            { label: "All bookings", value: "", icon: UsersRound, tone: "text-purple-600 bg-purple-50", active: "border-purple-400 bg-purple-50/60 ring-purple-100", count: "text-purple-700" },
+            { label: "Pending", value: "PENDING", icon: Clock, tone: "text-slate-600 bg-slate-100", active: "border-slate-400 bg-slate-50 ring-slate-100", count: "text-slate-800" },
+            { label: "Confirmed", value: "CONFIRMED", icon: CheckCircle, tone: "text-emerald-600 bg-emerald-50", active: "border-emerald-400 bg-emerald-50/60 ring-emerald-100", count: "text-emerald-700" },
+            { label: "Processing", value: "PROCESSING", icon: Loader2, tone: "text-blue-600 bg-blue-50", active: "border-blue-400 bg-blue-50/60 ring-blue-100", count: "text-blue-700" },
+            { label: "Completed", value: "COMPLETED", icon: CheckCircle2, tone: "text-teal-600 bg-teal-50", active: "border-teal-400 bg-teal-50/60 ring-teal-100", count: "text-teal-700" },
+            { label: "Canceled", value: "CANCELED", icon: XCircle, tone: "text-rose-600 bg-rose-50", active: "border-rose-400 bg-rose-50/60 ring-rose-100", count: "text-rose-700" },
+          ].map((s) => {
+            const Icon = s.icon;
+            const isActive = status === s.value;
+            const count = statusCounts[s.value] || 0;
 
+            return (
+              <button
+                key={s.value}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => {
+                  setStatus(s.value);
+                  // Clear groupType filter when clicking "All bookings" to show all types
+                  if (s.value === "") {
+                    setGroupType("");
+                  }
+                  setPage(1);
+                  setTimeout(() => load(), 0);
+                }}
+                className={`flex items-center gap-3 rounded-xl border border-solid px-3.5 py-3 text-left transition-all duration-200 ${
+                  isActive
+                    ? `${s.active} ring-4`
+                    : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70"
+                }`}
+              >
+                <span className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${s.tone}`}>
+                  <Icon className="h-[18px] w-[18px]" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium text-gray-500">{s.label}</span>
+                  <span className={`block text-xl font-bold leading-tight tabular-nums ${isActive ? s.count : "text-gray-900"}`}>
+                    {loading && !statusCounts[s.value] ? "..." : count.toLocaleString()}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Group Type Filters */}
+        <div className="flex items-center gap-3 border-0 border-t border-solid border-gray-100 bg-gray-50/50 px-4 py-3 sm:px-5">
+          <span className="flex-shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-gray-400">Type</span>
+          <div className="flex min-w-0 gap-1.5 overflow-x-auto scrollbar-hide">
             {[
-              { label: "All Types", value: "" },
+              { label: "All types", value: "" },
               { label: "Family", value: "family" },
               { label: "Workers", value: "workers" },
               { label: "Event", value: "event" },
               { label: "Students", value: "students" },
               { label: "Team", value: "team" },
               { label: "Other", value: "other" },
-            ].map((gt) => (
-              <button
-                key={gt.value}
-                type="button"
-                onClick={() => {
-                  setGroupType(gt.value);
-                  setPage(1);
-                  setTimeout(() => load(), 0);
-                }}
-                className={`px-3 py-1.5 rounded-lg border text-sm font-medium transition-all duration-300 whitespace-nowrap flex-shrink-0 ${
-                  groupType === gt.value
-                    ? "bg-purple-50 border-purple-300 text-purple-700 scale-105 shadow-md"
-                    : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:scale-105 hover:shadow-sm"
-                }`}
-              >
-                {gt.label}
-              </button>
-            ))}
+            ].map((gt) => {
+              const isActive = groupType === gt.value;
+              return (
+                <button
+                  key={gt.value}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setGroupType(gt.value);
+                    setPage(1);
+                    setTimeout(() => load(), 0);
+                  }}
+                  className={`flex-shrink-0 whitespace-nowrap rounded-full border border-solid px-3 py-1 text-xs font-semibold transition-colors ${
+                    isActive
+                      ? "border-purple-600 bg-purple-600 text-white"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900"
+                  }`}
+                >
+                  {gt.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1243,46 +1045,28 @@ export default function AdminGroupStaysBookingsPage() {
           <>
             {/* Skeleton Table */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Headcount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-In</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+                <thead>
+                  {/* Same header row as the NRMS reservations table. */}
+                  <tr className="bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                    <th className="whitespace-nowrap px-4 py-3">Booking</th>
+                    <th className="whitespace-nowrap px-4 py-3">Group</th>
+                    <th className="whitespace-nowrap px-4 py-3">Customer</th>
+                    <th className="whitespace-nowrap px-4 py-3">Destination</th>
+                    <th className="whitespace-nowrap px-4 py-3">Check-in</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center">Status</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody>
                   {[...Array(5)].map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-12"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-20"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-32"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-28"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-20"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-4 bg-gray-200 rounded w-24"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="h-6 bg-gray-200 rounded-full w-20"></div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="h-8 bg-gray-200 rounded w-16 ml-auto"></div>
-                      </td>
+                      {[16, 28, 32, 28, 24, 20, 14].map((w, c) => (
+                        <td key={c} className="border-0 border-t border-solid border-neutral-100 px-4 py-3.5">
+                          <div className="h-3.5 rounded bg-neutral-200" style={{ width: `${w * 0.25}rem`, marginLeft: c === 6 ? "auto" : undefined }} />
+                          {c > 0 && c < 5 ? <div className="mt-1.5 h-2.5 w-16 rounded bg-neutral-100" /> : null}
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
@@ -1449,73 +1233,74 @@ export default function AdminGroupStaysBookingsPage() {
           </>
         ) : (
           <>
-            {/* Desktop Table */}
+            {/* Desktop Table: follows the NRMS reservations table (two lines per cell at most) */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group Type</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Headcount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Check-In</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+                <thead>
+                  {/* Same header row as the NRMS reservations table. */}
+                  <tr className="bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                    <th className="whitespace-nowrap px-4 py-3">Booking</th>
+                    <th className="whitespace-nowrap px-4 py-3">Group</th>
+                    <th className="whitespace-nowrap px-4 py-3">Customer</th>
+                    <th className="whitespace-nowrap px-4 py-3">Destination</th>
+                    <th className="whitespace-nowrap px-4 py-3">Check-in</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center">Status</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {list.map((booking) => (
-                    <tr key={booking.id} className="hover:bg-gray-50 transition-colors duration-150">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">#{booking.id}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">{booking.groupType}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {booking.user ? (
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4 text-gray-400" />
-                            <span>{booking.user.name}</span>
+                <tbody>
+                  {list.map((booking) => {
+                    const checkIn = booking.checkIn ? new Date(booking.checkIn) : null;
+                    const checkOut = booking.checkOut ? new Date(booking.checkOut) : null;
+                    const nights = checkIn && checkOut ? Math.max(0, Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)) : null;
+                    return (
+                      <tr key={booking.id} className="transition-colors hover:bg-neutral-50/80">
+                        <td className="whitespace-nowrap border-0 border-t border-solid border-neutral-100 px-4 py-3.5">
+                          <span className="inline-flex items-center rounded-md bg-neutral-100 px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-neutral-700">
+                            GS-{String(booking.id).padStart(4, "0")}
+                          </span>
+                        </td>
+                        <td className="max-w-[13rem] border-0 border-t border-solid border-neutral-100 px-4 py-3.5">
+                          <div className="truncate font-bold text-neutral-900">{humanizeGroupLabel(booking.groupType)}</div>
+                          <div className="mt-0.5 text-xs text-neutral-400">
+                            {booking.headcount} {booking.headcount === 1 ? "guest" : "guests"} · {booking.roomsNeeded} {booking.roomsNeeded === 1 ? "room" : "rooms"}
                           </div>
-                        ) : (
-                          "N/A"
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-4 w-4 text-gray-400" />
-                          <span>{booking.toRegion}{booking.toDistrict ? `, ${booking.toDistrict}` : ""}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-gray-400" />
-                          <span>{booking.headcount} ({booking.roomsNeeded} rooms)</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {booking.checkIn ? (
-                          <div className="flex items-center gap-2">
-                            <Clock className="h-4 w-4 text-gray-400" />
-                            <span>{new Date(booking.checkIn).toLocaleDateString()}</span>
-                          </div>
-                        ) : (
-                          "Flexible"
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClasses(booking.status)}`}>
-                          {booking.status.replace(/_/g, " ")}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button 
-                          onClick={() => handleViewBooking(booking)}
-                          className="text-purple-600 hover:text-purple-900 transition-colors"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="max-w-[15rem] border-0 border-t border-solid border-neutral-100 px-4 py-3.5">
+                          <div className="truncate font-bold text-neutral-900" title={booking.user?.name || undefined}>{booking.user?.name || "Unknown customer"}</div>
+                          {booking.user?.email ? <div className="mt-0.5 truncate text-xs text-neutral-400" title={booking.user.email}>{booking.user.email}</div> : null}
+                        </td>
+                        <td className="max-w-[15rem] border-0 border-t border-solid border-neutral-100 px-4 py-3.5">
+                          <div className="truncate font-semibold text-neutral-800">{booking.toRegion ? formatPlaceName(booking.toRegion) : "Not set"}</div>
+                          {booking.toDistrict ? <div className="mt-0.5 truncate text-xs text-neutral-400">{formatPlaceName(booking.toDistrict)}</div> : null}
+                        </td>
+                        <td className="whitespace-nowrap border-0 border-t border-solid border-neutral-100 px-4 py-3.5">
+                          {checkIn ? (
+                            <>
+                              <div className="font-semibold text-neutral-800">{checkIn.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</div>
+                              <div className="mt-0.5 text-xs text-neutral-400">{nights != null ? `${nights} ${nights === 1 ? "night" : "nights"}` : "Open checkout"}</div>
+                            </>
+                          ) : (
+                            <div className="font-semibold text-neutral-400">Flexible</div>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap border-0 border-t border-solid border-neutral-100 px-4 py-3.5 text-center">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${statusPillClasses(booking.status)}`}>
+                            {booking.status.replace(/_/g, " ").toLowerCase()}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap border-0 border-t border-solid border-neutral-100 px-4 py-3.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleViewBooking(booking)}
+                            className="rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-800"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1559,102 +1344,125 @@ export default function AdminGroupStaysBookingsPage() {
             </div>
           </>
         )}
+
+        {/* Pagination: the shared table footer used by the NRMS reservations table */}
+        {!loading && list.length > 0 && (
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={(next) => setPage(Math.min(pages, Math.max(1, next)))}
+          />
+        )}
       </div>
 
-      {/* Pagination */}
-      {list.length > 0 && (
-        <div className="flex justify-center py-4">
-          <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
-              Page {page} of {pages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(pages, p + 1))}
-              disabled={page === pages}
-              className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </nav>
-        </div>
-      )}
-
-      {/* Booking Details Modal - Modernized */}
+      {/* Booking Details Modal */}
       {showDetailsModal && (
         <>
-          <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 transition-opacity duration-300 animate-in fade-in"
+          <div
+            className="fixed inset-0 z-50 bg-neutral-950/50 backdrop-blur-sm"
             onClick={closeDetailsModal}
           />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full my-8 max-h-[90vh] flex flex-col overflow-hidden transform transition-all duration-300 scale-100 opacity-100 animate-in zoom-in-95 slide-in-from-bottom-4">
-              {/* Header with gradient */}
-              <div className="sticky top-0 bg-gradient-to-r from-purple-50 via-purple-50 to-indigo-50 border-b border-gray-200 px-6 py-5 flex items-center justify-between z-10 backdrop-blur-sm">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg">
-                    <UsersRound className="h-5 w-5 text-white" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-3 sm:p-6">
+            <div className="box-border flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-neutral-50 shadow-2xl">
+              {/* Header: identity, status and close in one row */}
+              <div className="flex items-start gap-3 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-4 sm:gap-4 sm:px-6">
+                <span className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-600 ring-1 ring-inset ring-purple-100">
+                  <UsersRound className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="m-0 text-lg font-bold tracking-tight text-neutral-900">
+                      {bookingDetails ? `Booking GS-${String(bookingDetails.id).padStart(4, "0")}` : "Booking details"}
+                    </h2>
+                    {bookingDetails ? (
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold capitalize ${statusPillClasses(bookingDetails.status)}`}>
+                        {bookingDetails.status.replace(/_/g, " ").toLowerCase()}
+                      </span>
+                    ) : null}
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Booking Details</h2>
-                    <p className="text-xs text-gray-500 mt-0.5">Complete booking information</p>
-                  </div>
+                  <p className="m-0 mt-1 text-xs text-neutral-500">
+                    {bookingDetails
+                      ? `Created ${new Date(bookingDetails.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} at ${new Date(bookingDetails.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                      : "Group stay booking"}
+                  </p>
                 </div>
                 <button
+                  type="button"
                   onClick={closeDetailsModal}
-                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-white/80 rounded-lg transition-all duration-200 hover:scale-110 active:scale-95"
+                  className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-900"
                   aria-label="Close modal"
                 >
-                  <X className="h-6 w-6" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
 
-              {/* Content with smooth scroll */}
-              <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+              {/* Content */}
+              <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
                 {detailsLoading ? (
                   <div className="flex items-center justify-center py-20">
                     <div className="text-center">
-                      <Loader2 className="h-12 w-12 animate-spin text-purple-600 mx-auto mb-4" />
-                      <p className="text-sm text-gray-500">Loading booking details...</p>
+                      <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-purple-600" />
+                      <p className="m-0 text-sm text-neutral-500">Loading booking details...</p>
                     </div>
                   </div>
                 ) : bookingDetails ? (
-                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                    {/* Status and ID Header Card */}
-                    <div className="bg-gradient-to-br from-gray-50 to-gray-100/50 rounded-xl p-5 border border-gray-200/50 shadow-sm">
-                      <div className="flex items-center justify-between flex-wrap gap-4">
-                        <div className="flex items-center gap-4">
-                          <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg">
-                            <span className="text-white font-bold text-lg">#{bookingDetails.id}</span>
+                  <div className="space-y-4">
+                    {/* Key facts */}
+                    {(() => {
+                      const checkIn = bookingDetails.checkIn ? new Date(bookingDetails.checkIn) : null;
+                      const checkOut = bookingDetails.checkOut ? new Date(bookingDetails.checkOut) : null;
+                      const nights = checkIn && checkOut ? Math.max(0, Math.round((checkOut.getTime() - checkIn.getTime()) / 86_400_000)) : null;
+                      const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+                      const facts = [
+                        { icon: UsersRound, label: "Group", value: humanizeGroupLabel(bookingDetails.groupType), sub: bookingDetails.accommodationType ? humanizeGroupLabel(bookingDetails.accommodationType) : null },
+                        { icon: Users, label: "Guests", value: `${bookingDetails.headcount} ${bookingDetails.headcount === 1 ? "guest" : "guests"}`, sub: `${bookingDetails.roomsNeeded} ${bookingDetails.roomsNeeded === 1 ? "room" : "rooms"} needed` },
+                        { icon: MapPin, label: "Destination", value: bookingDetails.toRegion ? formatPlaceName(bookingDetails.toRegion) : "Not set", sub: [bookingDetails.toDistrict ? formatPlaceName(bookingDetails.toDistrict) : null, bookingDetails.toLocation].filter(Boolean).join(" · ") || null },
+                        { icon: Calendar, label: "Stay", value: checkIn ? fmt(checkIn) : "Flexible dates", sub: checkIn ? `${checkOut ? `to ${fmt(checkOut)}` : "Open checkout"}${nights != null ? ` · ${nights} ${nights === 1 ? "night" : "nights"}` : ""}` : null },
+                      ];
+                      const gender = [
+                        { label: "Male", value: bookingDetails.maleCount },
+                        { label: "Female", value: bookingDetails.femaleCount },
+                        { label: "Other", value: bookingDetails.otherCount },
+                      ].filter((g) => g.value && g.value > 0);
+                      return (
+                        <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+                          {/* 1px gaps over a tinted grid draw the dividers at every breakpoint */}
+                          <div className="grid grid-cols-1 gap-px bg-neutral-100 sm:grid-cols-2 lg:grid-cols-4">
+                            {facts.map((fact) => {
+                              const Icon = fact.icon;
+                              return (
+                                <div
+                                  key={fact.label}
+                                  className="flex min-w-0 items-start gap-3 bg-white p-4"
+                                >
+                                  <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600">
+                                    <Icon className="h-4 w-4" />
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">{fact.label}</p>
+                                    <p className="m-0 mt-0.5 truncate text-sm font-bold text-neutral-900" title={fact.value}>{fact.value}</p>
+                                    {fact.sub ? <p className="m-0 mt-0.5 truncate text-xs text-neutral-500" title={fact.sub}>{fact.sub}</p> : null}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div>
-                            <h3 className="text-xl font-bold text-gray-900">Booking #{bookingDetails.id}</h3>
-                            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
-                              <Clock className="h-3 w-3" />
-                              Created {new Date(bookingDetails.createdAt).toLocaleDateString('en-US', { 
-                                weekday: 'long', 
-                                year: 'numeric', 
-                                month: 'long', 
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </p>
-                          </div>
+                          {gender.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-neutral-100 px-4 py-2.5">
+                              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Group mix</span>
+                              {gender.map((g) => (
+                                <span key={g.label} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-700">
+                                  {g.label} <span className="tabular-nums text-neutral-900">{g.value}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                        <span className={`px-4 py-2 inline-flex text-sm font-semibold rounded-full shadow-sm ${badgeClasses(bookingDetails.status)}`}>
-                          {bookingDetails.status.replace(/_/g, " ")}
-                        </span>
-                      </div>
-                    </div>
+                      );
+                    })()}
 
-                    {/* Earnings split — NoLSAF commission is the deposit; owner collects the balance at the property */}
+                    {/* Earnings split: NoLSAF commission is the deposit; the owner collects the balance at the property */}
                     {(() => {
                       const isRelevant = !!bookingDetails.checkedInAt || ["CONFIRMED", "COMPLETED"].includes(String(bookingDetails.status).toUpperCase());
                       if (!isRelevant) return null;
@@ -1666,299 +1474,164 @@ export default function AdminGroupStaysBookingsPage() {
                       const money = (n: number) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
 
                       return (
-                        <div className="bg-gradient-to-br from-emerald-50 to-green-50 rounded-xl p-5 border border-emerald-100 shadow-sm">
-                          <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-emerald-500 flex items-center justify-center">
-                              <DollarSign className="h-4 w-4 text-white" />
-                            </div>
-                            Earnings Split
+                        <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                          <div className="mb-3 flex items-center gap-2">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                              <DollarSign className="h-4 w-4" />
+                            </span>
+                            <h4 className="m-0 text-sm font-bold text-neutral-900">Earnings split</h4>
                             {bookingDetails.checkedInAt && (
-                              <span className="ml-auto px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 inline-flex items-center gap-1">
+                              <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
                                 <CheckCircle className="h-3.5 w-3.5" /> Checked in
                               </span>
                             )}
-                          </h4>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-                            <div className="bg-white/70 rounded-lg p-3 border border-emerald-100/60">
-                              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">Booking total</p>
-                              <p className="text-sm font-bold text-gray-900">{money(total)}</p>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                            <div className="rounded-lg bg-neutral-50 px-3 py-2.5">
+                              <p className="m-0 text-[11px] font-semibold text-neutral-500">Booking total</p>
+                              <p className="m-0 mt-0.5 text-sm font-bold tabular-nums text-neutral-900">{money(total)}</p>
                             </div>
-                            <div className="bg-white/70 rounded-lg p-3 border border-emerald-100/60">
-                              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1">NoLSAF commission (deposit)</p>
-                              <p className="text-sm font-bold text-gray-900">{money(deposit)}</p>
+                            <div className="rounded-lg bg-neutral-50 px-3 py-2.5">
+                              <p className="m-0 text-[11px] font-semibold text-neutral-500">NoLSAF commission (deposit)</p>
+                              <p className="m-0 mt-0.5 text-sm font-bold tabular-nums text-neutral-900">{money(deposit)}</p>
                             </div>
-                            <div className="bg-emerald-600/10 rounded-lg p-3 border border-emerald-200">
-                              <p className="text-[11px] font-medium text-emerald-700 uppercase tracking-wider mb-1">Owner collects at property</p>
-                              <p className="text-sm font-bold text-emerald-800">{money(ownerCollects)}</p>
+                            <div className="rounded-lg bg-emerald-50 px-3 py-2.5">
+                              <p className="m-0 text-[11px] font-semibold text-emerald-700">Owner collects at property</p>
+                              <p className="m-0 mt-0.5 text-sm font-bold tabular-nums text-emerald-800">{money(ownerCollects)}</p>
                             </div>
                           </div>
-
-                          <p className="text-xs text-gray-600">
+                          <p className="m-0 mt-3 text-xs leading-relaxed text-neutral-500">
                             NoLSAF&apos;s commission is the deposit the guest paid online. The owner collects the balance ({money(ownerCollects)}) directly from the guest at the property. NoLSAF does not disburse anything to the owner.
                           </p>
                         </div>
                       );
                     })()}
 
-                    {/* Customer Information - Enhanced */}
+                    {/* Customer */}
                     {bookingDetails.user && (
-                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-5 border border-blue-100/50 shadow-sm transition-all duration-300 hover:shadow-md">
-                        <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-lg bg-blue-500 flex items-center justify-center">
-                            <User className="h-4 w-4 text-white" />
+                      <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-purple-50 text-sm font-bold text-purple-700">
+                            {(bookingDetails.user.name || bookingDetails.user.email || "?").split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Customer</p>
+                            <p className="m-0 mt-0.5 truncate text-sm font-bold text-neutral-900">{bookingDetails.user.name || "Unknown customer"}</p>
                           </div>
-                          Customer Information
-                        </h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="bg-white/60 rounded-lg p-3 border border-blue-100/50">
-                            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Name</p>
-                            <p className="text-sm font-semibold text-gray-900">{bookingDetails.user.name}</p>
-                          </div>
-                          <div className="bg-white/60 rounded-lg p-3 border border-blue-100/50">
-                            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Email</p>
-                            <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                              <Mail className="h-4 w-4 text-blue-600" />
-                              <a href={`mailto:${bookingDetails.user.email}`} className="hover:text-blue-600 transition-colors">
-                                {bookingDetails.user.email}
+                          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+                            {bookingDetails.user.email ? (
+                              <a
+                                href={`mailto:${bookingDetails.user.email}`}
+                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 no-underline transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-800 hover:no-underline"
+                              >
+                                <Mail className="h-3.5 w-3.5 flex-shrink-0" />
+                                <span className="truncate">{bookingDetails.user.email}</span>
                               </a>
-                            </p>
+                            ) : null}
+                            {bookingDetails.user.phone ? (
+                              <a
+                                href={`tel:${bookingDetails.user.phone}`}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-700 no-underline transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-800 hover:no-underline"
+                              >
+                                <Phone className="h-3.5 w-3.5" />
+                                {bookingDetails.user.phone}
+                              </a>
+                            ) : null}
                           </div>
-                          {bookingDetails.user.phone && (
-                            <div className="bg-white/60 rounded-lg p-3 border border-blue-100/50">
-                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Phone</p>
-                              <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                <Phone className="h-4 w-4 text-blue-600" />
-                                <a href={`tel:${bookingDetails.user.phone}`} className="hover:text-blue-600 transition-colors">
-                                  {bookingDetails.user.phone}
-                                </a>
-                              </p>
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}
 
-                    {/* Booking Details - Enhanced Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Group Details Card */}
-                      <div className="bg-white border-2 border-gray-200 rounded-xl p-5 shadow-sm transition-all duration-300 hover:shadow-md hover:border-purple-200">
-                        <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                            <UsersRound className="h-4 w-4 text-purple-600" />
-                          </div>
-                          Group Details
-                        </h4>
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Group Type</span>
-                            <span className="text-sm font-semibold text-purple-700 capitalize px-3 py-1 bg-purple-100 rounded-full">
-                              {bookingDetails.groupType}
+                    {/* Arrangements */}
+                    {(bookingDetails.arrPickup || bookingDetails.arrTransport || bookingDetails.arrMeals || bookingDetails.arrGuide || bookingDetails.arrEquipment) && (
+                      <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                        {/* Title and requested services share one row; chips wrap under the title on small screens */}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-indigo-50 text-indigo-600">
+                              <FileText className="h-3.5 w-3.5" />
                             </span>
+                            <h4 className="m-0 text-sm font-bold text-neutral-900">Extra services</h4>
                           </div>
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Accommodation</span>
-                            <span className="text-sm font-semibold text-gray-900 capitalize">{bookingDetails.accommodationType}</span>
+                          <div className="flex flex-wrap gap-1.5 sm:ml-auto">
+                            {[
+                              { on: bookingDetails.arrPickup, icon: Truck, label: "Pickup" },
+                              { on: bookingDetails.arrTransport, icon: Bus, label: "Transport" },
+                              { on: bookingDetails.arrMeals, icon: Coffee, label: "Meals" },
+                              { on: bookingDetails.arrGuide, icon: User, label: "Guide" },
+                              { on: bookingDetails.arrEquipment, icon: Wrench, label: "Equipment" },
+                            ].filter((a) => a.on).map((a) => {
+                              const Icon = a.icon;
+                              return (
+                                <span key={a.label} className="inline-flex items-center gap-1 rounded-full border border-solid border-neutral-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-neutral-700">
+                                  <Icon className="h-3 w-3 text-indigo-600" />
+                                  {a.label}
+                                </span>
+                              );
+                            })}
                           </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                              <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Headcount</span>
-                              <span className="text-sm font-semibold text-gray-900 flex items-center gap-1">
-                                <Users className="h-4 w-4 text-purple-600" />
-                                {bookingDetails.headcount} people
+                        </div>
+
+                        {((bookingDetails as any).pickupLocation || (bookingDetails as any).pickupTime) && (
+                          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg bg-neutral-50 px-3 py-2.5 text-sm">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Pickup</span>
+                            {(bookingDetails as any).pickupLocation && (
+                              <span className="inline-flex min-w-0 items-center gap-1.5 font-semibold text-neutral-900">
+                                <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-neutral-400" />
+                                <span className="truncate">{(bookingDetails as any).pickupLocation}</span>
                               </span>
-                            </div>
-                            {/* Gender Breakdown */}
-                            {(bookingDetails.maleCount || bookingDetails.femaleCount || bookingDetails.otherCount) && (
-                              <div className="pt-2 border-t border-gray-200 space-y-1.5">
-                                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Gender Breakdown</p>
-                                {bookingDetails.maleCount && bookingDetails.maleCount > 0 && (
-                                  <div className="flex items-center justify-between p-2 bg-blue-50 rounded-lg">
-                                    <span className="text-xs font-medium text-gray-600">Male</span>
-                                    <span className="text-sm font-semibold text-blue-700">{bookingDetails.maleCount}</span>
-                                  </div>
-                                )}
-                                {bookingDetails.femaleCount && bookingDetails.femaleCount > 0 && (
-                                  <div className="flex items-center justify-between p-2 bg-pink-50 rounded-lg">
-                                    <span className="text-xs font-medium text-gray-600">Female</span>
-                                    <span className="text-sm font-semibold text-pink-700">{bookingDetails.femaleCount}</span>
-                                  </div>
-                                )}
-                                {bookingDetails.otherCount && bookingDetails.otherCount > 0 && (
-                                  <div className="flex items-center justify-between p-2 bg-purple-50 rounded-lg">
-                                    <span className="text-xs font-medium text-gray-600">Other</span>
-                                    <span className="text-sm font-semibold text-purple-700">{bookingDetails.otherCount}</span>
-                                  </div>
-                                )}
-                              </div>
+                            )}
+                            {(bookingDetails as any).pickupTime && (
+                              <span className="inline-flex items-center gap-1.5 font-semibold tabular-nums text-neutral-900">
+                                <Clock className="h-3.5 w-3.5 text-neutral-400" />
+                                {(bookingDetails as any).pickupTime}
+                              </span>
                             )}
                           </div>
-                          <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Rooms Needed</span>
-                            <span className="text-sm font-semibold text-gray-900">{bookingDetails.roomsNeeded} rooms</span>
-                          </div>
-                        </div>
-                      </div>
+                        )}
 
-                      {/* Destination Card */}
-                      <div className="bg-white border-2 border-gray-200 rounded-xl p-5 shadow-sm transition-all duration-300 hover:shadow-md hover:border-green-200">
-                        <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-lg bg-green-100 flex items-center justify-center">
-                            <MapPin className="h-4 w-4 text-green-600" />
-                          </div>
-                          Destination
-                        </h4>
-                        <div className="space-y-3">
-                          <div className="p-2 bg-gray-50 rounded-lg">
-                            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Region</p>
-                            <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-green-600" />
-                              {bookingDetails.toRegion}
-                            </p>
-                          </div>
-                          {bookingDetails.toDistrict && (
-                            <div className="p-2 bg-gray-50 rounded-lg">
-                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">District</p>
-                              <p className="text-sm font-semibold text-gray-900">{bookingDetails.toDistrict}</p>
-                            </div>
-                          )}
-                          {bookingDetails.toLocation && (
-                            <div className="p-2 bg-gray-50 rounded-lg">
-                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Location</p>
-                              <p className="text-sm font-semibold text-gray-900">{bookingDetails.toLocation}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Dates - Enhanced */}
-                    <div className="bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200 rounded-xl p-5 shadow-sm">
-                      <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-amber-500 flex items-center justify-center">
-                          <Calendar className="h-4 w-4 text-white" />
-                        </div>
-                        Travel Dates
-                      </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-white/80 rounded-lg p-4 border border-amber-100">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Check-In</p>
-                          <p className="text-base font-bold text-gray-900">
-                            {bookingDetails.checkIn 
-                              ? new Date(bookingDetails.checkIn).toLocaleDateString('en-US', { 
-                                  weekday: 'long', 
-                                  year: 'numeric', 
-                                  month: 'long', 
-                                  day: 'numeric' 
-                                })
-                              : <span className="text-amber-600 italic">Flexible</span>}
-                          </p>
-                        </div>
-                        <div className="bg-white/80 rounded-lg p-4 border border-amber-100">
-                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Check-Out</p>
-                          <p className="text-base font-bold text-gray-900">
-                            {bookingDetails.checkOut 
-                              ? new Date(bookingDetails.checkOut).toLocaleDateString('en-US', { 
-                                  weekday: 'long', 
-                                  year: 'numeric', 
-                                  month: 'long', 
-                                  day: 'numeric' 
-                                })
-                              : <span className="text-amber-600 italic">Flexible</span>}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Arrangements - Enhanced */}
-                    {(bookingDetails.arrPickup || bookingDetails.arrTransport || bookingDetails.arrMeals || bookingDetails.arrGuide || bookingDetails.arrEquipment) && (
-                      <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-xl p-5 shadow-sm">
-                        <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center">
-                            <FileText className="h-4 w-4 text-white" />
-                          </div>
-                          Additional Arrangements
-                        </h4>
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {bookingDetails.arrPickup && (
-                            <span className="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg font-semibold shadow-sm flex items-center gap-2">
-                              <Truck className="h-4 w-4" />
-                              Pickup
-                            </span>
-                          )}
-                          {bookingDetails.arrTransport && (
-                            <span className="px-4 py-2 text-sm bg-green-500 text-white rounded-lg font-semibold shadow-sm flex items-center gap-2">
-                              <Bus className="h-4 w-4" />
-                              Transport
-                            </span>
-                          )}
-                          {bookingDetails.arrMeals && (
-                            <span className="px-4 py-2 text-sm bg-purple-500 text-white rounded-lg font-semibold shadow-sm flex items-center gap-2">
-                              <Coffee className="h-4 w-4" />
-                              Meals
-                            </span>
-                          )}
-                          {bookingDetails.arrGuide && (
-                            <span className="px-4 py-2 text-sm bg-amber-500 text-white rounded-lg font-semibold shadow-sm flex items-center gap-2">
-                              <User className="h-4 w-4" />
-                              Guide
-                            </span>
-                          )}
-                          {bookingDetails.arrEquipment && (
-                            <span className="px-4 py-2 text-sm bg-red-500 text-white rounded-lg font-semibold shadow-sm flex items-center gap-2">
-                              <Wrench className="h-4 w-4" />
-                              Equipment
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-3">
-                          {(bookingDetails as any).pickupLocation && (
-                            <div className="bg-white/80 rounded-lg p-3 border border-indigo-100">
-                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Pickup Location</p>
-                              <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                <MapPin className="h-4 w-4 text-indigo-600" />
-                                {(bookingDetails as any).pickupLocation}
+                        {(bookingDetails as any).arrangementNotes && (() => {
+                          const notes = String((bookingDetails as any).arrangementNotes);
+                          const long = notes.length > 220 || notes.split("\n").length > 3;
+                          return (
+                            <div className="mt-3 border-0 border-l-2 border-solid border-indigo-200 pl-3">
+                              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">Notes from the customer</p>
+                              <p className={`m-0 mt-1 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700 ${long && !showArrangementNotes ? "line-clamp-3" : ""}`}>
+                                {notes}
                               </p>
+                              {long && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowArrangementNotes((v) => !v)}
+                                  className="mt-1 border-0 bg-transparent p-0 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                                >
+                                  {showArrangementNotes ? "Show less" : "Show more"}
+                                </button>
+                              )}
                             </div>
-                          )}
-                          {(bookingDetails as any).pickupTime && (
-                            <div className="bg-white/80 rounded-lg p-3 border border-indigo-100">
-                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Pickup Time</p>
-                              <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                <Clock className="h-4 w-4 text-indigo-600" />
-                                {(bookingDetails as any).pickupTime}
-                              </p>
-                            </div>
-                          )}
-                          {(bookingDetails as any).arrangementNotes && (
-                            <div className="bg-white/80 rounded-lg p-4 border border-indigo-100">
-                              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Arrangement Notes</p>
-                              <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">{(bookingDetails as any).arrangementNotes}</p>
-                            </div>
-                          )}
-                        </div>
+                          );
+                        })()}
                       </div>
                     )}
 
                     {/* Passengers List - Collapsible */}
                     {passengers.length > 0 && (
-                      <div className="border border-gray-200 rounded-lg bg-white overflow-hidden transition-all duration-200">
+                      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+                        {/* Slim one-line toggle. m-0 matters: preflight is off, so h4/p keep UA margins. */}
                         <button
+                          type="button"
                           onClick={() => setShowPassengers(!showPassengers)}
-                          className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors duration-200"
+                          aria-expanded={showPassengers}
+                          className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-2.5 text-left transition-colors hover:bg-neutral-50"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-lg bg-teal-500 flex items-center justify-center">
-                              <Users className="h-4 w-4 text-white" />
-                            </div>
-                            <div className="text-left">
-                              <h4 className="text-sm font-medium text-gray-900">Passengers</h4>
-                              <p className="text-xs text-gray-600 mt-0.5">{passengers.length} passenger{passengers.length !== 1 ? 's' : ''} registered</p>
-                            </div>
-                          </div>
-                          <div className="transition-transform duration-200" style={{ transform: showPassengers ? 'rotate(180deg)' : 'rotate(0deg)' }}>
-                            <ChevronDown className="h-4 w-4 text-gray-600" />
-                          </div>
+                          <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-teal-50">
+                            <Users className="h-3.5 w-3.5 text-teal-600" />
+                          </span>
+                          <h4 className="m-0 text-sm font-semibold text-neutral-900">Guests</h4>
+                          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-neutral-600">
+                            {passengers.length} registered
+                          </span>
+                          <ChevronDown className={`ml-auto h-4 w-4 flex-shrink-0 text-neutral-400 transition-transform duration-200 ${showPassengers ? "rotate-180" : ""}`} />
                         </button>
                         <div 
                           className={`overflow-hidden transition-all duration-300 ease-in-out ${
@@ -2012,14 +1685,14 @@ export default function AdminGroupStaysBookingsPage() {
 
                     {/* Additional Notes - Enhanced */}
                     {(bookingDetails as any).notes && (
-                      <div className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-5 shadow-sm">
-                        <h4 className="text-base font-bold text-gray-900 mb-3 flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-lg bg-slate-500 flex items-center justify-center">
-                            <FileText className="h-4 w-4 text-white" />
+                      <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                        <h4 className="m-0 mb-3 text-sm font-bold text-neutral-900 flex items-center gap-2">
+                          <div className="h-8 w-8 rounded-lg bg-slate-50 flex items-center justify-center">
+                            <FileText className="h-4 w-4 text-slate-600" />
                           </div>
                           Additional Notes
                         </h4>
-                        <div className="bg-white/80 rounded-lg p-4 border border-slate-100">
+                        <div className="rounded-lg border border-solid border-neutral-100 bg-neutral-50/60 p-4">
                           <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">{(bookingDetails as any).notes}</p>
                         </div>
                       </div>
@@ -2027,70 +1700,70 @@ export default function AdminGroupStaysBookingsPage() {
 
                     {/* Conversation Messages Section - Collapsible */}
                     {(conversationMessages.length > 0 || loadingConversation) && (
-                      <div className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-5 shadow-sm">
+                      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
                         <button
+                          type="button"
                           onClick={() => setShowConversation(!showConversation)}
-                          className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200 hover:bg-slate-50 transition-all duration-200"
+                          aria-expanded={showConversation}
+                          className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-2.5 text-left transition-colors hover:bg-neutral-50"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-lg bg-blue-500 flex items-center justify-center">
-                              <MessageSquare className="h-4 w-4 text-white" />
-                            </div>
-                            <div className="text-left">
-                              <h4 className="text-sm font-medium text-gray-900">Conversation</h4>
-                              <p className="text-xs text-gray-600 mt-0.5">{conversationMessages.length} message{conversationMessages.length !== 1 ? 's' : ''}</p>
-                            </div>
-                          </div>
-                          <div className="transition-transform duration-200" style={{ transform: showConversation ? 'rotate(180deg)' : 'rotate(0deg)' }}>
-                            <ChevronDown className="h-4 w-4 text-gray-600" />
-                          </div>
+                          <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-blue-50">
+                            <MessageSquare className="h-3.5 w-3.5 text-blue-600" />
+                          </span>
+                          <h4 className="m-0 text-sm font-semibold text-neutral-900">Conversation</h4>
+                          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-neutral-600">
+                            {conversationMessages.length} {conversationMessages.length === 1 ? "message" : "messages"}
+                          </span>
+                          <ChevronDown className={`ml-auto h-4 w-4 flex-shrink-0 text-neutral-400 transition-transform duration-200 ${showConversation ? "rotate-180" : ""}`} />
                         </button>
-                        <div 
+                        <div
                           className={`overflow-hidden transition-all duration-300 ease-in-out ${
                             showConversation ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
                           }`}
                         >
-                          <div className="mt-4 space-y-3">
+                          {/* Chat thread: customer on the left, admin on the right. Scrolls instead of growing the modal. */}
+                          <div className="max-h-80 space-y-2.5 overflow-y-auto border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-3 py-3 sm:px-4">
                             {loadingConversation ? (
-                              <div className="flex items-center justify-center py-8">
-                                <Loader2 className="h-6 w-6 animate-spin text-slate-600" />
+                              <div className="flex items-center justify-center py-6">
+                                <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
                               </div>
                             ) : conversationMessages.length === 0 ? (
-                              <div className="text-center py-8">
-                                <p className="text-sm text-gray-500">No messages yet.</p>
-                              </div>
+                              <p className="m-0 py-6 text-center text-sm text-neutral-500">No messages yet.</p>
                             ) : (
-                              conversationMessages.map((msg: any) => (
-                                <div key={msg.id} className={`bg-white rounded-lg p-4 border border-slate-200 shadow-sm ${
-                                  msg.senderRole === 'ADMIN' ? 'border-l-4 border-l-blue-500' : 'border-l-4 border-l-green-500'
-                                }`}>
-                                  <div className="flex items-start justify-between mb-2">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                                          msg.senderRole === 'ADMIN' 
-                                            ? 'bg-blue-100 text-blue-700' 
-                                            : 'bg-green-100 text-green-700'
-                                        }`}>
-                                          {msg.senderRole === 'ADMIN' ? 'Admin' : 'Customer'}
+                              conversationMessages.map((msg: any) => {
+                                const fromAdmin = msg.senderRole === "ADMIN";
+                                const sentAt = msg.createdAt ? new Date(msg.createdAt) : null;
+                                const when = sentAt && !Number.isNaN(sentAt.getTime())
+                                  ? sentAt.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                                  : msg.formattedDate;
+                                // "STATUS_CHANGED_TO_REVIEWING" -> "Status changed to reviewing"
+                                const topic = msg.messageType && msg.messageType !== "General"
+                                  ? String(msg.messageType).replace(/_/g, " ").toLowerCase().replace(/^\w/, (c: string) => c.toUpperCase())
+                                  : null;
+                                return (
+                                  <div key={msg.id} className={`flex ${fromAdmin ? "justify-end" : "justify-start"}`}>
+                                    <div className="max-w-[85%] sm:max-w-[75%]">
+                                      <div className={`mb-1 flex flex-wrap items-center gap-x-1.5 text-[11px] text-neutral-400 ${fromAdmin ? "justify-end" : ""}`}>
+                                        <span className={`font-semibold ${fromAdmin ? "text-blue-700" : "text-emerald-700"}`}>
+                                          {fromAdmin ? "Admin" : "Customer"}
                                         </span>
-                                        <span className="text-xs text-gray-500">
-                                          {msg.senderName}
-                                        </span>
-                                        {msg.messageType && msg.messageType !== 'General' && (
-                                          <span className="text-xs text-gray-400">
-                                            • {msg.messageType}
-                                          </span>
-                                        )}
+                                        <span className="text-neutral-500">{msg.senderName}</span>
+                                        {topic ? <span>· {topic}</span> : null}
+                                        <span>· {when}</span>
                                       </div>
-                                      <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{msg.message}</p>
+                                      <div
+                                        className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                                          fromAdmin
+                                            ? "rounded-tr-md bg-blue-600 text-white"
+                                            : "rounded-tl-md border border-solid border-neutral-200 bg-white text-neutral-800"
+                                        }`}
+                                      >
+                                        {String(msg.message ?? "").trim()}
+                                      </div>
                                     </div>
-                                    <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
-                                      {msg.formattedDate}
-                                    </span>
                                   </div>
-                                </div>
-                              ))
+                                );
+                              })
                             )}
                           </div>
                         </div>
@@ -2099,8 +1772,8 @@ export default function AdminGroupStaysBookingsPage() {
 
                     {/* Suggestions & Recommendations - Independent Cards */}
                     {auditHistory.filter((a: any) => a.action === 'SUGGESTIONS_PROVIDED' && a.adminSuggestions).length > 0 && (
-                      <div className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-5 shadow-sm">
-                        <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                        <h4 className="m-0 mb-4 text-sm font-bold text-neutral-900 flex items-center gap-2">
                           <div className="h-8 w-8 rounded-lg bg-[#02665e] flex items-center justify-center">
                             <Sparkles className="h-4 w-4 text-white" />
                           </div>
@@ -2276,166 +1949,100 @@ export default function AdminGroupStaysBookingsPage() {
                       </div>
                     )}
 
-                    {/* Other Audit History (Status Changes, etc.) */}
-                    {loadingAuditHistory ? (
-                      <div className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-5 shadow-sm">
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="h-6 w-6 text-slate-600 animate-spin" />
-                          <span className="ml-2 text-sm text-gray-600">Loading audit history...</span>
-                        </div>
-                      </div>
-                    ) : auditHistory.filter((a: any) => a.action !== 'SUGGESTIONS_PROVIDED').length > 0 && (
-                      <div className="bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-5 shadow-sm">
-                        <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-lg bg-slate-500 flex items-center justify-center">
-                            <FileText className="h-4 w-4 text-white" />
-                          </div>
-                          Audit History
-                        </h4>
-                        <div className="space-y-3 max-h-96 overflow-y-auto">
-                          {auditHistory
-                            .filter((a: any) => a.action !== 'SUGGESTIONS_PROVIDED')
-                            .map((audit: any) => (
-                              <div key={audit.id} className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
-                                <div className="flex items-start justify-between mb-2">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-700 rounded">
-                                        {audit.action.replace(/_/g, " ")}
-                                      </span>
-                                      <span className="text-xs text-gray-500">
-                                        by {audit.admin?.name || `Admin #${audit.adminId}`}
-                                      </span>
-                                    </div>
-                                    {audit.description && (
-                                      <p className="text-sm text-gray-700 mt-2">{audit.description}</p>
-                                    )}
-                                  </div>
-                                  <span className="text-xs text-gray-400 whitespace-nowrap ml-2">
-                                    {new Date(audit.createdAt).toLocaleString()}
-                                  </span>
-                                </div>
-                                {audit.metadata && Object.keys(audit.metadata).length > 0 && (
-                                  <div className="mt-2 pt-2 border-t border-slate-100">
-                                    <details className="text-xs">
-                                      <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
-                                        View Details
-                                      </summary>
-                                      <pre className="mt-2 p-2 bg-slate-50 rounded text-xs overflow-x-auto">
-                                        {JSON.stringify(audit.metadata, null, 2)}
-                                      </pre>
-                                    </details>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-
                     {/* Admin Actions Section */}
                     {bookingDetails.status !== "COMPLETED" && bookingDetails.status !== "CANCELED" && (
-                      <div className="space-y-6 pt-6 border-t-2 border-gray-200">
+                      <div className="space-y-4 border-0 border-t border-solid border-neutral-200 pt-4">
                         {/* Direct Contact Section */}
-                        <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl p-5 shadow-sm">
-                          <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-blue-500 flex items-center justify-center">
-                              <MessageSquare className="h-4 w-4 text-white" />
+                        <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                          {/* Title with the off-platform contact options on the right */}
+                          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              </span>
+                              <h4 className="m-0 text-sm font-bold text-neutral-900">Message customer</h4>
                             </div>
-                            Direct Contact with Customer
-                          </h4>
-                          
-                          {/* Quick Message */}
-                          <div className="bg-white/80 rounded-lg p-4 border border-blue-100">
-                            <div className="flex items-center justify-between mb-2">
-                              <label className="block text-xs font-medium text-gray-600">
-                                Send Quick Message
-                              </label>
-                              <div className="flex gap-1 flex-wrap">
-                                <button
-                                  type="button"
-                                  onClick={() => handleFillTemplate("reviewing")}
-                                  className="px-2 py-1 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100 transition-colors"
-                                  title="Auto-fill reviewing message"
+                            {bookingDetails.user && (
+                              <div className="flex flex-wrap gap-1.5 sm:ml-auto">
+                                <a
+                                  href={`mailto:${bookingDetails.user.email}?subject=Group Stay Booking GS-${String(bookingDetails.id).padStart(4, "0")}`}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-700 no-underline transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 hover:no-underline"
                                 >
-                                  Reviewing
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleFillTemplate("processing")}
-                                  className="px-2 py-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                                  title="Auto-fill processing message"
-                                >
-                                  Processing
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleFillTemplate("propertiesRecommended")}
-                                  className="px-2 py-1 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
-                                  title="Auto-fill properties recommended message"
-                                >
-                                  Properties Ready
-                                </button>
+                                  <Mail className="h-3.5 w-3.5" />
+                                  Email
+                                </a>
+                                {bookingDetails.user.phone && (
+                                  <a
+                                    href={`tel:${bookingDetails.user.phone}`}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-700 no-underline transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 hover:no-underline"
+                                  >
+                                    <Phone className="h-3.5 w-3.5" />
+                                    Call
+                                  </a>
+                                )}
                               </div>
-                            </div>
-                            <div className="flex gap-2">
-                              <textarea
-                                value={quickMessage}
-                                onChange={(e) => setQuickMessage(e.target.value)}
-                                placeholder="Type a message to the customer... or click a template above to auto-fill"
-                                rows={4}
-                                aria-label="Message to customer"
-                                title="Type a message to the customer"
-                                className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition-all resize-none"
-                              />
+                            )}
+                          </div>
+
+                          {/* Composer: one bordered box holding the textarea and its toolbar */}
+                          <div className="overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white transition focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100">
+                            <textarea
+                              value={quickMessage}
+                              onChange={(e) => setQuickMessage(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && quickMessage.trim() && !sendingMessage) {
+                                  e.preventDefault();
+                                  handleSendQuickMessage();
+                                }
+                              }}
+                              placeholder="Write a message to the customer, or start from a template below"
+                              rows={3}
+                              aria-label="Message to customer"
+                              // font-family: inherit, otherwise the UA default renders textareas in monospace (preflight is off)
+                              className="block w-full resize-y border-0 bg-transparent px-3 py-2.5 font-[inherit] text-sm leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400"
+                            />
+                            <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-2.5 py-2">
+                              <span className="pl-0.5 text-[11px] font-semibold text-neutral-400">Templates</span>
+                              {[
+                                { key: "reviewing", label: "Reviewing" },
+                                { key: "processing", label: "Processing" },
+                                { key: "propertiesRecommended", label: "Properties ready" },
+                              ].map((t) => (
+                                <button
+                                  key={t.key}
+                                  type="button"
+                                  onClick={() => handleFillTemplate(t.key as keyof typeof messageTemplates)}
+                                  className="rounded-full border border-solid border-neutral-200 bg-white px-2.5 py-0.5 text-[11px] font-semibold text-neutral-600 transition hover:border-blue-300 hover:text-blue-700"
+                                  title={`Fill in the ${t.label.toLowerCase()} message`}
+                                >
+                                  {t.label}
+                                </button>
+                              ))}
+                              <span className="ml-auto hidden text-[11px] text-neutral-400 sm:inline">Ctrl + Enter to send</span>
                               <button
+                                type="button"
                                 onClick={handleSendQuickMessage}
                                 disabled={sendingMessage || !quickMessage.trim()}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all h-fit"
+                                className="inline-flex items-center gap-1.5 rounded-lg border-0 bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 max-sm:ml-auto"
                               >
-                                {sendingMessage ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Send className="h-4 w-4" />
-                                )}
+                                {sendingMessage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                                {sendingMessage ? "Sending..." : "Send"}
                               </button>
                             </div>
                           </div>
-
-                          {/* Contact Information */}
-                          {bookingDetails.user && (
-                            <div className="mt-4 grid grid-cols-2 gap-3">
-                              <a
-                                href={`mailto:${bookingDetails.user.email}?subject=Group Stay Booking #${bookingDetails.id}`}
-                                className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 ease-in-out no-underline"
-                              >
-                                <Mail className="h-4 w-4 text-blue-600" />
-                                <span className="text-sm font-medium text-gray-900">Email Customer</span>
-                              </a>
-                              {bookingDetails.user.phone && (
-                                <a
-                                  href={`tel:${bookingDetails.user.phone}`}
-                                  className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-blue-200 hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 ease-in-out no-underline"
-                                >
-                                  <Phone className="h-4 w-4 text-blue-600" />
-                                  <span className="text-sm font-medium text-gray-900">Call Customer</span>
-                                </a>
-                              )}
-                            </div>
-                          )}
                         </div>
 
                         {/* Property Recommendations Section */}
-                        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-5 shadow-sm">
-                          <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-indigo-500 flex items-center justify-center">
-                              <Building2 className="h-4 w-4 text-white" />
+                        <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                          <h4 className="m-0 mb-4 text-sm font-bold text-neutral-900 flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                              <Building2 className="h-4 w-4 text-indigo-600" />
                             </div>
                             Property Recommendations
                           </h4>
                           
                           {recommendedPropertyIds.length > 0 ? (
-                            <div className="bg-white/80 rounded-lg p-4 border border-indigo-100 mb-4">
+                            <div className="rounded-lg border border-solid border-neutral-100 bg-neutral-50/60 p-4 mb-4">
                               <p className="text-sm font-medium text-gray-700 mb-2">
                                 {recommendedPropertyIds.length} propert{recommendedPropertyIds.length > 1 ? 'ies' : 'y'} recommended
                               </p>
@@ -2467,7 +2074,7 @@ export default function AdminGroupStaysBookingsPage() {
                                 <div className="space-y-4">
                                   {/* Selected Properties */}
                                   {selectedProperties.length > 0 && (
-                                    <div className="bg-white/80 rounded-lg p-4 border border-indigo-100">
+                                    <div className="rounded-lg border border-solid border-neutral-100 bg-neutral-50/60 p-4">
                                       <p className="text-xs font-semibold text-gray-700 mb-3">
                                         Selected Properties ({selectedProperties.length}/2)
                                       </p>
@@ -2509,7 +2116,7 @@ export default function AdminGroupStaysBookingsPage() {
                                   )}
 
                                   {/* Search Results */}
-                                  <div className="bg-white/80 rounded-lg p-4 border border-indigo-100 max-h-96 overflow-y-auto">
+                                  <div className="rounded-lg border border-solid border-neutral-100 bg-neutral-50/60 p-4 max-h-96 overflow-y-auto">
                                     <div className="flex items-center justify-between mb-3">
                                       <p className="text-xs font-semibold text-gray-700">
                                         Matching Properties ({propertySearchResults.length})
@@ -2593,14 +2200,14 @@ export default function AdminGroupStaysBookingsPage() {
 
                         {/* Submitted Claims Review Section - Premium Admin Interface */}
                         {(bookingDetails as any).isOpenForClaims && (
-                          <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 border-2 border-emerald-200 rounded-xl p-5 sm:p-6 shadow-lg hover:shadow-xl transition-all duration-300">
+                          <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
                             <div className="flex items-center justify-between mb-5">
                               <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
-                                  <Gift className="h-5 w-5 text-white" />
+                                <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+                                  <Gift className="h-5 w-5 text-emerald-600" />
                                 </div>
                                 <div>
-                                  <h4 className="text-lg font-bold text-gray-900">Submitted Claims & Offers</h4>
+                                  <h4 className="text-lg font-bold text-gray-900">Owner offers</h4>
                                   <p className="text-xs text-gray-600 mt-0.5">Review and select top 3 recommendations for customer</p>
                                 </div>
                               </div>
@@ -3010,7 +2617,7 @@ export default function AdminGroupStaysBookingsPage() {
                             ) : claimsData && claimsData.claims && claimsData.claims.length === 0 ? (
                               <div className="bg-white/90 rounded-xl p-8 border border-emerald-200 text-center">
                                 <Gift className="h-8 w-8 text-gray-400 mx-auto mb-3" />
-                                <p className="text-sm text-gray-600 font-medium mb-1">No Claims Submitted Yet</p>
+                                <p className="text-sm text-gray-600 font-medium mb-1">No owner offers yet</p>
                                 <p className="text-xs text-gray-500">
                                   Owners can submit competitive offers when this booking is open for claims.
                                 </p>
@@ -3021,506 +2628,77 @@ export default function AdminGroupStaysBookingsPage() {
                                   onClick={() => bookingDetails && loadClaims(bookingDetails.id)}
                                   className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-all"
                                 >
-                                  Load Submitted Claims
+                                  Load owner offers
                                 </button>
                               </div>
                             )}
                           </div>
                         )}
 
-                        {/* Admin Suggestions Section */}
-                        <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-5 shadow-sm">
-                          <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-purple-500 flex items-center justify-center">
-                              <Edit className="h-4 w-4 text-white" />
-                            </div>
-                            Provide Suggestions & Recommendations
-                          </h4>
-                          
-                          <div className="space-y-4">
-                            <div className="bg-white/80 rounded-lg p-4 border border-purple-100">
-                              <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                Accommodation Options <span className="text-red-500">*</span>
-                              </label>
-                              <textarea
-                                value={adminSuggestions.accommodationOptions}
-                                onChange={(e) => setAdminSuggestions({ ...adminSuggestions, accommodationOptions: e.target.value })}
-                                placeholder="Suggest suitable accommodation options based on group size and requirements..."
-                                rows={4}
-                                className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all resize-none"
-                              />
-                            </div>
-
-                            <div className="bg-white/80 rounded-lg p-4 border border-purple-100">
-                              <label className="block text-xs font-semibold text-gray-700 mb-3">
-                                Pricing & Budget
-                              </label>
-                              <div className="space-y-3">
-                                {/* Currency selector - full width on mobile */}
-                                <div className="sm:hidden">
-                                  <label className="block text-xs text-gray-600 mb-1.5">Currency</label>
-                                  <select
-                                    value={pricingDetails.currency}
-                                    onChange={(e) => setPricingDetails({ ...pricingDetails, currency: e.target.value })}
-                                    aria-label="Select currency"
-                                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium bg-gray-50 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
-                                  >
-                                    <option value="TZS">TZS</option>
-                                    <option value="USD">USD</option>
-                                    <option value="EUR">EUR</option>
-                                  </select>
-                                </div>
-                                
-                                {/* Headcount and Rooms - auto-filled from booking */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  <div>
-                                    <label className="block text-xs text-gray-600 mb-1.5">Headcount</label>
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2.5 py-2 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs font-medium text-gray-600 whitespace-nowrap">
-                                        People
-                                      </span>
-                                      <input
-                                        type="number"
-                                        value={pricingDetails.headcount}
-                                        readOnly
-                                        aria-label="Headcount (read-only)"
-                                        title="Headcount (read-only)"
-                                        className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg bg-gray-50 text-sm transition-all cursor-not-allowed"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <label className="block text-xs text-gray-600 mb-1.5">Rooms Needed</label>
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2.5 py-2 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs font-medium text-gray-600 whitespace-nowrap">
-                                        Rooms
-                                      </span>
-                                      <input
-                                        type="number"
-                                        value={pricingDetails.roomsNeeded}
-                                        readOnly
-                                        aria-label="Rooms needed (read-only)"
-                                        title="Rooms needed (read-only)"
-                                        className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg bg-gray-50 text-sm transition-all cursor-not-allowed"
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Private Rooms - only shown if needsPrivateRoom is true */}
-                                {(bookingDetails as any)?.needsPrivateRoom && (
-                                  <div>
-                                    <label className="block text-xs text-gray-600 mb-1.5">Private Rooms</label>
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2.5 py-2 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs font-medium text-gray-600 whitespace-nowrap">
-                                        Rooms
-                                      </span>
-                                      <input
-                                        type="number"
-                                        value={pricingDetails.privateRoomCount}
-                                        readOnly
-                                        aria-label="Private rooms count (read-only)"
-                                        title="Private rooms count (read-only)"
-                                        className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg bg-gray-50 text-sm transition-all cursor-not-allowed"
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Price per Night (per room) and Total Nights - responsive grid */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  <div>
-                                    <label className="block text-xs text-gray-600 mb-1.5">Price per Night (per room)</label>
-                                    <div className="flex items-center gap-2">
-                                      <select
-                                        value={pricingDetails.currency}
-                                        onChange={(e) => setPricingDetails({ ...pricingDetails, currency: e.target.value })}
-                                        aria-label="Select currency"
-                                        className="hidden sm:block px-2.5 py-2 border-2 border-gray-200 rounded-lg text-xs font-medium bg-gray-50 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
-                                      >
-                                        <option value="TZS">TZS</option>
-                                        <option value="USD">USD</option>
-                                        <option value="EUR">EUR</option>
-                                      </select>
-                                      <input
-                                        type="number"
-                                        value={pricingDetails.pricePerNight}
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          setPricingDetails({ ...pricingDetails, pricePerNight: value });
-                                          // Auto-calculate total: pricePerNight × roomsNeeded × totalNights
-                                          if (pricingDetails.totalNights && pricingDetails.roomsNeeded && value) {
-                                            const total = Number(value) * Number(pricingDetails.roomsNeeded) * Number(pricingDetails.totalNights);
-                                            setPricingDetails(prev => ({ ...prev, totalAmount: total.toString() }));
-                                          }
-                                        }}
-                                        placeholder="0.00"
-                                        aria-label="Price per night per room"
-                                        title="Price per night per room"
-                                        className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <label className="block text-xs text-gray-600 mb-1.5">Total Nights</label>
-                                    <div className="flex items-center gap-2">
-                                      <span className="px-2.5 py-2 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs font-medium text-gray-600 whitespace-nowrap">
-                                        Nights
-                                      </span>
-                                      <input
-                                        type="number"
-                                        value={pricingDetails.totalNights}
-                                        onChange={(e) => {
-                                          const value = e.target.value;
-                                          setPricingDetails({ ...pricingDetails, totalNights: value });
-                                          // Auto-calculate total: pricePerNight × roomsNeeded × totalNights
-                                          if (pricingDetails.pricePerNight && pricingDetails.roomsNeeded && value) {
-                                            const total = Number(pricingDetails.pricePerNight) * Number(pricingDetails.roomsNeeded) * Number(value);
-                                            setPricingDetails(prev => ({ ...prev, totalAmount: total.toString() }));
-                                          }
-                                        }}
-                                        placeholder="0"
-                                        min="1"
-                                        aria-label="Total nights"
-                                        title="Total nights"
-                                        className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all"
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-                                
-                                {/* Total Amount - full width */}
-                                <div>
-                                  <label className="block text-xs text-gray-600 mb-1.5">Total Amount</label>
-                                  <div className="flex items-center gap-2">
-                                    <span className="px-3 py-2 bg-purple-50 border-2 border-purple-200 rounded-lg text-xs font-semibold text-purple-700 whitespace-nowrap">
-                                      {pricingDetails.currency}
-                                    </span>
-                                    <input
-                                      type="number"
-                                      value={pricingDetails.totalAmount}
-                                      onChange={(e) => setPricingDetails({ ...pricingDetails, totalAmount: e.target.value })}
-                                      placeholder="0.00"
-                                      aria-label="Total amount"
-                                      title="Total amount"
-                                      className="flex-1 px-3 py-2 border-2 border-purple-200 bg-purple-50 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm font-semibold text-purple-900 transition-all"
-                                    />
-                                  </div>
-                                </div>
-                                
-                                {/* Additional Notes - full width */}
-                                <div>
-                                  <label className="block text-xs text-gray-600 mb-1.5">Additional Notes</label>
-                                  <textarea
-                                    value={pricingDetails.notes}
-                                    onChange={(e) => setPricingDetails({ ...pricingDetails, notes: e.target.value })}
-                                    placeholder="Payment terms, cancellation policy, special offers, etc."
-                                    rows={2}
-                                    className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all resize-none"
-                                  />
-                                </div>
-                                
-                                {/* Discount Section */}
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-2">
-                                      <Tag className="h-4 w-4 text-purple-600" />
-                                      <label className="text-xs font-semibold text-gray-700">Offer Discount</label>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setDiscountEnabled(!discountEnabled);
-                                        if (discountEnabled) {
-                                          // Reset discount when disabling
-                                          setDiscountDetails({
-                                            type: "percentage",
-                                            value: "",
-                                            criteria: "nights",
-                                            minNights: "",
-                                            minHeadcount: "",
-                                          });
-                                        }
-                                      }}
-                                      aria-label={discountEnabled ? "Disable discount" : "Enable discount"}
-                                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-                                        discountEnabled ? "bg-purple-600" : "bg-gray-300"
-                                      }`}
-                                    >
-                                      <span
-                                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                          discountEnabled ? "translate-x-6" : "translate-x-1"
-                                        }`}
-                                      />
-                                    </button>
-                                  </div>
-                                  
-                                  {discountEnabled && (
-                                    <div className="space-y-3 p-3 bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-lg">
-                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <div>
-                                          <label className="block text-xs text-gray-600 mb-1.5">Discount Type</label>
-                                          <select
-                                            value={discountDetails.type}
-                                            onChange={(e) => setDiscountDetails({ ...discountDetails, type: e.target.value as "percentage" | "amount" })}
-                                            aria-label="Select discount type"
-                                            className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
-                                          >
-                                            <option value="percentage">Percentage (%)</option>
-                                            <option value="amount">Fixed Amount</option>
-                                          </select>
-                                        </div>
-                                        <div>
-                                          <label className="block text-xs text-gray-600 mb-1.5">
-                                            Discount {discountDetails.type === "percentage" ? "Percentage" : "Amount"}
-                                          </label>
-                                          <div className="flex items-center gap-2">
-                                            {discountDetails.type === "percentage" ? (
-                                              <span className="px-2.5 py-2 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs font-medium text-gray-600 whitespace-nowrap">
-                                                %
-                                              </span>
-                                            ) : (
-                                              <span className="px-2.5 py-2 bg-gray-50 border-2 border-gray-200 rounded-lg text-xs font-medium text-gray-600 whitespace-nowrap">
-                                                {pricingDetails.currency}
-                                              </span>
-                                            )}
-                                            <input
-                                              type="number"
-                                              value={discountDetails.value}
-                                              onChange={(e) => setDiscountDetails({ ...discountDetails, value: e.target.value })}
-                                              placeholder={discountDetails.type === "percentage" ? "0" : "0.00"}
-                                              min="0"
-                                              max={discountDetails.type === "percentage" ? "100" : undefined}
-                                              aria-label={`Discount ${discountDetails.type === "percentage" ? "percentage" : "amount"}`}
-                                              title={`Discount ${discountDetails.type === "percentage" ? "percentage" : "amount"}`}
-                                              className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all"
-                                            />
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      <div>
-                                        <label className="block text-xs text-gray-600 mb-1.5">Discount Criteria (Optional)</label>
-                                        <select
-                                          value={discountDetails.criteria}
-                                          onChange={(e) => setDiscountDetails({ ...discountDetails, criteria: e.target.value as "nights" | "headcount" | "both" })}
-                                          aria-label="Select discount criteria"
-                                          className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
-                                        >
-                                          <option value="nights">Based on Total Nights</option>
-                                          <option value="headcount">Based on Headcount</option>
-                                          <option value="both">Both (Nights & Headcount)</option>
-                                        </select>
-                                      </div>
-                                      
-                                      {(discountDetails.criteria === "nights" || discountDetails.criteria === "both") && (
-                                        <div>
-                                          <label className="block text-xs text-gray-600 mb-1.5">Minimum Nights Required</label>
-                                          <input
-                                            type="number"
-                                            value={discountDetails.minNights}
-                                            onChange={(e) => setDiscountDetails({ ...discountDetails, minNights: e.target.value })}
-                                            placeholder="e.g., 5 nights"
-                                            min="1"
-                                            aria-label="Minimum nights required for discount"
-                                            title="Minimum nights required for discount"
-                                            className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all"
-                                          />
-                                        </div>
-                                      )}
-                                      
-                                      {(discountDetails.criteria === "headcount" || discountDetails.criteria === "both") && (
-                                        <div>
-                                          <label className="block text-xs text-gray-600 mb-1.5">Minimum Headcount Required</label>
-                                          <input
-                                            type="number"
-                                            value={discountDetails.minHeadcount}
-                                            onChange={(e) => setDiscountDetails({ ...discountDetails, minHeadcount: e.target.value })}
-                                            placeholder="e.g., 10 people"
-                                            aria-label="Minimum headcount required for discount"
-                                            title="Minimum headcount required for discount"
-                                            min="1"
-                                            className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all"
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                                
-                                {/* Auto-generated pricing summary with discount */}
-                                {(pricingDetails.pricePerNight || pricingDetails.totalAmount) && (
-                                  <div className="mt-2 p-3 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-lg">
-                                    <p className="text-xs font-semibold text-gray-700 mb-2">Pricing Summary:</p>
-                                    <div className="text-xs text-gray-600 space-y-1.5">
-                                      {pricingDetails.pricePerNight && pricingDetails.totalNights && pricingDetails.roomsNeeded && (
-                                        <div>
-                                          <p className="text-gray-700">
-                                            {Number(pricingDetails.pricePerNight).toLocaleString()} {pricingDetails.currency} × {pricingDetails.roomsNeeded} room{pricingDetails.roomsNeeded !== "1" ? "s" : ""} × {pricingDetails.totalNights} night{pricingDetails.totalNights !== "1" ? "s" : ""}
-                                          </p>
-                                          <p className="font-semibold text-gray-900">
-                                            Subtotal: {pricingDetails.totalAmount || (Number(pricingDetails.pricePerNight) * Number(pricingDetails.roomsNeeded || 1) * Number(pricingDetails.totalNights)).toLocaleString()} {pricingDetails.currency}
-                                          </p>
-                                        </div>
-                                      )}
-                                      
-                                      {/* Discount Calculation */}
-                                      {discountEnabled && discountDetails.value && pricingDetails.totalAmount && (
-                                        <>
-                                          {(() => {
-                                            const subtotal = Number(pricingDetails.totalAmount) || (Number(pricingDetails.pricePerNight) * Number(pricingDetails.roomsNeeded || 1) * Number(pricingDetails.totalNights));
-                                            let discountAmount = 0;
-                                            
-                                            if (discountDetails.type === "percentage") {
-                                              discountAmount = (subtotal * Number(discountDetails.value)) / 100;
-                                            } else {
-                                              discountAmount = Number(discountDetails.value);
-                                            }
-                                            
-                                            const finalAmount = Math.max(0, subtotal - discountAmount);
-                                            const savings = discountAmount;
-                                            
-                                            return (
-                                              <>
-                                                <div className="pt-2 border-t border-purple-200">
-                                                  <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-gray-600">Original Price:</span>
-                                                    <span className="line-through text-gray-500">{subtotal.toLocaleString()} {pricingDetails.currency}</span>
-                                                  </div>
-                                                  <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                                                      <Tag className="h-3 w-3" />
-                                                      Discount:
-                                                    </span>
-                                                    <span className="text-emerald-700 font-semibold">-{savings.toLocaleString()} {pricingDetails.currency}</span>
-                                                  </div>
-                                                  <div className="flex items-center justify-between pt-1 border-t border-purple-200">
-                                                    <span className="font-bold text-purple-900">Final Price:</span>
-                                                    <span className="font-bold text-lg text-purple-900">{finalAmount.toLocaleString()} {pricingDetails.currency}</span>
-                                                  </div>
-                                                  <div className="mt-1.5 p-2 bg-emerald-100 rounded text-emerald-800 font-semibold">
-                                                    💰 You Save: {savings.toLocaleString()} {pricingDetails.currency}!
-                                                  </div>
-                                                </div>
-                                              </>
-                                            );
-                                          })()}
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="bg-white/80 rounded-lg p-4 border border-purple-100">
-                              <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                Recommendations & Tips
-                              </label>
-                              <textarea
-                                value={adminSuggestions.recommendations}
-                                onChange={(e) => setAdminSuggestions({ ...adminSuggestions, recommendations: e.target.value })}
-                                placeholder="Provide recommendations for activities, locations, or services..."
-                                rows={3}
-                                className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all resize-none"
-                              />
-                            </div>
-
-                            <div className="bg-white/80 rounded-lg p-4 border border-purple-100">
-                              <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                Next Steps
-                              </label>
-                              <textarea
-                                value={adminSuggestions.nextSteps}
-                                onChange={(e) => setAdminSuggestions({ ...adminSuggestions, nextSteps: e.target.value })}
-                                placeholder="Outline the next steps for the customer to proceed..."
-                                rows={3}
-                                className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none text-sm transition-all resize-none"
-                              />
-                            </div>
-
-                            <button
-                              onClick={handleSubmitSuggestions}
-                              disabled={submittingSuggestions || !adminSuggestions.accommodationOptions.trim()}
-                              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl text-sm font-semibold hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-md hover:shadow-lg"
-                            >
-                              {submittingSuggestions ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  Submitting...
-                                </>
-                              ) : (
-                                <>
-                                  <Send className="h-4 w-4" />
-                                  Submit Suggestions to Customer
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
                         {/* Quick Status Actions */}
-                        <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-5 shadow-sm">
-                          <h4 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-green-500 flex items-center justify-center">
-                              <CheckCircle2 className="h-4 w-4 text-white" />
+                        <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 sm:p-5">
+                          <h4 className="m-0 mb-4 text-sm font-bold text-neutral-900 flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-lg bg-green-50 flex items-center justify-center">
+                              <CheckCircle2 className="h-4 w-4 text-green-600" />
                             </div>
                             Quick Actions
                           </h4>
                           
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {/* Every status change notifies the customer, so each action asks first. */}
+                          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3">
                             {bookingDetails.status === "PENDING" && (
                               <button
-                                onClick={() => handleUpdateStatus("REVIEWING")}
+                                type="button"
+                                onClick={() => setPendingStatusAction("REVIEWING")}
                                 disabled={updatingStatus}
-                                className="px-4 py-3 bg-purple-600 text-white rounded-xl text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm"
+                                className="flex items-center justify-center gap-2 rounded-lg border-0 bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                <Loader2 className={`h-4 w-4 ${updatingStatus ? 'animate-spin' : ''}`} />
-                                Start Reviewing
+                                <Loader2 className="h-4 w-4" />
+                                Start reviewing
                               </button>
                             )}
                             {bookingDetails.status === "REVIEWING" && (
                               <button
-                                onClick={() => handleUpdateStatus("PROCESSING")}
+                                type="button"
+                                onClick={() => setPendingStatusAction("PROCESSING")}
                                 disabled={updatingStatus}
-                                className="px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm"
+                                className="flex items-center justify-center gap-2 rounded-lg border-0 bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                <Loader2 className={`h-4 w-4 ${updatingStatus ? 'animate-spin' : ''}`} />
-                                Start Processing
+                                <Loader2 className="h-4 w-4" />
+                                Start processing
                               </button>
                             )}
                             {bookingDetails.status === "PROCESSING" && (
                               <>
                                 <button
-                                  onClick={() => handleUpdateStatus("CONFIRMED")}
+                                  type="button"
+                                  onClick={() => setPendingStatusAction("CONFIRMED")}
                                   disabled={updatingStatus}
-                                  className="px-4 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm"
+                                  className="flex items-center justify-center gap-2 rounded-lg border-0 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  <CheckCircle className={`h-4 w-4 ${updatingStatus ? 'animate-spin' : ''}`} />
-                                  Confirm Booking
+                                  <CheckCircle className="h-4 w-4" />
+                                  Confirm booking
                                 </button>
                                 <button
-                                  onClick={() => handleUpdateStatus("COMPLETED")}
+                                  type="button"
+                                  onClick={() => setPendingStatusAction("COMPLETED")}
                                   disabled={updatingStatus}
-                                  className="px-4 py-3 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm"
+                                  className="flex items-center justify-center gap-2 rounded-lg border-0 bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                  <CheckCircle2 className={`h-4 w-4 ${updatingStatus ? 'animate-spin' : ''}`} />
-                                  Mark Completed
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Mark completed
                                 </button>
                               </>
                             )}
                             {bookingDetails.status !== "CANCELED" && (
                               <button
-                                onClick={() => {
-                                  if (confirm("Are you sure you want to cancel this booking?")) {
-                                    handleUpdateStatus("CANCELED");
-                                  }
-                                }}
+                                type="button"
+                                onClick={() => setPendingStatusAction("CANCELED")}
                                 disabled={updatingStatus}
-                                className="px-4 py-3 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-sm"
+                                className="flex items-center justify-center gap-2 rounded-lg border border-solid border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                <XCircle className={`h-4 w-4 ${updatingStatus ? 'animate-spin' : ''}`} />
-                                Cancel Booking
+                                <XCircle className="h-4 w-4" />
+                                Cancel booking
                               </button>
                             )}
                           </div>
@@ -3536,17 +2714,69 @@ export default function AdminGroupStaysBookingsPage() {
                 )}
               </div>
 
-              {/* Footer with action buttons */}
-              <div className="sticky bottom-0 bg-gradient-to-r from-gray-50 to-gray-100 border-t border-gray-200 px-6 py-4 flex justify-end gap-3 backdrop-blur-sm">
-                <button
+              {/* Footer */}
+              <div className="flex justify-end gap-2 border-0 border-t border-solid border-neutral-200 bg-white px-4 py-3 sm:px-6">
+                <button type="button"
                   onClick={closeDetailsModal}
-                  className="px-6 py-2.5 text-sm font-semibold text-gray-700 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 active:scale-95 shadow-sm"
+                  className="rounded-lg border border-solid border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 hover:text-neutral-900"
                 >
                   Close
                 </button>
               </div>
             </div>
           </div>
+
+          {/* Status change confirmation */}
+          {pendingStatusAction && bookingDetails && (() => {
+            const copy = STATUS_ACTION_COPY[pendingStatusAction];
+            const reference = `GS-${String(bookingDetails.id).padStart(4, "0")}`;
+            const danger = pendingStatusAction === "CANCELED";
+            return (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="gs-status-confirm-title">
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  className="absolute inset-0 border-0 bg-neutral-950/40 backdrop-blur-[2px]"
+                  onClick={() => !updatingStatus && setPendingStatusAction(null)}
+                />
+                <div className="relative box-border w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+                  <div className="flex items-start gap-3">
+                    <span className={`inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${danger ? "bg-rose-50 text-rose-600" : "bg-purple-50 text-purple-600"}`}>
+                      {danger ? <AlertCircle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+                    </span>
+                    <div className="min-w-0">
+                      <h3 id="gs-status-confirm-title" className="m-0 text-base font-bold text-neutral-900">{copy.title}</h3>
+                      <p className="m-0 mt-1.5 text-sm leading-relaxed text-neutral-600">
+                        Are you sure you want to {copy.verb} booking <span className="font-semibold text-neutral-900">{reference}</span>? {copy.detail}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setPendingStatusAction(null)}
+                      disabled={updatingStatus}
+                      className="rounded-lg border border-solid border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"
+                    >
+                      {danger ? "Keep booking" : "Go back"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await handleUpdateStatus(pendingStatusAction);
+                        setPendingStatusAction(null);
+                      }}
+                      disabled={updatingStatus}
+                      className={`inline-flex items-center justify-center gap-2 rounded-lg border-0 px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60 ${danger ? "bg-rose-600 hover:bg-rose-700" : "bg-purple-600 hover:bg-purple-700"}`}
+                    >
+                      {updatingStatus ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {updatingStatus ? "Updating..." : copy.confirmLabel}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

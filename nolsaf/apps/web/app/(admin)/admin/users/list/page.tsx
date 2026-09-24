@@ -8,7 +8,7 @@ import { io, Socket } from "socket.io-client";
 import Link from "next/link";
 import Chart from "@/components/Chart";
 import TableRow from "@/components/TableRow";
-import type { ChartData } from "chart.js";
+import type { ChartData, ChartOptions } from "chart.js";
 
 const api = apiClient;
 
@@ -32,6 +32,9 @@ type CustomerRow = {
   bookingCount?: number;
   totalSpent?: number;
   lastBookingDate?: string | null;
+  /** Roles beyond the account role: bar attendant, front desk, sales partner
+   *  and so on. Active roles are listed first. */
+  extraRoles?: { label: string; active: boolean }[];
 };
 
 type CustomersSummary = {
@@ -43,9 +46,27 @@ type CustomersSummary = {
   verifiedPhoneCount?: number;
   verifiedCustomerCount?: number;
   incompleteRegistrationCount?: number;
+  /** Already returned by /admin/users/summary; declared here so the funnel can
+   *  use whole-population figures instead of the loaded page. */
+  customersWithBookings?: number;
+  totalAccommodationBookings?: number;
+  totalTourBookings?: number;
+  totalTransportBookings?: number;
+  totalGroupBookings?: number;
 };
 
 type CustomerSortKey = "customer" | "profile" | "accountId" | "contact" | "verification" | "status" | "bookings" | "totalSpent" | "lastBooking" | "joined";
+
+/** Filter chip offered by the API. The vocabulary lives server side in
+ *  nrmsStaffRoles.ts, so adding an NRMS sub-role adds its chip here with no
+ *  change to this file. `count` is -1 when the server could not count. */
+type HoldsRoleFilter = {
+  value: string; label: string; hint: string;
+  /** Grouping is decided server side too, so this file stays free of role
+   *  vocabulary and a new group needs no change here. */
+  group: string; groupLabel: string;
+  count: number;
+};
 
 export default function AdminUsersListPage(){
   const [q, setQ] = useState("");
@@ -64,9 +85,15 @@ export default function AdminUsersListPage(){
     totalRevenue: 0,
     verifiedCustomers: 0,
     incompleteRegistrations: 0,
+    customersWithBookings: 0,
+    bookingsByService: { stays: 0, tours: 0, transport: 0, groups: 0 },
   });
   const pageSize = 30;
   const role = "CUSTOMER";
+  // Which additional role to narrow to. "" means no filter.
+  const [holdsRole, setHoldsRole] = useState<string>("");
+  const [holdsRoleFilters, setHoldsRoleFilters] = useState<HoldsRoleFilter[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -126,20 +153,41 @@ export default function AdminUsersListPage(){
     return Boolean(c.suspendedAt) || disabled;
   }, []);
 
+  /** The chip currently applied, so the closed panel can name it. */
+  const activeHoldsRole = useMemo(
+    () => holdsRoleFilters.find((f) => f.value === holdsRole) ?? null,
+    [holdsRoleFilters, holdsRole],
+  );
+
+  /** Groups in the order the server sent them. A chip that matches nothing is
+   *  dropped as noise, but one whose count failed (-1) is kept: "we could not
+   *  count" is not the same as "nobody holds this". */
+  const holdsRoleGroups = useMemo(() => {
+    const groups: { key: string; label: string; options: HoldsRoleFilter[] }[] = [];
+    for (const option of holdsRoleFilters) {
+      if (option.count === 0 && option.value !== holdsRole) continue;
+      const existing = groups.find((g) => g.key === option.group);
+      if (existing) existing.options.push(option);
+      else groups.push({ key: option.group, label: option.groupLabel, options: [option] });
+    }
+    return groups;
+  }, [holdsRoleFilters, holdsRole]);
+
   const load = useCallback(async ()=>{
     setLoading(true);
     try {
       // IMPORTANT: Use /api/* to avoid colliding with Next pages under /admin/users/*
       // (e.g. /admin/users is a page route, not an API route).
       const [listRes, summaryRes] = await Promise.all([
-        api.get<{ data: CustomerRow[]; meta: { total: number } }>("/api/admin/users", {
-          params: { q, status, registrationStatus, page, perPage: pageSize, role },
+        api.get<{ data: CustomerRow[]; meta: { total: number; holdsRoleFilters?: HoldsRoleFilter[] } }>("/api/admin/users", {
+          params: { q, status, registrationStatus, page, perPage: pageSize, role, ...(holdsRole ? { holdsRole } : {}) },
         }),
         api.get<CustomersSummary>("/api/admin/users/summary"),
       ]);
 
       setItems(listRes.data.data || []);
       setTotal(listRes.data.meta?.total || 0);
+      setHoldsRoleFilters(listRes.data.meta?.holdsRoleFilters || []);
 
       const summary = summaryRes.data;
       const verified = Number(summary.verifiedCustomerCount || 0);
@@ -150,6 +198,13 @@ export default function AdminUsersListPage(){
         totalRevenue: Number(summary.totalRevenue || 0),
         verifiedCustomers: verified,
         incompleteRegistrations: Number(summary.incompleteRegistrationCount || 0),
+        customersWithBookings: Number(summary.customersWithBookings || 0),
+        bookingsByService: {
+          stays: Number(summary.totalAccommodationBookings || 0),
+          tours: Number(summary.totalTourBookings || 0),
+          transport: Number(summary.totalTransportBookings || 0),
+          groups: Number(summary.totalGroupBookings || 0),
+        },
       });
     } catch (err) {
       console.error("Failed to load customers", err);
@@ -158,7 +213,7 @@ export default function AdminUsersListPage(){
     } finally {
       setLoading(false);
     }
-  }, [q, status, registrationStatus, page, role]);
+  }, [q, status, registrationStatus, page, role, holdsRole]);
 
   useEffect(()=>{ load(); }, [load]);
 
@@ -254,27 +309,71 @@ export default function AdminUsersListPage(){
   }
 
   // Chart data for customer engagement
-  const engagementChartData = useMemo<ChartData<"doughnut">>(() => {
-    const withBookings = items.filter(c => (c.bookingCount || 0) > 0).length;
-    const withoutBookings = items.filter(c => (c.bookingCount || 0) === 0).length;
-    
+  /**
+   * Customer funnel, as horizontal bars.
+   *
+   * Replaces a two-slice "with bookings / without" doughnut. That chart used a
+   * whole card to answer one yes/no question, and it was computed from `items`
+   * — the loaded page — so it described 25 customers under a header reporting
+   * 35. These figures come from the summary endpoint and cover every customer.
+   *
+   * Each step is a subset of the one above it, so the drop between bars is the
+   * thing worth looking at: where travellers stop progressing.
+   */
+  const funnelChartData = useMemo<ChartData<"bar">>(() => {
+    const registered = stats.totalCustomers;
+    const profileComplete = Math.max(0, registered - stats.incompleteRegistrations);
+    const verified = stats.verifiedCustomers;
+    const booked = stats.customersWithBookings;
+
     return {
-      labels: ["With Bookings", "No Bookings Yet"],
+      labels: ["Registered", "Profile complete", "Verified", "Booked at least once"],
       datasets: [
         {
-          label: "Customer Engagement",
-          data: [withBookings, withoutBookings],
+          label: "Customers",
+          data: [registered, profileComplete, verified, booked],
+          // One hue, deepening down the funnel: these are stages of the same
+          // population, not different categories.
           backgroundColor: [
-            "rgba(16, 185, 129, 0.8)", // Green
-            "rgba(156, 163, 175, 0.8)", // Gray
+            "rgba(148, 163, 184, 0.85)",
+            "rgba(94, 190, 168, 0.85)",
+            "rgba(45, 160, 138, 0.9)",
+            "rgba(2, 102, 94, 0.95)",
           ],
-          borderColor: "#fff",
-          borderWidth: 2,
-          hoverOffset: 4,
+          borderWidth: 0,
+          borderRadius: 6,
+          barThickness: 22,
         },
       ],
     };
-  }, [items]);
+  }, [stats]);
+
+  const funnelChartOptions = useMemo<ChartOptions<"bar">>(() => ({
+    indexAxis: "y" as const,
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (context: any) => {
+            const value = Number(context.raw || 0);
+            const total = stats.totalCustomers || 0;
+            const share = total > 0 ? Math.round((value / total) * 100) : 0;
+            return `${value.toLocaleString()} customers (${share}% of all)`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        beginAtZero: true,
+        ticks: { precision: 0 },
+        grid: { color: "rgba(148, 163, 184, 0.18)" },
+      },
+      y: { grid: { display: false } },
+    },
+  }), [stats.totalCustomers]);
 
   const handleReset2FA = async (customerId: number) => {
     if (!confirm("Are you sure you want to reset 2FA for this customer?")) return;
@@ -449,15 +548,152 @@ export default function AdminUsersListPage(){
               <option value="INCOMPLETE">Incomplete Profiles</option>
             </select>
           </div>
+
+          {/* Advanced filter toggle, on the same row as the controls it extends. */}
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              aria-expanded={showAdvanced}
+              className={`inline-flex h-[38px] items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition-all ${
+                showAdvanced || activeHoldsRole
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <Filter className="h-4 w-4" />
+              <span className="whitespace-nowrap">Advanced</span>
+              {/* The count stays visible when the panel is closed, so a filter
+                  can never be silently narrowing the table out of sight. */}
+              {activeHoldsRole ? (
+                <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">1</span>
+              ) : null}
+              {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+
+            {/* Closed-state summary: what is applied, and one click to undo. */}
+            {activeHoldsRole && !showAdvanced ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                <span className="truncate">Also holds: {activeHoldsRole.label}</span>
+                <button
+                  type="button"
+                  onClick={() => { setHoldsRole(""); setPage(1); }}
+                  aria-label="Clear the role filter"
+                  className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-0 bg-emerald-100 p-0 text-emerald-800 transition hover:bg-emerald-200"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ) : null}
+          </div>
         </div>
+
+        {/* The expandable panel only. Its toggle sits on the filter row above,
+            because a lone button on its own row read as an orphan control. */}
+        {showAdvanced ? (
+          <div className="mt-3 pt-3 shadow-[inset_0_1px_0_0_#e5e7eb]">
+            {(
+            <div className="mt-3 rounded-xl bg-gray-50 p-3 ring-1 ring-gray-200 sm:p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                {/* Title and note on one line: the panel is wide, and stacking
+                    them pushed the chips a row further down for no gain. */}
+                <p className="m-0 min-w-0 text-xs text-gray-500">
+                  <span className="font-bold text-gray-800">Also holds a role</span>
+                  <span className="mx-1.5 text-gray-300">·</span>
+                  Travellers who also work on a property or sell for NoLSAF. Counts cover the whole table.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setHoldsRole(""); setPage(1); }}
+                  disabled={!activeHoldsRole}
+                  className="inline-flex items-center gap-1 rounded-md border-0 bg-transparent px-2 py-1 text-[11px] font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 disabled:opacity-40"
+                >
+                  <X className="h-3 w-3" />
+                  Clear
+                </button>
+              </div>
+
+              {holdsRoleFilters.length === 0 ? (
+                <p className="m-0 text-xs text-gray-500">No additional roles are recorded for these customers.</p>
+              ) : (
+                // One wrapping row: each group is an inline cluster of its own
+                // label plus chips. Stacked, a group of one chip claimed a full
+                // row of a very wide panel.
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {holdsRoleGroups.map((group, groupIndex) => (
+                    <div key={group.key} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+                      {/* Separator only between groups, so the row reads as
+                          distinct clusters rather than one long strip. */}
+                      {groupIndex > 0 ? (
+                        <span className="mr-1 hidden h-5 w-px bg-gray-300 sm:inline-block" aria-hidden />
+                      ) : null}
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        {group.label}
+                      </span>
+                      {group.options.map((chip) => {
+                          const active = holdsRole === chip.value;
+                          return (
+                            <button
+                              key={chip.value}
+                              type="button"
+                              title={chip.hint}
+                              aria-pressed={active}
+                              onClick={() => { setHoldsRole(active ? "" : chip.value); setPage(1); }}
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all ${
+                                active
+                                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                              }`}
+                            >
+                              {chip.label}
+                              {chip.count >= 0 ? (
+                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
+                                  active ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-700"
+                                }`}>
+                                  {chip.count}
+                                </span>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+        ) : null}
       </div>
 
       {/* Chart */}
       {items.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h2 className="text-sm font-bold text-gray-700 mb-4">Customer Engagement</h2>
-          <div className="h-64">
-            <Chart type="doughnut" data={engagementChartData} />
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="m-0 text-sm font-bold text-gray-700">Customer funnel</h2>
+            <p className="m-0 text-[11px] text-gray-500">
+              All {stats.totalCustomers.toLocaleString()} customers, not just this page. Each step is a subset of the one above.
+            </p>
+          </div>
+          <div className="h-56">
+            <Chart type="bar" data={funnelChartData} options={funnelChartOptions} />
+          </div>
+          {/* Where travellers actually go once they book. Uses the same service
+              colours as the customer statement and the profile tabs. */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 shadow-[inset_0_1px_0_0_#e5e7eb]">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Bookings by service</span>
+            {[
+              { key: "stays", label: "Accommodation", value: stats.bookingsByService.stays, dot: "bg-blue-500" },
+              { key: "tours", label: "Tours", value: stats.bookingsByService.tours, dot: "bg-violet-500" },
+              { key: "transport", label: "Transport", value: stats.bookingsByService.transport, dot: "bg-orange-500" },
+              { key: "groups", label: "Group stays", value: stats.bookingsByService.groups, dot: "bg-teal-500" },
+            ].map((service) => (
+              <span key={service.key} className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+                <span className={`h-2 w-2 rounded-sm ${service.dot}`} aria-hidden />
+                {service.label}
+                <span className="font-bold tabular-nums text-gray-900">{service.value.toLocaleString()}</span>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -582,6 +818,30 @@ export default function AdminUsersListPage(){
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="font-semibold text-gray-900">{customer.displayName || customer.name || "Incomplete profile"}</div>
                         <div className="text-sm text-gray-500">{customer.email || 'Email missing'}</div>
+                        {/* One person is often several things at once. Without
+                            this you cannot tell a plain customer from a bar
+                            attendant without opening the record. */}
+                        {customer.extraRoles && customer.extraRoles.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {customer.extraRoles.slice(0, 3).map((r, i) => (
+                              <span
+                                key={`${customer.id}-${r.label}-${i}`}
+                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  r.active
+                                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                                    : 'bg-slate-50 text-slate-500 ring-1 ring-slate-200'
+                                }`}
+                                title={r.active ? `${r.label} (active)` : `${r.label} (on record, not active)`}
+                              >
+                                <span className={`h-1 w-1 rounded-full ${r.active ? 'bg-emerald-500' : 'bg-slate-300'}`} aria-hidden />
+                                {r.label}
+                              </span>
+                            ))}
+                            {customer.extraRoles.length > 3 ? (
+                              <span className="text-[10px] font-medium text-gray-400">+{customer.extraRoles.length - 3}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">

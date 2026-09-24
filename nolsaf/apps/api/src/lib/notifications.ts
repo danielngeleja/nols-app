@@ -38,10 +38,6 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Tour Cancellation Evidence Submitted",
         body: `${data.actor || "A participant"} submitted evidence for tour cancellation case #${data.caseId || ""}, booking ${data.bookingCode || ""}.`
       },
-      plan_request_submitted: {
-        title: "New Plan Request Submitted",
-        body: `A new plan request${data.requestId ? ` #${data.requestId}` : ""} has been submitted${data.customerName ? ` by ${data.customerName}` : ""}${data.role ? ` (${data.role})` : ""}.`
-      },
       booking_created: {
         title: "New Booking Created",
         body: `A new booking${data.bookingId ? ` #${data.bookingId}` : ""} has been created${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}.`
@@ -568,8 +564,16 @@ export async function notifyUser(userId: number, template: string, data: any) {
         body: `Your payout request ${data.referenceNumber || ""} was rejected. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."} The earnings have been returned to your available balance.`
       },
       sales_partner_lead_followup: {
-        title: "Lead follow up due",
-        body: `${data.propertyName || "A lead"} is due for follow up${data.nextFollowUpAt ? ` on ${new Date(data.nextFollowUpAt).toDateString()}` : ""}.`
+        title: "Lead follow-up due",
+        body: `Your follow-up with ${data.propertyName || "a lead"} was planned for ${data.nextFollowUpAt ? new Date(data.nextFollowUpAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "today"}. Log the call or visit, or set a new follow-up date.`
+      },
+      sales_partner_lead_protection_expiring: {
+        title: Number(data.daysRemaining) <= 1 ? "Lead claim ends tomorrow" : "Lead claim ending soon",
+        body: `Your claim on ${data.propertyName || "a lead"} ends in ${Number(data.daysRemaining) <= 1 ? "1 day" : `${data.daysRemaining} days`}. Log a call, email, meeting or proposal to keep it, or another partner may register this property.`
+      },
+      nrms_inquiry_followup_due: {
+        title: "Guest follow-up due",
+        body: `${data.guestName || data.reference || "A guest inquiry"} at ${data.propertyTitle || "your property"} is ready for follow-up.`,
       },
       cancellation_status_update: {
         title: "Cancellation Claim Update",

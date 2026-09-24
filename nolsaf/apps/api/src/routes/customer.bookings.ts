@@ -2,12 +2,18 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
-import { generateBookingTicketPdf } from "../lib/pdfDocuments.js";
+import { generateCustomerBookingReceiptPdf } from "../lib/pdfDocuments.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
+import { makeQR } from "../lib/qr.js";
 import { signPublicInvoiceAccessToken } from "../lib/publicInvoiceAccess.js";
 import { computeDraftBookingAvailability } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { mapPropertyLifecycle } from "../lib/serviceLifecycle.js";
+import {
+  customerBookingReference,
+  isCustomerBookingReference,
+  matchesCustomerBookingReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -111,6 +117,25 @@ function buildCustomerBookingWhere(user: { id: number }, legacyBookingIds: numbe
   return { OR: or };
 }
 
+async function resolveCustomerBookingId(
+  value: string,
+  userId: number,
+  legacyBookingIds: number[],
+): Promise<number | null> {
+  const normalized = String(value || "").trim();
+  const numericId = Number(normalized);
+  if (/^\d+$/.test(normalized) && Number.isInteger(numericId) && numericId > 0) {
+    return numericId;
+  }
+  if (!isCustomerBookingReference(normalized)) return null;
+
+  const candidates = await prisma.booking.findMany({
+    where: buildCustomerBookingWhere({ id: userId }, legacyBookingIds),
+    select: { id: true },
+  });
+  return candidates.find(({ id }) => matchesCustomerBookingReference(normalized, id))?.id ?? null;
+}
+
 /**
  * GET /api/customer/bookings
  * Get all bookings for the authenticated customer
@@ -200,6 +225,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
           property: {
             select: {
               id: true,
+              nrmsBookingKey: true,
               title: true,
               type: true,
               regionName: true,
@@ -290,12 +316,13 @@ router.get("/", (async (req: AuthedRequest, res) => {
             regionName: booking.property.regionName,
             district: booking.property.district,
             city: booking.property.city,
-            slug: buildPropertySlug(String(booking.property.title || ""), Number(booking.property.id)),
+            slug: buildPropertySlug(String(booking.property.title || ""), booking.property.nrmsBookingKey),
           }
         : null;
 
       return {
         id: booking.id,
+        bookingReference: customerBookingReference(booking.id),
         property,
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
@@ -362,20 +389,12 @@ router.get("/property-slugs", (async (req: AuthedRequest, res) => {
         ],
       },
       select: {
-        property: { select: { id: true, title: true } },
+        property: { select: { nrmsBookingKey: true, title: true } },
       },
     });
 
-    // Derive slug the same way publicPropertyDto does: slugify(title) + "-" + id
-    function slugify(s: string) {
-      return String(s || "").toLowerCase().trim()
-        .replace(/[^a-z0-9]+/g, "-").replace(/-+/g, "-").replace(/(^-|-$)/g, "");
-    }
     const slugs = Array.from(
-      new Set(bookings.map((b) => {
-        const base = slugify(b.property.title);
-        return base ? `${base}-${b.property.id}` : String(b.property.id);
-      }))
+      new Set(bookings.map((b) => buildPropertySlug(b.property.title, b.property.nrmsBookingKey)))
     );
 
     res.json({ slugs });
@@ -386,18 +405,21 @@ router.get("/property-slugs", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/bookings/:id
+ * GET /api/customer/bookings/:reference
  * Get detailed booking information including full details
  */
 router.get("/:id", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const bookingId = Number(req.params.id);
-
     const userContact = await getUserContact(userId);
 
     const tail9 = getTail9Digits(userContact.phone);
     const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+
+    if (!bookingId) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
 
     const booking = await prisma.booking.findFirst({
       where: {
@@ -453,6 +475,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
 
     return res.json({
       ...booking,
+      bookingReference: customerBookingReference(booking.id),
       isValid,
       isPaid,
     });
@@ -463,18 +486,21 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/bookings/:id/pdf
+ * GET /api/customer/bookings/:reference/pdf
  * Generate and download PDF reservation form for a booking
  */
 router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const bookingId = Number(req.params.id);
-
     const userContact = await getUserContact(userId);
 
     const tail9 = getTail9Digits(userContact.phone);
     const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+
+    if (!bookingId) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
 
     const booking = await prisma.booking.findFirst({
       where: {
@@ -495,6 +521,16 @@ router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
             phone: true,
           },
         },
+        invoices: {
+          select: {
+            invoiceNumber: true,
+            receiptNumber: true,
+            paidAt: true,
+            receiptQrPng: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
     });
 
@@ -508,31 +544,39 @@ router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: "Booking code not available" });
     }
 
-    // Prepare booking details for PDF
-    const bookingDetails = {
-      bookingId: booking.id,
-      bookingCode: booking.code!.codeVisible,
-      guestName: booking.guestName || booking.user?.name || "Guest",
-      guestPhone: booking.guestPhone || booking.user?.phone || undefined,
-      propertyName: booking.property?.title || "Property",
-      propertyLocation: [booking.property?.regionName, booking.property?.district, booking.property?.city]
-        .filter(Boolean).join(", ") || null,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      rooms: booking.roomsQty ?? 1,
-      totalAmount: Number(booking.totalAmount || 0),
-      confirmedAt: (booking as any).confirmedAt ?? null,
-    };
-
-    const nights = Math.max(1, Math.ceil(
-      (new Date(booking.checkOut).getTime() - new Date(booking.checkIn).getTime()) / 86400000
-    ));
     const codeVisible = booking.code!.codeVisible;
     const propertySlug = (booking.property?.title ?? "booking").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-    const filename = `Reservation-${codeVisible}-${propertySlug}.pdf`;
+    const filename = `Receipt-${codeVisible}-${propertySlug}.pdf`;
+    const invoice = booking.invoices[0] ?? null;
+    const generatedQr = invoice?.receiptQrPng
+      ? Buffer.from(invoice.receiptQrPng)
+      : (await makeQR(JSON.stringify({
+          type: "NOLSAF_BOOKING_RECEIPT",
+          bookingCode: codeVisible,
+          receiptNumber: invoice?.receiptNumber || codeVisible,
+          invoiceNumber: invoice?.invoiceNumber || null,
+        }))).png;
 
-    // Generate real binary PDF using pdfkit (no browser print dialog needed)
-    const pdfBuffer = await generateBookingTicketPdf({ ...bookingDetails, nights } as any);
+    const pdfBuffer = await generateCustomerBookingReceiptPdf({
+      receiptNumber: invoice?.receiptNumber || codeVisible,
+      invoiceNumber: invoice?.invoiceNumber || null,
+      bookingCode: codeVisible,
+      paidAt: invoice?.paidAt || (booking as any).confirmedAt || null,
+      guestName: booking.guestName || booking.user?.name || "Guest",
+      guestPhone: booking.guestPhone || booking.user?.phone || null,
+      propertyName: booking.property?.title || "Property",
+      propertyLocation: [booking.property?.city, booking.property?.district, booking.property?.regionName]
+        .filter(Boolean).join(", ") || null,
+      roomDescription: [
+        (booking as any).roomType || (booking.property as any)?.type,
+        booking.roomsQty ? `${booking.roomsQty} room${booking.roomsQty === 1 ? "" : "s"}` : null,
+      ].filter(Boolean).join(" | ") || null,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      totalAmount: Number(booking.totalAmount || 0),
+      currency: "TZS",
+      qrPng: generatedQr,
+    });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -545,20 +589,20 @@ router.get("/:id/pdf", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/bookings/:id/receipt.html
+ * GET /api/customer/bookings/:reference/receipt.html
  * Returns the same HTML receipt the admin sees — rendered client-side to PDF via html2pdf.js.
  */
 router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
-    const bookingId = Number(req.params.id);
-    if (!Number.isFinite(bookingId) || bookingId <= 0) {
-      return res.status(400).json({ error: "Invalid booking ID" });
-    }
-
     const userContact = await getUserContact(userId);
     const tail9 = getTail9Digits(userContact.phone);
     const legacyBookingIds = tail9 ? await findLegacyBookingIdsByPhoneTail(tail9) : [];
+    const bookingId = await resolveCustomerBookingId(req.params.id, userId, legacyBookingIds);
+
+    if (!bookingId) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
 
     const booking = await prisma.booking.findFirst({
       where: {
@@ -620,7 +664,7 @@ router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
     if (!html) return res.status(500).json({ error: "Failed to generate receipt" });
 
     const codeVisible = booking.code.codeVisible;
-    const safeFilename = `Booking Reservation - ${codeVisible}.pdf`.replace(/"/g, '\\"');
+    const safeFilename = `Booking Receipt - ${codeVisible}.pdf`.replace(/"/g, '\\"');
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
     res.setHeader("X-NoLSAF-Filename", safeFilename);

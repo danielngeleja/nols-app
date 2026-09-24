@@ -1,14 +1,16 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Camera, FileCheck2, X } from "lucide-react";
+import { ArrowLeft, Camera, FileCheck2, X } from "lucide-react";
 import Support from "@/components/Support";
 import apiClient from "@/lib/apiClient";
 import { useRouter } from "next/navigation";
 
 const api = apiClient;
+const BOOKING_TIME_ZONE = "Africa/Dar_es_Salaam";
 
 type Preview = {
   bookingId: number;
+  bookingReference: string;
   property: { id: number; title: string; type: string };
   personal: { fullName: string; phone: string; nationality: string; sex: string; ageGroup: string };
   booking: {
@@ -59,6 +61,53 @@ export default function CheckinValidation() {
   const lockMinutesPart = Math.floor(lockSeconds / 60);
   const lockSecondsPart = lockSeconds % 60;
   const lockCountdown = isLocked ? `${lockMinutesPart}:${String(lockSecondsPart).padStart(2, "0")}` : null;
+
+  // NRMS passes an opaque reference; the authenticated API resolves it to the
+  // arrival context so names survive refreshes without entering the URL.
+  const [handoff, setHandoff] = useState<{
+    reference: string | null;
+    guestName: string | null;
+    propertyName: string | null;
+    checkIn: string | null;
+    returnTo: string | null;
+  }>({
+    reference: null,
+    guestName: null,
+    propertyName: null,
+    checkIn: null,
+    returnTo: null,
+  });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reference = String(params.get("handoff") || "").trim() || null;
+    const returnTo = params.get("return");
+    const safeReturnTo = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : null;
+    setHandoff({
+      reference,
+      guestName: null,
+      propertyName: null,
+      checkIn: null,
+      returnTo: safeReturnTo,
+    });
+    if (!reference) return;
+
+    let active = true;
+    api.get<{ reference: string; guestName: string; propertyName: string; checkIn: string }>(
+      `/api/owner/bookings/handoff/${encodeURIComponent(reference)}`,
+    ).then(({ data }) => {
+      if (!active) return;
+      setHandoff({
+        reference: data.reference,
+        guestName: data.guestName,
+        propertyName: data.propertyName,
+        checkIn: data.checkIn,
+        returnTo: safeReturnTo,
+      });
+    }).catch(() => {
+      if (active) setResultMsg("The front desk arrival could not be loaded. Return to NRMS and open it again.");
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!lockedUntil) return;
@@ -207,8 +256,9 @@ export default function CheckinValidation() {
 
       // notify sidebar (and any listeners) to refresh checked-in counts immediately
       window.dispatchEvent(new Event("nols:checkedin-changed"));
-      // redirect to checked-in list
-      router.push('/owner/bookings/checked-in');
+      // Back to whoever sent us here: the NRMS front desk when the arrival was
+      // started there, otherwise the checked-in list as before.
+      router.push(handoff.returnTo ?? '/owner/bookings/checked-in');
     } catch (err: any) {
       setResultMsg(err?.response?.data?.error ?? 'Could not confirm check-in');
     } finally {
@@ -404,14 +454,13 @@ export default function CheckinValidation() {
     };
   }, []);
 
-  const formatDateTime = (dateStr: string) => {
+  const formatStayDate = (dateStr: string) => {
     try {
-      return new Date(dateStr).toLocaleString(undefined, {
+      return new Date(dateStr).toLocaleDateString('en-GB', {
+        timeZone: BOOKING_TIME_ZONE,
         year: 'numeric',
         month: 'short',
         day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
       });
     } catch {
       return dateStr;
@@ -509,6 +558,39 @@ export default function CheckinValidation() {
             </div>
 
             <div className="p-4 space-y-4">
+
+              {/* Front desk handoff: which arrival NRMS sent them here for. */}
+              {handoff.reference ? (
+                <div className="border-0 border-b border-solid border-slate-200 pb-4 text-slate-900">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS front desk arrival</p>
+                      <p className="m-0 mt-1 truncate text-lg font-bold tracking-tight">
+                        {handoff.guestName ? `Check in ${handoff.guestName}` : "Loading guest details..."}
+                      </p>
+                      {handoff.propertyName ? (
+                        <p className="m-0 mt-1 text-xs text-slate-500">
+                          {handoff.propertyName}{handoff.checkIn ? ` | ${formatStayDate(handoff.checkIn)}` : ""}
+                        </p>
+                      ) : null}
+                    </div>
+                    {handoff.returnTo ? (
+                      <a href={handoff.returnTo} className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-slate-600 no-underline hover:text-emerald-700">
+                        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+                        Front desk
+                      </a>
+                    ) : null}
+                  </div>
+                  <p className="m-0 mt-3 border-0 border-l-2 border-solid border-emerald-600 pl-3 text-xs leading-relaxed text-slate-600">
+                    Ask the guest for their booking code, then enter it below to confirm check-in. You will return to the front desk when the code is accepted.
+                  </p>
+                  {preview && preview.bookingReference !== handoff.reference ? (
+                    <p className="m-0 mt-3 text-xs font-semibold text-amber-700">
+                      This code belongs to {preview.personal.fullName}{handoff.guestName ? `, not ${handoff.guestName}` : ""}. Confirm that you have the correct guest before continuing.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Code input */}
               <div className="space-y-2">
@@ -707,12 +789,12 @@ export default function CheckinValidation() {
                     <div style={{margin:'0 1rem',height:'1px',background:'#f1f5f9'}} />
                     <div style={{padding:'0.75rem 1rem 1rem',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem',width:'100%',boxSizing:'border-box'}}>
                       <div style={{borderRadius:'0.75rem',background:'#f0fdf4',border:'1px solid #d1fae5',padding:'0.625rem 0.75rem',boxSizing:'border-box',overflow:'hidden'}}>
-                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#059669',marginBottom:'0.25rem'}}>Check-in</div>
-                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#064e3b',lineHeight:1.3}}>{formatDateTime(preview.booking.checkIn)}</div>
+                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#059669',marginBottom:'0.25rem'}}>Check-in date</div>
+                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#064e3b',lineHeight:1.3}}>{formatStayDate(preview.booking.checkIn)}</div>
                       </div>
                       <div style={{borderRadius:'0.75rem',background:'#f0f9ff',border:'1px solid #bae6fd',padding:'0.625rem 0.75rem',boxSizing:'border-box',overflow:'hidden'}}>
-                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#0284c7',marginBottom:'0.25rem'}}>Check-out</div>
-                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#0c4a6e',lineHeight:1.3}}>{formatDateTime(preview.booking.checkOut)}</div>
+                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#0284c7',marginBottom:'0.25rem'}}>Check-out date</div>
+                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#0c4a6e',lineHeight:1.3}}>{formatStayDate(preview.booking.checkOut)}</div>
                       </div>
                     </div>
                   </div>

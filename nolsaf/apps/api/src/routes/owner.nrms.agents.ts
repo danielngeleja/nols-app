@@ -7,16 +7,18 @@
 // terms, and approves / rejects / suspends it. The admin-controlled maxAgents
 // cap is enforced here; a hotel at its cap must contact NoLSAF to raise it.
 //
-// Ownership is scoped through loadOwnedActiveNrmsProperty, so a hotel can only
-// ever see and change links for a property it owns - the portfolio isolation
-// boundary in practice.
-import { Router, type RequestHandler, type Response } from "express";
+// Access is scoped per property, so a hotel can only ever see and change links
+// for its own property: the portfolio isolation boundary in practice. The agent
+// RELATIONSHIP and request-decision endpoints resolve that through
+// loadNrmsPropertyAccess, which admits the property's owner, its manager and its
+// sales executive. Invoice, payment and manifest operations stay owner-only.
+import { Router, type RequestHandler, type RequestParamHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { loadOwnedActiveNrmsProperty, nrmsBillingBlockPayload } from "../lib/nrms.js";
+import { loadNrmsPropertyAccess, requireNrmsPropertyCapability } from "../lib/nrmsPropertyAccess.js";
 import { audit, auditOrThrow } from "../lib/audit.js";
-import { findAgencyMatches } from "../lib/nrmsAgentIdentity.js";
 import { adjustRate, money } from "../lib/nrmsRateMath.js";
 import { inviteAgentUserInTransaction, signAgentInviteToken } from "../lib/nrmsAgentInvite.js";
 import { approveAgentHold, releaseAgentHold } from "../lib/nrmsAgentInventory.js";
@@ -34,6 +36,7 @@ import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, refreshMasterFol
 import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
 import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
+import { agentAccountReference, isNrmsAgentRequestReference, matchesNrmsAgentRequestReference, nrmsAgentRequestReference } from "../lib/customerBookingReference.js";
 import { materialiseAgentBookingRooms, repairSplitAgencyBooking, type MaterialiseOutcome } from "../lib/nrmsAgentGroupMaterialise.js";
 import {
   attachAgentToProperty,
@@ -47,6 +50,7 @@ import {
 } from "../lib/nrmsAgentLinks.js";
 
 const webOrigin = () => String(process.env.WEB_ORIGIN || process.env.NEXT_PUBLIC_APP_URL || "https://nolsaf.com").replace(/\/$/, "");
+export const AGENT_LINK_TX_OPTIONS = { maxWait: 5_000, timeout: 15_000 };
 
 class AgentLinkCreationError extends Error {
   constructor(public readonly result: { reason: string; message: string }) {
@@ -57,6 +61,24 @@ class AgentLinkCreationError extends Error {
 export const router = Router();
 router.use(requireAuth as RequestHandler);
 
+// Page and document URLs carry the opaque ar_ reference instead of the row id.
+// Swap it for the id before any /requests/:requestId handler runs; those
+// handlers still do their own property access check, so matching the reference
+// grants nothing by itself. Numeric ids keep working for existing API callers.
+router.param("requestId", (async (req: AuthedRequest, res: Response, next: (err?: unknown) => void, value: string) => {
+  const raw = String(value || "").trim();
+  if (!isNrmsAgentRequestReference(raw)) return next();
+  try {
+    const candidates = await prisma.nrmsAgentBookingRequest.findMany({ select: { id: true } });
+    const match = candidates.find((candidate) => matchesNrmsAgentRequestReference(raw, candidate.id));
+    if (!match) return res.status(404).json({ error: "Booking request not found" });
+    req.params.requestId = String(match.id);
+    next();
+  } catch (err) {
+    next(err);
+  }
+}) as unknown as RequestParamHandler);
+
 const termsSchema = z.object({
   currency: z.string().trim().length(3).regex(/^[A-Za-z]{3}$/).transform((v) => v.toUpperCase()).optional(),
   paymentTerms: z.enum(["PREPAID"]).optional(), // CREDIT reserved for a later phase
@@ -64,6 +86,7 @@ const termsSchema = z.object({
   creditLimit: z.number().min(0).max(1_000_000_000).optional(),
 });
 const lookupSchema = z.object({
+  q: z.string().trim().max(100).optional(),
   registrationNo: z.string().trim().max(80).optional(),
   tin: z.string().trim().max(50).optional(),
   contactEmail: z.string().trim().email().max(200).optional(),
@@ -106,8 +129,8 @@ const receivedPaymentSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(120),
 }).strict();
 
-/** Stable human-facing agent reference, e.g. AGT-000123. */
-const agentRef = (id: number) => `AGT-${String(id).padStart(6, "0")}`;
+/** Stable human-facing agent reference, e.g. AGT-7K3M-Q9XD (not derived from a readable id). */
+const agentRef = agentAccountReference;
 
 function agencySummary(account: any) {
   return {
@@ -150,6 +173,19 @@ function agencyDetail(account: any, shareContact: boolean) {
   };
 }
 
+/** Safe pre-partnership directory card. Commercial identifiers and private
+ * contacts are intentionally absent until the agency accepts the invitation. */
+function agencyDirectorySummary(account: any) {
+  const docs = Array.isArray(account.documents) ? account.documents : [];
+  return {
+    ...agencySummary(account),
+    nationality: account.nationality,
+    countryCode: account.countryCode,
+    documentCount: docs.length,
+    verifiedAt: account.verifiedAt,
+  };
+}
+
 function linkDto(link: any) {
   return {
     id: link.id,
@@ -175,6 +211,26 @@ function linkDto(link: any) {
     agency: link.agentAccount ? agencySummary(link.agentAccount) : null,
     rateAccess: (link.rateAccess ?? []).map((r: any) => ({ ratePlanId: r.ratePlanId, roomTypeId: r.roomTypeId })),
   };
+}
+
+function propertyAgentActivationEligibility(account: any) {
+  const status = String(account?.status ?? "").trim().toUpperCase();
+  if (status && !["FROZEN", "PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"].includes(status)) {
+    return { eligible: true, status, code: null, message: null, action: null };
+  }
+  if (status === "PAYMENT_REQUIRED") {
+    return { eligible: false, status, code: "PROPERTY_BILLING_BLOCKED", message: "Settle the NRMS balance before activating a new agent partnership.", action: "PAY" };
+  }
+  if (status === "PAYMENT_PENDING") {
+    return { eligible: false, status, code: "PROPERTY_BILLING_BLOCKED", message: "An NRMS payment is being confirmed. Agent activation will reopen after it clears.", action: "STATUS" };
+  }
+  if (status === "FROZEN") {
+    return { eligible: false, status, code: "PROPERTY_BILLING_BLOCKED", message: "This property's NRMS account is frozen. Contact NoLSAF to restore agent activation.", action: "SUPPORT" };
+  }
+  if (status === "CLOSED") {
+    return { eligible: false, status, code: "PROPERTY_BILLING_BLOCKED", message: "This property's NRMS account is closed. Contact NoLSAF before activating agents.", action: "SUPPORT" };
+  }
+  return { eligible: false, status: status || null, code: "PROPERTY_BILLING_BLOCKED", message: "This property's NRMS billing account is unavailable for agent activation.", action: "SUPPORT" };
 }
 
 // Kept in the legacy DTO for older clients; the invoice workflow has no
@@ -218,24 +274,45 @@ async function loadOwnedLink(req: AuthedRequest, res: Response, linkId: number) 
     },
   });
   if (!link) { res.status(404).json({ error: "Agent link not found" }); return null; }
-  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, link.propertyId);
-  if (!active) return null; // helper already sent the response
-  return { linkId, propertyId: link.propertyId, status: link.status, property: link.property, agentAccount: link.agentAccount, account: active.account };
+  const access = await loadNrmsPropertyAccess(req, res, link.propertyId, AGENT_RELATIONSHIP_ROLES);
+  if (!access) return null; // helper already sent the response
+  return { linkId, propertyId: link.propertyId, status: link.status, property: link.property, agentAccount: link.agentAccount, account: access.account };
 }
+
+/**
+ * Who may run the hotel's travel agent relationships.
+ *
+ * A sales executive holds `sales.agent.read` and `sales.agent.manage`: signing
+ * agencies, setting their commercial terms and rate access, and approving or
+ * suspending them is the whole of the B2B sales job. Front desk is absent
+ * deliberately, since none of this is their work.
+ *
+ * This list covers the agent RELATIONSHIP only. The agent booking request flow
+ * further down this file raises invoices and confirms payments against a master
+ * folio, and stays owner-scoped: a sales role holds no finance capability, so
+ * confirming that money arrived is not theirs to do.
+ */
+const AGENT_RELATIONSHIP_ROLES = ["OWNER", "MANAGER", "SALES_EXECUTIVE"] as const;
 
 // Mounted at /api/owner/nrms/agents.
 // List agents linked to a property.
 router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), AGENT_RELATIONSHIP_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
     const links = await prisma.nrmsAgentPropertyLink.findMany({
       where: { propertyId: active.property.id },
       include: { agentAccount: { include: { primaryUser: { select: { passwordHash: true } } } }, rateAccess: true },
       orderBy: [{ status: "asc" }, { id: "desc" }],
       take: 200,
     });
-    res.json({ maxAgents: active.account.maxAgents, prepayWindowMinutes, links: links.map(linkDto) });
+    res.json({
+      maxAgents: active.account.maxAgents,
+      prepayWindowMinutes,
+      activationEligibility: propertyAgentActivationEligibility(active.account),
+      links: links.map(linkDto),
+    });
   } catch (err) {
     console.error("[owner.nrms.agents] list failed", err);
     res.status(500).json({ error: "Failed to load agents" });
@@ -248,8 +325,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
 // excluded even if their asynchronous expiry update has not run yet.
 router.get("/property/:propertyId/live-count", (async (req: AuthedRequest, res: Response) => {
   try {
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), AGENT_RELATIONSHIP_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
     const now = new Date();
     const [partnershipRequests, acceptedInvites, bookingRequests, guestManifests] = await Promise.all([
       prisma.nrmsAgentPropertyLink.count({
@@ -291,8 +369,9 @@ router.get("/property/:propertyId/live-count", (async (req: AuthedRequest, res: 
 // it. Prices use the same adjustment math as every booking channel.
 router.get("/property/:propertyId/rate-plans", (async (req: AuthedRequest, res: Response) => {
   try {
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), AGENT_RELATIONSHIP_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
     const [plans, roomTypes] = await Promise.all([
       prisma.nrmsRatePlan.findMany({
         where: { propertyId: active.property.id, status: "ACTIVE" },
@@ -331,15 +410,52 @@ router.get("/property/:propertyId/rate-plans", (async (req: AuthedRequest, res: 
   }
 }) as RequestHandler);
 
-// Look up an existing agency to claim instead of creating a duplicate.
+// Browse centrally approved agencies or narrow the directory by name,
+// registration number, TIN or email. Private contact details remain hidden
+// until the agency accepts the hotel's invitation.
 router.post("/property/:propertyId/lookup", (async (req: AuthedRequest, res: Response) => {
   try {
     const parsed = lookupSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Provide a registration number, TIN or email to search" });
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
-    const matches = await findAgencyMatches(prisma as any, parsed.data);
-    res.json({ matches: matches.map((match) => ({ ...match, registrationNo: maskedIdentifier(match.registrationNo), tin: maskedIdentifier(match.tin) })) });
+    if (!parsed.success) return res.status(400).json({ error: "Check the agency search value" });
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), AGENT_RELATIONSHIP_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
+    const q = parsed.data.q?.trim();
+    const exactIdentifiers = [
+      parsed.data.registrationNo ? { registrationNo: parsed.data.registrationNo } : null,
+      parsed.data.tin ? { tin: parsed.data.tin } : null,
+      parsed.data.contactEmail ? { contactEmail: parsed.data.contactEmail } : null,
+    ].filter(Boolean);
+    const where: any = {
+      status: "ACTIVE",
+      verificationStatus: "VERIFIED",
+      propertyLinks: {
+        none: {
+          propertyId: active.property.id,
+          status: { notIn: ["REJECTED", "TERMINATED"] },
+        },
+      },
+      ...(exactIdentifiers.length ? { AND: [{ OR: exactIdentifiers }] } : {}),
+      ...(q ? {
+        AND: [
+          ...(exactIdentifiers.length ? [{ OR: exactIdentifiers }] : []),
+          { OR: [
+            { legalName: { contains: q } },
+            { tradingName: { contains: q } },
+            { registrationNo: { contains: q } },
+            { tin: { contains: q } },
+            { contactEmail: { contains: q } },
+          ] },
+        ],
+      } : {}),
+    };
+    const matches = await prisma.nrmsAgentAccount.findMany({
+      where,
+      include: { primaryUser: { select: { passwordHash: true } } },
+      orderBy: [{ legalName: "asc" }, { id: "asc" }],
+      take: 30,
+    });
+    res.json({ matches: matches.map((match) => ({ ...agencyDirectorySummary(match), matchedOn: q ? ["search"] : ["approved directory"] })) });
   } catch (err) {
     console.error("[owner.nrms.agents] lookup failed", err);
     res.status(500).json({ error: "Agency lookup failed" });
@@ -351,8 +467,9 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
   try {
     const parsed = attachSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid agent invite", details: parsed.error.flatten() });
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), AGENT_RELATIONSHIP_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
     const resolvedTerms = await resolveLinkTerms(active.property.id, parsed.data.terms as LinkTerms | undefined);
     if (!resolvedTerms.ok) return res.status(409).json({ error: resolvedTerms.message, code: "AGENT_CURRENCY_UNSUPPORTED", supportedCurrencies: resolvedTerms.supportedCurrencies });
     const result = await prisma.$transaction(async (tx: any) => {
@@ -371,7 +488,7 @@ router.post("/property/:propertyId", (async (req: AuthedRequest, res: Response) 
         await auditOrThrow(tx, req, "NRMS_AGENT_LINK_INVITE", "NRMS_AGENT_PROPERTY_LINK", null, { agentAccountId: parsed.data.agentAccountId, propertyId: active.property.id }, attached.linkId);
       }
       return attached;
-    });
+    }, AGENT_LINK_TX_OPTIONS);
     if (!result.ok) {
       const code = result.reason === "CAP_REACHED" ? 409 : result.reason === "AGENCY_NOT_FOUND" ? 404 : 409;
       return res.status(code).json({ error: result.message, code: result.reason });
@@ -394,8 +511,9 @@ router.post("/property/:propertyId/invite", (async (req: AuthedRequest, res: Res
   try {
     const parsed = inviteSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid agency details", details: parsed.error.flatten() });
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), AGENT_RELATIONSHIP_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
     const resolvedTerms = await resolveLinkTerms(active.property.id, parsed.data.terms as LinkTerms | undefined);
     if (!resolvedTerms.ok) return res.status(409).json({ error: resolvedTerms.message, code: "AGENT_CURRENCY_UNSUPPORTED", supportedCurrencies: resolvedTerms.supportedCurrencies });
     const outcome = await prisma.$transaction(async (tx: any) => {
@@ -432,7 +550,7 @@ router.post("/property/:propertyId/invite", (async (req: AuthedRequest, res: Res
       await auditOrThrow(tx, req, "NRMS_AGENT_INVITE", "NRMS_AGENT_ACCOUNT", null, { propertyId: active.property.id, linkId: link.linkId }, invited.accountId);
       await auditOrThrow(tx, req, "NRMS_AGENT_LINK_INVITE", "NRMS_AGENT_PROPERTY_LINK", null, { agentAccountId: invited.accountId, propertyId: active.property.id, externalOnboarding: true }, link.linkId);
       return { ok: true as const, invited, link };
-    });
+    }, AGENT_LINK_TX_OPTIONS);
     if (!outcome.ok) return res.status(409).json({ error: outcome.message, code: outcome.reason });
     const { invited, link } = outcome;
 
@@ -482,11 +600,11 @@ router.post("/:linkId/resend-invite", (async (req: AuthedRequest, res: Response)
 // Booking requests (request-to-book queue) for a property.
 router.get("/property/:propertyId/requests", (async (req: AuthedRequest, res: Response) => {
   try {
-    const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await requireNrmsPropertyCapability(req, res, Number(req.params.propertyId), "sales.agent.read");
+    if (!access) return;
     const [requests, roomTypes] = await Promise.all([
       prisma.nrmsAgentBookingRequest.findMany({
-        where: { propertyId: active.property.id },
+        where: { propertyId: access.property.id },
         select: {
           id: true, status: true, checkIn: true, checkOut: true, adults: true, children: true, roomsRequested: true, roomTypeId: true,
           currency: true, quotedTotal: true, holdExpiresAt: true, decidedAt: true, decisionReason: true, notes: true, createdAt: true,
@@ -494,21 +612,29 @@ router.get("/property/:propertyId/requests", (async (req: AuthedRequest, res: Re
           guestManifestStatus: true, guestManifestSubmittedAt: true, guestManifestReviewedAt: true, guestManifestReviewNote: true,
           guests: { select: { id: true, fullName: true, documentKey: true } },
           link: { select: { bookingMode: true, agentAccount: { select: { id: true, legalName: true } } } },
+          masterFolio: { select: { status: true, proFormas: { orderBy: { id: "desc" }, take: 1, select: { status: true, dueAt: true, sentAt: true, payerMarkedPaidAt: true } } } },
         },
         orderBy: [{ status: "asc" }, { id: "desc" }],
         take: 200,
       }),
-      prisma.roomType.findMany({ where: { propertyId: active.property.id }, select: { id: true, name: true } }),
+      prisma.roomType.findMany({ where: { propertyId: access.property.id }, select: { id: true, name: true } }),
     ]);
     const roomName = new Map(roomTypes.map((rt) => [rt.id, rt.name]));
     res.json({ requests: requests.map((r) => ({
-      id: r.id, status: r.status,
+      id: r.id, reference: nrmsAgentRequestReference(r.id), status: r.status,
       agency: r.link?.agentAccount ? { legalName: r.link.agentAccount.legalName, reference: agentRef(r.link.agentAccount.id) } : null,
       bookingMode: r.link?.bookingMode ?? null,
       roomType: r.roomTypeId ? (roomName.get(r.roomTypeId) ?? null) : null,
       checkIn: r.checkIn, checkOut: r.checkOut, adults: r.adults, children: r.children, rooms: r.roomsRequested,
       currency: r.currency, total: Number(r.quotedTotal), holdExpiresAt: r.holdExpiresAt,
       decidedAt: r.decidedAt, decisionReason: r.decisionReason, notes: r.notes, createdAt: r.createdAt,
+      commercial: {
+        folioStatus: r.masterFolio?.status ?? null,
+        invoiceStatus: r.masterFolio?.proFormas[0]?.status ?? null,
+        invoiceDueAt: r.masterFolio?.proFormas[0]?.dueAt ?? null,
+        invoiceSentAt: r.masterFolio?.proFormas[0]?.sentAt ?? null,
+        agencyMarkedPaid: Boolean(r.masterFolio?.proFormas[0]?.payerMarkedPaidAt),
+      },
       manifest: {
         status: r.guestManifestStatus,
         incidentalBilling: r.incidentalBilling,
@@ -541,7 +667,7 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
           include: {
             ...agentInvoiceInclude(),
             // Set once the manifest is verified and the rooms are split out.
-            block: { select: { id: true, reference: true, status: true, groupId: true } },
+            block: { select: { id: true, reference: true, status: true, groupId: true, group: { select: { reference: true } } } },
           },
         },
         reservation: {
@@ -607,6 +733,9 @@ router.get("/requests/:requestId/manifest", (async (req: AuthedRequest, res: Res
             blockReference: request.masterFolio.block.reference,
             blockStatus: request.masterFolio.block.status,
             groupId: request.masterFolio.block.groupId,
+            // The group's own random GRP- reference, so the workspace link
+            // never carries the numeric group id.
+            groupReference: request.masterFolio.block.group?.reference ?? null,
             stays: stays.map((stay) => ({
               reservationId: stay.id,
               reference: stay.externalRef,
@@ -838,17 +967,17 @@ router.get("/requests/:requestId/guests/:guestId/document", (async (req: AuthedR
   }
 }) as RequestHandler);
 
-/** Load a booking request the caller owns (via its property), with the agent user to notify. */
-async function loadOwnedRequest(req: AuthedRequest, res: Response, requestId: number) {
+/** Load a booking request the caller may decide, with the agent user to notify. */
+async function loadAgentRequestDecisionAccess(req: AuthedRequest, res: Response, requestId: number) {
   const request = await prisma.nrmsAgentBookingRequest.findUnique({
     where: { id: requestId },
     select: { id: true, status: true, propertyId: true, checkIn: true, checkOut: true, currency: true, quotedTotal: true, reservationId: true, link: { select: { id: true, agentAccount: { select: { primaryUserId: true, legalName: true, primaryUser: { select: { email: true } } } } } } },
   });
   if (!request) { res.status(404).json({ error: "Request not found" }); return null; }
-  const active = await loadOwnedActiveNrmsProperty(res, req.user!.id, request.propertyId);
-  if (!active) return null;
+  const access = await requireNrmsPropertyCapability(req, res, request.propertyId, "sales.agent.manage");
+  if (!access) return null;
   return {
-    request, propertyTitle: active.property.title as string,
+    request, propertyTitle: access.property.title as string,
     agentUserId: request.link?.agentAccount?.primaryUserId ?? null,
     agencyName: request.link?.agentAccount?.legalName ?? "Travel agent",
     agentEmail: request.link?.agentAccount?.primaryUser?.email ?? null,
@@ -860,7 +989,7 @@ const ymd = (d: Date) => new Date(d).toISOString().slice(0, 10);
 // Approve a request-to-book: HELD -> CONFIRMED.
 router.post("/requests/:requestId/approve", (async (req: AuthedRequest, res: Response) => {
   try {
-    const owned = await loadOwnedRequest(req, res, Number(req.params.requestId));
+    const owned = await loadAgentRequestDecisionAccess(req, res, Number(req.params.requestId));
     if (!owned) return;
     const result = await prisma.$transaction(async (tx: any) => {
       const linkId = owned.request.link?.id;
@@ -1144,7 +1273,7 @@ router.post("/requests/:requestId/reject", (async (req: AuthedRequest, res: Resp
   try {
     const parsed = decisionSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid request" });
-    const owned = await loadOwnedRequest(req, res, Number(req.params.requestId));
+    const owned = await loadAgentRequestDecisionAccess(req, res, Number(req.params.requestId));
     if (!owned) return;
     const result = await prisma.$transaction((tx: any) => releaseAgentHold(tx, owned.request.id, { status: "DECLINED", decidedByUserId: req.user!.id, reason: parsed.data.reason ?? null }));
     if (!result.ok) return res.status(result.reason === "NOT_FOUND" ? 404 : 409).json({ error: result.message, code: result.reason });
@@ -1260,6 +1389,10 @@ function decisionHandler(status: "ACTIVE" | "REJECTED" | "SUSPENDED" | "TERMINAT
         return transitioned;
       });
       if (!result.ok) {
+        const billingStatus = String(result.billingAccount?.status ?? "").toUpperCase();
+        if (result.reason === "PROPERTY_BILLING_BLOCKED" && ["PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"].includes(billingStatus)) {
+          return res.status(402).json(await nrmsBillingBlockPayload(result.billingAccount, "AGENT_ACTIVATION"));
+        }
         const code = result.reason === "NOT_FOUND" ? 404 : 409;
         return res.status(code).json({ error: result.message, code: result.reason });
       }

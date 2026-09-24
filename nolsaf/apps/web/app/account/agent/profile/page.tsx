@@ -3,10 +3,12 @@
 import { Children, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
+  ArrowUpDown,
   ArrowLeft,
-  BriefcaseBusiness,
   Building2,
+  CalendarDays,
   Camera,
   Check,
   ChevronDown,
@@ -333,6 +335,16 @@ const months = [
   "December",
 ];
 
+const seasonalRateNames = [
+  "High Season",
+  "Low Season",
+  "Peak Season",
+  "Shoulder Season",
+  "Festive Season",
+  "Migration Season",
+  "Special Offer Season",
+];
+
 const peakSeasonOptions = [
   "Available",
   "Limited availability",
@@ -580,9 +592,9 @@ function Field({
 
   return (
     <label className="block min-w-0">
-      <span className="block text-xs font-semibold text-slate-700">
+      <span className="block text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-500">
         {cleanLabel}
-        {showRequired ? <span className="ml-0.5 text-red-500">*</span> : null}
+        {showRequired ? <span className="ml-1 text-red-500">*</span> : null}
       </span>
       {children}
     </label>
@@ -590,17 +602,17 @@ function Field({
 }
 
 const fieldBase =
-  "mt-2 box-border block w-full max-w-full rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#02665e]/40 focus:bg-white focus:ring-4 focus:ring-[#02665e]/10";
+  "mt-1.5 box-border block w-full max-w-full rounded-xl border border-solid border-neutral-300 bg-white font-sans text-sm text-neutral-900 outline-none transition placeholder:font-sans placeholder:text-neutral-400 hover:border-neutral-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15";
 
 function Segmented({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: { value: string; label: string }[] }) {
   return (
-    <div className="mt-2 flex gap-1.5 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="mt-1.5 flex gap-1 overflow-x-auto rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${value === o.value ? "bg-[#02665e] text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"}`}
+          className={`shrink-0 cursor-pointer appearance-none whitespace-nowrap rounded-lg border-0 px-3.5 py-1.5 text-xs font-bold transition ${value === o.value ? "bg-emerald-700 text-white" : "bg-transparent text-neutral-600 hover:bg-white hover:text-neutral-900"}`}
         >
           {o.label}
         </button>
@@ -613,7 +625,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`${fieldBase} h-11 px-3.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${props.className ?? ""}`}
+      className={`${fieldBase} h-10 px-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${props.className ?? ""}`}
     />
   );
 }
@@ -622,7 +634,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
-      className={`${fieldBase} min-h-[112px] resize-y px-3.5 py-2.5 leading-6 ${props.className ?? ""}`}
+      className={`${fieldBase} min-h-[104px] resize-y px-3 py-2.5 leading-6 ${props.className ?? ""}`}
     />
   );
 }
@@ -632,9 +644,9 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
     <span className="relative block">
       <select
         {...props}
-        className={`${fieldBase} h-11 !appearance-none [-webkit-appearance:none] pl-3.5 pr-10 disabled:bg-slate-100 disabled:text-slate-400 ${props.className ?? ""}`}
+        className={`${fieldBase} h-10 !appearance-none [-webkit-appearance:none] pl-3 pr-9 disabled:bg-neutral-50 disabled:text-neutral-400 ${props.className ?? ""}`}
       />
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
     </span>
   );
 }
@@ -651,19 +663,51 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="box-border w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-6 lg:p-7">
-      <div className="lg:grid lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)] lg:gap-8">
-        <div className="mb-6 lg:mb-0">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e] ring-1 ring-[#02665e]/15">
-            {icon}
-          </div>
-          <h2 className="mt-4 text-lg font-black leading-snug tracking-tight text-slate-900">{title}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">{text}</p>
-        </div>
+    <section className="box-border w-full min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white">
+      <header className="flex items-start gap-3 bg-neutral-50/70 px-5 py-3.5 shadow-[inset_0_-1px_0_0_#e5e5e5] sm:px-6">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700 [&>svg]:h-4 [&>svg]:w-4">
+          {icon}
+        </span>
         <div className="min-w-0">
-          {children}
+          <h2 className="m-0 text-sm font-bold leading-snug text-neutral-900">{title}</h2>
+          <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">{text}</p>
         </div>
-      </div>
+      </header>
+      <div className="min-w-0 p-5 sm:p-6">{children}</div>
+    </section>
+  );
+}
+
+function SubSection({
+  title,
+  text,
+  required,
+  count,
+  children,
+}: {
+  title: string;
+  text?: string;
+  required?: boolean;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="min-w-0 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-2 bg-neutral-50/70 px-4 py-2.5 shadow-[inset_0_-1px_0_0_#e5e5e5]">
+        <div className="min-w-0">
+          <p className="m-0 text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-600">
+            {title}
+            {required ? <span className="ml-1 text-red-500">*</span> : null}
+          </p>
+          {text ? <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{text}</p> : null}
+        </div>
+        {typeof count === "number" ? (
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${count > 0 ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}>
+            {count} selected
+          </span>
+        ) : null}
+      </header>
+      <div className="min-w-0 p-4">{children}</div>
     </section>
   );
 }
@@ -676,7 +720,7 @@ function FieldGrid({
   className?: string;
 }) {
   return (
-    <div className={`grid w-full grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 ${className}`}>
+    <div className={`grid w-full min-w-0 grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2 lg:grid-cols-3 ${className}`}>
       {Children.map(children, (child) => (
         <div className="min-w-0">
           {child}
@@ -707,7 +751,7 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
 
 function SelectedPill({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="grid min-h-10 grid-cols-[1fr_32px] items-start rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-800 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
+    <span className="grid min-h-10 grid-cols-[1fr_32px] items-start rounded-xl border border-solid border-neutral-300 bg-white text-xs font-semibold text-neutral-800">
       <span className="break-words px-3.5 py-2 leading-5">{label}</span>
       <button type="button" onClick={onRemove} className="m-1 mt-1.5 flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent p-0 text-slate-500 shadow-none ring-0 outline-none hover:bg-slate-100" aria-label={`Remove ${label}`}>
         <X className="h-4 w-4" />
@@ -761,6 +805,8 @@ function parseFriendlyValidationErrors(payload: any): string[] {
 }
 
 export default function AgentOperatorProfileEditor() {
+  const searchParams = useSearchParams();
+  const isPackagesView = searchParams.get("view") === "packages";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -789,6 +835,7 @@ export default function AgentOperatorProfileEditor() {
   const [autosaveRetryTick, setAutosaveRetryTick] = useState(0);
   const [expandedPackageIds, setExpandedPackageIds] = useState<Record<string, boolean>>({});
   const [packageStep, setPackageStep] = useState<Record<string, number>>({});
+  const [packageSort, setPackageSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "number", direction: "asc" });
   const [expandedEventIds, setExpandedEventIds] = useState<Record<string, boolean>>({});
   const [photoSlideIndex, setPhotoSlideIndex] = useState<Record<string, number>>({});
   const touchStartXRef = useRef<Record<string, number | null>>({});
@@ -1084,6 +1131,13 @@ export default function AgentOperatorProfileEditor() {
       delete next[packageId];
       return next;
     });
+  }
+
+  function togglePackageSort(key: string) {
+    setPackageSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
   }
 
   function packageLooksComplete(pkg: PackageItem) {
@@ -1615,6 +1669,25 @@ async function persistProfileDraft(showSuccessMessage = true) {
     { label: "Packages", count: profile.packageItems.length, target: 3, hint: "packages" },
     { label: "Photos", count: profile.gallery.length, target: 8, hint: "photos" },
   ];
+  const sortedPackageItems = [...profile.packageItems].sort((a, b) => {
+    const value = (pkg: PackageItem) => {
+      switch (packageSort.key) {
+        case "package": return pkg.name || "";
+        case "price": return Number(pkg.pricePerPerson) || 0;
+        case "duration": return Number.parseInt(pkg.duration, 10) || 0;
+        case "guests": return Number(pkg.maxPax) || 0;
+        case "booking": return pkg.mode || "";
+        case "status": return packageLooksComplete(pkg) ? 1 : 0;
+        default: return profile.packageItems.indexOf(pkg);
+      }
+    };
+    const left = value(a);
+    const right = value(b);
+    const comparison = typeof left === "number" && typeof right === "number"
+      ? left - right
+      : String(left).localeCompare(String(right));
+    return packageSort.direction === "asc" ? comparison : -comparison;
+  });
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1682,37 +1755,46 @@ async function persistProfileDraft(showSuccessMessage = true) {
         }
       `}</style>
 
-      <div className="mx-auto w-full max-w-6xl py-6 sm:px-6 lg:px-8">
-        <Link href="/account/agent" aria-label="Back to agent dashboard" className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 no-underline hover:bg-white hover:text-slate-950">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
+      <div className="min-w-0 max-w-full pb-28">
+        {!isPackagesView ? <Link
+          href="/account/agent"
+          aria-label="Back to agent dashboard"
+          className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 no-underline transition hover:text-emerald-700"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+          Back to dashboard
+        </Link> : null}
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
-          <div className="relative overflow-hidden rounded-2xl bg-[#063f3b] p-5 text-white sm:p-6">
-            <div className="flex flex-col gap-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 gap-3 sm:gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/15 bg-white/10 text-base font-black text-cyan-50 sm:h-14 sm:w-14">
+        <div className={isPackagesView ? "hidden" : "grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start"}>
+          <div className="min-w-0 space-y-4">
+            {/* Identity. The readiness ring moved to the status rail, which is
+                where completion already lives; the header now answers "whose
+                profile is this and what does the customer see". */}
+            <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+              <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+                <div className="flex min-w-0 gap-3">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-50 text-sm font-bold text-neutral-500">
                     {profile.companyLogoUrl ? (
                       <img src={profile.companyLogoUrl} alt={heroTitle} className="h-full w-full object-cover" />
                     ) : heroInitials ? (
                       <span>{heroInitials}</span>
                     ) : (
-                      <Building2 className="h-7 w-7" />
+                      <Building2 className="h-5 w-5" aria-hidden />
                     )}
-                  </div>
+                  </span>
                   <div className="min-w-0">
-                    <p className="text-[11px] font-extrabold uppercase tracking-[0.2em] text-cyan-100">Company marketplace setup</p>
-                    <h1 className="mt-1.5 text-xl font-black leading-tight tracking-normal text-white break-words sm:text-2xl">{heroTitle}</h1>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-cyan-50/80">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-700">Company marketplace setup</p>
+                    <h1 className="m-0 mt-1 break-words text-xl font-bold leading-tight tracking-tight text-neutral-900">{heroTitle}</h1>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
                       {tierLabel ? (
-                        <span title={tierLabel} aria-label={tierLabel} className="inline-flex items-center">
-                          <ShieldCheck className="h-5 w-5" style={{ color: tierColor }} />
+                        <span className="inline-flex items-center gap-1.5 font-semibold">
+                          <ShieldCheck className="h-3.5 w-3.5" style={{ color: tierColor }} aria-hidden />
+                          {tierLabel}
                         </span>
                       ) : null}
                       {heroLocation ? (
-                        <span className="inline-flex items-center gap-1.5 truncate">
-                          <MapPin className="h-3.5 w-3.5 shrink-0" />
+                        <span className="inline-flex min-w-0 items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
                           <span className="truncate">{heroLocation}</span>
                         </span>
                       ) : null}
@@ -1720,90 +1802,108 @@ async function persistProfileDraft(showSuccessMessage = true) {
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-3">
-                  <div className="relative h-[72px] w-[72px]">
-                    <svg viewBox="0 0 72 72" className="h-[72px] w-[72px] -rotate-90">
-                      <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(255,255,255,0.16)" strokeWidth="7" />
-                      <circle cx="36" cy="36" r="30" fill="none" stroke="#5dcaa5" strokeWidth="7" strokeLinecap="round" strokeDasharray={`${(readiness.pct / 100) * 188.5} 188.5`} />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-lg font-black leading-none">{readiness.pct}%</span>
-                      <span className="text-[10px] text-cyan-50/60">{readiness.done}/{readiness.total}</span>
-                    </div>
-                  </div>
-                  <div className="hidden max-w-[150px] sm:block">
-                    <p className="text-[11px] font-black uppercase tracking-wide text-cyan-100">{readiness.pct === 100 ? "Ready to publish" : "Almost there"}</p>
-                    <p className="mt-1 text-sm leading-5 text-cyan-50/85">{nextStep ? `Next: ${nextStep.label.toLowerCase()}` : "All sections complete."}</p>
-                  </div>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Link
+                    href="/account/agent/profile/preview"
+                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 no-underline transition hover:border-emerald-200 hover:text-emerald-700 hover:no-underline"
+                  >
+                    <Eye className="h-3.5 w-3.5" aria-hidden />
+                    Preview as customer
+                  </Link>
+                  <Link
+                    href="/account/agent/card"
+                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 no-underline transition hover:border-emerald-200 hover:text-emerald-700 hover:no-underline"
+                  >
+                    <Eye className="h-3.5 w-3.5" aria-hidden />
+                    Marketplace card
+                  </Link>
                 </div>
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                <div className="grid grid-cols-3 gap-2">
-                  {heroStats.map((stat) => {
-                    const pct = Math.min(100, Math.round((stat.count / stat.target) * 100));
-                    const reached = stat.count >= stat.target;
-                    return (
-                      <div key={stat.label} className="rounded-xl border border-white/10 bg-white/[0.07] px-3 py-3">
-                        <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wide text-cyan-100/80">
-                          <span>{stat.label}</span>
-                          <span>{stat.count}/{stat.target}</span>
-                        </div>
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
-                          <div className="h-full rounded-full bg-[#5dcaa5]" style={{ width: `${pct}%` }} />
-                        </div>
-                        <p className="mt-2 text-[11px] text-cyan-50/55">{reached ? "Complete" : `Add ${stat.target - stat.count} more`}</p>
+              {/* Content targets, as a hairline strip rather than three tinted
+                  cards floating on a dark ground. */}
+              <div className="grid grid-cols-1 gap-px border-0 border-t border-solid border-neutral-100 bg-neutral-200 sm:grid-cols-3">
+                {heroStats.map((stat) => {
+                  const pct = Math.min(100, Math.round((stat.count / stat.target) * 100));
+                  const reached = stat.count >= stat.target;
+                  return (
+                    <div key={stat.label} className="min-w-0 bg-white px-5 py-3.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">{stat.label}</span>
+                        <span className={`shrink-0 text-[11px] font-bold tabular-nums ${reached ? "text-emerald-700" : "text-neutral-500"}`}>
+                          {stat.count}/{stat.target}
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 min-[430px]:grid-cols-2 lg:w-64 lg:grid-cols-1">
-                  <Link href="/account/agent/profile/preview" className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3 text-sm font-black text-slate-900 no-underline hover:bg-cyan-50">
-                    <Eye className="h-4 w-4" />
-                    <span className="truncate">Preview as customer</span>
-                  </Link>
-                  <Link href="/account/agent/card" className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/[0.06] px-3 text-sm font-black text-white no-underline hover:bg-white/15">
-                    <Eye className="h-4 w-4" />
-                    <span className="truncate">Marketplace card</span>
-                  </Link>
-                </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-100">
+                        <div className={`h-full rounded-full ${reached ? "bg-emerald-600" : "bg-amber-400"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className={`m-0 mt-1.5 text-[10px] font-semibold ${reached ? "text-emerald-700" : "text-amber-600"}`}>
+                        {reached ? "Complete" : `Add ${stat.target - stat.count} more`}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+            </section>
           </div>
 
-          <aside className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-xs font-extrabold uppercase tracking-wider text-slate-500">Profile status</p>
+          <aside id="profile-status" className="min-w-0 scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white xl:sticky xl:top-0">
+            <div className="px-5 py-4">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Profile status</p>
 
-            <div className={`mt-3 flex items-start gap-3 rounded-xl border p-3 ${statusMeta.tone}`}>
-              <span className="mt-0.5 shrink-0">{statusMeta.icon}</span>
-              <div className="min-w-0">
-                <p className="text-sm font-black">{statusMeta.title}</p>
-                <p className="mt-0.5 text-xs leading-5 opacity-80">{statusMeta.subtitle}</p>
+              <div className={`mt-3 flex items-start gap-2.5 rounded-xl border border-solid p-3 ${statusMeta.tone}`}>
+                <span className="mt-0.5 shrink-0">{statusMeta.icon}</span>
+                <div className="min-w-0">
+                  <p className="m-0 text-xs font-bold">{statusMeta.title}</p>
+                  <p className="m-0 mt-0.5 text-[11px] leading-5 opacity-80">{statusMeta.subtitle}</p>
+                </div>
               </div>
-            </div>
 
-            <div className="mt-4">
-              <div className="flex items-center justify-between text-xs font-bold">
-                <span className="text-slate-500">Readiness</span>
-                <span className="text-slate-900">{readiness.done}/{readiness.total} · {readiness.pct}%</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-emerald-600" style={{ width: `${readiness.pct}%` }} />
+              {/* Readiness reads as one figure with its ring, rather than a
+                  percentage in the header and a bar down here disagreeing in
+                  visual weight. */}
+              <div className="mt-4 flex items-center gap-4">
+                <div className="relative h-[68px] w-[68px] shrink-0">
+                  <svg viewBox="0 0 68 68" className="h-[68px] w-[68px] -rotate-90" aria-hidden>
+                    <circle cx="34" cy="34" r="29" fill="none" stroke="#f1f1f1" strokeWidth="6" />
+                    <circle
+                      cx="34"
+                      cy="34"
+                      r="29"
+                      fill="none"
+                      stroke={readiness.pct === 100 ? "#047857" : "#f59e0b"}
+                      strokeWidth="6"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(readiness.pct / 100) * 182.2} 182.2`}
+                    />
+                  </svg>
+                  <span className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-base font-bold leading-none tabular-nums text-neutral-900">{readiness.pct}%</span>
+                    <span className="mt-0.5 text-[9px] font-semibold text-neutral-400">{readiness.done}/{readiness.total}</span>
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="m-0 text-xs font-bold text-neutral-900">
+                    {readiness.pct === 100 ? "Ready to publish" : "Almost there"}
+                  </p>
+                  <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">
+                    {nextStep ? `Next: ${nextStep.label.toLowerCase()}` : "All sections complete."}
+                  </p>
+                </div>
               </div>
             </div>
 
             {readiness.done < readiness.total ? (
-              <div className="mt-4 border-t border-slate-100 pt-4">
-                <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Still to complete</p>
-                <div className="mt-2.5 space-y-2">
+              <div className="border-0 border-t border-solid border-neutral-100 px-5 py-4">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Still to complete</p>
+                <ul className="m-0 mt-2 list-none space-y-1.5 p-0">
                   {readiness.steps.filter((step) => !step.done).map((step) => (
-                    <div key={step.label} className="flex items-center gap-2 text-sm">
-                      <span className="h-4 w-4 shrink-0 rounded-full border border-slate-300" />
-                      <span className="font-semibold text-slate-800">{step.label}</span>
-                    </div>
+                    <li key={step.label} className="flex items-center gap-2 text-xs">
+                      <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-solid border-neutral-300" aria-hidden />
+                      <span className="min-w-0 font-semibold text-neutral-700">{step.label}</span>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             ) : null}
           </aside>
@@ -1823,7 +1923,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
         {error ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div> : null}
         {success ? <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">{success}</div> : null}
 
-        <div className="mt-5 space-y-5">
+        <div className={isPackagesView ? "hidden" : "mt-5 space-y-5"}>
           <Section icon={<Users className="h-5 w-5" />} title="Contact Person Information" text="Your personal details as the primary contact for this operator profile.">
             <FieldGrid>
               <Field label="Full Name *">
@@ -1932,11 +2032,13 @@ async function persistProfileDraft(showSuccessMessage = true) {
           </Section>
 
           <Section icon={<Globe className="h-5 w-5" />} title="Tourism Serving" text="Classify the tourism types you serve, your categorised services, and your specializations.">
-            {/* Tourism Types */}
-            <div className="mb-5">
-              <p className="mb-2 text-sm font-black text-slate-800">Tourism Types <span className="text-red-500">*</span></p>
-              <p className="mb-3 text-xs text-slate-500">Select the tourism categories your company serves.</p>
-              <div className="flex items-end gap-2">
+            <SubSection
+              title="Tourism types"
+              text="The tourism categories your company serves."
+              required
+              count={profile.tourismTypes.length}
+            >
+              <div className="flex items-center gap-2 [&>*:first-child]:mt-0 [&_select]:!mt-0">
                 <Select value={tourismTypeInput} onChange={(e) => setTourismTypeInput(e.target.value)}>
                   <option value="">Select tourism type</option>
                   {tourismTypes.filter((t) => !profile.tourismTypes.includes(t)).map((type) => <option key={type} value={type}>{type}</option>)}
@@ -1949,7 +2051,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                     update("tourismTypes", [...profile.tourismTypes, tourismTypeInput]);
                     setTourismTypeInput("");
                   }}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
                 >
                   <Plus className="h-4 w-4" />
                   Add
@@ -1958,22 +2060,23 @@ async function persistProfileDraft(showSuccessMessage = true) {
               {profile.tourismTypes.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">
                   {profile.tourismTypes.map((item) => (
-                    <span key={item} className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 py-1.5 pl-3.5 pr-1.5 text-sm font-semibold text-emerald-800">
+                    <span key={item} className="inline-flex items-center gap-1 rounded-full border border-solid border-emerald-200 bg-emerald-50 py-1 pl-3 pr-1 text-xs font-bold text-emerald-800">
                       {item}
-                      <button type="button" onClick={() => toggleTourismType(item)} aria-label={`Remove ${item}`} className="flex h-5 w-5 items-center justify-center rounded-full text-emerald-600 transition-colors hover:bg-emerald-200/70 hover:text-emerald-900">
-                        <X className="h-3.5 w-3.5" />
+                      <button type="button" onClick={() => toggleTourismType(item)} aria-label={`Remove ${item}`} className="grid h-5 w-5 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-emerald-600 transition hover:bg-emerald-200/70 hover:text-emerald-900">
+                        <X className="h-3 w-3" />
                       </button>
                     </span>
                   ))}
                 </div>
               )}
-            </div>
+            </SubSection>
 
-            {/* Company Services */}
-            <div className="mb-5 border-t border-slate-100 pt-5">
-              <p className="mb-2 text-sm font-black text-slate-800">Your Company Services <span className="text-red-500">*</span></p>
-              <p className="mb-3 text-xs text-slate-500">Services are classified by category. Choose a tourism type (or common services), then choose the matching service.</p>
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 sm:p-4">
+            <SubSection
+              title="Your company services"
+              text="Pick a tourism type or common services, then the matching service."
+              required
+            >
+              <div>
                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                   <Field label="Service category">
                     <Select
@@ -2002,7 +2105,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                   <button
                     type="button"
                     onClick={addClassifiedService}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-800"
+                    className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800"
                   >
                     <Plus className="h-4 w-4" />
                     Add
@@ -2056,13 +2159,15 @@ async function persistProfileDraft(showSuccessMessage = true) {
                   })()}
                 </div>
               )}
-            </div>
+            </SubSection>
 
-            {/* Specializations */}
-            <div className="border-t border-slate-100 pt-5">
-              <p className="mb-2 text-sm font-black text-slate-800">Specializations <span className="text-red-500">*</span></p>
-              <p className="mb-3 text-xs text-slate-500">Select the areas your company specializes in.</p>
-              <div className="flex items-end gap-2">
+            <SubSection
+              title="Specializations"
+              text="The areas your company specializes in."
+              required
+              count={profile.specializations.length}
+            >
+              <div className="flex items-center gap-2 [&>*:first-child]:mt-0 [&_select]:!mt-0">
                 <Select value={specializationInput} onChange={(e) => setSpecializationInput(e.target.value)}>
                   <option value="">Select specialization</option>
                   {AGENT_SPECIALIZATIONS.filter((s) => !profile.specializations.includes(s)).map((spec) => <option key={spec} value={spec}>{spec}</option>)}
@@ -2075,7 +2180,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                     update("specializations", [...profile.specializations, specializationInput]);
                     setSpecializationInput("");
                   }}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
                 >
                   <Plus className="h-4 w-4" />
                   Add
@@ -2093,11 +2198,11 @@ async function persistProfileDraft(showSuccessMessage = true) {
                   ))}
                 </div>
               )}
-            </div>
+            </SubSection>
           </Section>
 
           <Section icon={<MapPin className="h-5 w-5" />} title="Area Of Operation" text="Set your company base and district before selecting permitted parks and sites.">
-            <div className="rounded-xl border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-white p-3 sm:p-4">
+            <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3 sm:p-4">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                 <Field label="Region *">
                   <Select value={region} onChange={(e) => { setRegion(e.target.value); setDistrict(""); }}>
@@ -2111,7 +2216,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                     {selectedRegion?.districts.map((d) => <option key={d} value={d}>{d}</option>)}
                   </Select>
                 </Field>
-                <button type="button" onClick={addArea} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-800">
+                <button type="button" onClick={addArea} className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800">
                   <Plus className="h-4 w-4" />
                   Add
                 </button>
@@ -2131,9 +2236,12 @@ async function persistProfileDraft(showSuccessMessage = true) {
               </div>
             )}
 
-            <div className="mt-5 border-t border-slate-100 pt-5">
-              <p className="mb-1 text-sm font-black text-slate-800">Permitted Parks &amp; Tour Sites <span className="text-red-500">*</span></p>
-              <p className="mb-3 text-xs text-slate-500">Select all parks and tour sites your company is permitted to operate in.</p>
+            <SubSection
+              title="Permitted parks and tour sites"
+              text="Every park and site your company is permitted to operate in."
+              required
+              count={(profile.registeredParks ?? []).length}
+            >
               <div className="flex flex-col gap-2 sm:flex-row">
                 <select
                   value={parkInput}
@@ -2156,7 +2264,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                     update("registeredParks", [...(profile.registeredParks ?? []), parkInput]);
                     setParkInput("");
                   }}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
                 >
                   <Plus className="h-4 w-4" />
                   Add
@@ -2174,12 +2282,16 @@ async function persistProfileDraft(showSuccessMessage = true) {
                   ))}
                 </div>
               )}
-            </div>
+            </SubSection>
           </Section>
 
           <Section icon={<Wrench className="h-5 w-5" />} title="Tools &amp; Assets" text="Tell us what you use to support your tours and activities.">
-            <p className="mb-2 text-sm font-black text-slate-800">Tools &amp; Assets <span className="text-red-500">*</span></p>
-            <p className="mb-3 text-xs text-slate-500">Add at least one tool or asset your company uses for tour delivery.</p>
+            <SubSection
+              title="Tools and assets"
+              text="At least one tool or asset your company uses for tour delivery."
+              required
+              count={(profile.toolsAssets ?? []).length}
+            >
             <div className="flex flex-col gap-2 sm:flex-row">
               <select
                 value={customTool}
@@ -2197,7 +2309,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
                 type="button"
                 disabled={!customTool}
                 onClick={() => { addCustom("tools", customTool, setCustomTool); }}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="inline-flex h-10 shrink-0 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
               >
                 <Plus className="h-4 w-4" />
                 Add
@@ -2215,37 +2327,33 @@ async function persistProfileDraft(showSuccessMessage = true) {
                 ))}
               </div>
             )}
+            </SubSection>
 
-            <div className="mt-7 border-t border-slate-100 pt-5">
-              <h3 className="flex flex-wrap items-center gap-2 text-base font-black text-slate-950">
-                <span>Fleet &amp; Vehicles <span className="text-red-500">*</span></span>
-                {profile.vehicles.length > 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
-                    <Check className="h-3 w-3" />
-                    {profile.vehicles.length} added
-                  </span>
-                ) : null}
-              </h3>
-              <div className="mt-3 flex items-center gap-4">
-                <span className="text-sm text-slate-700">Does your company have vehicles for tours? <span className="text-red-500">*</span></span>
+            <SubSection
+              title="Fleet and vehicles"
+              text="Whether your company runs its own vehicles, and their details."
+              required
+              count={profile.vehicles.length}
+            >
+              <div className="flex flex-wrap items-center gap-4">
+                <span className="text-xs font-semibold text-neutral-700">Does your company have vehicles for tours?</span>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => update("hasVehicles", true)}
-                    className={`rounded-lg border px-4 py-1.5 text-sm font-medium transition-colors ${profile.hasVehicles ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-300 bg-white text-slate-700 hover:border-emerald-700"}`}
+                    className={`cursor-pointer appearance-none rounded-lg border border-solid px-3.5 py-1.5 text-xs font-bold transition ${profile.hasVehicles ? "border-emerald-700 bg-emerald-700 text-white" : "border-neutral-300 bg-white text-neutral-600 hover:border-emerald-300 hover:text-emerald-800"}`}
                   >
                     Yes
                   </button>
                   <button
                     type="button"
                     onClick={() => { update("hasVehicles", false); update("vehicles", []); }}
-                    className={`rounded-lg border px-4 py-1.5 text-sm font-medium transition-colors ${!profile.hasVehicles ? "border-slate-300 bg-slate-200 text-slate-700" : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"}`}
+                    className={`cursor-pointer appearance-none rounded-lg border border-solid px-3.5 py-1.5 text-xs font-bold transition ${!profile.hasVehicles ? "border-neutral-400 bg-neutral-100 text-neutral-700" : "border-neutral-300 bg-white text-neutral-600 hover:border-neutral-400"}`}
                   >
                     No
                   </button>
                 </div>
               </div>
-            </div>
 
             {profile.hasVehicles && (
             <>
@@ -2321,6 +2429,7 @@ async function persistProfileDraft(showSuccessMessage = true) {
             )}
             </>
             )}
+            </SubSection>
           </Section>
 
           <Section icon={<Users className="h-5 w-5" />} title="Operating Capacity" text="Make availability and execution capacity clear before customers book.">
@@ -2350,51 +2459,75 @@ async function persistProfileDraft(showSuccessMessage = true) {
               </Field>
             </FieldGrid>
           </Section>
+        </div>
 
-          <Section icon={<BriefcaseBusiness className="h-5 w-5" />} title="Packages And Pricing" text="Add tour packages, seasonal pricing, and add-ons.">
-            <div className="mt-2">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-xl font-black text-slate-950 sm:text-2xl">Tour packages</h3>
-                <button type="button" onClick={addPackage} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#02665e] px-4 text-sm font-black text-white shadow-sm hover:bg-[#01544d]">
-                  <PackagePlus className="h-4 w-4" />
+        {isPackagesView ? (
+          <div id="my-packages" className="box-border mt-5 w-full min-w-0 max-w-full scroll-mt-4 space-y-4 overflow-x-hidden px-4 sm:px-6">
+            <div className="flex min-w-0 flex-col gap-4 border-0 border-b border-solid border-neutral-200 pb-5 xl:flex-row xl:items-end xl:justify-between">
+              <div className="min-w-0">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">My profile</p>
+                <h1 className="m-0 mt-1 text-2xl font-bold tracking-tight text-neutral-900">My packages</h1>
+                <p className="m-0 mt-1 text-sm text-neutral-500">Manage customer-ready trips, seasonal rates, and booking extras.</p>
+              </div>
+              <div className="flex max-w-full flex-wrap items-center gap-2 xl:justify-end">
+                <Link href="/account/agent/profile?view=status" className="inline-flex h-10 items-center rounded-xl border border-solid border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-600 no-underline transition hover:border-emerald-200 hover:text-emerald-700 hover:no-underline">
+                  Profile status
+                </Link>
+                <button type="button" onClick={addPackage} className="inline-flex h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800">
+                  <PackagePlus className="h-4 w-4" aria-hidden />
                   Add package
                 </button>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm">
-                  <span className="font-black text-slate-900">{profile.packageItems.length}</span>
-                  <span className="text-slate-500">packages</span>
-                </span>
-                <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm">
-                  <span className="font-black text-slate-900">{profile.seasonalPrices.length}</span>
-                  <span className="text-slate-500">seasons</span>
-                </span>
-                <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm">
-                  <span className="font-black text-slate-900">{profile.addOns.length}</span>
-                  <span className="text-slate-500">add-ons</span>
-                </span>
-              </div>
-              <div className="mt-5 space-y-4">
+            </div>
+          <section className="space-y-4">
+              <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
                 {profile.packageItems.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-emerald-300 bg-white p-5 text-center">
-                    <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
-                      <PackagePlus className="h-7 w-7" />
+                  <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50/50 px-5 py-8 text-center">
+                    <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                      <PackagePlus className="h-5 w-5" aria-hidden />
                     </span>
-                    <p className="mt-3 text-base font-black text-slate-950">No commercial package yet</p>
-                    <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500">Start with the package that has the strongest booking potential. Price, route, capacity, inclusions, and itinerary will appear here.</p>
-                    <button type="button" onClick={addPackage} className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-800">
-                  <PackagePlus className="h-4 w-4" />
+                    <p className="m-0 mt-3 text-sm font-bold text-neutral-900">No package added yet</p>
+                    <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-neutral-500">Create your strongest bookable trip first, then add pricing, inclusions, and an itinerary.</p>
+                    <button type="button" onClick={addPackage} className="mt-4 inline-flex h-10 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800">
+                      <PackagePlus className="h-4 w-4" aria-hidden />
                       Create first package
                     </button>
                   </div>
                 )}
-              {profile.packageItems.map((pkg, index) => {
+              {profile.packageItems.length > 0 && !anyPackageExpanded ? (
+                <div className="hidden grid-cols-[3.5rem_minmax(11rem,2fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_minmax(6rem,1fr)_minmax(6rem,auto)_minmax(7rem,auto)] border-0 border-b border-solid border-neutral-200 bg-neutral-50 lg:grid">
+                  {[
+                    { label: 'S/N', key: '' }, { label: 'Package', key: 'package' }, { label: 'Price', key: 'price' },
+                    { label: 'Duration', key: 'duration' }, { label: 'Guests', key: 'guests' }, { label: 'Booking', key: 'booking' },
+                    { label: 'Status', key: 'status' }, { label: 'Actions', key: '' },
+                  ].map((column) => (
+                    <div key={column.label} className="flex min-w-0 items-center gap-1 px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">
+                      {column.key ? (
+                        <button type="button" onClick={() => togglePackageSort(column.key)} className="inline-flex min-w-0 cursor-pointer appearance-none items-center gap-1 border-0 bg-transparent p-0 text-inherit outline-none hover:text-emerald-700" aria-label={`Sort by ${column.label}`}>
+                          <span className="truncate">{column.label}</span>
+                          <ArrowUpDown className={`h-3 w-3 shrink-0 ${packageSort.key === column.key ? "text-emerald-700" : "text-neutral-300"}`} aria-hidden />
+                        </button>
+                      ) : column.label}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {sortedPackageItems.map((pkg, index) => {
                 const includedSuggestions = packageIncludedSuggestions(pkg, profile.tourismTypes);
                 const excludedSuggestions = packageExcludedSuggestions(includedSuggestions);
                 const isExpanded = expandedPackageIds[pkg.id] ?? false;
                 const isComplete = packageLooksComplete(pkg);
                 const step = packageStep[pkg.id] ?? 1;
                 const setStep = (s: number) => setPackageStep((m) => ({ ...m, [pkg.id]: Math.max(1, Math.min(4, s)) }));
+                const packageChecklist = [
+                  { n: 1, label: "Basics", done: Boolean(pkg.name && pkg.destination && pkg.description) },
+                  { n: 2, label: "Pricing", done: Boolean(pkg.category && pkg.duration && pkg.mode && pkg.minPax && pkg.maxPax && pkg.pricePerPerson && pkg.currency) },
+                  { n: 3, label: "Inclusions", done: (pkg.included || []).length > 0 },
+                  { n: 4, label: "Itinerary", done: (pkg.itinerary || []).length > 0 },
+                ];
+                const completedPackageSteps = packageChecklist.filter((item) => item.done).length;
+                const packageCompletion = Math.round((completedPackageSteps / packageChecklist.length) * 100);
+                const nextPackageStep = packageChecklist.find((item) => !item.done);
                 if (anyPackageExpanded && !isExpanded) return null;
                 const normalizedDiscountCondition = String(pkg.discountCondition || "").trim();
                 const normalizedDiscountUnit = String(pkg.discountUnit || "").trim();
@@ -2417,46 +2550,29 @@ async function persistProfileDraft(showSuccessMessage = true) {
                 })();
 
                 return (
-                <div key={pkg.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <div className="bg-[#02665e] px-4 py-4 text-white sm:px-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cyan-100">Package {index + 1}</p>
-                        <h4 className="mt-1 truncate text-lg font-black text-white">{pkg.name || "Untitled package"}</h4>
-                        <p className="mt-1 truncate text-xs font-semibold text-cyan-50/75">{pkg.destination || "Destination not set"}</p>
+                <div key={pkg.id} className="min-w-0 overflow-hidden border-0 border-b border-solid border-neutral-200 bg-white last:border-b-0">
+                  <div className="overflow-x-auto">
+                    <div className="grid min-w-[860px] grid-cols-[3.5rem_minmax(11rem,2fr)_minmax(6rem,1fr)_minmax(6rem,1fr)_minmax(7rem,1fr)_minmax(6rem,1fr)_minmax(6rem,auto)_minmax(7rem,auto)] items-center divide-x divide-neutral-200">
+                      <div className="px-4 py-3.5 text-center text-xs font-bold tabular-nums text-neutral-400">{index + 1}</div>
+                      <div className="min-w-0 px-4 py-3.5">
+                        <h4 className="m-0 truncate text-sm font-bold text-neutral-900">{pkg.name || "Untitled package"}</h4>
+                        <p className="m-0 mt-1 truncate text-[11px] text-neutral-500">{pkg.destination || "Destination not set"}</p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${
-                          isComplete
-                            ? "border-emerald-200 bg-emerald-100/90 text-emerald-900"
-                            : "border-amber-200 bg-amber-100/90 text-amber-900"
-                        }`}>
-                          {isComplete ? "Complete" : "Incomplete"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedPackageIds((prev) => ({ ...prev, [pkg.id]: !isExpanded }))}
-                          className="inline-flex h-9 items-center justify-center rounded-xl border border-white/15 bg-white/10 px-3 text-xs font-black text-white hover:bg-white/20"
-                        >
-                          {isExpanded ? "Done" : "Edit"}
-                        </button>
-                        <button type="button" onClick={() => removePackage(pkg.id)} className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/10 text-white hover:bg-red-500/80" aria-label="Remove package">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      <div className="px-4 py-3.5"><p className="m-0 text-xs font-bold text-neutral-800">{pkg.pricePerPerson ? `${pkg.currency} ${pkg.pricePerPerson}` : "—"}</p></div>
+                      <div className="px-4 py-3.5"><p className="m-0 text-xs font-bold text-neutral-800">{pkg.duration || "—"}</p></div>
+                      <div className="px-4 py-3.5"><p className="m-0 text-xs font-bold text-neutral-800">{pkg.minPax && pkg.maxPax ? `${pkg.minPax}–${pkg.maxPax}` : "—"}</p></div>
+                      <div className="px-4 py-3.5"><p className="m-0 text-xs font-bold text-neutral-800">{pkg.mode || "—"}</p></div>
+                      <div className="px-4 py-3.5">
+                        <div className="min-w-[4.5rem]">
+                          <p className={`m-0 text-xs font-bold tabular-nums ${isComplete ? "text-emerald-700" : "text-amber-700"}`}>{packageCompletion}%</p>
+                          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100" aria-label={`${packageCompletion}% package setup complete`}>
+                            <div className={`h-full rounded-full ${isComplete ? "bg-emerald-600" : "bg-amber-400"}`} style={{ width: `${packageCompletion}%` }} />
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-3 gap-2">
-                      <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-cyan-100/80">Price</p>
-                        <p className="mt-1 truncate text-sm font-black text-white">{pkg.pricePerPerson ? `${pkg.currency} ${pkg.pricePerPerson}` : "Not set"}</p>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-cyan-100/80">Duration</p>
-                        <p className="mt-1 truncate text-sm font-black text-white">{pkg.duration || "Not set"}</p>
-                      </div>
-                      <div className="rounded-xl border border-white/10 bg-white/10 px-3 py-2">
-                        <p className="text-[10px] font-black uppercase tracking-wide text-cyan-100/80">Mode</p>
-                        <p className="mt-1 truncate text-sm font-black text-white">{pkg.mode || "Not set"}</p>
+                      <div className="flex items-center gap-1.5 px-3 py-3.5">
+                        <button type="button" onClick={() => setExpandedPackageIds((prev) => ({ ...prev, [pkg.id]: !isExpanded }))} className="inline-flex h-8 cursor-pointer appearance-none items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-bold text-neutral-700 outline-none transition hover:border-emerald-200 hover:text-emerald-800">{isExpanded ? "Done" : "Edit"}</button>
+                        <button type="button" onClick={() => removePackage(pkg.id)} className="grid h-8 w-8 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-neutral-400 outline-none transition hover:bg-red-50 hover:text-red-600" aria-label="Remove package"><Trash2 className="h-4 w-4" /></button>
                       </div>
                     </div>
                   </div>
@@ -3163,14 +3279,29 @@ async function persistProfileDraft(showSuccessMessage = true) {
                     </div>
                   </div>
                   ) : (
-                    <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/80 px-4 py-3 sm:px-5">
-                      <p className="text-xs font-semibold text-slate-600">Package form is collapsed for a cleaner view.</p>
+                    <div className="flex flex-col gap-3 border-t border-solid border-neutral-200 bg-neutral-50/70 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <p className="m-0 text-xs font-bold text-neutral-700">
+                            {isComplete ? "Ready for review · 100% complete" : `${packageCompletion}% complete · ${completedPackageSteps} of 4 setup areas finished`}
+                          </p>
+                          {!isComplete && nextPackageStep ? (
+                            <p className="m-0 text-[11px] text-neutral-500">Next: {nextPackageStep.label}</p>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 h-1.5 max-w-xs overflow-hidden rounded-full bg-neutral-200" aria-label={`${packageCompletion}% package setup complete`}>
+                          <div className={`h-full rounded-full ${isComplete ? "bg-emerald-600" : "bg-amber-400"}`} style={{ width: `${packageCompletion}%` }} />
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => setExpandedPackageIds((prev) => ({ ...prev, [pkg.id]: true }))}
-                        className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-100"
+                        onClick={() => {
+                          if (nextPackageStep) setStep(nextPackageStep.n);
+                          setExpandedPackageIds((prev) => ({ ...prev, [pkg.id]: true }));
+                        }}
+                        className="inline-flex h-9 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 outline-none transition hover:border-emerald-200 hover:text-emerald-800"
                       >
-                        Open details
+                        {isComplete ? "Review details" : "Continue setup"}
                       </button>
                     </div>
                   )}
@@ -3178,63 +3309,136 @@ async function persistProfileDraft(showSuccessMessage = true) {
               );
               })}
               </div>
-            </div>
 
             {!anyPackageExpanded && (
             <>
-            <div className="mt-7 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-base font-black text-slate-950">Seasonal pricing</h3>
-              <button type="button" onClick={addSeason} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-black text-slate-800 sm:justify-start">
-                <Plus className="h-4 w-4" />
-                Add season
-              </button>
-            </div>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              {profile.seasonalPrices.map((season) => (
-                <div key={season.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="mb-3 flex justify-end">
-                    <button type="button" onClick={() => update("seasonalPrices", profile.seasonalPrices.filter((p) => p.id !== season.id))} className="text-slate-500 hover:text-red-600" aria-label="Remove season">
-                      <Trash2 className="h-4 w-4" />
+            <div className="mt-6 space-y-4">
+              <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:px-6">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                      <CalendarDays className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Rate calendar</p>
+                      <h3 className="m-0 mt-1 text-base font-bold text-neutral-900">Seasonal pricing</h3>
+                      <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">Set a clear price for the travel periods that matter to your customers.</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-600">{profile.seasonalPrices.length} rate{profile.seasonalPrices.length === 1 ? "" : "s"}</span>
+                    <button type="button" onClick={addSeason} className="inline-flex h-9 cursor-pointer appearance-none items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3 text-xs font-bold text-white outline-none transition hover:bg-emerald-800">
+                      <Plus className="h-3.5 w-3.5" aria-hidden />
+                      New rate
                     </button>
                   </div>
-                  <FieldGrid className="gap-y-4">
-                    <Field label="Season name"><Input value={season.seasonName} onChange={(e) => patchSeason(season.id, { seasonName: e.target.value })} placeholder="High season" /></Field>
-                    <Field label="Price per person"><Input type="number" min="0" value={season.pricePerPerson} onChange={(e) => patchSeason(season.id, { pricePerPerson: e.target.value })} placeholder="650" /></Field>
-                    <Field label="Start month">
-                      <Select value={season.startMonth} onChange={(e) => patchSeason(season.id, { startMonth: e.target.value })}>
-                        <option value="">Select month</option>
-                        {months.map((month) => <option key={month} value={month}>{month}</option>)}
-                      </Select>
-                    </Field>
-                    <Field label="End month">
-                      <Select value={season.endMonth} onChange={(e) => patchSeason(season.id, { endMonth: e.target.value })}>
-                        <option value="">Select month</option>
-                        {months.map((month) => <option key={month} value={month}>{month}</option>)}
-                      </Select>
-                    </Field>
-                    <Field label="Currency"><Select value={season.currency} onChange={(e) => patchSeason(season.id, { currency: e.target.value })}><option>USD</option><option>TZS</option><option>EUR</option></Select></Field>
-                    <Field label="Notes"><Input value={season.notes} onChange={(e) => patchSeason(season.id, { notes: e.target.value })} placeholder="Migration window, holiday rate, or low season" /></Field>
-                  </FieldGrid>
                 </div>
-              ))}
-            </div>
 
-            <div className="mt-7 border-t border-slate-100 pt-5">
-              <h3 className="text-base font-black text-slate-950">Add-ons</h3>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {addOnOptions.map((item) => (
-                  <Chip key={item} label={item} active={profile.addOns.includes(item)} onClick={() => toggle("addOns", item)} />
-                ))}
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
-                <Input value={customAddOn} onChange={(e) => setCustomAddOn(e.target.value)} placeholder="Add another add-on" />
-                <button type="button" onClick={() => addCustom("addOns", customAddOn, setCustomAddOn)} className="mt-1 rounded-md border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">Add</button>
-              </div>
+                <div className="border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 p-4 sm:p-5">
+                  {profile.seasonalPrices.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-neutral-300 bg-white px-5 py-6 text-center">
+                      <p className="m-0 text-sm font-bold text-neutral-800">No seasonal rates yet</p>
+                      <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">Your standard package price will apply throughout the year until you add a rate.</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      {profile.seasonalPrices.map((season, index) => (
+                        <div key={season.id} className="min-w-0 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+                          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3.5">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[11px] font-bold text-emerald-700">{index + 1}</span>
+                              <div className="min-w-0">
+                                <p className="m-0 truncate text-xs font-bold text-neutral-800">Seasonal rate</p>
+                                <p className="m-0 mt-0.5 text-[10px] text-neutral-400">Choose the period and customer price.</p>
+                              </div>
+                            </div>
+                            <button type="button" onClick={() => update("seasonalPrices", profile.seasonalPrices.filter((p) => p.id !== season.id))} className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-neutral-400 outline-none transition hover:bg-red-50 hover:text-red-600" aria-label="Remove season">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <div className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-4 p-4 sm:grid-cols-2">
+                            <Field label="Season name">
+                              <Select value={season.seasonName} onChange={(e) => patchSeason(season.id, { seasonName: e.target.value })}>
+                                <option value="">Select season</option>
+                                {season.seasonName && !seasonalRateNames.includes(season.seasonName) ? <option value={season.seasonName}>{season.seasonName}</option> : null}
+                                {seasonalRateNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                              </Select>
+                            </Field>
+                            <Field label="Price per person"><Input type="number" min="0" value={season.pricePerPerson} onChange={(e) => patchSeason(season.id, { pricePerPerson: e.target.value })} placeholder="650" /></Field>
+                            <Field label="Start month">
+                              <Select value={season.startMonth} onChange={(e) => patchSeason(season.id, { startMonth: e.target.value })}>
+                                <option value="">Select month</option>
+                                {months.map((month) => <option key={month} value={month}>{month}</option>)}
+                              </Select>
+                            </Field>
+                            <Field label="End month">
+                              <Select value={season.endMonth} onChange={(e) => patchSeason(season.id, { endMonth: e.target.value })}>
+                                <option value="">Select month</option>
+                                {months.map((month) => <option key={month} value={month}>{month}</option>)}
+                              </Select>
+                            </Field>
+                            <Field label="Currency"><Select value={season.currency} onChange={(e) => patchSeason(season.id, { currency: e.target.value })}><option>USD</option><option>TZS</option><option>EUR</option></Select></Field>
+                            <div className="min-w-0 sm:col-span-2"><Field label="Notes"><Input value={season.notes} onChange={(e) => patchSeason(season.id, { notes: e.target.value })} placeholder="Migration window, festive rate, or low season" /></Field></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
+                  <div>
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Booking extras</p>
+                    <h3 className="m-0 mt-1 text-base font-bold text-neutral-900">Add-ons</h3>
+                    <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">Select useful extras that customers can add when booking a package.</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">{profile.addOns.length} selected</span>
+                </div>
+
+                <div className="space-y-4 p-4 sm:p-5">
+                  <div>
+                    <p className="m-0 text-[11px] font-bold text-neutral-700">Available extras</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {addOnOptions.map((item) => (
+                        <Chip key={item} label={item} active={profile.addOns.includes(item)} onClick={() => toggle("addOns", item)} />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-0 border-t border-solid border-neutral-100 pt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="m-0 text-[11px] font-bold text-neutral-700">Selected extras</p>
+                      <p className="m-0 text-[10px] text-neutral-400">Click × to remove an extra</p>
+                    </div>
+                    {profile.addOns.length > 0 ? (
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {profile.addOns.map((item) => <SelectedPill key={item} label={item} onRemove={() => toggle("addOns", item)} />)}
+                      </div>
+                    ) : (
+                      <p className="m-0 mt-2 rounded-lg bg-neutral-50 px-3 py-2 text-xs text-neutral-500">No booking extras selected yet.</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3.5">
+                    <p className="m-0 text-[11px] font-bold text-neutral-700">Add a custom extra</p>
+                    <p className="m-0 mt-0.5 text-[10px] text-neutral-500">Use this for an offer not listed above.</p>
+                    <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <Input value={customAddOn} onChange={(e) => setCustomAddOn(e.target.value)} placeholder="e.g. Airport transfer or balloon safari" />
+                      <button type="button" onClick={() => addCustom("addOns", customAddOn, setCustomAddOn)} className="inline-flex h-10 cursor-pointer appearance-none items-center justify-center rounded-xl border border-solid border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 outline-none transition hover:border-emerald-200 hover:text-emerald-800">Add extra</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
             </>
             )}
-          </Section>
+          </section>
+          </div>
+        ) : null}
 
+        <div className={isPackagesView ? "hidden" : "mt-5 space-y-5"}>
           <Section icon={<Camera className="h-5 w-5" />} title="Gallery" text="Upload photos by category so every image appears in the correct customer-facing area.">
             <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">
               {photoHelpText}
@@ -3364,34 +3568,50 @@ async function persistProfileDraft(showSuccessMessage = true) {
           </Section>
         </div>
 
-        <div className="sticky bottom-0 mt-6 border-t border-slate-200 bg-slate-50/90 py-4 backdrop-blur">
-          <div className="flex flex-col items-center justify-center gap-3">
-            <div className="text-center text-sm font-semibold text-slate-500">
-              Save as draft. Submit for admin review.
-              <p className="mt-1 text-xs font-semibold text-slate-400">Autosave is on and runs silently in background.</p>
+        <div className="sticky bottom-3 z-30 mt-6 rounded-2xl border border-solid border-neutral-200 bg-white/95 p-3 shadow-[0_14px_32px_-20px_rgba(15,23,42,0.35)] backdrop-blur sm:p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${canSubmit ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                <ShieldCheck className="h-4 w-4" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 text-xs font-bold text-neutral-800">
+                  {canSubmit ? "Profile ready for review" : "Profile setup in progress"}
+                </p>
+                <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-500">
+                  Autosaved in the background.
+                {(() => {
+                  const submittedAt = profile?.review?.submittedAt || (profile as any)?.submittedAt;
+                  if (!submittedAt) return " Changes are saved automatically.";
+                  const d = new Date(submittedAt);
+                  const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+                  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+                  return <> Last submitted {date} at {time}.</>;
+                })()}
+                </p>
+              </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <button type="button" onClick={save} disabled={saving || submitting} className="inline-flex h-10 items-center justify-center gap-2 self-center rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:px-5 sm:text-sm sm:self-auto">
+
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving || submitting}
+                className="inline-flex h-10 cursor-pointer appearance-none items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 outline-none transition hover:border-emerald-200 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save draft
               </button>
-              <button type="button" onClick={submitForReview} disabled={submitting || saving || !canSubmit} className="inline-flex h-10 items-center justify-center gap-2 self-center rounded-lg bg-emerald-700 px-4 text-xs font-black text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 sm:h-12 sm:px-5 sm:text-sm sm:self-auto">
+              <button
+                type="button"
+                onClick={submitForReview}
+                disabled={submitting || saving || !canSubmit}
+                className="inline-flex h-10 cursor-pointer appearance-none items-center gap-2 rounded-xl border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+              >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 Submit for review
               </button>
             </div>
-            {(() => {
-              const submittedAt = profile?.review?.submittedAt || (profile as any)?.submittedAt;
-              if (!submittedAt) return null;
-              const d = new Date(submittedAt);
-              const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-              const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-              return (
-                <p className="text-[11px] text-slate-400">
-                  Last submitted: <span className="font-semibold text-slate-500">{date} at {time}</span>
-                </p>
-              );
-            })()}
           </div>
         </div>
       </div>

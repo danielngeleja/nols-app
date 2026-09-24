@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
+import { CheckCircle2, Clock3, PenLine, ShieldCheck } from "lucide-react";
 
 type AgentContractPayload = {
   ok?: boolean;
@@ -346,24 +347,39 @@ export default function AgentContractContent() {
           : "Workflow not initialized";
   const statusTone =
     workflowStatus === "EXECUTED"
-      ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
       : workflowStatus === "PENDING_AGENT_SIGNATURE"
-        ? "bg-amber-50 border-amber-200 text-amber-900"
-        : "bg-slate-50 border-slate-200 text-slate-800";
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : "border-neutral-200 bg-neutral-50 text-neutral-600";
+  const statusLabel =
+    workflowStatus === "EXECUTED"
+      ? "Executed"
+      : workflowStatus === "PENDING_AGENT_SIGNATURE"
+        ? "Your signature required"
+        : workflowStatus === "PENDING_NOLSAF_SIGNATURE"
+          ? "Awaiting NoLSAF"
+          : "Not initialized";
+
+  // Both parties countersign, so the panel shows the chain rather than a single
+  // status line: an operator could not tell who still had to sign.
+  const signatureSteps: Array<{ party: string; at?: string | null }> = [
+    { party: "NoLSAF", at: workflow?.nolsafSignedAt },
+    { party: "Operator", at: workflow?.agentSignedAt },
+  ];
 
   return (
     <div className="w-full h-full min-h-0">
       {loading ? (
         <div className="space-y-3 px-1 py-2 sm:py-3">
-          <div className="h-4 w-48 rounded-full bg-slate-200 animate-pulse" />
-          <div className="h-4 w-full rounded-full bg-slate-200 animate-pulse" />
-          <div className="h-4 w-[92%] rounded-full bg-slate-200 animate-pulse" />
-          <div className="h-4 w-[85%] rounded-full bg-slate-200 animate-pulse" />
+          <div className="h-4 w-48 rounded-full bg-neutral-200 animate-pulse" />
+          <div className="h-4 w-full rounded-full bg-neutral-200 animate-pulse" />
+          <div className="h-4 w-[92%] rounded-full bg-neutral-200 animate-pulse" />
+          <div className="h-4 w-[85%] rounded-full bg-neutral-200 animate-pulse" />
         </div>
       ) : error ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-          <div className="text-sm font-bold text-slate-900">Contract unavailable</div>
-          <div className="text-sm text-slate-600 mt-1">{error}</div>
+        <div className="rounded-xl border border-solid border-neutral-200 bg-white p-5 sm:p-6">
+          <div className="text-sm font-bold text-neutral-900">Contract unavailable</div>
+          <div className="text-sm text-neutral-600 mt-1">{error}</div>
           <div className="mt-4">
             <a
               href="mailto:support@nolsaf.com"
@@ -374,75 +390,120 @@ export default function AgentContractContent() {
           </div>
         </div>
       ) : (
-        <div className="h-full overflow-auto rounded-xl border border-slate-200 bg-white p-4 sm:p-6 md:p-8">
-          <article className="w-full max-w-full sm:max-w-5xl mx-auto space-y-6 sm:space-y-8 text-left">
-            <section className={`rounded-xl border p-4 sm:p-5 ${statusTone}`}>
-              <div className="text-sm font-semibold">Contract status</div>
-              <div className="text-sm mt-1">{statusMessage}</div>
-              {workflow?.contractId ? <div className="text-xs mt-2 opacity-80">Contract ID: {workflow.contractId}</div> : null}
-              {workflowStatus === "PENDING_AGENT_SIGNATURE" ? (
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={handleAgentSign}
-                    disabled={signing}
-                    className="inline-flex items-center justify-center h-11 px-6 rounded-full bg-brand text-white font-semibold no-underline hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-card transition-colors"
-                  >
-                    {signing ? "Signing..." : "Sign As Operator"}
-                  </button>
-                </div>
-              ) : null}
-            </section>
+        <div className="h-full overflow-auto">
+          <div className="mx-auto grid w-full max-w-[92rem] gap-5 pb-6 xl:grid-cols-[minmax(0,1fr)_17rem] xl:items-start">
+            <article className="min-w-0 space-y-4 text-left">
+              {/* Status panel: the document's standing, who has signed, and the
+                  one action available, rather than three lines in a grey box. */}
+              <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+                  <div className="min-w-0">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Contract status</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-[11px] font-bold ${statusTone}`}>
+                        {workflowStatus === "EXECUTED" ? <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> : <Clock3 className="h-3.5 w-3.5" aria-hidden />}
+                        {statusLabel}
+                      </span>
+                      {workflow?.contractId ? (
+                        <code className="rounded-md bg-neutral-100 px-2 py-1 font-mono text-[11px] font-semibold text-neutral-600">
+                          {workflow.contractId}
+                        </code>
+                      ) : null}
+                      {workflow?.version ? (
+                        <span className="text-[11px] font-semibold text-neutral-400">v{workflow.version}</span>
+                      ) : null}
+                    </div>
+                    <p className="m-0 mt-2 text-xs text-neutral-500">{statusMessage}</p>
+                  </div>
 
-            {topLevelClauses.length > 0 ? (
-              <section className="space-y-2">
-                <div className="text-xs uppercase tracking-wide text-slate-500 font-semibold">Contents</div>
-                <div className="grid gap-1">
-                  {topLevelClauses.map((clause) => (
-                    <a
-                      key={clause.number}
-                      href={`#${clauseAnchorId(clause.number)}`}
-                      className="text-sm sm:text-base leading-relaxed text-slate-700 hover:text-slate-900 no-underline"
+                  {workflowStatus === "PENDING_AGENT_SIGNATURE" ? (
+                    <button
+                      type="button"
+                      onClick={handleAgentSign}
+                      disabled={signing}
+                      className="inline-flex min-h-10 shrink-0 cursor-pointer appearance-none items-center gap-2 rounded-xl border-0 bg-[#073c35] px-4 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
                     >
-                      <span className="font-semibold text-slate-900">{clause.number}.</span>{" "}
-                      <span>{clause.text}</span>
-                    </a>
+                      <PenLine className="h-4 w-4" aria-hidden />
+                      {signing ? "Signing..." : "Sign as operator"}
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="grid grid-cols-2 gap-px bg-neutral-200 shadow-[inset_0_1px_0_0_#e5e5e5]">
+                  {signatureSteps.map(({ party, at }) => (
+                    <div key={party} className="bg-white px-5 py-3">
+                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{party}</p>
+                      <p className={`m-0 mt-1 inline-flex items-center gap-1.5 text-xs font-bold ${at ? "text-emerald-700" : "text-neutral-400"}`}>
+                        {at ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> : <Clock3 className="h-3.5 w-3.5" aria-hidden />}
+                        {at ? "Signed" : "Awaiting signature"}
+                      </p>
+                      {at ? (
+                        <p className="m-0 mt-0.5 text-[11px] text-neutral-400">
+                          {new Date(at).toLocaleString("en-GB", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               </section>
-            ) : null}
 
-            <div className="divide-y divide-slate-200 border-y border-slate-200">
+              {/* Contents inline below xl, where the rail is not rendered. */}
+              {topLevelClauses.length > 0 ? (
+                <nav aria-label="Contract contents" className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 xl:hidden">
+                  <p className="m-0 mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Contents</p>
+                  <ol className="m-0 list-none space-y-1 p-0">
+                    {topLevelClauses.map((clause) => (
+                      <li key={clause.number}>
+                        <a
+                          href={`#${clauseAnchorId(clause.number)}`}
+                          className="flex gap-2 rounded-lg px-2 py-1.5 text-xs leading-5 text-neutral-600 no-underline transition hover:bg-neutral-50 hover:text-neutral-900 hover:no-underline"
+                        >
+                          <span className="shrink-0 font-bold tabular-nums text-neutral-400">{clause.number}.</span>
+                          <span className="min-w-0">{clause.text}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ol>
+                </nav>
+              ) : null}
+
+              <div className="rounded-2xl border border-solid border-neutral-200 bg-white px-5 py-3 sm:px-8 sm:py-5">
               {blocks.map((block, idx) => {
                 if (block.type === "h1") {
                   return (
-                    <section key={idx} className="py-4 sm:py-5">
-                      <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 leading-tight">{block.text}</h2>
+                    <section key={idx} className="mt-6 border-0 border-t border-solid border-neutral-200 pt-5 first:mt-0 first:border-0 first:pt-0">
+                      <h2 className="m-0 text-lg font-bold leading-tight tracking-tight text-neutral-900 sm:text-xl">{block.text}</h2>
                     </section>
                   );
                 }
 
                 if (block.type === "h2") {
                   return (
-                    <section key={idx} className="py-4 sm:py-5">
-                      <h3 className="text-xl sm:text-2xl font-semibold text-slate-900 leading-snug">{block.text}</h3>
+                    <section key={idx} className="mt-5 border-0 border-t border-solid border-neutral-100 pt-4">
+                      <h3 className="m-0 text-sm font-bold uppercase leading-snug tracking-[0.08em] text-neutral-700">{block.text}</h3>
                     </section>
                   );
                 }
 
                 if (block.type === "h3") {
                   return (
-                    <section key={idx} className="py-3 sm:py-4">
-                      <h4 className="text-base sm:text-lg font-semibold text-slate-900 leading-snug">{block.text}</h4>
+                    <section key={idx} className="mt-4">
+                      <h4 className="m-0 text-[13px] font-bold leading-snug text-neutral-800">{block.text}</h4>
                     </section>
                   );
                 }
 
                 if (block.type === "label") {
                   return (
-                    <section key={idx} className="py-3 sm:py-4 text-sm sm:text-base leading-relaxed text-slate-800">
-                      <span className="font-semibold text-slate-900">{block.label}: </span>
-                      <span>{block.value}</span>
+                    <section key={idx} className="mt-1.5 flex flex-wrap gap-x-2 text-[13px] leading-6 text-neutral-700">
+                      <span className="font-semibold text-neutral-500">{block.label}:</span>
+                      <span className="font-semibold text-neutral-900">{block.value}</span>
                     </section>
                   );
                 }
@@ -455,11 +516,11 @@ export default function AgentContractContent() {
                     <section
                       key={idx}
                       id={isTopLevel ? clauseAnchorId(block.number) : undefined}
-                      className={`py-3 sm:py-4 ${leftIndent}`}
+                      className={`mt-3 scroll-mt-4 ${leftIndent}`}
                     >
-                      <div className="grid grid-cols-[auto,1fr] gap-x-3 text-sm sm:text-base leading-relaxed text-slate-800">
-                        <span className="font-semibold text-slate-900">{block.number}.</span>
-                        <span className={isTopLevel ? "font-semibold text-slate-900" : "text-slate-800"}>{block.text}</span>
+                      <div className="grid grid-cols-[auto,1fr] gap-x-3 text-[13px] leading-6 text-neutral-700">
+                        <span className="font-bold tabular-nums text-neutral-400">{block.number}.</span>
+                        <span className={isTopLevel ? "font-bold text-neutral-900" : "text-neutral-700"}>{block.text}</span>
                       </div>
                     </section>
                   );
@@ -488,8 +549,8 @@ export default function AgentContractContent() {
                           : "pl-16 sm:pl-20";
 
                   return (
-                    <section key={idx} className="py-2 sm:py-3">
-                      <ol className={`list-[lower-roman] ${nestedIndent} pr-2 sm:pr-4 space-y-1 text-sm sm:text-base leading-relaxed text-slate-800 marker:font-semibold marker:text-slate-700`}>
+                    <section key={idx} className="mt-2">
+                      <ol className={`list-[lower-roman] ${nestedIndent} space-y-1 pr-2 text-[13px] leading-6 text-neutral-600 marker:font-bold marker:text-neutral-400 sm:pr-4`}>
                         {block.items.map((item, itemIdx) => (
                           <li key={itemIdx}>{item}</li>
                         ))}
@@ -504,7 +565,7 @@ export default function AgentContractContent() {
                       const m = item.match(/^([^:]+):\s*(.*)$/);
                       if (!m) {
                         return (
-                          <div key={itemIdx} className="text-sm sm:text-base text-slate-800">
+                          <div key={itemIdx} className="text-sm sm:text-base text-neutral-800">
                             {item}
                           </div>
                         );
@@ -529,20 +590,20 @@ export default function AgentContractContent() {
                         const qrSrc = party === "NOLSAF" ? signatureQr.nolsaf : signatureQr.operator;
 
                         return (
-                          <div key={itemIdx} className="grid grid-cols-[120px,1fr] gap-x-2 text-sm sm:text-base text-slate-800 items-start">
-                            <span className="font-semibold text-slate-900">{label}</span>
+                          <div key={itemIdx} className="grid grid-cols-[120px,1fr] gap-x-2 text-sm sm:text-base text-neutral-800 items-start">
+                            <span className="font-semibold text-neutral-900">{label}</span>
                             <div className="space-y-1">
                               {signedAt && code ? (
                                 <>
-                                  <div className="inline-flex items-center rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">
+                                  <div className="inline-flex items-center rounded-md border border-solid border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-900">
                                     Digital signature verified
                                   </div>
-                                  <div className="text-xs text-slate-600">Verification code: <span className="font-semibold text-slate-900">{code}</span></div>
+                                  <div className="text-xs text-neutral-600">Verification code: <span className="font-semibold text-neutral-900">{code}</span></div>
                                   {qrSrc ? (
                                     <img
                                       src={qrSrc}
                                       alt={`${party} signature verification QR`}
-                                      className="h-20 w-20 rounded border border-slate-200 bg-white p-1"
+                                      className="h-20 w-20 rounded border border-solid border-neutral-200 bg-white p-1"
                                     />
                                   ) : null}
                                 </>
@@ -555,8 +616,8 @@ export default function AgentContractContent() {
                       }
 
                       return (
-                        <div key={itemIdx} className="grid grid-cols-[120px,1fr] gap-x-2 text-sm sm:text-base text-slate-800">
-                          <span className="font-semibold text-slate-900">{label}</span>
+                        <div key={itemIdx} className="grid grid-cols-[120px,1fr] gap-x-2 text-sm sm:text-base text-neutral-800">
+                          <span className="font-semibold text-neutral-900">{label}</span>
                           <span>{value}</span>
                         </div>
                       );
@@ -566,12 +627,12 @@ export default function AgentContractContent() {
                   return (
                     <section key={idx} className="py-4 sm:py-5">
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-2">
-                          <h5 className="text-sm sm:text-base font-semibold text-slate-900">{block.leftTitle}</h5>
+                        <div className="rounded-lg border border-solid border-neutral-200 bg-neutral-50 p-4 sm:p-5 space-y-2">
+                          <h5 className="text-sm sm:text-base font-semibold text-neutral-900">{block.leftTitle}</h5>
                           {renderSignatureItems(block.leftItems, "NOLSAF")}
                         </div>
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-2">
-                          <h5 className="text-sm sm:text-base font-semibold text-slate-900">{block.rightTitle}</h5>
+                        <div className="rounded-lg border border-solid border-neutral-200 bg-neutral-50 p-4 sm:p-5 space-y-2">
+                          <h5 className="text-sm sm:text-base font-semibold text-neutral-900">{block.rightTitle}</h5>
                           {renderSignatureItems(block.rightItems, "OPERATOR")}
                         </div>
                       </div>
@@ -582,7 +643,7 @@ export default function AgentContractContent() {
                 return (
                   <section
                     key={idx}
-                    className="py-3 sm:py-4 text-sm sm:text-base leading-relaxed text-slate-800"
+                    className="py-3 sm:py-4 text-sm sm:text-base leading-relaxed text-neutral-800"
                     style={{
                       textAlign: "justify",
                       textJustify: "inter-word",
@@ -595,8 +656,31 @@ export default function AgentContractContent() {
                   </section>
                 );
               })}
-            </div>
-          </article>
+              </div>
+            </article>
+
+            {topLevelClauses.length > 0 ? (
+              <nav
+                aria-label="Contract contents"
+                className="sticky top-0 hidden max-h-[calc(100dvh-10rem)] overflow-y-auto rounded-2xl border border-solid border-neutral-200 bg-white p-4 xl:block"
+              >
+                <p className="m-0 mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-neutral-400">Contents</p>
+                <ol className="m-0 list-none space-y-0.5 p-0">
+                  {topLevelClauses.map((clause) => (
+                    <li key={clause.number}>
+                      <a
+                        href={`#${clauseAnchorId(clause.number)}`}
+                        className="flex gap-2 rounded-lg px-2 py-1.5 text-[11px] leading-4 text-neutral-500 no-underline transition hover:bg-emerald-50/60 hover:text-emerald-800 hover:no-underline"
+                      >
+                        <span className="shrink-0 font-bold tabular-nums text-neutral-300">{clause.number}.</span>
+                        <span className="min-w-0">{clause.text}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            ) : null}
+          </div>
         </div>
       )}
     </div>

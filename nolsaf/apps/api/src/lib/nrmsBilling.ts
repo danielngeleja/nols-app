@@ -4,6 +4,7 @@ import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
 import { accrueNrmsSalesCommission } from "./salesCommission.js";
 import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
+import { shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -144,7 +145,28 @@ export async function completeMarketplaceBookingCheckout(tx: any, reservation: a
   return { linked: true, alreadyCheckedOut: true };
 }
 
-export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: number, verifiedChargeIds: number[] = []) {
+export type NrmsCheckoutDeclaration = {
+  businessDate?: string;
+  roomVacantConfirmed?: boolean;
+  earlyDepartureReason?: string | null;
+  actorId?: number | null;
+};
+
+export function checkoutDepartureFacts(plannedCheckOut: Date, businessDate: string) {
+  const actualDepartureDate = shiftDateOnly(businessDate);
+  return {
+    actualDepartureDate,
+    earlyDeparture: actualDepartureDate < utcDay(plannedCheckOut),
+  };
+}
+
+export async function finalizeNrmsCheckout(
+  tx: any,
+  reservation: any,
+  ownerId: number,
+  verifiedChargeIds: number[] = [],
+  declaration: NrmsCheckoutDeclaration = {},
+) {
   const [currentFolio, paymentAggregate, chargeAggregate, activeCharges, openOutletOrderCount, unclassifiedOutletPaymentCount, transferredToMaster] = await Promise.all([
     tx.reservation.findUnique({
       where: { id: reservation.id },
@@ -198,6 +220,19 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
     : null;
   if (masterBlocker) throw new Error(`NRMS_${masterBlocker.code}:${masterBlocker.balance}`);
 
+  const businessDate = declaration.businessDate ?? shiftDayKey(new Date());
+  const departure = checkoutDepartureFacts(new Date(reservation.checkOut), businessDate);
+  const recordedCheckInAt = reservation.checkedInAt ? new Date(reservation.checkedInAt) : null;
+  const scheduledCheckIn = reservation.checkIn ? new Date(reservation.checkIn) : null;
+  const arrivalRecordMismatch = Boolean(
+    recordedCheckInAt
+      && scheduledCheckIn
+      && utcDay(recordedCheckInAt).getTime() < utcDay(scheduledCheckIn).getTime(),
+  );
+  const earlyDepartureReason = declaration.earlyDepartureReason?.trim() || null;
+  if (departure.earlyDeparture && !declaration.roomVacantConfirmed) throw new Error("NRMS_ROOM_VACANCY_CONFIRMATION_REQUIRED");
+  if (departure.earlyDeparture && !earlyDepartureReason) throw new Error("NRMS_EARLY_DEPARTURE_REASON_REQUIRED");
+
   const account = await tx.ownerPaygAccount.findUnique({ where: { propertyId: reservation.propertyId }, include: { policy: true } });
   if (!account) throw new Error("NRMS_PAYG_ACCOUNT_MISSING");
   const changed = await tx.reservation.updateMany({
@@ -224,10 +259,32 @@ export async function finalizeNrmsCheckout(tx: any, reservation: any, ownerId: n
   const rows = buildNrmsUsageRows({
     accountId: account.id, propertyId: reservation.propertyId, reservationId: reservation.id, policyId: account.policyId,
     trialEndsAt: account.trialEndsAt, currency: account.policy.currency, roomNightPrice: Number(account.policy.roomNightPrice),
-    source: reservation.source, bookingId: reservation.bookingId ?? null, allocations, alreadyBilled,
+    source: reservation.source, bookingId: reservation.bookingId ?? null, allocations,
+    postThroughDate: departure.actualDepartureDate, alreadyBilled,
   });
   const result = await applyNrmsUsageRows(tx, account, rows);
-  await tx.reservationEvent.create({ data: { reservationId: reservation.id, type: "CHECKED_OUT", actorId: ownerId, data: { usageEvents: result.usageEvents, billableAmount: result.billableAmount } } });
+  await tx.reservationEvent.create({
+    data: {
+      reservationId: reservation.id,
+      type: "CHECKED_OUT",
+      actorId: declaration.actorId ?? ownerId,
+      data: {
+        usageEvents: result.usageEvents,
+        billableAmount: result.billableAmount,
+        plannedCheckOut: new Date(reservation.checkOut).toISOString(),
+        actualDepartureDate: businessDate,
+        earlyDeparture: departure.earlyDeparture,
+        earlyDepartureReason,
+        roomVacantConfirmed: Boolean(declaration.roomVacantConfirmed),
+        ...(arrivalRecordMismatch ? {
+          arrivalRecordMismatch: true,
+          recordedCheckInAt: recordedCheckInAt!.toISOString(),
+          scheduledCheckIn: scheduledCheckIn!.toISOString(),
+          managementReviewRequired: true,
+        } : {}),
+      },
+    },
+  });
   return result;
 }
 

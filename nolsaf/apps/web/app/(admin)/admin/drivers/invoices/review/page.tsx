@@ -410,7 +410,7 @@ export default function AdminDriverInvoiceReviewPage() {
   const canApprove = invoice.status === "VERIFIED" && Boolean(verifiedAt);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-[#02665e] p-5 text-white shadow-xl sm:p-6 lg:p-7">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(125,211,252,0.18),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(110,231,183,0.14),transparent_38%)]" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">

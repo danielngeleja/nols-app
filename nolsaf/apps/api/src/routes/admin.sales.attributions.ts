@@ -30,6 +30,14 @@ import {
 const router = Router();
 const db = prisma as any;
 
+// Each review action is 6 to 9 sequential queries (reads, guarded writes, the
+// activity row and the audit row). Prisma's 5 s default expired in production
+// on a slow database, rolling back an approval at its final audit write.
+const SALES_ADMIN_TX_OPTIONS = { maxWait: 5000, timeout: 15000 };
+function runSalesAdminTx<T>(fn: (tx: any) => Promise<T>): Promise<T> {
+  return db.$transaction(fn, SALES_ADMIN_TX_OPTIONS);
+}
+
 router.use(
   requireAuth as RequestHandler,
   requireRole("ADMIN") as RequestHandler,
@@ -193,7 +201,9 @@ router.get("/properties/search", limitSalesAdminRead, asyncHandler(async (req: A
         { title: { contains: q } },
         { city: { contains: q } },
         { regionName: { contains: q } },
-        { owner: { is: { email: { contains: q } } } },
+        // The owner-email match joins the user table for every property; it took
+        // this search to 9 s in production, so only run it for email-like input.
+        ...(q.includes("@") ? [{ owner: { is: { email: { contains: q } } } }] : []),
       ],
     },
     orderBy: { id: "desc" },
@@ -229,7 +239,7 @@ router.post("/leads/:id/approve-conversion", limitSalesAdminWrite, asyncHandler(
   const now = new Date();
 
   try {
-    const result = await db.$transaction(async (tx: any) => {
+    const result = await runSalesAdminTx(async (tx: any) => {
       const lead = await tx.salesLead.findUnique({
         where: { id },
         select: {
@@ -384,7 +394,7 @@ router.post("/leads/:id/reject-conversion", limitSalesAdminWrite, asyncHandler(a
   if (invalid(res, params) || invalid(res, parsed)) return;
   const id = params.data!.id;
   const input = parsed.data!;
-  const result = await db.$transaction(async (tx: any) => {
+  const result = await runSalesAdminTx(async (tx: any) => {
     const lead = await tx.salesLead.findUnique({
       where: { id },
       select: {
@@ -491,7 +501,7 @@ router.post("/attributions/:id/activate", limitSalesAdminWrite, requireAdminFina
   const id = params.data!.id;
   const input = parsed.data!;
   const now = new Date();
-  const result = await db.$transaction(async (tx: any) => {
+  const result = await runSalesAdminTx(async (tx: any) => {
     const attribution = await tx.propertySalesAttribution.findUnique({
       where: { id },
       select: {
@@ -576,7 +586,7 @@ router.post("/attributions/:id/revoke", limitSalesAdminWrite, requireAdminFinanc
   const id = params.data!.id;
   const input = parsed.data!;
   const now = new Date();
-  const result = await db.$transaction(async (tx: any) => {
+  const result = await runSalesAdminTx(async (tx: any) => {
     const attribution = await tx.propertySalesAttribution.findUnique({
       where: { id },
       select: {
@@ -626,7 +636,7 @@ router.post("/attributions/:id/reassign", limitSalesAdminWrite, requireAdminFina
   const id = params.data!.id;
   const input = parsed.data!;
   const now = new Date();
-  const result = await db.$transaction(async (tx: any) => {
+  const result = await runSalesAdminTx(async (tx: any) => {
     const attribution = await tx.propertySalesAttribution.findUnique({
       where: { id },
       select: {

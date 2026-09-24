@@ -31,7 +31,7 @@ vi.mock("./restrictionCases.js", () => ({
   findOpenRestrictionCase: mocks.findOpenRestrictionCase,
 }));
 
-import { loadNrmsPropertyAccess } from "./nrmsPropertyAccess.js";
+import { loadNrmsPropertyAccess, requireNrmsPropertyCapability } from "./nrmsPropertyAccess.js";
 
 function responseDouble() {
   const res: any = {};
@@ -59,7 +59,7 @@ describe("loadNrmsPropertyAccess", () => {
   });
 
   it("lets an active front-desk member use the property owner's NRMS entitlement", async () => {
-    mocks.membershipFindFirst.mockResolvedValue({ role: "FRONT_DESK" });
+    mocks.membershipFindFirst.mockResolvedValue({ id: 7, role: "FRONT_DESK", outletId: null, inviteVersion: 3, status: "ACTIVE", confirmedAt: new Date("2026-07-01T00:00:00.000Z") });
     const res = responseDouble();
 
     const access = await loadNrmsPropertyAccess(
@@ -71,7 +71,7 @@ describe("loadNrmsPropertyAccess", () => {
 
     expect(access).toMatchObject({ role: "FRONT_DESK", actorId: 23, ownerId: 12, property: { id: 91 } });
     expect(mocks.membershipFindFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { propertyId: 91, userId: 23, status: "ACTIVE" },
+      where: { propertyId: 91, userId: 23, status: "ACTIVE", confirmedAt: { not: null } },
     }));
     expect(mocks.getNrmsEnrollment).toHaveBeenCalledWith(12);
     expect(res.status).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe("loadNrmsPropertyAccess", () => {
   });
 
   it("rejects an assigned role that is not allowed for the operation", async () => {
-    mocks.membershipFindFirst.mockResolvedValue({ role: "HOUSEKEEPER" });
+    mocks.membershipFindFirst.mockResolvedValue({ id: 7, role: "HOUSEKEEPER", outletId: null, inviteVersion: 3, status: "ACTIVE", confirmedAt: new Date("2026-07-01T00:00:00.000Z") });
     const res = responseDouble();
 
     const access = await loadNrmsPropertyAccess(
@@ -109,7 +109,7 @@ describe("loadNrmsPropertyAccess", () => {
   });
 
   it("blocks operations when the property account is frozen", async () => {
-    mocks.membershipFindFirst.mockResolvedValue({ role: "MANAGER" });
+    mocks.membershipFindFirst.mockResolvedValue({ id: 7, role: "MANAGER", outletId: null, inviteVersion: 3, status: "ACTIVE", confirmedAt: new Date("2026-07-01T00:00:00.000Z") });
     mocks.accountFindUnique.mockResolvedValue({ id: 44, status: "FROZEN", frozenReason: "Billing review", trialEndsAt: new Date("2026-12-01T00:00:00.000Z") });
     mocks.findOpenRestrictionCase.mockResolvedValue({ referenceCode: "RST-004" });
     const res = responseDouble();
@@ -130,7 +130,7 @@ describe("loadNrmsPropertyAccess", () => {
   });
 
   it("blocks operations when the property account is closed", async () => {
-    mocks.membershipFindFirst.mockResolvedValue({ role: "MANAGER" });
+    mocks.membershipFindFirst.mockResolvedValue({ id: 7, role: "MANAGER", outletId: null, inviteVersion: 3, status: "ACTIVE", confirmedAt: new Date("2026-07-01T00:00:00.000Z") });
     mocks.accountFindUnique.mockResolvedValue({ id: 44, status: "CLOSED", trialEndsAt: new Date("2026-12-01T00:00:00.000Z") });
     const res = responseDouble();
 
@@ -144,5 +144,36 @@ describe("loadNrmsPropertyAccess", () => {
     expect(access).toBeNull();
     expect(res.status).toHaveBeenCalledWith(423);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "NRMS_PROPERTY_CLOSED" }));
+  });
+
+  it("authorizes migrated routes by capability instead of a route-local role list", async () => {
+    mocks.membershipFindFirst.mockResolvedValue({ id: 7, role: "SALES_EXECUTIVE", outletId: null, inviteVersion: 3, status: "ACTIVE", confirmedAt: new Date("2026-07-01T00:00:00.000Z") });
+    const res = responseDouble();
+
+    const access = await requireNrmsPropertyCapability(
+      { user: { id: 23, role: "USER" } } as any,
+      res,
+      91,
+      "sales.inquiry.manage",
+    );
+
+    expect(access).toMatchObject({ role: "SALES_EXECUTIVE", actorId: 23, effectiveAccess: { workspace: "SALES_EXECUTIVE" } });
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("returns a stable denial code when a role lacks a required capability", async () => {
+    mocks.membershipFindFirst.mockResolvedValue({ id: 7, role: "MANAGER", outletId: null, inviteVersion: 3, status: "ACTIVE", confirmedAt: new Date("2026-07-01T00:00:00.000Z") });
+    const res = responseDouble();
+
+    const access = await requireNrmsPropertyCapability(
+      { user: { id: 23, role: "USER" } } as any,
+      res,
+      91,
+      "nrms.subscription.manage",
+    );
+
+    expect(access).toBeNull();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "NRMS_CAPABILITY_DENIED" }));
   });
 });

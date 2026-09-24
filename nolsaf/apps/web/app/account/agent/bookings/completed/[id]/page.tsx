@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import LogoSpinner from "@/components/LogoSpinner";
@@ -35,29 +35,7 @@ type TourItem = {
   };
 };
 
-type AssignmentItem = {
-  source: "assignment";
-  id: string | number;
-  title?: string;
-  description?: string | null;
-  status?: string;
-  createdAt?: string;
-  completedAt?: string | null;
-  requester?: {
-    fullName?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    role?: string | null;
-  };
-  outputs?: {
-    adminResponse?: string | null;
-    suggestedItineraries?: string | null;
-    requiredPermits?: string | null;
-    estimatedTimeline?: string | null;
-  };
-};
-
-type CompletedItem = TourItem | AssignmentItem;
+type CompletedItem = TourItem;
 
 type RatingForm = {
   taskQuality: number;
@@ -124,10 +102,8 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
 
 export default function CompletedBookingDetailPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
 
   const id = String((params as any)?.id || "").trim();
-  const preferredSource = String(searchParams.get("source") || "").toLowerCase();
 
   const [loading, setLoading] = useState(true);
   const [authRequired, setAuthRequired] = useState(false);
@@ -158,19 +134,6 @@ export default function CompletedBookingDetailPage() {
       }
     }
 
-    async function loadAssignment(targetId: string): Promise<AssignmentItem | null> {
-      try {
-        const res = await api.get(`/api/agent/assignments/${encodeURIComponent(targetId)}`);
-        const data = (res as any)?.data?.item ?? null;
-        if (!data) return null;
-        return { ...data, source: "assignment" as const };
-      } catch (e: any) {
-        const status = Number(e?.response?.status || 0);
-        if (status === 404 || status === 400) return null;
-        throw e;
-      }
-    }
-
     (async () => {
       try {
         setLoading(true);
@@ -189,18 +152,10 @@ export default function CompletedBookingDetailPage() {
           return;
         }
 
-        const first = preferredSource === "assignment" ? "assignment" : "tour";
-        const second = first === "tour" ? "assignment" : "tour";
-
-        const firstItem = first === "tour" ? await loadTour(id) : await loadAssignment(id);
-        if (firstItem) {
-          if (alive) setItem(firstItem);
-          return;
-        }
-
-        const secondItem = second === "tour" ? await loadTour(id) : await loadAssignment(id);
-        if (secondItem) {
-          if (alive) setItem(secondItem);
+        // Assignments (retired Plan With Us requests) no longer feed this page.
+        const tourItem = await loadTour(id);
+        if (tourItem) {
+          if (alive) setItem(tourItem);
           return;
         }
 
@@ -220,7 +175,7 @@ export default function CompletedBookingDetailPage() {
     return () => {
       alive = false;
     };
-  }, [id, preferredSource]);
+  }, [id]);
 
   const title = useMemo(() => {
     if (!item) return "Completed Record";
@@ -351,9 +306,7 @@ export default function CompletedBookingDetailPage() {
         localStorage.setItem(ratingStorageKey, JSON.stringify(payload));
       }
 
-      setRatingMessage(item.source === "tour"
-        ? "Rating saved successfully."
-        : "Rating saved on this device for this completed assignment.");
+      setRatingMessage("Rating saved successfully.");
     } catch (e: any) {
       setRatingMessage(String(e?.response?.data?.error || "Could not save rating. Please try again."));
     } finally {
@@ -522,17 +475,6 @@ export default function CompletedBookingDetailPage() {
             </div>
           </div>
 
-          {item.source === "assignment" ? (
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-sm font-bold text-slate-900">Assignment Outputs</p>
-              <div className="mt-3 space-y-2">
-                <p className="text-sm text-slate-700"><span className="font-semibold text-slate-900">Admin Response:</span> {item.outputs?.adminResponse || "-"}</p>
-                <p className="text-sm text-slate-700"><span className="font-semibold text-slate-900">Suggested Itineraries:</span> {item.outputs?.suggestedItineraries || "-"}</p>
-                <p className="text-sm text-slate-700"><span className="font-semibold text-slate-900">Required Permits:</span> {item.outputs?.requiredPermits || "-"}</p>
-                <p className="text-sm text-slate-700"><span className="font-semibold text-slate-900">Estimated Timeline:</span> {item.outputs?.estimatedTimeline || "-"}</p>
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>

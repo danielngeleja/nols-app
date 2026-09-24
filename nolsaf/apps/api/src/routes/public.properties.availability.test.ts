@@ -43,4 +43,14 @@ describe("public property availability room identity", () => {
       undefined,
     );
   });
+
+  it("does not resolve the legacy numeric public-property slug", async () => {
+    const app = express();
+    app.use("/api/public/properties", publicPropertiesRouter);
+
+    const response = await request(app).get("/api/public/properties/diary-hotel-10");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "property_not_found" });
+  });
 });

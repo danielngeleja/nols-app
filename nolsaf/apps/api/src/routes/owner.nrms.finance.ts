@@ -112,8 +112,16 @@ function personName(user: any): string {
 async function controlIssues(source: any, propertyId: number, key: string, eventWindow?: { start: Date; end: Date }) {
   const serviceWindow = dayRange(key);
   const { start, end } = eventWindow ?? serviceWindow;
-  const [openShifts, openOrders, dueOut, unclassified, missingOrderVoidReasons, missingPaymentVoidReasons, missingChargeVoidReasons] = await Promise.all([
+  const [openShifts, unreconciledShifts, openOrders, dueOut, unclassified, missingOrderVoidReasons, missingPaymentVoidReasons, missingChargeVoidReasons] = await Promise.all([
     source.nrmsCashierShift.count({ where: { propertyId, status: "OPEN", businessDate: dateOnly(key) } }),
+    source.nrmsCashierShift.count({
+      where: {
+        propertyId,
+        status: "CLOSED",
+        businessDate: dateOnly(key),
+        OR: [{ declaredCash: null }, { variance: null }, { ownerSignedOffAt: null }],
+      },
+    }),
     source.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } } }),
     source.reservation.count({ where: { propertyId, status: "CHECKED_IN", checkOut: { lte: serviceWindow.end } } }),
     source.nrmsOutletOrder.count({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: start, lt: end } } }),
@@ -136,6 +144,7 @@ async function controlIssues(source: any, propertyId: number, key: string, event
   });
   const blockers = [
     openShifts ? { code: "OPEN_CASHIER_SHIFTS", count: openShifts, message: `${openShifts} cashier shift${openShifts === 1 ? " is" : "s are"} still open.` } : null,
+    unreconciledShifts ? { code: "UNRECONCILED_CASHIER_SHIFTS", count: unreconciledShifts, message: `${unreconciledShifts} closed cashier shift${unreconciledShifts === 1 ? " needs" : "s need"} a physical count or manager sign-off.` } : null,
     openOrders ? { code: "OPEN_OUTLET_ORDERS", count: openOrders, message: `${openOrders} restaurant or bar order${openOrders === 1 ? " is" : "s are"} not completed.` } : null,
     dueOut ? { code: "DUE_OUT_GUESTS", count: dueOut, message: `${dueOut} due-out guest${dueOut === 1 ? " is" : "s are"} still checked in.` } : null,
     unclassified ? { code: "UNCLASSIFIED_TENDERS", count: unclassified, message: `${unclassified} outlet settlement${unclassified === 1 ? " needs" : "s need"} a payment method.` } : null,
@@ -343,22 +352,31 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const propertyId = active.property.id;
     const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.businessDate ?? "")) ? String(req.query.businessDate) : dayKey(new Date());
     const month = /^\d{4}-\d{2}$/.test(String(req.query.month ?? "")) ? String(req.query.month) : businessDate.slice(0, 7);
-    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from ?? "")) ? String(req.query.from) : businessDate;
-    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to ?? "")) ? String(req.query.to) : businessDate;
+    const requestedView = ["audit", "cashiers", "expenses", "ledger", "tax", "nbs"].includes(String(req.query.view ?? "")) ? String(req.query.view) : "audit";
+    const needsCashiers = requestedView === "cashiers";
+    const needsAudit = requestedView === "audit";
+    const needsLedger = requestedView === "ledger" || requestedView === "tax";
+    const needsNbs = requestedView === "nbs";
+    const reportMonthRange = monthRange(month);
+    const reportMonthLastDay = dayKey(new Date(reportMonthRange.end.getTime() - 1));
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from ?? "")) ? String(req.query.from) : needsLedger ? `${month}-01` : businessDate;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to ?? "")) ? String(req.query.to) : needsLedger ? reportMonthLastDay : businessDate;
     if (to < from) return res.status(400).json({ error: "Choose a valid financial control date range" });
     const start = dateOnly(businessDate);
     const selectedDayRange = dayRange(businessDate);
-    const [day, shifts, issues, nbs, nightAudits, unclassifiedTenders] = await Promise.all([
-      db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } }),
-      db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }),
-      controlIssues(db, propertyId, businessDate),
-      nbsStatistics(propertyId, month),
-      db.nrmsNightAuditRun.findMany({ where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } }, include: { businessDay: { select: { businessDate: true } } }, orderBy: { startedAt: "desc" } }),
-      db.nrmsOutletOrder.findMany({
+    const emptyNbs = { month, reportingDays: reportMonthRange.days, bedsAvailable: 0, bedNightsAvailable: 0, bedNightsOccupied: 0, domesticBedNights: 0, internationalBedNights: 0, roomNightsOccupied: 0, bedOccupancyRate: 0, missingNationalityBedNights: 0, methodology: "Open NBS statistics to calculate this reporting month." };
+    const [day, shifts, issues, nbs, unclassifiedTenders] = await Promise.all([
+      needsAudit
+        ? db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } })
+        : db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, select: { id: true, status: true, openedAt: true, closedAt: true } }),
+      needsCashiers ? db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }) : Promise.resolve([]),
+      needsAudit ? controlIssues(db, propertyId, businessDate) : Promise.resolve({ blockers: [], warnings: [] }),
+      needsNbs ? nbsStatistics(propertyId, month) : Promise.resolve(emptyNbs),
+      needsAudit ? db.nrmsOutletOrder.findMany({
         where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
         select: { id: true, orderNumber: true, customerLabel: true, currency: true, total: true, settledAt: true, outlet: { select: { name: true, type: true } }, reservation: { select: { guestProfile: { select: { fullName: true } }, allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } } } } } } },
         orderBy: { settledAt: "asc" },
-      }),
+      }) : Promise.resolve([]),
     ]);
     // Cashier rows are per-user, not per-outlet, so we separately join each
     // shift's user against their outlet/role assignment for display only.
@@ -370,11 +388,11 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     // Sales settled by someone with no cashier shift (an owner or manager
     // stepping behind the bar) never belong to a shift's own reconciliation.
     // Surface them separately instead of letting them vanish silently.
-    const unassignedByMethod = await db.nrmsOutletOrder.groupBy({
+    const unassignedByMethod = needsCashiers ? await db.nrmsOutletOrder.groupBy({
       by: ["settlementMethod"],
       where: { propertyId, settlementMode: "OUTLET_PAYMENT", status: "SETTLED", voidedAt: null, settledById: { notIn: shiftUserIds }, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
       _sum: { total: true }, _count: { _all: true },
-    });
+    }) : [];
     const unassignedTenderRows = unassignedByMethod.map((row: any) => ({ method: row.settlementMethod ?? "UNCLASSIFIED", count: row._count._all, amount: money(row._sum.total) }));
     const unassignedSales = {
       count: unassignedTenderRows.reduce((sum: number, row: any) => sum + row.count, 0),
@@ -391,7 +409,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash),
     })));
     const reportWindow = { gte: dayRange(from).start, lt: dayRange(to).end };
-    const transactions = await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] });
+    const transactions = needsLedger ? await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] }) : [];
     const accountMap = new Map<string, any>();
     for (const transaction of transactions) for (const entry of transaction.entries) {
       const key = `${entry.accountCode}:${transaction.currency}`;
@@ -401,12 +419,12 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const taxRows = transactions.flatMap((transaction: any) => transaction.entries.filter((entry: any) => entry.accountCode === "2200").map((entry: any) => ({ transactionNumber: transaction.transactionNumber, occurredAt: transaction.occurredAt, description: transaction.description, currency: transaction.currency, tax: money(entry.credit) - money(entry.debit) })));
     res.json({
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },
-      businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits } : { id: null, status: "NOT_OPENED", audits: [] },
+      businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits ?? [] } : { id: null, status: "NOT_OPENED", audits: [] },
       blockers: issues.blockers, warnings: issues.warnings, shifts: enrichedShifts, unassignedSales,
       unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in", room: order.reservation ? (order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room") : "Walk-in" })),
-      ledger: { accounts: [...accountMap.values()], transactions, balanced: transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
+      ledger: { loaded: needsLedger, accounts: [...accountMap.values()], transactions, balanced: transactions.length > 0 && transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },
-      nightAudits,
+      nightAudits: day?.nightAudits ?? [],
       nbs,
     });
   } catch (error) {
@@ -424,12 +442,13 @@ router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res
   if (!currency) return res.status(409).json({ error: "Set the property currency before opening a cashier shift" });
   try {
     const shift = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
       const existing = await tx.nrmsCashierShift.findFirst({ where: { propertyId: active.property.id, userId: req.user!.id, status: "OPEN" } });
       if (existing) throw new Error("SHIFT_ALREADY_OPEN");
       const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
-      if (day.status === "CLOSED") throw new Error("BUSINESS_DAY_CLOSED");
+      if (day.status !== "OPEN") throw new Error("BUSINESS_DAY_CLOSED");
       return tx.nrmsCashierShift.create({ data: { propertyId: active.property.id, businessDayId: day.id, userId: req.user!.id, businessDate: day.businessDate, currency, openingFloat: parsed.data.openingFloat } });
-    });
+    }, { maxWait: 10_000, timeout: 15_000 });
     res.status(201).json({ shift });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
@@ -444,15 +463,78 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   if (!active) return;
   const parsed = closeShiftSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Enter the cash physically counted at shift close" });
-  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
-  if (!shift) return res.status(404).json({ error: "Open cashier shift not found" });
-  if (shift.userId !== req.user!.id && !requireManager(active, res)) return;
-  const until = new Date();
-  const [expected, summary] = await Promise.all([expectedCashForShift(db, shift, until), shiftHandoverSummary(db, shift, until)]);
-  const variance = money(parsed.data.declaredCash - expected);
-  if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
-  const closed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until } });
-  res.json({ shift: closed });
+  const visibleShift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
+  if (!visibleShift) return res.status(404).json({ error: "Open cashier shift not found" });
+  if (visibleShift.userId !== req.user!.id && !requireManager(active, res)) return;
+  try {
+    const closed = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      const shift = await tx.nrmsCashierShift.findFirst({ where: { id: visibleShift.id, propertyId: active.property.id, status: "OPEN" } });
+      if (!shift) throw new Error("SHIFT_NOT_FOUND");
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(shift.businessDate));
+      const until = new Date();
+      const [expected, summary] = await Promise.all([expectedCashForShift(tx, shift, until), shiftHandoverSummary(tx, shift, until)]);
+      const variance = money(parsed.data.declaredCash - expected);
+      if (variance !== 0 && !parsed.data.closeNote) throw new Error("SHIFT_VARIANCE_NOTE_REQUIRED");
+      if (summary.unpaid.count > 0 && !parsed.data.closeNote) throw new Error("SHIFT_OUTSTANDING_NOTE_REQUIRED");
+      return tx.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until } });
+    }, { maxWait: 10_000, timeout: 15_000 });
+    res.json({ shift: closed });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "SHIFT_NOT_FOUND") return res.status(409).json({ error: "This shift was already closed. Refresh Cashier variance." });
+    if (code === "SHIFT_VARIANCE_NOTE_REQUIRED") return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
+    if (code === "SHIFT_OUTSTANDING_NOTE_REQUIRED") return res.status(400).json({ error: "Unsettled orders remain. Note what is outstanding before closing this shift." });
+    if (code === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "Night Audit is closing or has closed this business date. Refresh Cashier variance.", code });
+    throw error;
+  }
+}) as RequestHandler);
+
+/**
+ * Repair a legacy staff-closed shift that predates physical drawer counting.
+ * The business date must still be writable; a sealed Night Audit is never
+ * rewritten. The audit row preserves who supplied the missing count and why.
+ */
+router.post("/property/:propertyId/shifts/:shiftId/reconcile", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const parsed = closeShiftSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter the physical cash count" });
+  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
+  if (!shift) return res.status(404).json({ error: "Closed cashier shift not found" });
+  if (shift.ownerSignedOffAt) return res.status(409).json({ error: "This shift is already signed off and cannot be changed" });
+  const variance = money(parsed.data.declaredCash - Number(shift.expectedCash));
+  if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the cash overage or shortage before saving." });
+  try {
+    const reconciled = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(shift.businessDate));
+      const note = parsed.data.closeNote
+        ? [shift.closeNote, `Reconciliation: ${parsed.data.closeNote}`].filter(Boolean).join(" · ")
+        : shift.closeNote;
+      const updated = await tx.nrmsCashierShift.update({
+        where: { id: shift.id },
+        data: { declaredCash: parsed.data.declaredCash, variance, closeNote: note || null },
+      });
+      await auditOrThrow(tx, req, "NRMS_CASHIER_SHIFT_RECONCILED", "NRMS_CASHIER_SHIFT", {
+        declaredCash: shift.declaredCash == null ? null : Number(shift.declaredCash),
+        variance: shift.variance == null ? null : Number(shift.variance),
+        closeNote: shift.closeNote,
+      }, {
+        businessDate: dayKey(shift.businessDate),
+        expectedCash: Number(shift.expectedCash),
+        declaredCash: parsed.data.declaredCash,
+        variance,
+        reason: parsed.data.closeNote || null,
+      }, shift.id);
+      return updated;
+    }, { maxWait: 10_000, timeout: 15_000 });
+    res.json({ shift: reconciled });
+  } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is already closed. Its cashier record requires a controlled correction on an open date.", code: NRMS_BUSINESS_DAY_LOCKED });
+    throw error;
+  }
 }) as RequestHandler);
 
 /**
@@ -465,11 +547,34 @@ router.post("/property/:propertyId/shifts/:shiftId/sign-off", (async (req: Authe
   const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
   if (!active) return;
   if (!requireManager(active, res)) return;
-  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
-  if (!shift) return res.status(404).json({ error: "Closed cashier shift not found" });
-  if (shift.ownerSignedOffAt) return res.status(409).json({ error: "This shift is already signed off" });
-  const signed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { ownerSignedOffAt: new Date(), ownerSignedOffById: req.user!.id } });
-  res.json({ shift: signed });
+  try {
+    const signed = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      const shift = await tx.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
+      if (!shift) throw new Error("SHIFT_NOT_FOUND");
+      if (shift.ownerSignedOffAt) throw new Error("SHIFT_ALREADY_SIGNED_OFF");
+      if (shift.declaredCash == null || shift.variance == null) throw new Error("SHIFT_PHYSICAL_COUNT_REQUIRED");
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(shift.businessDate));
+      const signedAt = new Date();
+      const updated = await tx.nrmsCashierShift.update({ where: { id: shift.id }, data: { ownerSignedOffAt: signedAt, ownerSignedOffById: req.user!.id } });
+      await auditOrThrow(tx, req, "NRMS_CASHIER_SHIFT_SIGNED_OFF", "NRMS_CASHIER_SHIFT", null, {
+        businessDate: dayKey(shift.businessDate),
+        expectedCash: Number(shift.expectedCash),
+        declaredCash: Number(shift.declaredCash),
+        variance: Number(shift.variance),
+        signedOffAt: signedAt,
+      }, shift.id);
+      return updated;
+    }, { maxWait: 10_000, timeout: 15_000 });
+    res.json({ shift: signed });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "SHIFT_NOT_FOUND") return res.status(404).json({ error: "Closed cashier shift not found" });
+    if (code === "SHIFT_ALREADY_SIGNED_OFF") return res.status(409).json({ error: "This shift is already signed off" });
+    if (code === "SHIFT_PHYSICAL_COUNT_REQUIRED") return res.status(409).json({ error: "Record the physical cash count before signing off this shift.", code });
+    if (code === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is closing or closed and cannot accept a new sign-off.", code });
+    throw error;
+  }
 }) as RequestHandler);
 
 router.post("/property/:propertyId/outlet-orders/:orderId/classify", (async (req: AuthedRequest, res: Response) => {
@@ -517,8 +622,20 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       // The property row is the shared serialization lock used by every NRMS
       // financial writer. Nothing can enter the audit snapshot after this.
       await lockPropertyInventory(tx, active.property.id);
-      const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
+      // Night Audit closes an operating record; it must never manufacture a
+      // historical business day merely because someone browsed to that date.
+      const day = await tx.nrmsBusinessDay.findUnique({
+        where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(parsed.data.businessDate) } },
+      });
+      if (!day) throw new Error("BUSINESS_DAY_NOT_OPENED");
       if (["CLOSING", "CLOSED"].includes(day.status)) throw new Error("BUSINESS_DAY_CLOSED");
+      const earliestOpenDay = await tx.nrmsBusinessDay.findFirst({
+        where: { propertyId: active.property.id, status: { in: ["OPEN", "CLOSING"] } },
+        orderBy: { businessDate: "asc" },
+        select: { businessDate: true },
+      });
+      const earliestOpenKey = earliestOpenDay ? dayKey(earliestOpenDay.businessDate) : null;
+      if (earliestOpenKey && earliestOpenKey !== parsed.data.businessDate) throw new Error(`EARLIER_BUSINESS_DAY_OPEN:${earliestOpenKey}`);
       const closeBoundary = new Date();
       const calendarWindow = dayRange(parsed.data.businessDate);
       const openedAt = day.openedAt ? new Date(day.openedAt) : calendarWindow.start;
@@ -619,7 +736,15 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });
       const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt } });
       const nextBusinessDate = nextShiftDayKey(parsed.data.businessDate);
-      const nextBusinessDay = await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
+      // Existing duplicate OPEN rows may predate this invariant. Advance to the
+      // earliest one instead of creating yet another row; repeated closes then
+      // drain the queue. Only create the next calendar day when no later active
+      // business day already exists.
+      const nextExistingBusinessDay = await tx.nrmsBusinessDay.findFirst({
+        where: { propertyId: active.property.id, status: { in: ["OPEN", "CLOSING"] }, businessDate: { gt: day.businessDate } },
+        orderBy: { businessDate: "asc" },
+      });
+      const nextBusinessDay = nextExistingBusinessDay ?? await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
       if (["CLOSING", "CLOSED"].includes(nextBusinessDay.status)) throw new Error("NEXT_BUSINESS_DAY_LOCKED");
       if (fiscalWarning) {
         await auditOrThrow(tx, req, "NRMS_FISCAL_BACKLOG_ACKNOWLEDGED_AT_NIGHT_AUDIT", "PROPERTY", null, {
@@ -644,7 +769,12 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     res.json({ businessDay: result.businessDay, nextBusinessDay: result.nextBusinessDay, audit: result.audit });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
+    if (code === "BUSINESS_DAY_NOT_OPENED") return res.status(409).json({ error: "This date was never opened for operations, so there is no business day to close.", code });
     if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closing or closed.", code: NRMS_BUSINESS_DAY_LOCKED });
+    if (code.startsWith("EARLIER_BUSINESS_DAY_OPEN:")) {
+      const targetBusinessDate = code.slice("EARLIER_BUSINESS_DAY_OPEN:".length);
+      return res.status(409).json({ error: `Close the earlier open business date ${targetBusinessDate} first. Night Audit must follow one chronological sequence.`, code: "EARLIER_BUSINESS_DAY_OPEN", targetBusinessDate });
+    }
     if (code === "NEXT_BUSINESS_DAY_LOCKED") return res.status(409).json({ error: "The next business date is already closing or closed. Review the business-day sequence before continuing.", code });
     if (code.startsWith("UNBALANCED_ACCOUNTING_EVENT:")) return res.status(500).json({ error: `Unbalanced accounting event: ${code.slice("UNBALANCED_ACCOUNTING_EVENT:".length)}` });
     throw error;

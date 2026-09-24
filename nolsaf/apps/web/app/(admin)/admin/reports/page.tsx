@@ -1,16 +1,31 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Printer } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  AlertTriangle,
+  Building2,
+  Car,
+  Compass,
+  Landmark,
+  Lock,
+  Printer,
+  ReceiptText,
+  Server,
+  ShieldCheck,
+  Wallet,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import Chart from "@/components/Chart";
-import DatePickerField from "@/components/DatePickerField";
 import NoLSAFReportsFrame, { NoLSAFReportTitle } from "@/components/admin/reports/NoLSAFReportsFrame";
+import ReportPeriodPicker from "@/components/admin/reports/ReportPeriodPicker";
 import { fetchAccountSession } from "@/lib/accountSession";
 import {
   adminReportPrintStyles,
   buildAdminReportFooter,
   buildAdminReportHeader,
+  buildAdminReportWatermark,
   openAdminReportPrintWindow,
   renderAndPrintAdminReport,
 } from "@/lib/adminReportPrint";
@@ -240,6 +255,10 @@ export default function AdminReportsPage() {
   const [revenueByType, setRevenueByType] = useState<Series>({ labels: [], data: [] });
   const [invoiceStatusCounts, setInvoiceStatusCounts] = useState<InvoiceStatusCounts>({});
   const [invoiceItems, setInvoiceItems] = useState<InvoiceRow[]>([]);
+  /** True when the finance OTP grant is missing, so invoice level detail is withheld. */
+  const [registerLocked, setRegisterLocked] = useState(false);
+  /** Bumped when the finance grant is issued, to reload the gated sections. */
+  const [grantKey, setGrantKey] = useState(0);
 
   const [ownerCommissionTotal, setOwnerCommissionTotal] = useState<number | null>(null);
   const [driverCommissionTotal, setDriverCommissionTotal] = useState<number | null>(null);
@@ -294,24 +313,34 @@ export default function AdminReportsPage() {
         const invs = (await safeJson(r4)) as InvoiceStatusCounts;
         setInvoiceStatusCounts(invs || {});
 
+        // The invoice level register is read through the finance router, so it
+        // needs the finance OTP grant and not merely an admin session.
         const r5 = await fetch(
-          `/api/admin/revenue/invoices?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=1&pageSize=200&sortBy=issuedAt&sortDir=desc`,
+          `/api/admin/finance/invoice-register?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=1&pageSize=200`,
           { credentials: "include", signal }
         );
-        const invList = (await safeJson(r5)) as any;
-        const items = Array.isArray(invList?.items) ? (invList.items as InvoiceRow[]) : [];
-        setInvoiceItems(items);
+        if (r5.status === 403) {
+          setRegisterLocked(true);
+          setInvoiceItems([]);
+        } else {
+          const invList = (await safeJson(r5)) as any;
+          const items = Array.isArray(invList?.items) ? (invList.items as InvoiceRow[]) : [];
+          setRegisterLocked(false);
+          setInvoiceItems(items);
+        }
 
         setTotalsLoading(true);
 
         const fetchOwnerCommission = async () => {
           let page = 1;
-          const pageSize = 500;
+          // Matches the register endpoint's own page cap, so the paging maths
+          // below cannot skip rows.
+          const pageSize = 200;
           let totalComm = 0;
           let safety = 0;
           while (true) {
             const rr = await fetch(
-              `/api/admin/revenue/invoices?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=${page}&pageSize=${pageSize}&sortBy=issuedAt&sortDir=desc`,
+              `/api/admin/finance/invoice-register?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&page=${page}&pageSize=${pageSize}`,
               { credentials: "include", signal }
             );
             const data = (await safeJson(rr)) as any;
@@ -444,7 +473,15 @@ export default function AdminReportsPage() {
     })();
 
     return () => controller.abort();
-  }, [from, to]);
+  }, [from, to, grantKey]);
+
+  // Reload once the finance OTP grant is issued, so the register fills in
+  // without the admin having to change the period first.
+  useEffect(() => {
+    const onGranted = () => setGrantKey((k) => k + 1);
+    window.addEventListener("finance-grant-granted", onGranted);
+    return () => window.removeEventListener("finance-grant-granted", onGranted);
+  }, []);
 
   const printedByName = (me?.fullName || me?.name || "Admin").toString();
   const printedByEmail = (me?.email || "").toString();
@@ -617,6 +654,10 @@ export default function AdminReportsPage() {
     // QR. Anyone can scan it to confirm the report is genuine without logging in.
     let reportRef = `RPT-${from.replace(/-/g, "")}-${to.replace(/-/g, "")}-${reportId.slice(11, 19).replace(/:/g, "")}`;
     let qrDataUrl: string | null = null;
+    // The seal call is what records the export, so a failure here must stop the
+    // print rather than quietly produce an unrecorded document.
+    let sealedBy = printedByName;
+    let sealedRole = "ADMIN";
     try {
       const sealRes = await fetch("/api/reports/seal", {
         method: "POST",
@@ -642,8 +683,11 @@ export default function AdminReportsPage() {
         }),
       });
       const sealJson: any = await safeJson(sealRes);
+      if (!sealJson?.token) throw new Error("The report was not sealed.");
       if (sealJson?.token) {
         reportRef = String(sealJson.ref || reportRef);
+        sealedBy = String(sealJson.generatedBy || sealedBy);
+        sealedRole = String(sealJson.role || sealedRole);
         const verifyUrl = new URL("/verify", window.location.origin);
         verifyUrl.searchParams.set("t", String(sealJson.token));
         const QR: any = await import("qrcode");
@@ -652,8 +696,15 @@ export default function AdminReportsPage() {
           qrDataUrl = await toDataURL(verifyUrl.toString(), { margin: 1, width: 320, errorCorrectionLevel: "M" });
         }
       }
-    } catch {
-      qrDataUrl = null;
+    } catch (err: any) {
+      printWindow.close();
+      const message = String(err?.message || "");
+      alert(
+        message.includes("503") || message.toLowerCase().includes("record")
+          ? "This report was not printed because the export could not be recorded. Please try again."
+          : "This report was not printed because it could not be sealed and recorded. Please try again."
+      );
+      return;
     }
 
     const logoUrl = new URL("/assets/NoLS2025-04.png", window.location.origin).toString();
@@ -867,6 +918,13 @@ export default function AdminReportsPage() {
 </head>
 <body>
   <div class="reportPage">
+    ${buildAdminReportWatermark({
+      printedBy: sealedBy,
+      role: sealedRole,
+      reportRef,
+      printedAt: fmtDateTime(reportId),
+      classification: "NoLSAF confidential",
+    })}
     <main class="reportDocument">
     ${buildAdminReportHeader({
       logoUrl,
@@ -942,7 +1000,12 @@ export default function AdminReportsPage() {
           </tr>
         </thead>
         <tbody>
-          ${detailRows || `<tr><td colspan="8" class="emptyState">No invoice rows were recorded in this period.</td></tr>`}
+          ${
+            detailRows ||
+            (registerLocked
+              ? `<tr><td colspan="8" class="emptyState">Invoice level detail was withheld from this print: the finance verification code was not supplied.</td></tr>`
+              : `<tr><td colspan="8" class="emptyState">No invoice rows were recorded in this period.</td></tr>`)
+          }
         </tbody>
       </table></div>
       <div class="reportNote">This print register includes up to 60 invoice rows. Use the system export when the complete machine readable register is required.</div>
@@ -971,7 +1034,7 @@ export default function AdminReportsPage() {
             <button
               type="button"
               onClick={() => printReport("full")}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700"
+              className="box-border inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-[13px] font-semibold text-neutral-700 transition hover:border-[#073c35]/30 hover:bg-neutral-50 hover:text-[#073c35]"
             >
               <Printer className="h-3.5 w-3.5" aria-hidden />
               Full report
@@ -980,7 +1043,7 @@ export default function AdminReportsPage() {
             <button
               type="button"
               onClick={() => printReport("revenueOnly")}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-emerald-800"
+              className="box-border inline-flex h-9 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-3 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#02524a]"
               title="Print only NoLSAF revenue sources"
             >
               <Printer className="h-3.5 w-3.5" aria-hidden />
@@ -997,158 +1060,105 @@ export default function AdminReportsPage() {
       />
 
         {clampInfo.clamped ? (
-          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
+          <div className="flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-[14px] text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             <div className="min-w-0">
               <div className="font-bold">Range limited</div>
-              <div className="break-words text-amber-800/80">Max range is {MAX_REPORT_DAYS_INCLUSIVE} days.</div>
+              <div className="break-words text-amber-800/80">The longest report you can run is {MAX_REPORT_DAYS_INCLUSIVE} days.</div>
             </div>
           </div>
         ) : null}
 
-        <section className="grid min-w-0 gap-4 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm lg:grid-cols-[minmax(0,360px)_1px_minmax(0,1fr)] lg:items-end" aria-label="Revenue report controls">
-          <div className="min-w-0">
-            <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Reporting period</div>
-            <div className="mt-2 grid min-w-0 gap-2 sm:grid-cols-2">
-              <div className="min-w-0">
-                <div className="mb-1 text-[9px] font-semibold text-neutral-500">From</div>
-                <DatePickerField label="From date" value={from} max={to} onChangeAction={(nextIso) => applyRange(nextIso, to)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
-              </div>
-              <div className="min-w-0">
-                <div className="mb-1 text-[9px] font-semibold text-neutral-500">To</div>
-                <DatePickerField label="To date" value={to} min={from} max={clampInfo.maxTo ?? undefined} onChangeAction={(nextIso) => applyRange(from, nextIso)} widthClassName="w-full" size="sm" twoMonths={false} allowPast />
-              </div>
-            </div>
-          </div>
+        <ReportPeriodPicker
+          from={from}
+          to={to}
+          onChangeAction={(nextFrom, nextTo) => applyRange(nextFrom, nextTo)}
+          maxTo={clampInfo.maxTo}
+          maxDays={MAX_REPORT_DAYS_INCLUSIVE}
+        />
 
-          <div className="hidden self-stretch bg-neutral-200 lg:block" aria-hidden />
-
-          <div className="min-w-0">
-            <div className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-400">Quick range</div>
-            <div className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <div className="grid w-max min-w-full grid-flow-col auto-cols-[minmax(88px,1fr)] items-center gap-1.5 p-0.5" aria-label="Quick report periods">
-              {(
-                [
-                  { key: "today" as const, label: "Today", hint: "Today" },
-                  { key: "7d" as const, label: "7 days", hint: "Last 7 days" },
-                  { key: "30d" as const, label: "30 days", hint: "Last 30 days" },
-                  { key: "3m" as const, label: "3 months", hint: "Last 3 months" },
-                  { key: "6m" as const, label: "6 months", hint: "Last 6 months" },
-                  { key: "ytd" as const, label: "YTD", hint: "Year to date" },
-                  { key: "12m" as const, label: "12 months", hint: "Last 12 months" },
-                ] as const
-              ).map((p) => {
-                const r = getQuickRange(p.key);
-                const active = from === r.from && to === r.to;
-                return (
-                  <RangePill
-                    key={p.key}
-                    label={p.label}
-                    hint={p.hint}
-                    active={active}
-                    onClick={() => applyRange(r.from, r.to)}
-                  />
-                );
-              })}
-
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Gross payment volume</div>
-            <div className="mt-2 text-lg font-bold tabular-nums text-neutral-950">TZS {fmtMoneyTZS(totalRevenue)}</div>
-            <div className="mt-2 space-y-0.5 text-[10px] text-neutral-500">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+          <KpiCard icon={Wallet} label="Gross payment volume" value={`TZS ${fmtMoneyTZS(totalRevenue)}`} footer="Customer payment turnover, not NoLSAF revenue.">
+            <div className="mt-3 space-y-1.5 border-0 border-t border-solid border-neutral-100 pt-2.5 text-[13px]">
               <div className="flex items-center justify-between gap-2">
-                <span>Property invoices</span>
-                <span className="font-semibold text-neutral-800">TZS {fmtMoneyTZS(grossPaymentBreakdown.propertyTzs)}</span>
+                <span className="text-neutral-500">Property invoices</span>
+                <span className="font-semibold tabular-nums text-neutral-900">TZS {fmtMoneyTZS(grossPaymentBreakdown.propertyTzs)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span>Transport</span>
-                <span className="font-semibold text-neutral-800">TZS {fmtMoneyTZS(grossPaymentBreakdown.transportTzs)}</span>
+                <span className="text-neutral-500">Transport</span>
+                <span className="font-semibold tabular-nums text-neutral-900">TZS {fmtMoneyTZS(grossPaymentBreakdown.transportTzs)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span>Tour (separate)</span>
-                <span className="font-semibold text-amber-700">{tourCommissionCurrency} {fmtMoneyUSD(grossPaymentBreakdown.tourUsd)}</span>
+                <span className="text-neutral-500">Tour (settled separately)</span>
+                <span className="font-semibold tabular-nums text-amber-700">{tourCommissionCurrency} {fmtMoneyUSD(grossPaymentBreakdown.tourUsd)}</span>
               </div>
             </div>
-            <div className="mt-1.5 text-[9px] text-neutral-400">Customer payment turnover, not NoLSAF revenue.</div>
-          </div>
-          <div className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Active properties</div>
-            <div className="mt-2 text-lg font-bold tabular-nums text-neutral-950">{String(totalActive)}</div>
-            <div className="mt-auto pt-1.5 text-[10px] text-neutral-500">Latest active platform supply.</div>
-          </div>
-          <div className="flex min-h-[116px] min-w-0 flex-col rounded-xl border border-neutral-200 bg-white p-3.5 shadow-sm">
-            <div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Invoices recorded</div>
-            <div className="mt-2 text-lg font-bold tabular-nums text-neutral-950">{String(invoicesTotal)}</div>
-            <div className="mt-auto pt-1.5 text-[10px] text-neutral-500">Every invoice workflow state in range.</div>
-          </div>
+          </KpiCard>
+
+          <KpiCard icon={Building2} label="Active properties" value={String(totalActive)} footer="Live supply on the platform right now." />
+
+          <KpiCard icon={ReceiptText} label="Invoices recorded" value={String(invoicesTotal)} footer="Every invoice state inside this period." />
         </div>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-bold text-neutral-950">NoLSAF revenue sources</div>
-              <div className="text-[10px] text-neutral-500">Owner commission, driver commission, verified NRMS subscriptions, tour commission, and total platform earnings.</div>
+        <ReportPanel
+          title="NoLSAF revenue sources"
+          note="What the company earns in this period, before any payout or cost."
+          right={totalsLoading ? <span className="text-[13px] font-medium text-neutral-500">Calculating</span> : null}
+        >
+          <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+              <SourceTile
+                icon={Landmark}
+                label="Owner commission"
+                value={ownerCommissionTotal === null ? "No data" : `TZS ${fmtMoneyTZS(Math.round(ownerCommissionTotal))}`}
+                muted={ownerCommissionTotal === null}
+              />
+              <SourceTile
+                icon={Car}
+                label="Driver commission"
+                value={driverCommissionTotal === null ? "No data" : `TZS ${fmtMoneyTZS(Math.round(driverCommissionTotal))}`}
+                muted={driverCommissionTotal === null}
+              />
+              <SourceTile
+                icon={Server}
+                label="NRMS subscriptions"
+                value={subscriptionRevenueTotal === null ? "No verified revenue" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`}
+                muted={subscriptionRevenueTotal === null}
+              />
+              <SourceTile
+                icon={Compass}
+                label={`Tour commission (${tourCommissionCurrency})`}
+                value={tourCommissionTotal === null ? "No data" : `${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)}`}
+                muted={tourCommissionTotal === null}
+                accent="amber"
+              />
             </div>
-            {totalsLoading ? <div className="text-xs text-slate-500">Calculating…</div> : null}
-          </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-              <div className="text-[9px] font-bold uppercase tracking-wide text-emerald-700">Owner commission</div>
-              <div className="mt-2 text-base font-bold text-emerald-700">
-                {ownerCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(ownerCommissionTotal))}`}
+            <div className="box-border flex min-w-0 flex-col justify-center rounded-xl bg-[#073c35] p-4 text-white">
+              <div className="text-[12.5px] font-semibold uppercase tracking-[0.1em] text-white/60">Total NoLSAF revenue</div>
+              <div className="mt-1.5 text-[26px] font-bold leading-tight tabular-nums">
+                {totalNoLSAFRevenue === null ? "No data" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}`}
               </div>
-            </div>
-            <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
-              <div className="text-[9px] font-bold uppercase tracking-wide text-sky-700">Driver commission</div>
-              <div className="mt-2 text-base font-bold text-sky-800">
-                {driverCommissionTotal === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(driverCommissionTotal))}`}
-              </div>
-            </div>
-            <div className="rounded-xl border border-violet-100 bg-violet-50/70 p-3">
-              <div className="text-[9px] font-bold uppercase tracking-wide text-violet-700">NRMS subscriptions</div>
-              <div className="mt-2 text-base font-bold text-violet-800">
-                {subscriptionRevenueTotal === null ? "No verified revenue" : `TZS ${fmtMoneyTZS(Math.round(subscriptionRevenueTotal))}`}
-              </div>
-            </div>
-            <div className="rounded-xl border border-amber-100 bg-amber-50 p-3">
-              <div className="text-[9px] font-bold uppercase tracking-wide text-amber-700">Tour commission ({tourCommissionCurrency})</div>
-              <div className="mt-2 text-base font-bold text-amber-800">
-                {tourCommissionTotal === null ? "—" : `${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)}`}
-              </div>
-            </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-              <div className="text-[9px] font-bold uppercase tracking-wide text-emerald-700">Total NoLSAF revenue</div>
-              <div className="mt-2 text-base font-bold text-emerald-950">
-                {totalNoLSAFRevenue === null ? "—" : `TZS ${fmtMoneyTZS(Math.round(totalNoLSAFRevenue))}`}
-              </div>
-              <div className="mt-1 text-[10px] font-bold text-amber-700">
-                {tourCommissionTotal ? `+ ${tourCommissionCurrency} ${fmtMoneyUSD(tourCommissionTotal)} tour` : null}
-              </div>
+              {tourCommissionTotal ? (
+                <div className="mt-1 text-[13px] font-semibold text-amber-200">
+                  plus {tourCommissionCurrency} {fmtMoneyUSD(tourCommissionTotal)} from tours
+                </div>
+              ) : null}
+              <p className="m-0 mt-3 text-[12.5px] leading-4 text-white/65">
+                Owner commission, driver commission and verified NRMS subscriptions make up the TZS total. Tour commission settles in {tourCommissionCurrency} and stays separate.
+              </p>
             </div>
           </div>
-          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-[10px] leading-4 text-blue-900">
-            Owner commission, driver commission, and verified or manually reconciled NRMS subscriptions are included in the <span className="font-semibold">TZS</span> total. Tour commission settles in <span className="font-semibold">{tourCommissionCurrency}</span> and remains separate.
-          </div>
-        </section>
+        </ReportPanel>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <div className="text-sm font-bold text-neutral-950">Visual summary</div>
-              <div className="text-xs text-slate-400">Revenue trend · Invoice status · Breakdown by property type.</div>
-            </div>
-            {loading ? <div className="text-xs text-slate-500">Loading…</div> : null}
-          </div>
-
-          <div className="mt-3 grid gap-3 lg:grid-cols-3">
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
-              <div className="mb-2 text-xs font-bold text-neutral-800">Revenue trend</div>
+        <ReportPanel
+          title="Visual summary"
+          note="Revenue trend, invoice status and where the booking value comes from."
+          right={loading ? <span className="text-[13px] font-medium text-neutral-500">Loading</span> : null}
+        >
+          <div className="grid min-w-0 gap-3 lg:grid-cols-3">
+            <div className="box-border min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3">
+              <div className="mb-2 text-[13.5px] font-bold text-neutral-900">Revenue trend</div>
               <Chart
                 type="line"
                 data={revenueChartData as any}
@@ -1171,8 +1181,8 @@ export default function AdminReportsPage() {
               />
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
-              <div className="mb-2 text-xs font-bold text-neutral-800">Invoices by status</div>
+            <div className="box-border min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3">
+              <div className="mb-2 text-[13.5px] font-bold text-neutral-900">Invoices by status</div>
               <Chart
                 type="doughnut"
                 data={invoiceStatusChartData as any}
@@ -1192,9 +1202,9 @@ export default function AdminReportsPage() {
               />
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-neutral-50/70 p-3">
-              <div className="text-xs font-bold text-neutral-800">Gross booking value by property type</div>
-              <div className="mt-1 text-xs text-slate-500">Total paid invoice value (turnover), not NoLSAF commission.</div>
+            <div className="box-border min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-3">
+              <div className="text-[13.5px] font-bold text-neutral-900">Gross booking value by property type</div>
+              <div className="mt-0.5 text-[12.5px] text-neutral-500">Total paid invoice value (turnover), not NoLSAF commission.</div>
 
               {revenueByTypeBreakdown.items.length ? (
                 <>
@@ -1211,135 +1221,158 @@ export default function AdminReportsPage() {
                     ))}
                   </div>
 
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 space-y-1.5">
                     {revenueByTypeBreakdown.items.slice(0, 10).map((it) => (
-                      <div key={it.label} className="flex items-center gap-2 text-[10px]">
-                        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: it.color }} aria-hidden />
+                      <div key={it.label} className="flex items-center gap-2 text-[12.5px]">
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: it.color }} aria-hidden />
                         <div className="min-w-0 flex-1 truncate font-semibold text-neutral-700">{it.label}</div>
-                        <div className="text-slate-500 font-semibold whitespace-nowrap">{Math.round(it.pct)}%</div>
-                        <div className="whitespace-nowrap font-bold text-neutral-950">TZS {fmtMoneyTZS(Number(it.value) || 0)}</div>
+                        <div className="whitespace-nowrap font-semibold tabular-nums text-neutral-500">{Math.round(it.pct)}%</div>
+                        <div className="whitespace-nowrap font-bold tabular-nums text-neutral-950">TZS {fmtMoneyTZS(Number(it.value) || 0)}</div>
                       </div>
                     ))}
                   </div>
                 </>
               ) : (
-                <div className="mt-3 text-sm text-slate-500">No booking value data for this range.</div>
+                <div className="mt-3 text-[13.5px] text-neutral-500">No booking value data for this range.</div>
               )}
             </div>
           </div>
-        </section>
+        </ReportPanel>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="text-sm font-bold text-neutral-950">Invoice status summary</div>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
-                    <th className="text-left py-2.5 pr-2">Status</th>
-                    <th className="text-right py-2.5 pl-2">Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.keys(invoiceStatusCounts || {}).length ? (
-                    Object.entries(invoiceStatusCounts)
-                      .sort((a, b) => a[0].localeCompare(b[0]))
-                      .map(([k, v]) => (
-                        <tr key={k} className="border-b border-neutral-100 last:border-b-0">
-                          <td className="py-2.5 pr-2 text-xs text-neutral-600">{k}</td>
-                          <td className="py-2.5 pl-2 text-right text-xs font-bold text-neutral-950">{String(v ?? 0)}</td>
-                        </tr>
-                      ))
-                  ) : (
-                    <tr>
-                      <td colSpan={2} className="py-4 text-sm text-slate-500">
-                        No invoice data for this range.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+        <ReportPanel title="Invoice status summary" note="How the invoices in this period are spread across the workflow.">
+          {Object.keys(invoiceStatusCounts || {}).length ? (
+            <div className="grid min-w-0 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+              {Object.entries(invoiceStatusCounts)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([k, v]) => (
+                  <div key={k} className="box-border min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 px-3 py-2.5">
+                    <div className="truncate text-[12.5px] font-semibold capitalize text-neutral-500">{k.toLowerCase().replace(/_/g, " ")}</div>
+                    <div className="mt-0.5 text-[20px] font-bold leading-tight tabular-nums text-neutral-950">{String(v ?? 0)}</div>
+                  </div>
+                ))}
             </div>
-        </section>
+          ) : (
+            <EmptyNote text="No invoice data for this range." />
+          )}
+        </ReportPanel>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-bold text-neutral-950">Invoice register</div>
-              <div className="text-xs text-slate-500">Up to 200 loaded · prints up to 60</div>
-            </div>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-sm">
+        <ReportPanel
+          title="Invoice register"
+          note="Every property invoice raised in this period."
+          right={
+            registerLocked ? (
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-0.5 text-[13px] font-bold text-amber-800">
+                <Lock className="h-3.5 w-3.5" aria-hidden />
+                Verification required
+              </span>
+            ) : (
+              <span className="text-[13px] font-medium text-neutral-500">Up to 200 loaded · prints up to 60</span>
+            )
+          }
+          bleed
+        >
+            {registerLocked ? (
+              <div className="p-4 sm:p-6">
+                <div className="box-border mx-auto max-w-[520px] rounded-xl border border-solid border-amber-200 bg-amber-50/60 px-5 py-6 text-center">
+                  <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+                    <Lock className="h-5 w-5" aria-hidden />
+                  </span>
+                  <p className="m-0 mt-3 text-[15px] font-bold text-neutral-950">Invoice level detail is protected</p>
+                  <p className="m-0 mt-1 text-[13.5px] leading-5 text-neutral-600">
+                    Invoice numbers, properties, totals and commission per invoice need a finance verification code, not just an admin
+                    session. The totals above and the charts stay available without it.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent("finance-grant-required"))}
+                    className="box-border mt-4 inline-flex h-10 items-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-[13.5px] font-semibold text-white transition hover:bg-[#02524a]"
+                  >
+                    <ShieldCheck className="h-4 w-4" aria-hidden />
+                    Verify to view
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] border-collapse text-[13.5px]">
                 <thead>
-                  <tr className="border-b border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
-                    <th className="text-left py-2.5 pr-2">Invoice</th>
-                    <th className="text-left py-2.5 px-2">Status</th>
-                    <th className="text-left py-2.5 px-2">Issued</th>
-                    <th className="text-left py-2.5 px-2">Property</th>
-                    <th className="text-right py-2.5 px-2">Total</th>
-                    <th className="text-right py-2.5 pl-2">Net</th>
-                    <th className="text-right font-bold py-2.5 pl-2 text-emerald-400">NoLSAF (TZS)</th>
-                    <th className="text-right py-2.5 pl-2">NoLSAF %</th>
+                  <tr className="border-0 border-b border-solid border-neutral-200 bg-neutral-50 text-[12px] font-bold uppercase tracking-[0.08em] text-neutral-500">
+                    <th className="px-4 py-2.5 text-left">Invoice</th>
+                    <th className="px-2 py-2.5 text-left">Status</th>
+                    <th className="px-2 py-2.5 text-left">Issued</th>
+                    <th className="px-2 py-2.5 text-left">Property</th>
+                    <th className="px-2 py-2.5 text-right">Total</th>
+                    <th className="px-2 py-2.5 text-right">Net</th>
+                    <th className="px-2 py-2.5 text-right text-[#073c35]">NoLSAF (TZS)</th>
+                    <th className="px-4 py-2.5 text-right">NoLSAF %</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoiceItems.length ? (
                     invoiceItems.slice(0, 60).map((inv) => (
-                      <tr key={inv.id} className="border-b border-neutral-100 text-xs last:border-b-0 hover:bg-neutral-50/70">
-                        <td className="whitespace-nowrap py-2.5 pr-2 font-bold text-neutral-950">
+                      <tr key={inv.id} className="border-0 border-b border-solid border-neutral-100 transition-colors last:border-b-0 hover:bg-neutral-50/70">
+                        <td className="whitespace-nowrap px-4 py-2.5 font-bold text-neutral-950">
                           {inv.invoiceNumber || `#${inv.id}`}
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2.5 text-neutral-600">{inv.status || "—"}</td>
-                        <td className="py-2.5 px-2 text-slate-400 whitespace-nowrap">
-                          {inv.issuedAt ? fmtDateTime(inv.issuedAt) : "—"}
+                        <td className="whitespace-nowrap px-2 py-2.5">
+                          <span className="inline-flex items-center rounded-md bg-neutral-100 px-1.5 py-0.5 text-[12.5px] font-semibold capitalize text-neutral-600">
+                            {(inv.status || "unknown").toLowerCase().replace(/_/g, " ")}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-2.5 text-neutral-500">
+                          {inv.issuedAt ? fmtDateTime(inv.issuedAt) : "No date"}
                         </td>
                         <td className="max-w-[320px] truncate px-2 py-2.5 text-neutral-700">
-                          {inv.booking?.property?.title || "—"}
+                          {inv.booking?.property?.title || "No property"}
                         </td>
-                        <td className="py-2.5 px-2 text-right text-slate-200 whitespace-nowrap">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-neutral-600">
                           TZS {fmtMoneyTZS(Number(inv.total || 0))}
                         </td>
-                        <td className="whitespace-nowrap py-2.5 pl-2 text-right font-semibold text-neutral-950">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-semibold tabular-nums text-neutral-950">
                           TZS {fmtMoneyTZS(Number(inv.netPayable || 0))}
                         </td>
-                        <td className="whitespace-nowrap py-2.5 pl-2 text-right font-semibold text-emerald-700">
+                        <td className="whitespace-nowrap px-2 py-2.5 text-right font-bold tabular-nums text-[#073c35]">
                           {(() => {
                             const amt = calcCommissionAmount(inv.total, inv.netPayable);
-                            return amt === null ? "—" : `TZS ${fmtMoneyTZS(amt)}`;
+                            return amt === null ? "No data" : `TZS ${fmtMoneyTZS(amt)}`;
                           })()}
                         </td>
-                        <td className="whitespace-nowrap py-2.5 pl-2 text-right text-neutral-600">
+                        <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-neutral-600">
                           {fmtPct(calcCommissionPct(inv.total, inv.netPayable), 1)}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className="py-4 text-sm text-slate-500">
-                        No invoice rows for this range.
+                      <td colSpan={8} className="px-4">
+                        <EmptyNote text="No invoice rows for this range." />
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-          </section>
+            )}
+          </ReportPanel>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-bold text-neutral-950">Tour activity register</div>
-              <div className="text-xs text-slate-500">Customer-paid tours in range · prints up to 60</div>
-            </div>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-sm">
+        <ReportPanel
+          title="Tour activity register"
+          note="Customer paid tours inside this period."
+          right={<span className="text-[13px] font-medium text-neutral-500">Prints up to 60</span>}
+          bleed
+        >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] border-collapse text-[13.5px]">
                 <thead>
-                  <tr className="border-b border-neutral-200 bg-neutral-50 text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">
-                    <th className="text-left py-2.5 pr-2">Booking</th>
-                    <th className="text-left py-2.5 px-2">Operator</th>
-                    <th className="text-left py-2.5 px-2">Activity (tour · destination)</th>
-                    <th className="text-right py-2.5 px-2">Travelers</th>
-                    <th className="text-right py-2.5 px-2">Gross</th>
-                    <th className="px-2 py-2.5 text-right font-bold text-amber-700">Commission</th>
-                    <th className="text-left py-2.5 px-2">Status</th>
-                    <th className="text-left py-2.5 pl-2">Created</th>
+                  <tr className="border-0 border-b border-solid border-neutral-200 bg-neutral-50 text-[12px] font-bold uppercase tracking-[0.08em] text-neutral-500">
+                    <th className="px-4 py-2.5 text-left">Booking</th>
+                    <th className="px-2 py-2.5 text-left">Operator</th>
+                    <th className="px-2 py-2.5 text-left">Activity</th>
+                    <th className="px-2 py-2.5 text-right">Travelers</th>
+                    <th className="px-2 py-2.5 text-right">Gross</th>
+                    <th className="px-2 py-2.5 text-right text-amber-700">Commission</th>
+                    <th className="px-2 py-2.5 text-left">Status</th>
+                    <th className="px-4 py-2.5 text-left">Created</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1347,66 +1380,129 @@ export default function AdminReportsPage() {
                     tourRows.slice(0, 60).map((t) => {
                       const cur = t.currency || tourCommissionCurrency;
                       return (
-                        <tr key={`tour-${t.id}`} className="border-b border-neutral-100 text-xs last:border-b-0 hover:bg-neutral-50/70">
-                          <td className="whitespace-nowrap py-2.5 pr-2 font-bold text-neutral-950">{t.bookingCode || `#${t.id}`}</td>
-                          <td className="whitespace-nowrap px-2 py-2.5 text-neutral-700">{t.operatorName || "—"}</td>
+                        <tr key={`tour-${t.id}`} className="border-0 border-b border-solid border-neutral-100 transition-colors last:border-b-0 hover:bg-neutral-50/70">
+                          <td className="whitespace-nowrap px-4 py-2.5 font-bold text-neutral-950">{t.bookingCode || `#${t.id}`}</td>
+                          <td className="whitespace-nowrap px-2 py-2.5 text-neutral-700">{t.operatorName || "No operator"}</td>
                           <td className="max-w-[360px] truncate px-2 py-2.5 text-neutral-700">
-                            {t.tourTitle || "—"}
-                            {t.destination ? <span className="text-slate-500"> · {t.destination}</span> : null}
+                            {t.tourTitle || "No title"}
+                            {t.destination ? <span className="text-neutral-500"> · {t.destination}</span> : null}
                           </td>
-                          <td className="whitespace-nowrap px-2 py-2.5 text-right text-neutral-600">
-                            {t.numberOfPeople ?? "—"}
+                          <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-neutral-600">
+                            {t.numberOfPeople ?? "No data"}
                           </td>
-                          <td className="whitespace-nowrap px-2 py-2.5 text-right text-neutral-800">
-                            {t.grossAmount === null || t.grossAmount === undefined ? "—" : `${cur} ${fmtMoneyUSD(Number(t.grossAmount) || 0)}`}
+                          <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-neutral-800">
+                            {t.grossAmount === null || t.grossAmount === undefined ? "No data" : `${cur} ${fmtMoneyUSD(Number(t.grossAmount) || 0)}`}
                           </td>
-                          <td className="whitespace-nowrap px-2 py-2.5 text-right font-semibold text-amber-700">
-                            {t.commissionAmount === null || t.commissionAmount === undefined ? "—" : `${cur} ${fmtMoneyUSD(Number(t.commissionAmount) || 0)}`}
+                          <td className="whitespace-nowrap px-2 py-2.5 text-right font-bold tabular-nums text-amber-700">
+                            {t.commissionAmount === null || t.commissionAmount === undefined ? "No data" : `${cur} ${fmtMoneyUSD(Number(t.commissionAmount) || 0)}`}
                           </td>
-                          <td className="whitespace-nowrap px-2 py-2.5 text-neutral-600">{t.status || "—"}</td>
-                          <td className="py-2.5 pl-2 text-slate-400 whitespace-nowrap">{t.createdAt ? fmtDateTime(t.createdAt) : "—"}</td>
+                          <td className="whitespace-nowrap px-2 py-2.5">
+                            <span className="inline-flex items-center rounded-md bg-neutral-100 px-1.5 py-0.5 text-[12.5px] font-semibold capitalize text-neutral-600">
+                              {(t.status || "unknown").toLowerCase().replace(/_/g, " ")}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-2.5 text-neutral-500">{t.createdAt ? fmtDateTime(t.createdAt) : "No date"}</td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="py-4 text-sm text-slate-500">
-                        No tour activities for this range.
+                      <td colSpan={8} className="px-4">
+                        <EmptyNote text="No tour activities for this range." />
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-          </section>
+          </ReportPanel>
     </NoLSAFReportsFrame>
   );
 }
 
-function RangePill({
-  label,
-  hint,
-  active,
-  onClick,
+/** A plain white section card: header rule, then content. No stripes, no washes. */
+function ReportPanel({
+  title,
+  note,
+  right,
+  bleed = false,
+  children,
 }: {
-  label: string;
-  hint: string;
-  active: boolean;
-  onClick: () => void;
+  title: string;
+  note?: string;
+  right?: ReactNode;
+  bleed?: boolean;
+  children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={hint}
-      className={
-        "group relative h-9 w-full snap-start overflow-hidden rounded-md border px-3 text-[10px] font-bold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/20 " +
-        (active ? "border-emerald-800 bg-gradient-to-b from-emerald-700 to-emerald-800 text-white shadow-emerald-900/15" : "border-neutral-200 bg-gradient-to-b from-white to-neutral-50 text-neutral-600 hover:border-emerald-300 hover:text-emerald-800")
-      }
-    >
-      <span className="relative z-10">{label}</span>
-      <span className={`absolute inset-x-2 bottom-0 h-0.5 transition ${active ? "bg-emerald-300" : "bg-transparent group-hover:bg-emerald-300"}`} aria-hidden />
-
-    </button>
+    <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-3">
+        <div className="min-w-0">
+          <h3 className="m-0 text-[15px] font-bold leading-5 text-neutral-950">{title}</h3>
+          {note ? <p className="m-0 mt-0.5 text-[12.5px] leading-4 text-neutral-500">{note}</p> : null}
+        </div>
+        {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
+      </header>
+      <div className={bleed ? "min-w-0" : "min-w-0 p-3 sm:p-4"}>{children}</div>
+    </section>
   );
+}
+
+function KpiCard({
+  icon: Icon,
+  label,
+  value,
+  footer,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  footer?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="box-border flex min-w-0 flex-col rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#073c35]/10 text-[#073c35]">
+          <Icon className="h-3.5 w-3.5" aria-hidden />
+        </span>
+        <span className="min-w-0 truncate text-[13px] font-semibold text-neutral-500">{label}</span>
+      </div>
+      <div className="mt-2 break-words text-[26px] font-bold leading-tight tabular-nums text-neutral-950">{value}</div>
+      {children}
+      {footer ? <div className="mt-auto pt-2 text-[12.5px] leading-4 text-neutral-400">{footer}</div> : null}
+    </div>
+  );
+}
+
+function SourceTile({
+  icon: Icon,
+  label,
+  value,
+  muted = false,
+  accent = "brand",
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  muted?: boolean;
+  accent?: "brand" | "amber";
+}) {
+  const tone = accent === "amber" ? "bg-amber-50 text-amber-700" : "bg-[#073c35]/10 text-[#073c35]";
+  return (
+    <div className="box-border flex min-w-0 items-center gap-3 rounded-xl border border-solid border-neutral-200 bg-white px-3 py-2.5">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone}`}>
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <div className="truncate text-[12.5px] font-semibold text-neutral-500">{label}</div>
+        <div className={`truncate text-[16px] font-bold leading-tight tabular-nums ${muted ? "text-neutral-400" : "text-neutral-950"}`}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyNote({ text }: { text: string }) {
+  return <div className="box-border rounded-xl border border-dashed border-neutral-200 bg-neutral-50/70 px-4 py-6 text-center text-[13.5px] text-neutral-500">{text}</div>;
 }

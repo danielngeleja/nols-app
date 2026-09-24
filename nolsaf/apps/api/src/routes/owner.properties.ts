@@ -88,6 +88,23 @@ function normalizeHotelStar(v: unknown): string | null {
   return map[Math.trunc(n)] ?? String(v);
 }
 
+const FLOOR_USE_KEYS = new Set([
+  "reception", "restaurant", "bar", "offices", "conference",
+  "gym_spa", "shops", "parking", "rooftop", "private",
+]);
+
+function cleanFloorUses(value: unknown): Record<number, string[]> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: Record<number, string[]> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const floor = Number(k);
+    if (!Number.isInteger(floor) || floor < 0 || floor > 200 || !Array.isArray(v)) continue;
+    const uses = Array.from(new Set(v.filter((x): x is string => typeof x === "string" && FLOOR_USE_KEYS.has(x))));
+    if (uses.length) out[floor] = uses;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function cleanServices(services: unknown): any {
   // Handle legacy array format
   if (Array.isArray(services)) {
@@ -132,6 +149,12 @@ function cleanServices(services: unknown): any {
     // Preserve nearbyFacilities array if present
     if (Array.isArray(obj.nearbyFacilities)) {
       result.nearbyFacilities = obj.nearbyFacilities;
+    }
+
+    // What each floor holds besides rooms: { [floor]: ["restaurant", ...] }
+    const floorUses = cleanFloorUses(obj.floorUses);
+    if (floorUses) {
+      result.floorUses = floorUses;
     }
     
     return result;
@@ -359,6 +382,7 @@ router.get("/mine", (async (req: AuthedRequest, res) => {
 
     const listSelectBase: any = {
       id: true,
+      nrmsBookingKey: true,
       ownerId: true,
       status: true,
       title: true,

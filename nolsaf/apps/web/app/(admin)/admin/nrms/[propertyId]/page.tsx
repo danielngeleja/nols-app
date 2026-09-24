@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { AlertTriangle, ArrowLeft, BedDouble, Building2, CalendarClock, CheckCircle2, ClipboardList, FileText, Loader2, MapPin, QrCode, Search, ShieldAlert, Store, UsersRound, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BedDouble, Building2, CalendarClock, CheckCircle2, ChevronDown, ClipboardList, FileText, Loader2, MapPin, QrCode, Search, ShieldAlert, Store, UsersRound, WalletCards } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader } from "../_components/CommercialUi";
 
 type Detail = {
@@ -102,6 +102,13 @@ function groupOrderPoints(points: OrderPoint[], query: string) {
 
 const enforceButtonBase = "inline-flex min-h-9 items-center rounded-lg border px-3.5 text-xs font-bold transition";
 
+function zoneStripeColor(key: string): string {
+  if (key === 'floor:none' || key === 'tables') return '#64748b';
+  const floor = Number(key.slice('floor:'.length));
+  const colors = ['#059669', '#2563eb', '#7c3aed', '#d97706', '#0891b2', '#db2777', '#4f46e5', '#b45309'];
+  return Number.isInteger(floor) ? colors[((floor % colors.length) + colors.length) % colors.length] : '#64748b';
+}
+
 export default function AdminNrmsPropertyPage() {
   const params = useParams();
   const propertyId = Number(params?.propertyId);
@@ -169,9 +176,10 @@ export default function AdminNrmsPropertyPage() {
   if (loading) return <div className="flex min-h-[40vh] items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (error || !data) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
+      <div className="w-full min-w-0 px-4 py-6">
         <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {error || "Property not found"}</div>
         <Link href="/admin/nrms" className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> Back to directory</Link>
+        <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="ml-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">Verify finance access</button>
       </div>
     );
   }
@@ -190,14 +198,13 @@ export default function AdminNrmsPropertyPage() {
   const qrActiveCount = data.orderPoints.filter((p) => p.active).length;
 
   return (
-    <div id="nrms-property-detail" className="mx-auto min-w-0 max-w-7xl space-y-5 px-4 py-6">
+    <div id="nrms-property-detail" className="w-full min-w-0 max-w-none space-y-4 px-3 py-4 sm:px-5 sm:py-5">
       {/* Preflight is disabled in this project; without border-box, w-full controls (e.g. the enforcement textarea) overflow their container */}
       <style>{`#nrms-property-detail, #nrms-property-detail * { box-sizing: border-box; }`}</style>
       <Link href="/admin/nrms" className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 no-underline transition hover:text-emerald-900"><ArrowLeft className="h-3.5 w-3.5" /> NRMS directory</Link>
 
-      <section className="relative overflow-hidden rounded-2xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
+      <section className="property-oversight-header relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-emerald-700/[0.06]" aria-hidden="true" />
-        <div className="pointer-events-none absolute right-8 top-2 text-6xl font-black tracking-tighter text-emerald-950/[0.025] sm:text-7xl" aria-hidden="true">NRMS</div>
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-3.5">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-700 shadow-sm"><Building2 className="h-5 w-5" /></span>
@@ -246,6 +253,7 @@ export default function AdminNrmsPropertyPage() {
           )}
         </div>
         {data.openBusinessDay && <p className="mb-0 mt-3.5 inline-flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-white/85 px-3 py-2 text-[11px] font-medium text-emerald-800 shadow-sm">Business day open: {shortDate(data.openBusinessDay.businessDate)}</p>}
+        <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('finance-grant-required'))} className="mt-3 rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold text-white hover:bg-white/20">Verify finance access</button>
       </section>
 
       {notice && (
@@ -260,7 +268,8 @@ export default function AdminNrmsPropertyPage() {
         <SectionHeader icon={ShieldAlert} tone="red" title="Enforcement" subtitle="Every action requires a reason, is written to the audit log, and notifies the owner." />
         <div className="p-4 sm:p-5">
           <p className="m-0 text-[11px] text-neutral-400">Suspend and freeze also require the finance OTP grant.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-3">
+            <div className="enforcement-group"><h3>Workspace access</h3><p>Owner-wide and property restrictions</p>
             {data.enrollment && (data.enrollment.status === "SUSPENDED" ? (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/enrollment/${owner.id}/restore`, "Restore owner NRMS", "Restores the whole NRMS workspace for this owner and all their staff.")} className={`${enforceButtonBase} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}>Restore owner NRMS</button>
             ) : (
@@ -272,6 +281,8 @@ export default function AdminNrmsPropertyPage() {
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/freeze`, "Freeze property", "Blocks NRMS operations for this property only. Other properties of the owner keep working.", true)} className={`${enforceButtonBase} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}>Freeze property</button>
             ))}
             {data.account?.status === "FROZEN" && <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/close`, "Permanently close property", "This is irreversible operational closure and makes the property eligible for retention scheduling.", true)} className={`${enforceButtonBase} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}>Permanently close</button>}
+            </div>
+            <div className="enforcement-group"><h3>Guest QR controls</h3><p>Ordering access and printed QR tokens</p>
             {data.property.qrOrderingFrozenAt ? (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/qr-ordering/unfreeze`, "Resume guest QR ordering", "Guests can scan and order again.")} className={`${enforceButtonBase} border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100`}>Resume QR ordering</button>
             ) : (
@@ -283,6 +294,8 @@ export default function AdminNrmsPropertyPage() {
             {data.orderPoints.length > 0 && (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/order-points/rotate-all`, "Rotate all QR tokens", "All existing printed codes become invalid; fresh codes must be printed.", true)} className={`${enforceButtonBase} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>Rotate all QR tokens</button>
             )}
+            </div>
+            <div className="enforcement-group"><h3>Compliance and security</h3><p>Staff invites, fiscal receipts and payment details</p>
             {data.staff.some((m) => m.status === "PENDING") && (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/invites/invalidate`, "Invalidate pending invites", "Outstanding staff invites for this property stop working.")} className={`${enforceButtonBase} border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`}>Invalidate pending invites</button>
             )}
@@ -294,6 +307,7 @@ export default function AdminNrmsPropertyPage() {
             {data.property.guestPayInstructions.length > 0 && (
               <button type="button" onClick={() => openEnforce(`/api/admin/nrms/enforce/property/${data.property.id}/pay-instructions/clear`, "Clear guest payment details", "The payment details are removed from the guest page pending owner correction. Use when the details look fraudulent.", true)} className={`${enforceButtonBase} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}>Clear payment details</button>
             )}
+            </div>
           </div>
         </div>
       </section>
@@ -359,17 +373,22 @@ export default function AdminNrmsPropertyPage() {
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
         <SectionHeader icon={Store} title="Outlets" subtitle="Ordering points inside the property" right={<CountPill count={data.outlets.length} singular="outlet" plural="outlets" />} />
-        <div className="divide-y divide-neutral-50">
-          {data.outlets.map((o) => (
-            <div key={o.id} className="flex items-center justify-between gap-3 px-4 py-3 text-xs transition hover:bg-neutral-50/60 sm:px-5">
-              <div className="min-w-0"><p className="m-0 truncate font-bold text-neutral-800">{o.name}</p><p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-400">{o.type.toLowerCase()} · {o.activeMenuItems} items · {o.totalOrders} orders all time</p></div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                {o.autoAcceptQrOrders && <span className="rounded-full border border-violet-100 bg-violet-50 px-2 py-0.5 text-[9px] font-bold text-violet-700">QR auto-accept</span>}
-                <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${o.status === "ACTIVE" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-neutral-200 bg-neutral-100 text-neutral-400"}`}>{o.status}</span>
-              </div>
-            </div>
-          ))}
-          {data.outlets.length === 0 && <EmptyState icon={Store} title="No outlets" text="Outlets appear here once the owner sets up ordering points." />}
+        <div className="w-full min-w-0 max-w-full overflow-x-auto">
+          <table className="outlet-register w-full min-w-[720px] table-fixed border-collapse text-left text-xs">
+            <caption className="sr-only">Property outlets and ordering activity</caption>
+            <colgroup>{[28, 15, 14, 14, 15, 14].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-600"><tr>{['Outlet', 'Type', 'Active menu items', 'Orders (all time)', 'QR auto-accept', 'Status'].map(label => <th scope="col" key={label} className="px-4 py-3">{label}</th>)}</tr></thead>
+            <tbody>{data.outlets.map(o => <tr key={o.id} className="text-slate-700 hover:bg-emerald-50/50">
+              <td className="px-4 py-3 font-semibold text-slate-950">{o.name}</td>
+              <td className="px-4 py-3 capitalize">{o.type.toLowerCase().replaceAll('_', ' ')}</td>
+              <td className="px-4 py-3 tabular-nums">{o.activeMenuItems}</td>
+              <td className="px-4 py-3 tabular-nums">{o.totalOrders}</td>
+              <td className="px-4 py-3">{o.autoAcceptQrOrders ? 'Enabled' : 'Disabled'}</td>
+              <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold ${o.status === 'ACTIVE' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-neutral-200 bg-neutral-100 text-neutral-600'}`}>{o.status}</span></td>
+            </tr>)}
+              {!data.outlets.length && <tr><td colSpan={6}><EmptyState icon={Store} title="No outlets" text="Outlets appear here once the owner sets up ordering points." /></td></tr>}
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -397,14 +416,14 @@ export default function AdminNrmsPropertyPage() {
               ? <EmptyState icon={QrCode} title="No QR points generated" text="Room and table codes appear here once the owner prints them." />
               : <EmptyState icon={Search} title="No matches" text="No QR points match this search." />
           )}
-          <div className="space-y-6">
+          <div className="grid min-w-0 items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
             {qrGroups.map((group) => {
               const activeInGroup = group.points.filter((p) => p.active).length;
               const inactiveInGroup = group.points.length - activeInGroup;
               return (
-                <section key={group.key} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.06)] ring-1 ring-neutral-950/[0.02]">
-                  <header className="relative flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 bg-gradient-to-r from-white via-white to-emerald-50/50 px-4 py-4 sm:px-5">
-                    <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-emerald-600" aria-hidden="true" />
+                <details key={group.key} className="qr-zone-group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_4px_18px_rgba(15,23,42,0.06)] ring-1 ring-neutral-950/[0.02]">
+                  <summary className="relative flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-2 bg-gradient-to-r from-white via-white to-emerald-50/50 px-4 py-4 sm:px-5">
+                    <span className="absolute inset-y-3 left-0 w-1 rounded-r-full" style={{ backgroundColor: zoneStripeColor(group.key) }} aria-hidden="true" />
                     <h4 className="m-0 flex items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.7)]">{group.isRoom ? <Building2 className="h-[18px] w-[18px]" /> : <Store className="h-[18px] w-[18px]" />}</span>
                       <span>
@@ -417,9 +436,10 @@ export default function AdminNrmsPropertyPage() {
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 shadow-sm"><span className="h-1.5 w-1.5 rounded-full ring-2 ring-white bg-emerald-500" />{activeInGroup} active</span>
                       {inactiveInGroup > 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-bold text-neutral-600 shadow-sm"><span className="h-1.5 w-1.5 rounded-full ring-2 ring-white bg-neutral-300" />{inactiveInGroup} inactive</span>}
                     </span>
-                  </header>
+                    <ChevronDown aria-hidden="true" className="qr-zone-chevron h-4 w-4 shrink-0 text-emerald-700 transition-transform" />
+                  </summary>
                   <div className="p-3 sm:p-4">
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                    <div className="grid min-w-0 gap-2 min-[480px]:grid-cols-2">
                       {group.points.map((p) => (
                         <article key={p.id} className={`overflow-hidden rounded-2xl border border-l-4 border-neutral-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-neutral-300 hover:shadow-md ${p.active ? "border-l-emerald-400" : "border-l-neutral-300"}`}>
                           <div className="p-3.5">
@@ -438,39 +458,49 @@ export default function AdminNrmsPropertyPage() {
                       ))}
                     </div>
                   </div>
-                </section>
+                </details>
               );
             })}
           </div>
         </div>
       </section>
 
-      <div className="grid min-w-0 gap-5 lg:grid-cols-2">
+      <div className="property-closeout-grid grid min-w-0 items-start gap-4 xl:grid-cols-2">
         <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-          <SectionHeader icon={WalletCards} title="Night audits" subtitle="Last 10 business-day closes" />
-          <div className="divide-y divide-neutral-50">
+          <SectionHeader icon={WalletCards} title="Night audits" subtitle="Recent business-day closures" right={<CountPill count={data.nightAudits.length} singular="audit" plural="audits" />} />
+          <div className="w-full min-w-0 overflow-x-auto">
+            <table className="night-audit-register w-full min-w-[480px] table-fixed border-collapse text-left text-xs">
+              <caption className="sr-only">Last 10 night audits</caption>
+              <colgroup><col style={{ width: '48%' }} /><col style={{ width: '30%' }} /><col style={{ width: '22%' }} /></colgroup>
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-600"><tr><th scope="col" className="px-4 py-3">Audit reference</th><th scope="col" className="px-4 py-3">Business date</th><th scope="col" className="px-4 py-3">Status</th></tr></thead><tbody>
             {data.nightAudits.map((a) => (
-              <div key={a.id} className="flex items-center justify-between gap-3 px-4 py-3 text-xs transition hover:bg-neutral-50/60 sm:px-5">
-                <div className="min-w-0"><p className="m-0 truncate font-bold text-neutral-800">{a.reportNumber}</p><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">Business date {shortDate(a.businessDay?.businessDate)}</p></div>
+              <tr key={a.id} className="text-slate-700 hover:bg-emerald-50/50">
+                <td className="px-4 py-3 font-semibold">{a.reportNumber}</td><td className="px-4 py-3">{shortDate(a.businessDay?.businessDate)}</td><td className="px-4 py-3">
                 <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold ${a.status === "CLOSED" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : a.status === "BLOCKED" || a.status === "FAILED" ? "border-red-100 bg-red-50 text-red-700" : "border-neutral-200 bg-neutral-100 text-neutral-500"}`}>{a.status}</span>
-              </div>
+              </td></tr>
             ))}
-            {data.nightAudits.length === 0 && <EmptyState icon={WalletCards} title="No night audits run" text="Audits appear here once the property closes its first business day." />}
+            {data.nightAudits.length === 0 && <tr><td colSpan={3}><EmptyState icon={WalletCards} title="No night audits run" text="Audits appear here once the property closes its first business day." /></td></tr>}
+            </tbody></table>
           </div>
         </section>
 
         <section className="min-w-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-          <SectionHeader icon={WalletCards} title="Cashier shifts" subtitle="Last 10 declared cash counts" />
-          <div className="divide-y divide-neutral-50">
-            {data.cashierShifts.map((s) => (
-              <div key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 text-xs transition hover:bg-neutral-50/60 sm:px-5">
-                <div className="min-w-0"><p className="m-0 truncate font-bold text-neutral-800">{s.operator}</p><p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-400">{shortDate(s.businessDate)} · expected {s.currency} {s.expectedCash.toLocaleString()}{s.declaredCash != null ? ` · declared ${s.declaredCash.toLocaleString()}` : ""}</p></div>
-                {s.variance != null && s.variance !== 0
-                  ? <span className="shrink-0 rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[9px] font-bold text-red-700">Variance {s.variance.toLocaleString()}</span>
-                  : <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold ${s.status === "CLOSED" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}>{s.status}</span>}
-              </div>
-            ))}
-            {data.cashierShifts.length === 0 && <EmptyState icon={WalletCards} title="No cashier shifts" text="Shifts appear here once staff open and declare a cash drawer." />}
+          <SectionHeader icon={WalletCards} title="Cashier shifts" subtitle="Recent cash declarations and differences" right={<CountPill count={data.cashierShifts.length} singular="shift" plural="shifts" />} />
+          <div className="w-full min-w-0 overflow-x-auto">
+            <table className="cashier-shift-register w-full min-w-[760px] table-fixed border-collapse text-left text-xs">
+              <caption className="sr-only">Recent cashier shifts and cash reconciliation</caption>
+              <colgroup>{[22, 18, 16, 16, 14, 14].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-600"><tr>{['Cashier', 'Business date', 'Expected cash', 'Declared cash', 'Difference', 'Status'].map((label, index) => <th scope="col" key={label} className={`px-3 py-3 ${index >= 2 && index <= 4 ? 'text-right' : 'text-left'}`}>{label}</th>)}</tr></thead>
+              <tbody>{data.cashierShifts.map(s => <tr key={s.id} className="text-slate-700 hover:bg-emerald-50/50">
+                <td className="px-3 py-3 font-semibold">{s.operator}</td><td className="px-3 py-3">{shortDate(s.businessDate)}</td>
+                <td className="px-3 py-3 text-right tabular-nums">{s.currency} {s.expectedCash.toLocaleString()}</td>
+                <td className="px-3 py-3 text-right tabular-nums">{s.declaredCash == null ? 'Not declared' : `${s.currency} ${s.declaredCash.toLocaleString()}`}</td>
+                <td className={`px-3 py-3 text-right tabular-nums ${s.variance != null && s.variance !== 0 ? 'font-semibold text-red-700' : 'text-slate-600'}`}>{s.variance == null ? 'Not recorded' : `${s.currency} ${s.variance.toLocaleString()}`}</td>
+                <td className="px-3 py-3"><span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-bold ${s.status === 'CLOSED' ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-amber-100 bg-amber-50 text-amber-700'}`}>{s.status}</span></td>
+              </tr>)}
+                {!data.cashierShifts.length && <tr><td colSpan={6}><EmptyState icon={WalletCards} title="No cashier shifts" text="Shifts appear here once staff open and declare a cash drawer." /></td></tr>}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>

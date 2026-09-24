@@ -2,14 +2,15 @@
 import type { ReactNode } from "react";
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { twMerge } from "tailwind-merge";
-import { Plus, Eye, Home, Building, Building2, TreePine, Hotel, HelpCircle, Car, Shield, Bus, Bed, BedDouble, BedSingle, CheckCircle2, AlertCircle, MapPin,
+import { Plus, Check, Home, Building, Building2, TreePine, Hotel, HelpCircle, Car, Shield, Bus, Bed, BedDouble, BedSingle, CheckCircle2, AlertCircle, MapPin,
   Navigation, Crosshair, Users, X, ArrowRight, ImageIcon, Loader2, Hospital, Pill, Plane, Fuel, Route, Building as BuildingIcon, Lock, ExternalLink, Edit2, Clock, Bell } from "lucide-react";
 import axios from "axios";import apiClient from "@/lib/apiClient";
 import { REGIONS, REGION_BY_ID } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
 import { TotalsStep } from "./_components/TotalsStep";
 import { PhotosStep } from "./_components/PhotosStep";
-import { RoomsStep } from "./_components/RoomsStep";
+import { ROOM_ITEMS, RoomsStep } from "./_components/RoomsStep";
+import { cleanFloorUses, parseFloorUses, type FloorUses } from "./_components/floorUses";
 import { ServicesStep } from "./_components/ServicesStep";
 import { ReviewStep } from "./_components/ReviewStep";
 import { BasicsStep } from "./_components/BasicsStep";
@@ -85,34 +86,7 @@ type FacilityType =
 const REACH_MODES = ["Walking","Boda","Public Transport","Car/Taxi"] as const;
 type ReachMode = typeof REACH_MODES[number];
 
-// Facility type to placeholder examples mapping
-const FACILITY_PLACEHOLDERS: Record<FacilityType, string> = {
-  "Hospital": "e.g. Aga Khan Hospital",
-  "Pharmacy": "e.g. Medipharm Pharmacy",
-  "Polyclinic": "e.g. City Polyclinic",
-  "Clinic": "e.g. Community Health Clinic",
-  "Police station": "e.g. Central Police Station",
-  "Airport": "e.g. Julius Nyerere International Airport",
-  "Bus station": "e.g. Ubungo Bus Terminal",
-  "Petrol station": "e.g. Total Petrol Station",
-  "Conference center": "e.g. Mlimani City Conference Center",
-  "Stadium": "e.g. Benjamin Mkapa Stadium",
-  "Main road": "e.g. Bagamoyo Road",
-};
-
-// Facility types that require ownership selection
-const FACILITIES_WITH_OWNERSHIP: FacilityType[] = ["Hospital", "Pharmacy", "Polyclinic", "Clinic"];
-
-// Helper function to check if facility type requires ownership
-const requiresOwnership = (type: FacilityType): boolean => {
-  return FACILITIES_WITH_OWNERSHIP.includes(type);
-};
-
 /* Utility functions - moved up for use in components */
-function LabelSmall({children, className=""}:{children:ReactNode; className?:string}) {
-  return <label className={`block text-xs text-gray-600 ${className}`}>{children}</label>;
-}
-
 function numOrEmpty(v: string|number){ if (v === "" || v == null) return ""; const n = Number(v); return Number.isFinite(n) ? n : ""; }
 function numOrNull(v: any){ return v==="" || v==null ? null : Number(v); }
 function splitComma(s:string){ return s.split(",").map(x=>x.trim()).filter(Boolean); }
@@ -137,10 +111,6 @@ function toServerType(t: string){
   const map: Record<string, string> = { "Guest House":"GUEST_HOUSE", "Townhouse":"TOWNHOUSE", "Other":"OTHER" };
   const up = t.toUpperCase().replace(/\s+/g,"_");
   return (map[t] ?? up);
-}
-function cryptoId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return Math.random().toString(36).slice(2);
 }
 
 function normalizePhotoUrls(value: unknown): string[] {
@@ -172,513 +142,7 @@ type NearbyFacility = {
 
 /** Facilities mini-components - FacilityRow defined after type */
 // Small inline SVGs for walking and motorbike when lucide doesn't expose those icons in this package version
-function WalkingIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M13.5 5.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M9 13s1-1 3-1 3 2 4 3 1 3 1 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M8 20s1-4 4-5 4-1 4-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M7 12l2-3 3 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
-function MotorbikeIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M3 13h3l3-5h4l2 3h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <circle cx="6" cy="18" r="2" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="18" cy="18" r="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M10 13l1-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
-// Map reach modes to icons (use available lucide icons where possible).
-const REACH_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "Walking": WalkingIcon,
-  "Boda": MotorbikeIcon,
-  "Public Transport": Bus,
-  "Car/Taxi": Car,
-};
-
-/** Facilities mini-components - FacilityRow */
-function FacilityRow({
-  facility, onChange, onRemove
-}:{ facility: NearbyFacility; onChange:(f:NearbyFacility)=>void; onRemove:()=>void }) {
-  const [isEditing, setIsEditing] = useState(false);
-  
-  // allow multiple selection: toggle presence in array
-  const toggleMode = (m: ReachMode) => {
-    const current = facility.reachableBy || [];
-    const next = current.includes(m) ? current.filter(x => x !== m) : [...current, m];
-    onChange({ ...facility, reachableBy: next });
-  };
-
-  // Get context-aware placeholder based on selected type
-  const namePlaceholder = FACILITY_PLACEHOLDERS[facility.type] || "e.g. Facility name";
-  
-  // Get facility icon based on type (matching public view)
-  const getFacilityIcon = (type: string) => {
-    const t = (type || "").toLowerCase();
-    if (t.includes("hospital") || t.includes("clinic") || t.includes("pharmacy") || t.includes("polyclinic")) {
-      return { Icon: Hospital, color: "text-rose-600", bgColor: "bg-rose-50" };
-    }
-    if (t.includes("petrol") || t.includes("fuel") || t.includes("gas")) {
-      return { Icon: Fuel, color: "text-orange-600", bgColor: "bg-orange-50" };
-    }
-    if (t.includes("airport")) {
-      return { Icon: Plane, color: "text-blue-600", bgColor: "bg-blue-50" };
-    }
-    if (t.includes("bus") || t.includes("station")) {
-      return { Icon: Bus, color: "text-amber-700", bgColor: "bg-amber-50" };
-    }
-    if (t.includes("road") || t.includes("main road")) {
-      return { Icon: Route, color: "text-slate-700", bgColor: "bg-slate-50" };
-    }
-    if (t.includes("police")) {
-      return { Icon: Shield, color: "text-indigo-600", bgColor: "bg-indigo-50" };
-    }
-    if (t.includes("conference") || t.includes("center") || t.includes("centre")) {
-      return { Icon: MapPin,
-  Navigation, color: "text-emerald-600", bgColor: "bg-emerald-50" };
-    }
-    return { Icon: MapPin,
-  Navigation, color: "text-[#02665e]", bgColor: "bg-[#02665e]/10" };
-  };
-  
-  const facilityIcon = getFacilityIcon(facility.type || "");
-  const Icon = facilityIcon.Icon;
-  
-  // Check if facility is complete (has type and name)
-  const isComplete = facility.type && facility.name && facility.name.trim().length > 0;
-  
-  // Validation states
-  const [touched, setTouched] = useState<{ name?: boolean; url?: boolean; distance?: boolean }>({});
-  const nameError = touched.name && (!facility.name || facility.name.trim().length < 2) ? "Name must be at least 2 characters" : "";
-  const urlError = touched.url && facility.url && !/^https?:\/\/.+/.test(facility.url) ? "Please enter a valid URL (starting with http:// or https://)" : "";
-  const distanceError = touched.distance && typeof facility.distanceKm === 'number' && facility.distanceKm < 0 ? "Distance cannot be negative" : "";
-
-  // Show compact card view when complete, or editing mode
-  if (isComplete && !isEditing) {
-    return (
-      <div 
-        className="group relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-300 ease-out hover:border-[#02665e]/30 hover:shadow-lg hover:shadow-[#02665e]/5 hover:-translate-y-0.5"
-      >
-        <div className="flex items-start gap-4">
-          {/* Icon */}
-          <div className={`flex-shrink-0 w-12 h-12 rounded-xl ${facilityIcon.bgColor} flex items-center justify-center shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:shadow-md`}>
-            <Icon className={`h-6 w-6 ${facilityIcon.color} transition-transform duration-300 group-hover:scale-110`} />
-          </div>
-          
-          {/* Content */}
-          <div className="flex-1 min-w-0 space-y-3">
-            {/* Name */}
-            {facility.name && (
-              <div className="font-bold text-slate-900 text-base leading-snug tracking-tight">{facility.name}</div>
-            )}
-            
-            {/* Tags Row */}
-            <div className="flex flex-wrap items-center gap-2">
-              {facility.type && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-100/80 shadow-sm">
-                  {facility.type}
-                </span>
-              )}
-              {facility.ownership && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200/80 shadow-sm">
-                  {facility.ownership}
-                </span>
-              )}
-            </div>
-            
-            {/* Distance & Link Row */}
-            <div className="flex flex-wrap items-center gap-4 text-xs">
-              {typeof facility.distanceKm === 'number' && (
-                <div className="inline-flex items-center gap-1.5 text-slate-700 font-semibold">
-                  <MapPin className="h-4 w-4 text-rose-500 flex-shrink-0" />
-                  <span>{facility.distanceKm} km</span>
-                </div>
-              )}
-              {facility.url && (
-                <a 
-                  href={facility.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="inline-flex items-center gap-1.5 text-[#02665e] hover:text-[#014e47] font-semibold transition-all duration-200 hover:underline underline-offset-2"
-                >
-                  <ExternalLink className="h-4 w-4 flex-shrink-0" />
-                  <span>Link</span>
-                </a>
-              )}
-            </div>
-            
-            {/* Transportation */}
-            {Array.isArray(facility.reachableBy) && facility.reachableBy.length > 0 && (
-              <div className="pt-2.5 border-t border-slate-100/80">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs text-slate-500 font-semibold">Reachable by:</span>
-                  {facility.reachableBy.map((mode: string, mIdx: number) => {
-                    const ModeIcon = REACH_ICONS[mode as string];
-                    return (
-                      <span 
-                        key={mIdx} 
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 text-slate-700 text-xs font-medium border border-slate-200/60 shadow-sm transition-colors duration-200 group-hover:border-slate-300"
-                      >
-                        {ModeIcon && <ModeIcon className="h-3.5 w-3.5" />}
-                        {mode}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Action buttons */}
-        <div className="absolute top-3 right-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsEditing(true)}
-            className="p-1.5 rounded-lg bg-white/80 hover:bg-white border border-slate-200 hover:border-emerald-300 text-slate-600 hover:text-emerald-700 transition-all duration-200 shadow-sm hover:shadow-md"
-            title="Edit facility"
-          >
-            <Edit2 className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="p-1.5 rounded-lg bg-white/80 hover:bg-red-50 border border-slate-200 hover:border-red-300 text-slate-600 hover:text-red-700 transition-all duration-200 shadow-sm hover:shadow-md"
-            title="Remove facility"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        
-        {/* Subtle accent line on hover */}
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-[#02665e]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-      </div>
-    );
-  }
-
-  // Editing mode - show all fields
-  return (
-    <div className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm">
-      {/* Header with edit/close button */}
-      {isComplete && (
-        <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-200">
-          <span className="text-sm font-semibold text-gray-700">Editing: {facility.name}</span>
-          <button
-            type="button"
-            onClick={() => setIsEditing(false)}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition-colors"
-            title="Close editing"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      <div className="space-y-5">
-        {/* Type selection - Only show when no type selected or editing */}
-        {(!facility.type || isEditing) && (
-          <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl p-4 border-2 border-gray-200 shadow-sm">
-            <LabelSmall className="font-semibold text-gray-900 text-sm mb-3 block">Facility Type</LabelSmall>
-            
-            {/* Medical Facilities */}
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Hospital className="w-4 h-4 text-rose-600" />
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Medical</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {["Hospital", "Pharmacy", "Polyclinic", "Clinic"].map(t => {
-                  const sel = facility.type === t;
-                  const icons: Record<string, React.ComponentType<{ className?: string }>> = {
-                    "Hospital": Hospital,
-                    "Pharmacy": Pill,
-                    "Polyclinic": Hospital,
-                    "Clinic": Hospital,
-                  };
-                  const TypeIcon = icons[t] || Building2;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        const updatedFacility: NearbyFacility = { 
-                          ...facility, 
-                          type: t as FacilityType,
-                          ownership: requiresOwnership(t as FacilityType) ? facility.ownership : ""
-                        };
-                        onChange(updatedFacility);
-                      }}
-                      className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${
-                        sel
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-500'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300'
-                      }`}
-                    >
-                      <TypeIcon className="w-3.5 h-3.5" />
-                      <span>{t}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Transportation */}
-            <div className="mb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Car className="w-4 h-4 text-blue-600" />
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Transportation</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {["Airport", "Bus station", "Petrol station", "Main road"].map(t => {
-                  const sel = facility.type === t;
-                  const icons: Record<string, React.ComponentType<{ className?: string }>> = {
-                    "Airport": Plane,
-                    "Bus station": Bus,
-                    "Petrol station": Fuel,
-                    "Main road": Route,
-                  };
-                  const TypeIcon = icons[t] || MapPin;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        const updatedFacility: NearbyFacility = { 
-                          ...facility, 
-                          type: t as FacilityType,
-                          ownership: requiresOwnership(t as FacilityType) ? facility.ownership : ""
-                        };
-                        onChange(updatedFacility);
-                      }}
-                      className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${
-                        sel
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-500'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300'
-                      }`}
-                    >
-                      <TypeIcon className="w-3.5 h-3.5" />
-                      <span>{t}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Public Services & Venues */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className="w-4 h-4 text-indigo-600" />
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Public Services & Venues</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {["Police station", "Conference center", "Stadium"].map(t => {
-                  const sel = facility.type === t;
-                  const icons: Record<string, React.ComponentType<{ className?: string }>> = {
-                    "Police station": Shield,
-                    "Conference center": BuildingIcon,
-                    "Stadium": Building2,
-                  };
-                  const TypeIcon = icons[t] || MapPin;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => {
-                        const updatedFacility: NearbyFacility = { 
-                          ...facility, 
-                          type: t as FacilityType,
-                          ownership: requiresOwnership(t as FacilityType) ? facility.ownership : ""
-                        };
-                        onChange(updatedFacility);
-                      }}
-                      className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border-2 text-xs font-semibold transition-all ${
-                        sel
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-500'
-                          : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300'
-                      }`}
-                    >
-                      <TypeIcon className="w-3.5 h-3.5" />
-                      <span>{t}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Ownership - Only show when required */}
-        {requiresOwnership(facility.type) && (
-          <div className="bg-blue-50/50 rounded-xl p-4 border-2 border-blue-200">
-            <LabelSmall className="font-semibold text-gray-900 text-sm mb-3 block">Ownership Type</LabelSmall>
-            <div className="grid grid-cols-2 gap-2.5 max-w-md">
-              {["Public/Government", "Private"].map(o => {
-                const sel = facility.ownership === o;
-                return (
-                  <button
-                    key={o}
-                    type="button"
-                    onClick={() => onChange({ ...facility, ownership: o as any })}
-                    className={`text-xs font-semibold px-4 py-2.5 rounded-xl border-2 transition-all text-center ${
-                      sel
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-500'
-                        : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300'
-                    }`}
-                  >
-                    {o}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Name, Distance, URL */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <LabelSmall className="font-semibold text-gray-900 text-xs">Name <span className="text-red-500">*</span></LabelSmall>
-            <input
-              title="Facility name"
-              placeholder={namePlaceholder}
-              value={facility.name}
-              onChange={e => {
-                onChange({ ...facility, name: e.target.value });
-                setTouched(prev => ({ ...prev, name: true }));
-              }}
-              onBlur={() => setTouched(prev => ({ ...prev, name: true }))}
-              className={`w-full h-11 px-4 border-2 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 ${
-                nameError 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20' 
-                  : 'border-gray-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-              }`}
-            />
-            {nameError && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3" />
-                {nameError}
-              </p>
-            )}
-          </div>
-          
-          <div className="space-y-2">
-            <LabelSmall className="font-semibold text-gray-900 text-xs">Distance (km)</LabelSmall>
-            <input
-              title="Distance (km)"
-              placeholder="2.5"
-              value={facility.distanceKm as any}
-              onChange={e => {
-                onChange({ ...facility, distanceKm: numOrEmpty(e.target.value) });
-                setTouched(prev => ({ ...prev, distance: true }));
-              }}
-              onBlur={() => setTouched(prev => ({ ...prev, distance: true }))}
-              type="number" 
-              step="0.1"
-              min="0"
-              className={`w-full h-11 px-4 border-2 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 ${
-                distanceError 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20' 
-                  : 'border-gray-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-              }`}
-            />
-            {distanceError && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3" />
-                {distanceError}
-              </p>
-            )}
-          </div>
-          
-          <div className="space-y-2">
-            <LabelSmall className="font-semibold text-gray-900 text-xs">More info (URL)</LabelSmall>
-            <input
-              title="More info (URL)"
-              placeholder="https://example.com"
-              value={facility.url ?? ""}
-              onChange={e => {
-                onChange({ ...facility, url: e.target.value });
-                setTouched(prev => ({ ...prev, url: true }));
-              }}
-              onBlur={() => setTouched(prev => ({ ...prev, url: true }))}
-              type="url"
-              className={`w-full h-11 px-4 border-2 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 ${
-                urlError 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20' 
-                  : 'border-gray-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-              }`}
-            />
-            {urlError && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3" />
-                {urlError}
-              </p>
-            )}
-            {!urlError && facility.url && (
-              <p className="text-xs text-emerald-600 flex items-center gap-1 mt-1">
-                <CheckCircle2 className="h-3 w-3" />
-                Valid URL format
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Reachable by */}
-        <div className="pt-4 border-t border-gray-200">
-          <LabelSmall className="font-semibold text-gray-900 text-sm mb-3 block">Reachable by</LabelSmall>
-          <div className="grid grid-cols-2 gap-2.5"> 
-            {REACH_MODES.map(m => {
-              const sel = facility.reachableBy.includes(m as ReachMode);
-              const ModeIcon = REACH_ICONS[m as string];
-              return (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => toggleMode(m as ReachMode)}
-                  className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-semibold transition-all ${
-                    sel 
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-500' 
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300'
-                  }`}
-                >
-                  {ModeIcon && <ModeIcon className="h-4 w-4" />}
-                  <span>{m}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="pt-4 border-t border-gray-200 flex justify-end gap-3">
-          {isComplete && (
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className="px-4 py-2 rounded-xl border-2 border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 transition-all"
-            >
-              Done
-            </button>
-          )}
-          <button 
-            type="button" 
-            onClick={onRemove} 
-            className="px-4 py-2 rounded-xl border-2 border-red-200 text-red-700 font-semibold hover:bg-red-50 hover:border-red-300 transition-all"
-          >
-            Remove
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const PAGE_WRAPPER_CLASS = "add-property-view" as const;
-const PAGE_BACKGROUND_CLASS = "add-property-background" as const;
 const PAGE_LAYOUT_CLASS = "add-property-layout" as const;
 const PAGE_SHELL_CLASS = "add-property-shell" as const;
 const STEPPER_WRAPPER_CLASS = "add-property-stepper" as const;
@@ -848,7 +312,10 @@ export default function AddProperty() {
                 ? property.images.map((img: any) => img.url || img).filter(Boolean)
                 : [];
               const legacyPhotoUrls = normalizePhotoUrls((property as any).photos);
-              const nextPhotoUrls = imageUrls.length ? imageUrls : legacyPhotoUrls;
+              // The saved photos list keeps the owner's order (cover first) and drops removed
+              // photos; image rows are in upload order. Use the list whenever it holds web URLs.
+              const orderedPhotoUrls = legacyPhotoUrls.filter((u) => /^https?:\/\//i.test(u));
+              const nextPhotoUrls = orderedPhotoUrls.length ? orderedPhotoUrls : imageUrls.length ? imageUrls : legacyPhotoUrls;
               if (nextPhotoUrls.length) {
                 applyLoadedPropertyPhotos(nextPhotoUrls);
               }
@@ -916,6 +383,7 @@ export default function AddProperty() {
                   if (services && services.nearbyFacilities && Array.isArray(services.nearbyFacilities)) {
                     setNearbyFacilities(services.nearbyFacilities);
                   }
+                  setFloorUses(parseFloorUses(services));
                 } catch (e) {
                   console.error("Error parsing nearbyFacilities:", e);
                 }
@@ -1149,6 +617,7 @@ export default function AddProperty() {
   // Room placement (only used when buildingType === "multi_storey")
   const [roomFloors, setRoomFloors] = useState<number[]>([]);
   const [roomFloorDistribution, setRoomFloorDistribution] = useState<Record<number, number>>({});
+  const [floorUses, setFloorUses] = useState<FloorUses>({});
   const [smoking, setSmoking] = useState<"yes"|"no">("yes");
   const [bathPrivate, setBathPrivate] = useState<"yes"|"no">("yes");
   const [bathItems, setBathItems] = useState<string[]>([]);
@@ -1164,6 +633,8 @@ export default function AddProperty() {
   // const roomImageInput = useRef<HTMLInputElement>(null);
   const [pricePerNight, setPricePerNight] = useState<number | "">("");
   const [definedRooms, setDefinedRooms] = useState<RoomEntry[]>([]);
+  // Saved group loaded back into the room form for editing (null = a new group)
+  const [editingRoomIndex, setEditingRoomIndex] = useState<number | null>(null);
 
   // Totals: auto-fill bedrooms from the saved room types (roomsCount per type).
   const autoTotalBedrooms = useMemo(() => {
@@ -1267,6 +738,7 @@ export default function AddProperty() {
           roomType, beds, roomsCount, smoking, bathPrivate,
           roomFloors,
           roomFloorDistribution,
+          floorUses,
           acceptGroupBooking, freeCancellation, paymentModes,
           currentStep,
           visitedSteps: Array.from(visitedSteps),
@@ -1290,7 +762,7 @@ export default function AddProperty() {
     regionId, district, ward, street, city, zip,
     latitude, longitude, desc, totalBedrooms, totalBathrooms, maxGuests,
     photos, definedRooms, services, nearbyFacilities,
-    roomType, beds, roomsCount, smoking, bathPrivate, roomFloors, roomFloorDistribution,
+    roomType, beds, roomsCount, smoking, bathPrivate, roomFloors, roomFloorDistribution, floorUses,
     acceptGroupBooking, freeCancellation, paymentModes,
     houseRules,
     currentStep, visitedSteps,
@@ -1764,15 +1236,98 @@ export default function AddProperty() {
       otherAmenities: Array.from(new Set([...otherAmenities, ...splitComma(otherAmenitiesText)])),
       roomDescription, roomImages, pricePerNight: Number(pricePerNight || 0)
     };
-    setDefinedRooms(list => [...list, entry]);
+    // Editing replaces the group in place; otherwise it is a new group
+    if (editingRoomIndex !== null && editingRoomIndex < definedRooms.length) {
+      const at = editingRoomIndex;
+      setDefinedRooms(list => list.map((r, i) => (i === at ? entry : r)));
+    } else {
+      setDefinedRooms(list => [...list, entry]);
+    }
+    setEditingRoomIndex(null);
+    resetRoomForm();
+  };
 
-    // reset mini
+  const resetRoomForm = () => {
     setBeds({ twin:0, full:0, queen:0, king:0 });
     setRoomsCount(""); setSmoking("yes"); setBathPrivate("yes");
     setRoomFloors([]); setRoomFloorDistribution({});
     setBathItems([]); setTowelColor(""); setOtherAmenities([]);
     setOtherAmenitiesText(""); setRoomDescription(""); setRoomImages([]);
+    setRoomImageSaved([]); setRoomImageUploading([]);
     setPricePerNight("");
+  };
+
+  const roomFormHasContent = () =>
+    roomsCount !== "" || roomImages.length > 0 || pricePerNight !== "" ||
+    Object.values(beds).some((n) => Number(n) > 0) || roomDescription.trim() !== "";
+
+  /** Puts a saved group back into the room form, exactly as it was saved */
+  const loadRoomIntoForm = (r: RoomEntry) => {
+    setRoomType(r.roomType || "");
+    setBeds({ twin: Number(r.beds?.twin) || 0, full: Number(r.beds?.full) || 0, queen: Number(r.beds?.queen) || 0, king: Number(r.beds?.king) || 0 });
+    setRoomsCount(Number(r.roomsCount) || "");
+    setSmoking(r.smoking === "no" ? "no" : "yes");
+    setBathPrivate(r.bathPrivate === "no" ? "no" : "yes");
+    if (buildingType === "multi_storey") {
+      const dist: Record<number, number> = {};
+      for (const [k, v] of Object.entries(r.floorDistribution || {})) {
+        const f = Number(k);
+        if (Number.isFinite(f) && Number(v) > 0) dist[f] = Number(v);
+      }
+      setRoomFloors(Object.keys(dist).map(Number).sort((a, b) => a - b));
+      setRoomFloorDistribution(dist);
+    } else {
+      setRoomFloors([]); setRoomFloorDistribution({});
+    }
+    setBathItems(Array.isArray(r.bathItems) ? r.bathItems : []);
+    setTowelColor(r.towelColor || "");
+    const amenities = Array.isArray(r.otherAmenities) ? r.otherAmenities : [];
+    setOtherAmenities(amenities.filter((a) => ROOM_ITEMS.includes(a)));
+    setOtherAmenitiesText(amenities.filter((a) => !ROOM_ITEMS.includes(a)).join(", "));
+    setRoomDescription(r.roomDescription || "");
+    const imgs = Array.isArray(r.roomImages) ? r.roomImages : [];
+    setRoomImages(imgs);
+    setRoomImageSaved(imgs.map(() => true));
+    setRoomImageUploading(imgs.map(() => false));
+    setPricePerNight(Number(r.pricePerNight) || "");
+    window.setTimeout(() => {
+      document.getElementById("rooms-step-start")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
+  const confirmReplaceRoomForm = () =>
+    !roomFormHasContent() || window.confirm("Replace the room details you are typing with this group?");
+
+  const editRoom = (index: number) => {
+    const r = definedRooms[index];
+    if (!r || !confirmReplaceRoomForm()) return;
+    loadRoomIntoForm(r);
+    setEditingRoomIndex(index);
+  };
+
+  const duplicateRoom = (index: number) => {
+    const r = definedRooms[index];
+    if (!r || !confirmReplaceRoomForm()) return;
+    loadRoomIntoForm(r);
+    setEditingRoomIndex(null);
+  };
+
+  const removeRoom = (index: number) => {
+    const r = definedRooms[index];
+    if (!r) return;
+    if (!window.confirm(`Remove the ${r.roomsCount} × ${r.roomType} group? This cannot be undone.`)) return;
+    setDefinedRooms(list => list.filter((_, i) => i !== index));
+    if (editingRoomIndex === index) {
+      setEditingRoomIndex(null);
+      resetRoomForm();
+    } else if (editingRoomIndex !== null && editingRoomIndex > index) {
+      setEditingRoomIndex(editingRoomIndex - 1);
+    }
+  };
+
+  const cancelRoomEdit = () => {
+    setEditingRoomIndex(null);
+    resetRoomForm();
   };
 
   const payload = () => {
@@ -1902,6 +1457,12 @@ export default function AddProperty() {
         // Full nearbyFacilities array with all details (name, distance, type, etc.)
         if (nearbyFacilities.length > 0) {
           servicesObj.nearbyFacilities = nearbyFacilities;
+        }
+
+        // What each floor holds besides rooms (reception, restaurant, offices...)
+        const cleanedFloorUses = buildingType === "multi_storey" ? cleanFloorUses(floorUses, Number(totalFloors)) : {};
+        if (Object.keys(cleanedFloorUses).length > 0) {
+          servicesObj.floorUses = cleanedFloorUses;
         }
         
         return servicesObj;
@@ -2099,6 +1660,7 @@ export default function AddProperty() {
     if (draft.definedRooms && Array.isArray(draft.definedRooms)) setDefinedRooms(draft.definedRooms);
     if (draft.services) setServices(draft.services);
     if (draft.nearbyFacilities && Array.isArray(draft.nearbyFacilities)) setNearbyFacilities(draft.nearbyFacilities);
+    if (draft.floorUses && typeof draft.floorUses === "object") setFloorUses(parseFloorUses({ floorUses: draft.floorUses }));
     if (draft.acceptGroupBooking !== undefined) setAcceptGroupBooking(draft.acceptGroupBooking);
     if (draft.freeCancellation !== undefined) setFreeCancellation(draft.freeCancellation);
     if (draft.paymentModes && Array.isArray(draft.paymentModes)) setPaymentModes(draft.paymentModes);
@@ -2125,7 +1687,22 @@ export default function AddProperty() {
     window.location.href = "/owner/properties/add";
   }, []);
 
+  // The long form titles the page the owner is on. The short form labels the
+  // stepper pill and the "Next" hint, so the thing they are told is coming is
+  // spelled the same as the button they will click. Defined together because
+  // these two drifted apart once already ("Rooms" against "Room & bathroom").
   const stepTitles = ["Basic details", "Room & bathroom", "Services", "Totals & description", "Property photos", "Review & submit"] as const;
+  const stepShortTitles = ["Basic details", "Rooms", "Services", "Totals", "Photos", "Review"] as const;
+  // One line of purpose per step. The header used to repeat the step name and
+  // the word "Pending" six times and say nothing about the work itself.
+  const stepBlurbs = [
+    "Name the place and pin exactly where guests will find it.",
+    "Set up the rooms, beds and bathrooms guests can book.",
+    "Tell guests what you offer on the property and nearby.",
+    "Confirm capacity, pricing and how you describe the place.",
+    "Add the photos guests will judge this listing by.",
+    "Check everything, then send it to NoLSAF for review.",
+  ] as const;
 
   const servicesCompleted = useMemo(() => {
     const s: any = services || {};
@@ -2194,19 +1771,16 @@ export default function AddProperty() {
   }
 
   const currentStepTitle = stepTitles[currentStep] || "Add property";
-  const stepProgressPct = Math.round(((currentStep + 1) / stepTitles.length) * 100);
 
   const stepsMeta = [
-    { index: 0, title: "Basic details", completed: title.trim().length >= 3 && !!regionId && !!district && typeof latitude === 'number' && typeof longitude === 'number' },
-    { index: 1, title: "Rooms", completed: definedRooms.length >= 1 },
-    { index: 2, title: "Services", completed: servicesCompleted },
-    { index: 3, title: "Totals", completed: totalsCompleted },
-    { index: 4, title: "Photos", completed: photos.length >= 3 },
-    { index: 5, title: "Review", completed: false },
+    { index: 0, title: stepShortTitles[0], completed: title.trim().length >= 3 && !!regionId && !!district && typeof latitude === 'number' && typeof longitude === 'number' },
+    { index: 1, title: stepShortTitles[1], completed: definedRooms.length >= 1 },
+    { index: 2, title: stepShortTitles[2], completed: servicesCompleted },
+    { index: 3, title: stepShortTitles[3], completed: totalsCompleted },
+    { index: 4, title: stepShortTitles[4], completed: photos.length >= 3 },
+    { index: 5, title: stepShortTitles[5], completed: false },
   ] as const;
 
-  const completedStepsCount = stepsMeta.filter((s) => s.completed).length;
-  const nextStepTitle = stepTitles[currentStep + 1] || null;
   const totalDefinedRooms = definedRooms.reduce((sum, room) => sum + (Number(room?.roomsCount) || 0), 0);
   const totalBedsAcrossRooms = definedRooms.reduce((sum, room) => {
     const counts = room?.beds || {};
@@ -2219,109 +1793,101 @@ export default function AddProperty() {
 
   return (
     <div id="addPropertyView" className={PAGE_WRAPPER_CLASS}>
-      <div className={PAGE_BACKGROUND_CLASS} aria-hidden>
-        <div className="absolute -top-24 left-1/2 h-[440px] w-[440px] -translate-x-1/2 rounded-full bg-emerald-200/30 blur-3xl" />
-        <div className="absolute top-0 right-0 h-[360px] w-[360px] translate-x-1/3 rounded-full bg-sky-200/25 blur-3xl" />
-        <div className="absolute bottom-0 left-0 h-[320px] w-[320px] -translate-x-1/4 translate-y-1/3 rounded-full bg-emerald-100/20 blur-3xl" />
-      </div>
       <div aria-live="polite" className="sr-only" role="status">{announcement}</div>
       <div className={PAGE_LAYOUT_CLASS}>
         <div className={PAGE_SHELL_CLASS}>
           <section className={STEPPER_WRAPPER_CLASS}>
-            <div className="w-full relative" ref={stepperContainerRef} data-progress={progressHeight}>
-              <header className="add-property-stepper-header">
-                <div style={{ pointerEvents: "none", position: "absolute", inset: 0, overflow: "hidden" }} aria-hidden>
-                  <div style={{ position: "absolute", top: "-3rem", right: 0, height: "13rem", width: "13rem", transform: "translateX(33%)", borderRadius: "9999px", background: "rgba(255,255,255,0.04)", filter: "blur(40px)" }} />
-                  <div style={{ position: "absolute", bottom: 0, left: 0, height: "10rem", width: "10rem", transform: "translate(-25%, 25%)", borderRadius: "9999px", background: "rgba(0,0,0,0.08)", filter: "blur(40px)" }} />
-                </div>
-                <div style={{ position: "relative", zIndex: 10, display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem" }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-                        <span className="ap-badge">
-                          <Plus style={{ width: "1rem", height: "1rem" }} />
-                          Listing builder
-                        </span>
-                        {autoSaveStatus !== "idle" ? (
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: "0.375rem", borderRadius: "9999px", border: "1px solid", padding: "0.25rem 0.625rem", fontSize: "0.6875rem", fontWeight: 500, borderColor: autoSaveStatus === "saving" ? "rgba(255,255,255,0.2)" : autoSaveStatus === "saved" ? "rgba(110,231,183,0.4)" : "rgba(252,165,165,0.4)", background: autoSaveStatus === "saving" ? "rgba(255,255,255,0.1)" : autoSaveStatus === "saved" ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)", color: autoSaveStatus === "saving" ? "rgba(255,255,255,0.9)" : autoSaveStatus === "saved" ? "#6ee7b7" : "#fca5a5" }}>
-                            {autoSaveStatus === "saving" ? (<><span style={{ width: "0.75rem", height: "0.75rem", border: "2px solid rgba(255,255,255,0.5)", borderTopColor: "transparent", borderRadius: "9999px", display: "inline-block", animation: "spin 0.7s linear infinite" }} />Saving</>) : autoSaveStatus === "saved" ? (<><CheckCircle2 style={{ width: "0.875rem", height: "0.875rem" }} /> Saved</>) : (<><AlertCircle style={{ width: "0.875rem", height: "0.875rem" }} /> Save failed</>)}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="ap-label">Add property</p>
+            <div className="w-full relative space-y-4" ref={stepperContainerRef} data-progress={progressHeight}>
+              <header className="ap-head">
+                <div className="ap-head-inner">
+                  {/* Identity and the save state, on one line */}
+                  <div className="ap-head-top">
+                    <span className="ap-eyebrow">
+                      <Plus className="h-3.5 w-3.5" aria-hidden />
+                      Listing builder
+                    </span>
+                    {autoSaveStatus !== "idle" ? (
+                      <span className={`ap-save${autoSaveStatus === "saved" ? " is-saved" : autoSaveStatus === "saving" ? "" : " is-error"}`}>
+                        {autoSaveStatus === "saving" ? (<><span className="ap-save-spinner" />Saving</>)
+                          : autoSaveStatus === "saved" ? (<><CheckCircle2 className="h-3.5 w-3.5" /> Saved</>)
+                          : (<><AlertCircle className="h-3.5 w-3.5" /> Save failed</>)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* What this step is, and where it sits in the six */}
+                  <div className="ap-head-main">
+                    <div className="ap-head-copy">
                       <h1 className="ap-title">{currentStepTitle}</h1>
-                      <div className="ap-meta">
-                        <span>Step <span className="ap-meta-hi">{currentStep + 1}</span> of <span className="ap-meta-hi">{stepTitles.length}</span></span>
-                        <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}><CheckCircle2 style={{ width: "0.875rem", height: "0.875rem", color: "#6ee7b7" }} />{completedStepsCount} completed</span>
-                        <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}><Eye style={{ width: "0.875rem", height: "0.875rem", color: "rgba(255,255,255,0.4)" }} />{visitedSteps.size} visited</span>
-                        {nextStepTitle ? (<span className="ap-meta-accent" style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}><ArrowRight style={{ width: "0.875rem", height: "0.875rem" }} />Next: {nextStepTitle}</span>) : null}
-                        <span style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}><span className="dot-spinner dot-sm" aria-hidden><span className="dot dot-blue" /><span className="dot dot-black" /><span className="dot dot-yellow" /><span className="dot dot-green" /></span>{stepProgressPct}% journey</span>
-                      </div>
+                      <p className="ap-sub">{stepBlurbs[currentStep]}</p>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
-                      {(() => { const r = 28; const circ = +(2 * Math.PI * r).toFixed(2); const offset = +(circ - (stepProgressPct / 100) * circ).toFixed(2); return (
-                        <svg width="76" height="76" viewBox="0 0 76 76">
-                          <circle cx="38" cy="38" r="28" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="5" />
-                          <circle cx="38" cy="38" r="28" fill="none" stroke="#6ee7b7" strokeWidth="5" strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" style={{ transform: "rotate(-90deg)", transformOrigin: "38px 38px", transition: "stroke-dashoffset 0.5s ease" }} />
-                          <text x="38" y="35" textAnchor="middle" fontSize="12" fontWeight="700" fill="rgba(255,255,255,0.6)" letterSpacing="1">%</text>
-                          <text x="38" y="50" textAnchor="middle" fontSize="16" fontWeight="800" fill="white">{stepProgressPct}</text>
-                        </svg>
-                      ); })()}
+                    <div className="ap-count" aria-hidden>
+                      <span className="ap-count-now">{currentStep + 1}</span>
+                      <span className="ap-count-of">/ {stepTitles.length}</span>
                     </div>
                   </div>
-                  <div>
-                    <div className="ap-progress-track">
-                      <div className="ap-progress-fill" style={{ width: `${stepProgressPct}%` }} />
-                    </div>
-                    <div style={{ marginTop: "0.75rem", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.5rem" }}>
-                      <span className="ap-chip"><Home style={{ width: "0.875rem", height: "0.875rem", color: "#6ee7b7" }} />{totalDefinedRooms} rooms set</span>
-                      <span className="ap-chip"><Bed style={{ width: "0.875rem", height: "0.875rem", color: "#7dd3fc" }} />{totalBedsAcrossRooms} beds mapped</span>
-                      <span className="ap-chip"><ImageIcon style={{ width: "0.875rem", height: "0.875rem", color: "#fcd34d" }} />{photos.length} photos added</span>
-                    </div>
+
+                  {/* One segment per step: the bar and the rail now agree */}
+                  <div
+                    className="ap-track"
+                    role="progressbar"
+                    aria-valuemin={1}
+                    aria-valuemax={stepTitles.length}
+                    aria-valuenow={currentStep + 1}
+                    aria-label={`Step ${currentStep + 1} of ${stepTitles.length}`}
+                  >
+                    {stepsMeta.map((s) => (
+                      <span
+                        key={s.index}
+                        className={`ap-seg${currentStep > s.index ? " is-done" : currentStep === s.index ? " is-active" : ""}`}
+                      />
+                    ))}
                   </div>
-                  <svg aria-hidden="true" viewBox="0 0 400 28" preserveAspectRatio="none" style={{ width: "100%", height: "1.75rem", display: "block", opacity: 0.18 }}><polyline points="0,22 40,14 80,20 120,8 160,18 200,4 240,16 280,10 320,20 360,6 400,18" fill="none" stroke="white" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" /><polyline points="0,26 40,20 80,24 120,16 160,23 200,12 240,21 280,17 320,24 360,14 400,23" fill="none" stroke="white" strokeWidth="0.75" strokeLinejoin="round" strokeLinecap="round" /></svg>
-                  <nav style={{ overflowX: "auto" }} aria-label="Steps">
-                    <ol style={{ display: "flex", minWidth: "100%", alignItems: "stretch", gap: "0.5rem", paddingBottom: "0.25rem" }}>
-                      {stepsMeta.map((s, idx) => {
+
+                  {/* The rail. On phones it is numbers only, and the step you are
+                      on is the one that shows its name. */}
+                  <nav className="ap-rail" aria-label="Steps">
+                    <ol>
+                      {stepsMeta.map((s) => {
                         const isActive = currentStep === s.index;
                         const isPast = currentStep > s.index;
                         const isVisited = visitedSteps.has(s.index);
                         const isCompleted = s.completed && isPast;
                         const canJump = isVisited || s.index === currentStep;
+                        const state = isActive ? " is-active" : isCompleted ? " is-done" : isVisited ? " is-visited" : "";
                         return (
-                          <li key={s.index} style={{ display: "flex", alignItems: "center" }}>
-                            <button type="button" disabled={!canJump} onClick={() => scrollToStep(s.index)} className={`ap-step-pill${isActive ? " is-active" : ""}`} aria-current={isActive ? "step" : undefined}>
-                              <span className={`ap-step-circle${isActive ? " is-active" : isCompleted ? " is-completed" : ""}`}>{isCompleted ? "✓" : s.index + 1}</span>
-                              <span style={{ minWidth: 0, flex: 1 }}>
-                                <span className="ap-step-name">{s.title}</span>
-                                <span className="ap-step-status">{isCompleted ? "Completed" : isActive ? "In progress" : isVisited ? "Visited" : "Pending"}</span>
+                          <li key={s.index}>
+                            <button
+                              type="button"
+                              disabled={!canJump}
+                              onClick={() => scrollToStep(s.index)}
+                              className={`ap-node${state}`}
+                              aria-current={isActive ? "step" : undefined}
+                              title={s.title}
+                            >
+                              <span className="ap-node-dot">
+                                {isCompleted ? <Check className="h-3.5 w-3.5" aria-hidden /> : s.index + 1}
                               </span>
+                              <span className="ap-node-name">{s.title}</span>
                             </button>
-                            {idx < stepsMeta.length - 1 ? <span className="ap-step-sep" aria-hidden /> : null}
                           </li>
                         );
                       })}
                     </ol>
                   </nav>
+
+                  {/* A count only earns a chip once it has something to count. */}
+                  {totalDefinedRooms > 0 || totalBedsAcrossRooms > 0 || photos.length > 0 ? (
+                    <div className="ap-chips">
+                      {totalDefinedRooms > 0 ? <span className="ap-chip"><Home className="h-3.5 w-3.5" aria-hidden />{totalDefinedRooms} rooms set</span> : null}
+                      {totalBedsAcrossRooms > 0 ? <span className="ap-chip"><Bed className="h-3.5 w-3.5" aria-hidden />{totalBedsAcrossRooms} beds mapped</span> : null}
+                      {photos.length > 0 ? <span className="ap-chip"><ImageIcon className="h-3.5 w-3.5" aria-hidden />{photos.length} photos added</span> : null}
+                    </div>
+                  ) : null}
                 </div>
               </header>
-              <div className="px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-3">
-                {showReview && (
-                  <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white px-5 py-4 shadow-sm mb-6">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-700" />
-                </div>
-                      <div className="flex-1">
-                        <h3 className="text-sm font-semibold text-gray-900 mb-1">Ready to submit?</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">
-                          Please review all sections carefully. Once submitted, your property will be reviewed by our team. You&apos;ll be notified once the review is complete.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <main className="relative mt-6">
+              <div className="min-w-0">
+                <main className="relative">
                   <div className="relative w-full space-y-4">
         {/* BASICS */}
         <BasicsStep
@@ -2394,6 +1960,8 @@ export default function AddProperty() {
           setRoomFloors={setRoomFloors}
           roomFloorDistribution={roomFloorDistribution}
           setRoomFloorDistribution={setRoomFloorDistribution}
+          floorUses={floorUses}
+          setFloorUses={setFloorUses}
           smoking={smoking}
           setSmoking={setSmoking}
           bathPrivate={bathPrivate}
@@ -2418,6 +1986,11 @@ export default function AddProperty() {
           pricePerNight={pricePerNight}
           setPricePerNight={setPricePerNight}
           addRoomType={addRoomType}
+          editingRoomIndex={editingRoomIndex}
+          onEditRoom={editRoom}
+          onDuplicateRoom={duplicateRoom}
+          onRemoveRoom={removeRoom}
+          onCancelRoomEdit={cancelRoomEdit}
           definedRooms={definedRooms}
           setDefinedRooms={setDefinedRooms}
           numOrEmpty={numOrEmpty}
@@ -2439,8 +2012,6 @@ export default function AddProperty() {
           numOrEmpty={numOrEmpty}
           nearbyFacilities={nearbyFacilities as any}
           setNearbyFacilities={setNearbyFacilities as any}
-          AddFacilityInline={AddFacilityInline as any}
-          FacilityRow={FacilityRow as any}
           servicesCompleted={servicesCompleted}
         />
 
@@ -2512,7 +2083,14 @@ export default function AddProperty() {
             })),
             buildingType: buildingType || "",
             totalFloors: totalFloors || "",
+            floorUses: buildingType === "multi_storey" ? cleanFloorUses(floorUses, Number(totalFloors)) : {},
             currency: "TZS",
+            coverPhoto: photos[0],
+            photoCount: photos.length,
+            description: desc,
+            bedrooms: totalBedrooms,
+            bathrooms: totalBathrooms,
+            maxGuests: maxGuests,
           }}
         />
                   </div>
@@ -2841,447 +2419,3 @@ export default function AddProperty() {
 
 
 /** Facilities mini-components */
-function AddFacilityInline({ onAdd, existingFacilities = [] }:{ onAdd:(f:NearbyFacility)=>void; existingFacilities?: NearbyFacility[] }) {
-  const [type, setType] = useState<FacilityType | "">("");
-  const [name, setName] = useState("");
-  const [ownership, setOwnership] = useState<"Public/Government"|"Private"|"">("");
-  const [distanceKm, setDistanceKm] = useState<number | "">("");
-  const [reachableBy, setReachableBy] = useState<ReachMode[]>([]);
-  const [url, setUrl] = useState("");
-
-  // Track which facility types are already added
-  const addedTypes = new Set(existingFacilities.map(f => f.type));
-  const isTypeLocked = (t: FacilityType) => addedTypes.has(t);
-  const hasSelection = type !== "";
-
-  // allow multiple selection: toggle presence in array
-  const toggleMode = (m: ReachMode) =>
-    setReachableBy(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
-
-  const canAdd = name.trim().length >= 2 && type !== "";
-  
-  // Validation states
-  const [touched, setTouched] = useState<{ name?: boolean; url?: boolean; distance?: boolean }>({});
-  const nameError = touched.name && (!name || name.trim().length < 2) ? "Name must be at least 2 characters" : "";
-  const urlError = touched.url && url && !/^https?:\/\/.+/.test(url) ? "Please enter a valid URL (starting with http:// or https://)" : "";
-  const distanceError = touched.distance && typeof distanceKm === 'number' && distanceKm < 0 ? "Distance cannot be negative" : "";
-
-  const add = () => {
-    if (!canAdd || !type) {
-      setTouched({ name: true, url: !!url, distance: typeof distanceKm === 'number' });
-      return;
-    }
-    onAdd({
-      id: cryptoId(),
-      type: type as FacilityType, name, ownership,
-      distanceKm,
-      reachableBy,
-      url: url || undefined,
-    });
-    // reset
-    setType("" as FacilityType | ""); setName(""); setOwnership(""); setDistanceKm(""); setReachableBy([]); setUrl("");
-    setTouched({});
-  };
-
-  const cancel = () => {
-    setType("" as FacilityType | ""); setName(""); setOwnership(""); setDistanceKm(""); setReachableBy([]); setUrl("");
-  };
-
-  // Get context-aware placeholder based on selected type
-  const namePlaceholder = type ? (FACILITY_PLACEHOLDERS[type as FacilityType] || "e.g. Facility name") : "e.g. Facility name";
-
-  return (
-    <div className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all duration-300">
-      <div className="space-y-5">
-        {/* Type section - Modern Card Design with Categories */}
-        <div className="bg-gradient-to-br from-gray-50 to-white rounded-xl p-5 sm:p-6 border-2 border-gray-200 shadow-sm">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-lg bg-teal-100 flex items-center justify-center">
-              <Building2 className="w-5 h-5 text-teal-600" />
-            </div>
-            <LabelSmall className="font-semibold text-gray-900 text-sm">Facility Type</LabelSmall>
-          </div>
-          
-          {/* Organized by Categories */}
-          <div className="space-y-5">
-            {/* Medical Facilities */}
-            {(!hasSelection || (hasSelection && ["Hospital", "Pharmacy", "Polyclinic", "Clinic"].includes(type as FacilityType))) && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center">
-                    <Hospital className="w-4 h-4 text-rose-600" />
-                  </div>
-                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Medical</span>
-                </div>
-                <div role="radiogroup" aria-label="Medical facilities" className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {["Hospital", "Pharmacy", "Polyclinic", "Clinic"].map(t => {
-              const sel = type === t;
-                    const locked = isTypeLocked(t as FacilityType);
-                    const icons: Record<string, React.ComponentType<{ className?: string }>> = {
-                      "Hospital": Hospital,
-                      "Pharmacy": Pill,
-                      "Polyclinic": Hospital,
-                      "Clinic": Hospital,
-                    };
-                    const Icon = icons[t] || Building2;
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  role="radio"
-                  aria-checked={sel}
-                        disabled={locked && !sel}
-                  onClick={() => {
-                          if (locked && !sel) return;
-                          setType(t as FacilityType);
-                    setName("");
-                    setOwnership("");
-                  }}
-                        className={`group relative flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 transition-all duration-300 ease-out ${
-                          locked && !sel
-                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
-                            : sel
-                            ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-700 border-emerald-500 shadow-md shadow-emerald-500/20 scale-105'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 hover:shadow-sm'
-                        }`}
-                      >
-                        <Icon className={`w-3.5 h-3.5 transition-colors duration-300 ${sel ? 'text-emerald-600' : locked && !sel ? 'text-gray-400' : 'text-gray-500'}`} />
-                        <span className="text-xs font-semibold">{t}</span>
-                        {sel && (
-                          <div className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse border border-white" />
-                        )}
-                        {locked && !sel && (
-                          <div className="absolute top-1 right-1 flex items-center gap-0.5">
-                            <Lock className="w-3 h-3 text-amber-500" />
-                          </div>
-                        )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-            )}
-
-            {/* Transportation */}
-            {(!hasSelection || (hasSelection && ["Airport", "Bus station", "Petrol station", "Main road"].includes(type as FacilityType))) && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <Car className="w-4 h-4 text-blue-600" />
-              </div>
-                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Transportation</span>
-            </div>
-                <div role="radiogroup" aria-label="Transportation facilities" className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {["Airport", "Bus station", "Petrol station", "Main road"].map(t => {
-                    const sel = type === t;
-                    const locked = isTypeLocked(t as FacilityType);
-                    const icons: Record<string, React.ComponentType<{ className?: string }>> = {
-                      "Airport": Plane,
-                      "Bus station": Bus,
-                      "Petrol station": Fuel,
-                      "Main road": Route,
-                    };
-                    const Icon = icons[t] || MapPin;
-                return (
-                  <button
-                        key={t}
-                    type="button"
-                    role="radio"
-                    aria-checked={sel}
-                        disabled={locked && !sel}
-                        onClick={() => {
-                          if (locked && !sel) return;
-                          setType(t as FacilityType);
-                          setName("");
-                          setOwnership("");
-                        }}
-                        className={`group relative flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 transition-all duration-300 ease-out ${
-                          locked && !sel
-                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
-                            : sel
-                            ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-700 border-emerald-500 shadow-md shadow-emerald-500/20 scale-105'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 hover:shadow-sm'
-                        }`}
-                      >
-                        <Icon className={`w-3.5 h-3.5 transition-colors duration-300 ${sel ? 'text-emerald-600' : locked && !sel ? 'text-gray-400' : 'text-gray-500'}`} />
-                        <span className="text-xs font-semibold">{t}</span>
-                        {sel && (
-                          <div className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse border border-white" />
-                        )}
-                        {locked && !sel && (
-                          <div className="absolute top-1 right-1 flex items-center gap-0.5">
-                            <Lock className="w-3 h-3 text-amber-500" />
-                          </div>
-                        )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-            {/* Public Services & Venues */}
-            {(!hasSelection || (hasSelection && ["Police station", "Conference center", "Stadium"].includes(type as FacilityType))) && (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-                    <Shield className="w-4 h-4 text-indigo-600" />
-          </div>
-                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Public Services & Venues</span>
-          </div>
-                <div role="radiogroup" aria-label="Public services and venues" className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {["Police station", "Conference center", "Stadium"].map(t => {
-                    const sel = type === t;
-                    const locked = isTypeLocked(t as FacilityType);
-                    const icons: Record<string, React.ComponentType<{ className?: string }>> = {
-                      "Police station": Shield,
-                      "Conference center": BuildingIcon,
-                      "Stadium": Building2,
-                    };
-                    const Icon = icons[t] || MapPin;
-            return (
-              <button
-                        key={t}
-                type="button"
-                        role="radio"
-                aria-checked={sel}
-                        disabled={locked && !sel}
-                        onClick={() => {
-                          if (locked && !sel) return;
-                          setType(t as FacilityType);
-                          setName("");
-                          setOwnership("");
-                        }}
-                        className={`group relative flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 transition-all duration-300 ease-out ${
-                          locked && !sel
-                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
-                            : sel
-                            ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-700 border-emerald-500 shadow-md shadow-emerald-500/20 scale-105'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 hover:shadow-sm'
-                        }`}
-                      >
-                        <Icon className={`w-3.5 h-3.5 transition-colors duration-300 ${sel ? 'text-emerald-600' : locked && !sel ? 'text-gray-400' : 'text-gray-500'}`} />
-                        <span className="text-xs font-semibold">{t}</span>
-                        {sel && (
-                          <div className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse border border-white" />
-                        )}
-                        {locked && !sel && (
-                          <div className="absolute top-1 right-1 flex items-center gap-0.5">
-                            <Lock className="w-3 h-3 text-amber-500" />
-                          </div>
-                        )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-            )}
-      </div>
-          
-          {/* Cancel button when type is selected */}
-          {hasSelection && (
-            <div className="mt-4 flex items-center justify-end">
-                <button
-                  type="button"
-                onClick={cancel}
-                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border-2 border-gray-300 rounded-xl hover:bg-gray-50 hover:border-gray-400 transition-all duration-200"
-              >
-                Cancel Selection
-                </button>
-          </div>
-          )}
-        </div>
-        
-        {/* Ownership section - Modern Card Design - Only show for Hospital, Pharmacy, Polyclinic, and Clinic */}
-        {hasSelection && requiresOwnership(type as FacilityType) && (
-          <div className="bg-gradient-to-br from-blue-50/50 to-white rounded-xl p-5 sm:p-6 border-2 border-blue-200 shadow-sm">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Shield className="w-5 h-5 text-blue-600" />
-              </div>
-              <LabelSmall className="font-semibold text-gray-900 text-sm">Ownership Type</LabelSmall>
-            </div>
-            <div role="radiogroup" aria-label="Ownership" className="grid grid-cols-2 gap-2.5 max-w-md">
-              {["Public/Government", "Private"].map(o => {
-                const sel = ownership === o;
-                return (
-                  <button
-                    key={o}
-                    type="button"
-                    role="radio"
-                    aria-checked={sel}
-                    onClick={() => setOwnership(o as any)}
-                    className={`group relative text-xs font-semibold px-4 py-2.5 rounded-xl border-2 transition-all duration-300 ease-out text-center ${
-                      sel
-                        ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-700 border-emerald-500 shadow-md shadow-emerald-500/20 scale-105'
-                        : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 hover:shadow-sm'
-                    }`}
-                  >
-                    {o}
-                    {sel && (
-                      <div className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse border border-white" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Name, Distance, and More info row - Modern Design - Only show when type is selected */}
-        {hasSelection && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Name field */}
-          <div className="space-y-2">
-            <LabelSmall className="font-semibold text-gray-900 text-xs">Name <span className="text-red-500">*</span></LabelSmall>
-            <input
-              value={name}
-              onChange={e => {
-                setName(e.target.value);
-                setTouched(prev => ({ ...prev, name: true }));
-              }}
-              onBlur={() => setTouched(prev => ({ ...prev, name: true }))}
-              className={`w-full h-11 px-4 border-2 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 ${
-                nameError 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20' 
-                  : 'border-gray-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-              }`}
-              placeholder={namePlaceholder}
-            />
-            {nameError && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3" />
-                {nameError}
-              </p>
-            )}
-          </div>
-          
-          {/* Distance field */}
-          <div className="space-y-2">
-            <LabelSmall className="font-semibold text-gray-900 text-xs">Distance (km)</LabelSmall>
-            <input
-              value={distanceKm as any}
-              onChange={e => {
-                setDistanceKm(numOrEmpty(e.target.value));
-                setTouched(prev => ({ ...prev, distance: true }));
-              }}
-              onBlur={() => setTouched(prev => ({ ...prev, distance: true }))}
-              type="number" 
-              step="0.1"
-              min="0"
-              className={`w-full h-11 px-4 border-2 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 ${
-                distanceError 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20' 
-                  : 'border-gray-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-              }`}
-              placeholder="2.5"
-            />
-            {distanceError && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3" />
-                {distanceError}
-              </p>
-            )}
-          </div>
-          
-          {/* More info field */}
-          <div className="space-y-2">
-            <LabelSmall className="font-semibold text-gray-900 text-xs">More info (URL)</LabelSmall>
-            <input
-              value={url}
-              onChange={e => {
-                setUrl(e.target.value);
-                setTouched(prev => ({ ...prev, url: true }));
-              }}
-              onBlur={() => setTouched(prev => ({ ...prev, url: true }))}
-              type="url"
-              className={`w-full h-11 px-4 border-2 rounded-xl text-sm font-medium text-gray-900 placeholder-gray-400 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 transition-all duration-200 ${
-                urlError 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500/20' 
-                  : 'border-gray-300 focus:ring-emerald-500/20 focus:border-emerald-500'
-              }`}
-              placeholder="https://example.com"
-            />
-            {urlError && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3" />
-                {urlError}
-              </p>
-            )}
-            {!urlError && url && (
-              <p className="text-xs text-emerald-600 flex items-center gap-1 mt-1">
-                <CheckCircle2 className="h-3 w-3" />
-                Valid URL format
-              </p>
-            )}
-          </div>
-        </div>
-        )}
-
-      {hasSelection && (
-      <div className="mt-6 pt-6 border-t border-gray-200">
-        <LabelSmall className="font-semibold text-gray-900 text-sm mb-3">Reachable by</LabelSmall>
-        <div className="grid grid-cols-2 gap-2.5" role="group" aria-label="Reachable by">
-          {REACH_MODES.map(m => {
-            const sel = reachableBy.includes(m);
-            const Icon = REACH_ICONS[m as string];
-            return (
-              <button
-                key={m}
-                type="button"
-                role="checkbox"
-                aria-checked={sel}
-                onClick={() => toggleMode(m)}
-                className={`group relative w-full text-xs font-semibold px-3 py-2.5 rounded-xl border-2 flex items-center justify-center gap-2 transition-all duration-300 ${
-                  sel 
-                    ? 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 text-emerald-700 border-emerald-500 shadow-md shadow-emerald-500/20' 
-                    : 'bg-white text-gray-700 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30 hover:shadow-sm'
-                }`}
-              >
-                {Icon ? <Icon className={`h-4 w-4 flex-shrink-0 transition-colors duration-300 ${sel ? 'text-emerald-600' : 'text-gray-500'}`} aria-hidden /> : null}
-                <span className="truncate">{m}</span>
-                {sel && (
-                  <div className="absolute top-1 right-1 w-2 h-2 bg-emerald-500 rounded-full animate-pulse border border-white" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      )}
-
-      {hasSelection && (
-      <div className="mt-6 pt-6 border-t border-gray-200 flex justify-end gap-3">
-        <button 
-          type="button" 
-          onClick={cancel}
-          className="px-6 py-3 rounded-xl text-sm font-semibold bg-white text-gray-700 border-2 border-gray-300 hover:bg-gray-50 hover:border-gray-400 transition-all duration-200"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={add}
-          disabled={!canAdd}
-          className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
-            canAdd 
-              ? "bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-lg active:scale-95" 
-              : "bg-gray-200 text-gray-400 cursor-not-allowed border border-gray-300"
-          }`}
-        >
-          Add facility
-        </button>
-        {!canAdd && touched.name && (
-          <p className="text-xs text-red-600 flex items-center gap-1 mt-2">
-            <AlertCircle className="h-3 w-3" />
-            Please fill in all required fields correctly
-          </p>
-        )}
-      </div>
-      )}
-      </div>
-    </div>
-  );
-}
-
-

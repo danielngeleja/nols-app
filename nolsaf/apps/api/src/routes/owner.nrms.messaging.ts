@@ -2,7 +2,7 @@ import { Router, type RequestHandler, type Response } from "express";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { z } from "zod";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+import { loadNrmsPropertyAccess, requireNrmsPropertyCapability } from "../lib/nrmsPropertyAccess.js";
 import { instagramOAuthConfig, signNrmsMetaOAuthState } from "../lib/nrmsMetaOAuth.js";
 import { decrypt, encrypt } from "../lib/crypto.js";
 
@@ -11,6 +11,14 @@ router.use(requireAuth as RequestHandler);
 
 async function access(req: AuthedRequest, res: Response, propertyId: number) {
   return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER"]);
+}
+
+async function diagnosticAccess(req: AuthedRequest, res: Response, propertyId: number) {
+  return requireNrmsPropertyCapability(req, res, propertyId, "sales.inquiry.read");
+}
+
+async function statusAccess(req: AuthedRequest, res: Response, propertyId: number) {
+  return requireNrmsPropertyCapability(req, res, propertyId, "sales.inquiry.read");
 }
 
 const publicConnection = (connection: any) => connection ? {
@@ -50,7 +58,7 @@ function workerExpectedToRun(): boolean {
 }
 
 router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) => {
-  const propertyId = Number(req.params.propertyId); const allowed = await access(req, res, propertyId); if (!allowed) return;
+  const propertyId = Number(req.params.propertyId); const allowed = await statusAccess(req, res, propertyId); if (!allowed) return;
   const connections = await prisma.nrmsMessagingConnection.findMany({ where: { propertyId }, orderBy: { provider: "asc" } });
   res.json({
     connections: connections.map(publicConnection),
@@ -71,7 +79,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
  * verifies Meta and the asynchronous ingestion path independently.
  */
 router.post("/property/:propertyId/whatsapp/diagnose", (async (req: AuthedRequest, res: Response) => {
-  const propertyId = Number(req.params.propertyId); const allowed = await access(req, res, propertyId); if (!allowed) return;
+  const propertyId = Number(req.params.propertyId); const allowed = await diagnosticAccess(req, res, propertyId); if (!allowed) return;
   const checkedAt = new Date();
   const checks: DiagnosticCheck[] = [];
   const graphVersion = String(process.env.META_GRAPH_API_VERSION || "v23.0");

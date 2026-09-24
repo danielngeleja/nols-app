@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNrmsUsageRows } from "./nrmsBilling.js";
+import { buildNrmsUsageRows, checkoutDepartureFacts } from "./nrmsBilling.js";
 
 const base = {
   accountId: 1, propertyId: 2, reservationId: 3, policyId: 4,
@@ -24,5 +24,17 @@ describe("buildNrmsUsageRows classification", () => {
     const rows = buildNrmsUsageRows({ ...base, source: "AGENT", bookingId: 99 });
     expect(rows.every((r) => r.classification === "COMMISSION_ONLY")).toBe(true);
     expect(rows.every((r) => Number(r.amount) === 0)).toBe(true);
+  });
+});
+
+describe("checkout departure billing", () => {
+  it("recognises an early departure on the hotel business date", () => {
+    const departure = checkoutDepartureFacts(new Date("2026-09-30T00:00:00.000Z"), "2026-09-03");
+    expect(departure).toEqual({ actualDepartureDate: new Date("2026-09-03T00:00:00.000Z"), earlyDeparture: true });
+  });
+
+  it("posts only elapsed nights through the actual departure date", () => {
+    const rows = buildNrmsUsageRows({ ...base, source: "WALK_IN", allocations: [{ ...base.allocations[0], endDate: new Date("2026-09-30T00:00:00.000Z") }], postThroughDate: new Date("2026-09-03T00:00:00.000Z") });
+    expect(rows.map((row) => row.serviceDate.toISOString().slice(0, 10))).toEqual(["2026-09-01", "2026-09-02"]);
   });
 });

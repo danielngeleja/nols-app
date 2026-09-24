@@ -90,11 +90,12 @@ export async function resolveRoomTypeIdForCode(db: DbLike, propertyId: number, r
     where: { propertyId },
     select: { id: true, name: true, sourceSpecKey: true },
   });
+  const normalizedTypeKey = typeKey.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   const match = candidates
     .filter((candidate: { name: string | null; sourceSpecKey: string | null }) =>
       [candidate.name, candidate.sourceSpecKey].some((value) => {
-        const name = String(value ?? "").trim();
-        return name !== "" && typeKey.startsWith(`${name} `);
+        const name = String(value ?? "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+        return name !== "" && (normalizedTypeKey === name || normalizedTypeKey.startsWith(`${name} `));
       }),
     )
     // Longest name wins so "Deluxe Suite" is preferred over "Deluxe".

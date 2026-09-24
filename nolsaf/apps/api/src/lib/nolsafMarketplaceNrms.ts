@@ -95,17 +95,41 @@ async function resolveGuestProfile(db: DbLike, booking: any) {
   });
 }
 
-async function resolveRoom(db: DbLike, propertyId: number, roomCode: string | null) {
-  if (!roomCode) return { roomTypeId: null as number | null, roomUnitId: null as number | null };
+export function roomTypeCodeFromSpec(roomsSpec: unknown, roomCode: string | null): string | null {
+  const code = String(roomCode ?? "").trim();
+  const spec = roomsSpec && typeof roomsSpec === "object" ? roomsSpec as any : null;
+  const rooms = Array.isArray(spec) ? spec : Array.isArray(spec?.rooms) ? spec.rooms : [];
+  if (!code) {
+    // Some legacy marketplace rows predate stable room codes. Recovery is
+    // deterministic when every published option belongs to one NRMS category;
+    // variants such as "Single 1 Queen" and "Single 1 King" still map to the
+    // same physical room type and therefore do not require staff to guess.
+    const categoryNames = [...new Set<string>(rooms
+      .map((room: any) => String(room?.roomType ?? room?.type ?? room?.name ?? room?.label ?? "").trim())
+      .filter(Boolean))];
+    return categoryNames.length === 1 ? categoryNames[0] : null;
+  }
+  if (!/^\d+$/.test(code)) return code;
 
-  const unit = await db.roomUnit.findFirst({
-    where: { propertyId, code: roomCode },
-    select: { id: true, roomTypeId: true },
+  const room = rooms[Number(code)];
+  if (!room || typeof room !== "object") return code;
+  return String(room.roomType ?? room.type ?? room.name ?? room.label ?? room.code ?? room.roomCode ?? code).trim() || code;
+}
+
+async function resolveMarketplaceRoomType(db: DbLike, propertyId: number, roomsSpec: unknown, roomCode: string | null) {
+  const resolvedCode = roomTypeCodeFromSpec(roomsSpec, roomCode);
+  if (resolvedCode) return resolveRoomTypeIdForCode(db, propertyId, resolvedCode);
+
+  // A property with exactly one active NRMS category is equally unambiguous
+  // even when its old roomsSpec is empty. Never apply this fallback when two
+  // categories exist: that would silently change what the guest bought.
+  const activeTypes = await db.roomType.findMany({
+    where: { propertyId, status: "ACTIVE" },
+    select: { id: true },
+    orderBy: { id: "asc" },
+    take: 2,
   });
-  if (unit) return { roomTypeId: unit.roomTypeId, roomUnitId: unit.id };
-
-  const roomTypeId = await resolveRoomTypeIdForCode(db, propertyId, roomCode);
-  return { roomTypeId, roomUnitId: null as number | null };
+  return activeTypes.length === 1 ? activeTypes[0].id : null;
 }
 
 /**
@@ -117,7 +141,7 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
     include: {
-      property: { select: { ownerId: true, nrmsActivatedAt: true } },
+      property: { select: { ownerId: true, nrmsActivatedAt: true, roomsSpec: true } },
       user: { select: { name: true, fullName: true, email: true, phone: true, nationality: true } },
       nrmsReservation: {
         select: {
@@ -198,8 +222,13 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
     return reservation;
   }
 
-  const room = await resolveRoom(db, booking.propertyId, booking.roomCode ?? null);
-  if (!room.roomTypeId) return reservation;
+  const roomTypeId = await resolveMarketplaceRoomType(
+    db,
+    booking.propertyId,
+    booking.property.roomsSpec,
+    booking.roomCode ?? null,
+  );
+  if (!roomTypeId) return reservation;
 
   const desiredCount = Math.max(1, Number(booking.roomsQty ?? 1));
   const active = await db.reservationRoomAllocation.findMany({
@@ -211,7 +240,7 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
       || new Date(allocation.endDate).getTime() !== new Date(booking.checkOut).getTime(),
   );
   const roomChanged = active.some((allocation: any) =>
-    allocation.roomTypeId !== room.roomTypeId || (room.roomUnitId != null && allocation.roomUnitId !== room.roomUnitId),
+    allocation.roomTypeId !== roomTypeId,
   );
   if (datesChanged || roomChanged || active.length !== desiredCount) {
     if (active.length) {
@@ -223,14 +252,14 @@ export async function syncNoLsafBookingToNrms(db: DbLike, bookingId: number) {
     // Marketplace bookings do not choose an NRMS rate plan, so the meal plan
     // comes from the property default. Snapshotted onto the allocation so the
     // breakfast list can answer for these stays like any other.
-    const plan = await resolveAllocationMealPlan(db, { propertyId: reservation.propertyId, roomTypeId: room.roomTypeId });
+    const plan = await resolveAllocationMealPlan(db, { propertyId: reservation.propertyId, roomTypeId });
     await db.reservationRoomAllocation.createMany({
-      data: Array.from({ length: desiredCount }, (_, index) => ({
+      data: Array.from({ length: desiredCount }, () => ({
         reservationId: reservation.id,
-        roomTypeId: room.roomTypeId,
-        // A specific physical room can represent only one allocation. Any
-        // additional quantity stays type-level until staff assigns units.
-        roomUnitId: index === 0 ? room.roomUnitId : null,
+        roomTypeId,
+        // The marketplace sells a room category, never a physical room.
+        // Front desk assigns a unit from this same category at arrival.
+        roomUnitId: null,
         startDate: booking.checkIn,
         endDate: booking.checkOut,
         status: "ACTIVE",
@@ -280,31 +309,71 @@ export async function updateNoLsafBookingStatus(db: DbLike, bookingId: number, s
   return updated;
 }
 
+// One projection is a dozen round trips behind a property-wide `FOR UPDATE`
+// lock, so the default 5s interactive budget expires mid-sweep on a remote
+// database and the whole repair fails with P2028.
+export const MARKETPLACE_CONNECT_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
+// The repair runs inline on a polled read endpoint, so it heals a slice per
+// request instead of up to 200 serial locked transactions in one response.
+const MARKETPLACE_CONNECT_BATCH = 25;
+
+// Calendar pages issue several overlapping requests. Without this, each one
+// queues behind the others on the same property row lock and they all inflate
+// past their transaction budget for repairs a single sweep already did.
+const inFlight = new Map<number, Promise<number>>();
+
 /** One-time/self-healing connection for confirmed bookings created before this projection existed. */
 export async function connectExistingNoLsafBookings(db: DbLike, propertyId: number, start: Date, end: Date) {
-  const missing = await db.booking.findMany({
-    where: {
-      propertyId,
-      status: { in: ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"] },
-      OR: [
-        { nrmsReservation: null },
-        { nrmsReservation: { is: { guestProfileId: null } } },
-      ],
-      AND: [{ checkIn: { lt: end } }, { checkOut: { gt: start } }],
-    },
-    select: { id: true },
-    orderBy: { id: "asc" },
-    take: 200,
-  });
-  for (const booking of missing) {
-    if (typeof db.$transaction === "function") {
-      await db.$transaction(async (tx: DbLike) => {
-        await lockPropertyInventory(tx, propertyId);
-        await syncNoLsafBookingToNrms(tx, booking.id);
-      });
-    } else {
-      await syncNoLsafBookingToNrms(db, booking.id);
+  const running = inFlight.get(propertyId);
+  if (running) return running;
+
+  const sweep = (async () => {
+    const missing = await db.booking.findMany({
+      where: {
+        propertyId,
+        status: { in: ["CONFIRMED", "PENDING_CHECKIN", "CHECKED_IN", "CHECKED_OUT"] },
+        OR: [
+          { nrmsReservation: null },
+          { nrmsReservation: { is: { guestProfileId: null } } },
+          {
+            AND: [
+              { roomCode: { not: null } },
+              { nrmsReservation: { is: { allocations: { none: { status: "ACTIVE" } } } } },
+            ],
+          },
+        ],
+        AND: [{ checkIn: { lt: end } }, { checkOut: { gt: start } }],
+      },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: MARKETPLACE_CONNECT_BATCH,
+    });
+    let connected = 0;
+    for (const booking of missing) {
+      // One bad booking must not abandon the rest of the slice, and none of
+      // them may fail the read that triggered the repair.
+      try {
+        if (typeof db.$transaction === "function") {
+          await db.$transaction(async (tx: DbLike) => {
+            await lockPropertyInventory(tx, propertyId);
+            await syncNoLsafBookingToNrms(tx, booking.id);
+          }, MARKETPLACE_CONNECT_TX_OPTIONS);
+        } else {
+          await syncNoLsafBookingToNrms(db, booking.id);
+        }
+        connected += 1;
+      } catch (err) {
+        console.error("[nolsafMarketplaceNrms] connect failed", { propertyId, bookingId: booking.id }, err);
+      }
     }
+    return connected;
+  })();
+
+  inFlight.set(propertyId, sweep);
+  try {
+    return await sweep;
+  } finally {
+    inFlight.delete(propertyId);
   }
-  return missing.length;
 }
