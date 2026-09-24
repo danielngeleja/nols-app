@@ -232,7 +232,7 @@ export function openAdminReportPrintWindow() {
     .loader { width:min(410px,100%); padding:27px 28px 25px; border:1px solid rgba(7,60,53,.12); border-radius:18px; background:rgba(255,255,255,.94); box-shadow:0 24px 70px rgba(7,60,53,.13); }
     .brand { display:flex; align-items:center; gap:11px; }
     .mark { display:grid; width:38px; height:38px; place-items:center; border-radius:11px; background:var(--brand); color:#fff; font-size:16px; font-weight:900; letter-spacing:-1px; box-shadow:0 8px 20px rgba(7,60,53,.2); }
-    .eyebrow { color:#22816b; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+    .eyebrow { color:#22816b; font-size:11px; font-weight:800; letter-spacing:.02em; }
     h1 { margin:4px 0 0; color:#10211d; font-size:17px; line-height:1.2; }
     .status { min-height:20px; margin:23px 0 9px; color:#344b45; font-size:13px; font-weight:650; }
     .track { overflow:hidden; height:6px; border-radius:999px; background:#e6eeeb; }

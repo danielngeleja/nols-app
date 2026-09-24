@@ -119,7 +119,7 @@ function JobCard({ job, onClick }: { job: Job; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
-      className={`group bg-white rounded-xl shadow-sm border cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
+      className={`group bg-white rounded-2xl shadow-sm border border-solid cursor-pointer transition-all duration-300 hover:shadow-lg hover:-translate-y-1 ${
         job.featured 
           ? "border-[#02665e]/30 shadow-md ring-1 ring-[#02665e]/10" 
           : "border-gray-200/60 hover:border-[#02665e]/30"
@@ -147,19 +147,19 @@ function JobCard({ job, onClick }: { job: Job; onClick: () => void }) {
         {/* Tags */}
         <div className="flex flex-wrap gap-2 mb-4">
           <span className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${getTypeColor(job.type)} shadow-sm`}>
-            {job.type.replace("_", " ")}
+            {job.type.replace(/_/g, " ")}
           </span>
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 flex items-center gap-1.5 border border-gray-200/50">
+          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 flex items-center gap-1.5 border border-solid border-gray-200/50">
             {getLocationIcon(job.location)} 
             <span className="capitalize">{job.location.toLowerCase()}</span>
           </span>
           {job.locationDetail && (
-            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 flex items-center gap-1.5 border border-gray-200/50">
+            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 flex items-center gap-1.5 border border-solid border-gray-200/50">
               <MapPin size={14} className="text-gray-500" /> 
               {job.locationDetail}
             </span>
           )}
-          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 border border-gray-200/50">
+          <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-700 border border-solid border-gray-200/50">
             {job.experienceLevel}
           </span>
         </div>
@@ -168,7 +168,7 @@ function JobCard({ job, onClick }: { job: Job; onClick: () => void }) {
         <p className="text-sm text-gray-600 mb-5 line-clamp-2 leading-relaxed">{job.description}</p>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+        <div className="flex items-center justify-between pt-4 border-0 border-t border-solid border-gray-100">
           <div className="flex flex-col gap-2 text-xs flex-1">
             <div className="flex items-center gap-4 text-gray-500">
               <span className="flex items-center gap-1.5">
@@ -216,7 +216,7 @@ function JobCard({ job, onClick }: { job: Job; onClick: () => void }) {
               e.stopPropagation();
               onClick();
             }}
-            className="px-4 py-2 bg-[#02665e]/5 hover:bg-[#02665e]/10 text-[#02665e] font-semibold rounded-lg flex items-center gap-2 transition-all duration-200 group/btn border border-[#02665e]/20 hover:border-[#02665e]/40"
+            className="px-4 py-2 cursor-pointer bg-[#02665e]/5 hover:bg-[#02665e]/10 text-[#02665e] font-semibold rounded-lg flex items-center gap-2 transition-all duration-200 group/btn border border-solid border-[#02665e]/20 hover:border-[#02665e]/40"
           >
             <span>View Details</span>
             <ChevronRight size={16} className="group-hover/btn:translate-x-1 transition-transform" />
@@ -265,14 +265,14 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-gray-200/60 p-6 sm:p-8 flex items-start justify-between z-10">
+        <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-0 border-b border-solid border-gray-200/60 p-6 sm:p-8 flex items-start justify-between z-10">
           <div className="flex-1 min-w-0 pr-4">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2 leading-tight">{job.title}</h2>
             <p className="text-base text-gray-500 font-medium">{job.department}</p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+            className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border border-solid border-gray-200 bg-white hover:bg-gray-50 transition-colors flex-shrink-0"
             aria-label="Close"
           >
             <X size={20} className="text-gray-500" />
@@ -282,10 +282,10 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
         <div className="p-6 sm:p-8 space-y-8">
           {/* Badges Section */}
           <div className="flex flex-wrap gap-3">
-            <span className={`px-4 py-2.5 rounded-lg text-sm font-semibold border ${getTypeColor(job.type)} shadow-sm`}>
-              {job.type.replace("_", " ")}
+            <span className={`px-4 py-2.5 rounded-lg text-sm font-semibold border border-solid ${getTypeColor(job.type)} shadow-sm`}>
+              {job.type.replace(/_/g, " ")}
             </span>
-            <span className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-50 text-gray-700 border border-gray-200 flex items-center gap-2 shadow-sm">
+            <span className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gray-50 text-gray-700 border border-solid border-gray-200 flex items-center gap-2 shadow-sm">
               {getLocationIcon(job.location)}
               <span className="capitalize">{job.location.toLowerCase()}</span>
               {job.locationDetail && (
@@ -295,11 +295,11 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
                 </>
               )}
             </span>
-            <span className="px-4 py-2.5 rounded-lg text-sm font-medium bg-purple-50 text-purple-700 border border-purple-200 shadow-sm">
+            <span className="px-4 py-2.5 rounded-lg text-sm font-medium bg-purple-50 text-purple-700 border border-solid border-purple-200 shadow-sm">
               {job.experienceLevel} Level
             </span>
             {job.salary && (
-              <span className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-2 shadow-sm">
+              <span className="px-4 py-2.5 rounded-lg text-sm font-semibold bg-amber-50 text-amber-700 border border-solid border-amber-200 flex items-center gap-2 shadow-sm">
                 <DollarSign size={16} className="text-amber-600" />
                 {formatSalary(job.salary)}
               </span>
@@ -369,7 +369,7 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
           )}
 
           {/* Footer */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-6 border-t border-gray-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-6 border-0 border-t border-solid border-gray-200">
             <div className="text-sm text-gray-600 space-y-1">
               <p className="flex items-center gap-2">
                 <Calendar size={16} className="text-gray-400" />
@@ -384,7 +384,7 @@ function JobDetailModal({ job, onClose, onApply }: { job: Job; onClose: () => vo
             </div>
             <button
               onClick={onApply}
-              className="px-8 py-3 bg-gradient-to-r from-[#02665e] to-[#038a7c] text-white rounded-lg font-semibold hover:from-[#024d47] hover:to-[#02665e] transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 w-full sm:w-auto"
+              className="px-8 py-3 cursor-pointer border-0 bg-gradient-to-r from-[#02665e] to-[#038a7c] text-white rounded-lg font-semibold hover:from-[#024d47] hover:to-[#02665e] transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 w-full sm:w-auto"
             >
               Apply Now
             </button>
@@ -653,14 +653,19 @@ export default function CareersPage() {
   ];
 
   if (isLoading || isPublicContext === null || isAgentContext === null) {
+    // The page's own shape in still blocks, so nothing jumps when the real content arrives
     return (
-      <>
-        <main className="min-h-screen bg-white text-slate-900">
-          <div className="public-container py-10">
-            <div className="text-center">Loading...</div>
+      <main className="min-h-screen bg-white text-slate-900" aria-busy="true">
+        <span role="status" className="sr-only">Loading careers</span>
+        <div className="public-container pt-6">
+          <div className="h-64 w-full animate-pulse rounded-2xl bg-slate-100 md:h-80" />
+          <div className="mx-auto mt-8 grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-36 animate-pulse rounded-2xl bg-slate-100" />
+            ))}
           </div>
-        </main>
-      </>
+        </div>
+      </main>
     );
   }
 
@@ -685,32 +690,42 @@ export default function CareersPage() {
       <main className="min-h-screen bg-white text-slate-900 overflow-x-hidden">
         <LayoutFrame heightVariant="sm" topVariant="sm" colorVariant="muted" variant="solid" />
         
-        {/* Careers Hero Image */}
-        <section ref={heroRef} className="relative w-full overflow-hidden mb-0 pb-0">
+        <style>{"#careers-page, #careers-page * { box-sizing: border-box; }"}</style>
+        <div id="careers-page">
+        {/* Careers hero: the photo with the heading and a direct way to the roles */}
+        <section ref={heroRef} className="relative w-full pt-4">
           <div className="public-container">
-            <div className="relative w-full h-64 md:h-80 lg:h-96 rounded-lg overflow-hidden">
+            <div className="relative h-64 w-full overflow-hidden rounded-2xl md:h-80 lg:h-96">
               <Image
                 src="/assets/nolsaf_careers.jpg"
-                alt="NoLSAF Careers"
+                alt="The NoLSAF team at work"
                 fill
                 className="object-cover"
                 priority
               />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-transparent rounded-lg" />
-              <div className="absolute inset-0 flex items-center justify-center px-4">
-                <h2 className="text-3xl md:text-4xl lg:text-5xl font-extrabold text-white text-center tracking-tight drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)]">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/35 to-black/20" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
+                <p className="m-0 text-[12.5px] font-bold tracking-[0.06em] text-emerald-200">Careers at NoLSAF</p>
+                <h1 className="m-0 mt-2 text-3xl font-extrabold tracking-tight text-white drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)] md:text-4xl lg:text-5xl">
                   Why Work at NoLSAF?
-                </h2>
+                </h1>
+                <a
+                  href="#open-positions"
+                  className="mt-5 inline-flex h-11 items-center gap-2 rounded-full bg-white px-5 text-[14px] font-bold text-[#02665e] no-underline shadow-lg transition-transform hover:-translate-y-0.5"
+                >
+                  {jobsLoading ? "See open positions" : `See ${activeJobs.length} open position${activeJobs.length === 1 ? "" : "s"}`}
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </a>
               </div>
             </div>
           </div>
         </section>
-        
-        {/* Company Culture Section - positioned directly after photo */}
-        <section className="pt-10 md:pt-12 lg:pt-14 pb-0 bg-gray-50 -mt-24 md:-mt-32 lg:-mt-40">
+
+        {/* Company culture: its own band under the photo, never tucked behind it */}
+        <section className="pb-12 pt-10 md:pt-12">
           <div className="public-container">
             <div className="max-w-6xl mx-auto">
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {[
                   {
                     icon: <Heart size={32} />,
@@ -751,11 +766,13 @@ export default function CareersPage() {
                 ].map((benefit, idx) => (
                   <div
                     key={idx}
-                    className="bg-white p-6 rounded-lg shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+                    className="flex gap-4 rounded-2xl border border-solid border-slate-200 bg-white p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_30px_-18px_rgba(15,23,42,0.35)]"
                   >
-                    <div className={`${benefit.iconColor} mb-4`}>{benefit.icon}</div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">{benefit.title}</h3>
-                    <p className="text-gray-600">{benefit.description}</p>
+                    <span className={`inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-200 [&>svg]:h-5 [&>svg]:w-5 ${benefit.iconColor}`}>{benefit.icon}</span>
+                    <div className="min-w-0">
+                      <h3 className="m-0 text-[16.5px] font-bold text-gray-900">{benefit.title}</h3>
+                      <p className="m-0 mt-1 text-[14px] leading-6 text-gray-600">{benefit.description}</p>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -764,16 +781,23 @@ export default function CareersPage() {
         </section>
 
         {/* Job Listings Section */}
-        <section className="pt-0 pb-16 bg-white">
+        <section id="open-positions" className="scroll-mt-24 border-0 border-t border-solid border-slate-100 bg-white pb-16 pt-12">
           <div className="public-container">
             <div className="w-full min-w-0 max-w-7xl mx-auto">
-              <div className="mb-8">
-                <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Open Positions</h2>
-                <p className="text-gray-600">Find the perfect role for you</p>
+              <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="m-0 text-3xl font-bold text-gray-900 md:text-4xl">Open Positions</h2>
+                  <p className="m-0 mt-2 text-gray-600">Find the perfect role for you</p>
+                </div>
+                {!jobsLoading ? (
+                  <span className="rounded-full bg-[#02665e]/10 px-3 py-1 text-[13px] font-bold text-[#02665e]">
+                    {activeJobs.length} open role{activeJobs.length === 1 ? "" : "s"}
+                  </span>
+                ) : null}
               </div>
 
               {/* Search and Filters */}
-              <div className="bg-gray-50 rounded-lg p-6 mb-8 min-w-0 overflow-hidden">
+              <div className="mb-8 min-w-0 overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-50/70 p-4 sm:p-5">
                 <div className="mb-4">
                   <div className="relative w-full min-w-0 max-w-full">
                     <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
@@ -782,7 +806,7 @@ export default function CareersPage() {
                       placeholder="Search jobs by title, department, or location..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full min-w-0 max-w-full box-border pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
+                      className="w-full min-w-0 max-w-full box-border pl-12 pr-4 py-3 border border-solid border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
                     />
                   </div>
                 </div>
@@ -796,7 +820,7 @@ export default function CareersPage() {
                     <select
                       value={selectedCategory}
                       onChange={(e) => setSelectedCategory(e.target.value as JobCategory | "ALL")}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
+                      className="w-full px-4 py-2 border border-solid border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
                     >
                       {categories.map((cat) => (
                         <option key={cat.value} value={cat.value}>
@@ -813,7 +837,7 @@ export default function CareersPage() {
                     <select
                       value={selectedType}
                       onChange={(e) => setSelectedType(e.target.value as JobType | "ALL")}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
+                      className="w-full px-4 py-2 border border-solid border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
                     >
                       {jobTypes.map((type) => (
                         <option key={type.value} value={type.value}>
@@ -830,7 +854,7 @@ export default function CareersPage() {
                     <select
                       value={selectedLocation}
                       onChange={(e) => setSelectedLocation(e.target.value as JobLocation | "ALL")}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
+                      className="w-full px-4 py-2 border border-solid border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-transparent"
                     >
                       {locations.map((loc) => (
                         <option key={loc.value} value={loc.value}>
@@ -850,7 +874,7 @@ export default function CareersPage() {
                         setSelectedType("ALL");
                         setSelectedLocation("ALL");
                       }}
-                      className="text-sm text-[#02665e] hover:underline"
+                      className="cursor-pointer border-0 bg-transparent p-0 text-sm font-semibold text-[#02665e] hover:underline"
                     >
                       Clear all filters
                     </button>
@@ -864,9 +888,26 @@ export default function CareersPage() {
 
               {/* Job Cards */}
               {jobsLoading ? (
-                <div className="text-center py-16">
-                  <Briefcase className="mx-auto text-gray-400 mb-4 animate-pulse" size={64} />
-                  <p className="text-gray-600">Loading jobs...</p>
+                // Skeleton cards in the same grid as real job cards
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2" aria-busy="true">
+                  <span role="status" className="sr-only">Loading open positions</span>
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="rounded-2xl border border-solid border-slate-200 bg-white p-6">
+                      <div className="h-5 w-2/3 animate-pulse rounded-md bg-slate-100" />
+                      <div className="mt-2 h-3.5 w-1/3 animate-pulse rounded-md bg-slate-100" />
+                      <div className="mt-5 flex gap-2">
+                        <div className="h-6 w-20 animate-pulse rounded-lg bg-slate-100" />
+                        <div className="h-6 w-16 animate-pulse rounded-lg bg-slate-100" />
+                        <div className="h-6 w-14 animate-pulse rounded-lg bg-slate-100" />
+                      </div>
+                      <div className="mt-5 h-3.5 w-full animate-pulse rounded-md bg-slate-100" />
+                      <div className="mt-2 h-3.5 w-4/5 animate-pulse rounded-md bg-slate-100" />
+                      <div className="mt-6 flex items-center justify-between border-0 border-t border-solid border-slate-100 pt-4">
+                        <div className="h-3.5 w-28 animate-pulse rounded-md bg-slate-100" />
+                        <div className="h-9 w-28 animate-pulse rounded-lg bg-slate-100" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : filteredJobs.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -895,7 +936,7 @@ export default function CareersPage() {
                         setSelectedType("ALL");
                         setSelectedLocation("ALL");
                       }}
-                      className="px-6 py-3 bg-[#02665e] text-white rounded-lg font-semibold hover:bg-[#024d47] transition-colors"
+                      className="px-6 py-3 cursor-pointer border-0 bg-[#02665e] text-white rounded-lg font-semibold hover:bg-[#024d47] transition-colors"
                     >
                       Clear Filters
                     </button>
@@ -928,84 +969,30 @@ export default function CareersPage() {
                     }))
                     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                     .map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="group relative bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-2xl transition-all duration-700 p-7 border border-gray-100/80 hover:border-[#02665e]/30 h-full flex flex-col overflow-hidden hover:-translate-y-2 hover:scale-[1.02]"
-                      >
-                    {/* Animated gradient accent bar - only visible on hover */}
-                    <div className="absolute top-0 left-0 right-0 h-0 bg-gradient-to-r from-[#02665e] via-[#038a7c] to-[#04a896] group-hover:h-2 transition-all duration-700"></div>
-                    
-                    {/* Decorative corner element */}
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-[#02665e]/5 to-transparent rounded-bl-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
-                    
-                    {/* Background gradient on hover with blur effect */}
-                    <div className="absolute inset-0 bg-gradient-to-br from-[#02665e]/0 via-transparent to-transparent group-hover:from-[#02665e]/8 group-hover:via-[#038a7c]/4 group-hover:to-[#04a896]/4 transition-all duration-700 pointer-events-none backdrop-blur-[2px]"></div>
-                    
-                    <div className="relative flex-1 flex flex-col z-10">
-                      {/* Header with icon */}
-                      <div className="mb-5">
-                        <div className="flex items-start justify-between gap-3 mb-4">
-                          <div className="flex-1">
-                            <h3 className="text-xl font-bold text-gray-900 group-hover:text-[#02665e] transition-colors duration-500 leading-tight mb-2">
-                              {item.title}
-                            </h3>
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-[#02665e]/8 via-[#038a7c]/6 to-[#04a896]/8 rounded-lg border border-[#02665e]/10 group-hover:from-[#02665e]/15 group-hover:via-[#038a7c]/12 group-hover:to-[#04a896]/15 group-hover:border-[#02665e]/20 transition-all duration-500">
-                              <Briefcase size={12} className="text-[#02665e]" />
-                              <span className="text-xs font-semibold text-[#02665e] group-hover:text-[#024d47] transition-colors duration-300">{item.department}</span>
-                            </div>
-                          </div>
-                          <span className={`px-3.5 py-1.5 text-white text-xs font-bold rounded-full flex-shrink-0 shadow-md group-hover:shadow-lg group-hover:scale-110 transition-all duration-300 ${
-                            item.status === "Expired" 
-                              ? "bg-gradient-to-r from-red-500 to-red-600" 
-                              : "bg-gradient-to-r from-green-500 to-emerald-500"
-                          }`}>
-                            {item.status}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {/* Description with improved typography */}
-                      <p className="text-sm text-gray-600 leading-relaxed mb-6 flex-1 group-hover:text-gray-800 transition-colors duration-500 font-medium">
-                        {item.description}
-                      </p>
-                      
-                      {/* Enhanced footer with date */}
-                      <div className="mt-auto pt-5 border-t border-gray-100/60 group-hover:border-[#02665e]/25 transition-all duration-500">
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-3 text-sm bg-gradient-to-r from-gray-50/80 to-gray-50/40 backdrop-blur-sm px-4 py-3 rounded-xl group-hover:from-[#02665e]/10 group-hover:via-[#038a7c]/8 group-hover:to-[#04a896]/10 group-hover:shadow-md transition-all duration-500 border border-gray-100/50 group-hover:border-[#02665e]/20">
-                            <div className="p-2 bg-white rounded-lg shadow-sm group-hover:bg-gradient-to-br group-hover:from-[#02665e] group-hover:to-[#038a7c] group-hover:shadow-lg group-hover:scale-110 transition-all duration-500">
-                              <Calendar size={14} className="text-[#02665e] group-hover:text-white transition-colors duration-300" />
-                            </div>
-                            <span className="font-semibold text-gray-700 group-hover:text-[#02665e] transition-colors duration-300">
-                              Posted: {new Date(item.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      <div key={idx} className="flex h-full flex-col rounded-2xl border border-solid border-slate-200 bg-white p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="m-0 text-[16.5px] font-bold leading-snug text-gray-900">{item.title}</h3>
+                            <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-[#02665e]/[0.07] px-2 py-0.5 text-[12px] font-semibold text-[#02665e]">
+                              <Briefcase size={12} aria-hidden />
+                              {item.department}
                             </span>
                           </div>
-                          {item.expiryDate && (
-                            <div className={`flex items-center gap-3 text-sm px-4 py-3 rounded-xl backdrop-blur-sm transition-all duration-500 border ${
-                              item.status === "Expired"
-                                ? "bg-gradient-to-r from-red-50/80 to-red-50/40 border-red-100/50 group-hover:from-red-100/50 group-hover:to-red-100/30"
-                                : "bg-gradient-to-r from-gray-50/80 to-gray-50/40 border-gray-100/50"
-                            }`}>
-                              <div className={`p-2 rounded-lg shadow-sm transition-all duration-500 ${
-                                item.status === "Expired"
-                                  ? "bg-red-100 group-hover:bg-red-200"
-                                  : "bg-white group-hover:bg-gradient-to-br group-hover:from-[#02665e] group-hover:to-[#038a7c]"
-                              }`}>
-                                <Clock size={14} className={item.status === "Expired" ? "text-red-600" : "text-[#02665e] group-hover:text-white transition-colors duration-300"} />
-                              </div>
-                              <span className={`font-semibold transition-colors duration-300 ${
-                                item.status === "Expired"
-                                  ? "text-red-700"
-                                  : "text-gray-700 group-hover:text-[#02665e]"
-                              }`}>
-                                {item.status === "Expired" ? "Expired: " : "Expired: "}
-                                {new Date(item.expiryDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                              </span>
-                            </div>
-                          )}
+                          <span className="flex-shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">Closed</span>
                         </div>
-                      </div>
-                    </div>
+                        <p className="m-0 mt-3 line-clamp-3 flex-1 text-[13.5px] leading-6 text-gray-600">{item.description}</p>
+                        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-0 border-t border-solid border-slate-100 pt-3 text-[12.5px] text-slate-500">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Calendar size={13} className="text-slate-400" aria-hidden />
+                            Posted {new Date(item.date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                          </span>
+                          {item.expiryDate ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Clock size={13} className="text-slate-400" aria-hidden />
+                              Closed {new Date(item.expiryDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     ))
                 ) : (
@@ -1022,24 +1009,26 @@ export default function CareersPage() {
         {/* CTA Section */}
         <section className="relative w-full overflow-hidden py-16">
           <div className="public-container">
-            <div className="relative w-full bg-gradient-to-br from-[#02665e] to-[#038a7c] text-white rounded-lg overflow-hidden">
-              <div className="max-w-4xl mx-auto text-center p-8 md:p-12">
-                <h2 className="text-3xl md:text-4xl font-bold mb-4">
-                  Don't see a role that fits?
+            <div className="relative w-full overflow-hidden rounded-2xl bg-gradient-to-br from-[#02665e] to-[#024d47] text-white">
+              <div className="max-w-3xl mx-auto text-center p-8 md:p-12">
+                <h2 className="m-0 text-3xl font-bold md:text-4xl">
+                  Don&apos;t see a role that fits?
                 </h2>
-                <p className="text-xl text-white/90 mb-8">
+                <p className="m-0 mb-7 mt-3 text-lg text-white/85">
                   We're always looking for talented people. Send us your resume and we'll keep you in mind for future opportunities.
                 </p>
                 <a
                   href="mailto:careers@nolsaf.com"
-                  className="inline-block px-8 py-4 bg-white text-[#02665e] rounded-lg font-semibold hover:bg-gray-100 transition-colors border-2 border-[#02665e] animate-pulse hover:animate-none no-underline"
+                  className="inline-flex h-12 items-center gap-2 rounded-xl bg-white px-7 font-semibold text-[#02665e] no-underline shadow-md transition-transform hover:-translate-y-0.5"
                 >
                   Send Your Resume
+                  <ChevronRight className="h-4 w-4" aria-hidden />
                 </a>
               </div>
             </div>
           </div>
         </section>
+        </div>
       </main>
       
       {isAgentContext ? (

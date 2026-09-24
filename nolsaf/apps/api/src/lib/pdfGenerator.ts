@@ -5,7 +5,7 @@
 
 import { makeQR } from "./qr.js";
 
-interface BookingDetails {
+export interface BookingDetails {
   bookingId: number;
   bookingCode: string;
   guestName: string;
@@ -31,6 +31,24 @@ interface BookingDetails {
     receiptNumber?: string;
     paidAt?: Date | string;
   };
+  /**
+   * Wording for receipts that are not a stay (e.g. a tour package). Every field
+   * is optional; when absent the booking receipt renders exactly as before, so
+   * all customer receipts share one template.
+   */
+  document?: {
+    title?: string;
+    reservationKicker?: string;
+    reservationSub?: string;
+    periodColumn?: string;
+    periodTitle?: string;
+    periodSub?: string;
+    lineTitle?: string;
+    lineSub?: string;
+    currency?: string;
+    confirmationCopy?: string;
+    verifyUrl?: string | null;
+  };
 }
 
 /**
@@ -50,7 +68,9 @@ async function generateBookingQRCode(details: BookingDetails): Promise<string> {
     };
 
     const origin = process.env.WEB_ORIGIN || process.env.APP_ORIGIN;
-    const url = origin ? `${origin.replace(/\/+$/, "")}/public/booking/${encodeURIComponent(details.bookingCode)}` : undefined;
+    const url = details.document && "verifyUrl" in details.document
+      ? details.document.verifyUrl || undefined
+      : origin ? `${origin.replace(/\/+$/, "")}/public/booking/${encodeURIComponent(details.bookingCode)}` : undefined;
 
     // Keep payload compact (QR capacity). Use short keys.
     const payloadObj: any = {
@@ -179,13 +199,25 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
     .filter(Boolean)
     .join(" / ");
 
+  const doc = details.document ?? {};
+  const currency = doc.currency || "TZS";
+  const documentTitle = doc.title || "BOOKING RECEIPT";
+  const reservationKicker = doc.reservationKicker || "Reservation";
+  const reservationSub = doc.reservationSub ?? `${details.property.type}${propertyLocation ? ` | ${propertyLocation}` : ""}`;
+  const periodColumn = doc.periodColumn || "Stay";
+  const periodTitle = doc.periodTitle || `${checkIn} to ${checkOut}`;
+  const periodSub = doc.periodSub ?? `${nights} night${nights === 1 ? "" : "s"}`;
+  const lineTitle = doc.lineTitle || roomDescription || details.property.type || "Accommodation";
+  const confirmationCopy = doc.confirmationCopy
+    || "The reservation is confirmed. Present the reservation code above at check-in. This document is not a fiscal tax receipt.";
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Booking Receipt ${esc(details.bookingCode)}</title>
+  <title>${esc(doc.title ? doc.title.charAt(0) + doc.title.slice(1).toLowerCase() : "Booking Receipt")} ${esc(details.bookingCode)}</title>
   <style>
     @media print {
       @page { size: A5; margin: 0; }
@@ -636,7 +668,7 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       </div>
     </div>
     <div class="document-heading">
-      <div class="document-title">BOOKING RECEIPT</div>
+      <div class="document-title">${esc(documentTitle)}</div>
       <div class="document-number">${esc(receiptReference)}</div>
       <div class="document-date">${esc(paidAt ? `Paid ${paidAt}` : "Payment confirmed")}</div>
     </div>
@@ -652,9 +684,9 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       ${details.nationality ? `<div class="secondary-value">${esc(details.nationality)}</div>` : ""}
     </div>
     <div>
-      <div class="kicker">Reservation</div>
+      <div class="kicker">${esc(reservationKicker)}</div>
       <div class="primary-value">${esc(details.property.title)}</div>
-      <div class="secondary-value">${esc(details.property.type)}${propertyLocation ? ` | ${esc(propertyLocation)}` : ""}</div>
+      ${reservationSub ? `<div class="secondary-value">${esc(reservationSub)}</div>` : ""}
       <div class="secondary-value">Code ${esc(details.bookingCode)}${invoiceReference !== "Not issued" ? ` | Invoice ${esc(invoiceReference)}` : ""}</div>
     </div>
   </section>
@@ -663,33 +695,31 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
     <div class="ledger-title">Transaction</div>
     <table class="ledger">
       <colgroup><col style="width:46%"><col style="width:31%"><col style="width:23%"></colgroup>
-      <thead><tr><th>Description</th><th>Stay</th><th>Amount</th></tr></thead>
+      <thead><tr><th>Description</th><th>${esc(periodColumn)}</th><th>Amount</th></tr></thead>
       <tbody><tr>
         <td>
-          <div class="line-title">${esc(roomDescription || details.property.type || "Accommodation")}</div>
+          <div class="line-title">${esc(lineTitle)}</div>
+          ${doc.lineSub ? `<div class="line-sub">${esc(doc.lineSub)}</div>` : ""}
           ${details.services ? `<div class="line-sub">Includes ${esc(typeof details.services === "string" ? details.services : JSON.stringify(details.services))}</div>` : ""}
         </td>
         <td>
-          <div class="line-title">${esc(checkIn)} to ${esc(checkOut)}</div>
-          <div class="line-sub">${nights} night${nights === 1 ? "" : "s"}</div>
+          <div class="line-title">${esc(periodTitle)}</div>
+          ${periodSub ? `<div class="line-sub">${esc(periodSub)}</div>` : ""}
         </td>
-        <td><div class="line-title">${amount} TZS</div></td>
+        <td><div class="line-title">${amount} ${esc(currency)}</div></td>
       </tr></tbody>
     </table>
   </section>
 
   <section class="totals">
-    <div class="total-row"><span>Amount received</span><strong>${amount} TZS</strong></div>
-    <div class="total-row final"><span>Balance</span><span>0 TZS</span></div>
+    <div class="total-row"><span>Amount received</span><strong>${amount} ${esc(currency)}</strong></div>
+    <div class="total-row final"><span>Balance</span><span>0 ${esc(currency)}</span></div>
   </section>
 
   <section class="confirmation-row">
       <div>
         <div class="confirmation-title">Payment received in full</div>
-        <div class="confirmation-copy">
-          The reservation is confirmed. Present the reservation code above at check-in.
-          This document is not a fiscal tax receipt.
-        </div>
+        <div class="confirmation-copy">${esc(confirmationCopy)}</div>
       </div>
       <div class="document-qr">
         ${qrCodeDataUrl

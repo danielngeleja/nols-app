@@ -349,8 +349,8 @@ export default function TourPackagesFilterPanel() {
               ))}
             </div>
             {/* sm+ skeleton grid */}
-            <div className="hidden gap-5 sm:grid sm:grid-cols-2 lg:grid-cols-3">
-              {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div className="hidden gap-5 sm:grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+              {[0, 1, 2, 3, 4].map((i) => (
                 <SkeletonCard key={i} />
               ))}
             </div>
@@ -371,8 +371,8 @@ export default function TourPackagesFilterPanel() {
                 </div>
               ))}
             </div>
-            {/* sm+: grid — 2 cols on sm/md, 3 on lg, 4 on xl+ */}
-            <div className="hidden gap-5 sm:grid sm:grid-cols-2 lg:grid-cols-3">
+            {/* sm+: grid, sized like the stays grid now the card matches the stay card: 2 cols on sm/md, 4 on lg, 5 on xl+ */}
+            <div className="hidden gap-5 sm:grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
               {operatorCards.map(({ agentId, agentPublicKey, profile, packages }) => (
                 <PublicTourOperatorCard
                   key={agentId}

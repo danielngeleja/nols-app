@@ -42,6 +42,7 @@ import {
   Smartphone,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import OperatorPublicProfile, { type PublicOperatorProfileData } from "./OperatorPublicProfile";
 
 
 const api = apiClient;
@@ -1072,10 +1073,12 @@ export function OperatorProfilePreviewScreen({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* -- Sticky topbar -- */}
+    <div className={isAdminPreview ? "min-h-screen bg-slate-50" : `min-h-screen bg-white text-slate-900${isPublicPreview ? " header-offset" : ""}`}>
+      {/* -- Sticky topbar: admin review and the operator's own preview only.
+          The public page is laid out like a stay page and carries its own "All tours" back pill. -- */}
+      {isPublicPreview && !isAdminPreview ? null : (
       <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+        <div className={isAdminPreview ? "mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3" : "public-container flex items-center justify-between gap-3 py-3"}>
           <Link
             href={backHref}
             aria-label={backLabel}
@@ -1093,6 +1096,7 @@ export function OperatorProfilePreviewScreen({
           ) : <div />}
         </div>
       </div>
+      )}
 
       {reviewToast ? (
         <div className="fixed right-4 top-20 z-[70] w-[min(420px,calc(100vw-2rem))] rounded-xl border bg-white p-3.5 shadow-xl">
@@ -1108,7 +1112,7 @@ export function OperatorProfilePreviewScreen({
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6">
+      <div className={isAdminPreview ? "mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6" : "public-container py-6 sm:py-8"}>
         {isAdminPreview ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${reviewBadgeClass}`}>
@@ -1473,6 +1477,29 @@ export function OperatorProfilePreviewScreen({
           </div>
         ) : null}
 
+        {/* Customers (and the operator previewing what customers see) get the
+            booking-first profile. The admin review keeps the full audit layout below. */}
+        {!isAdminPreview && p ? (
+          <OperatorPublicProfile
+            profile={p as unknown as PublicOperatorProfileData}
+            logoUrl={logoUrl}
+            verified={agentStatus === "ACTIVE"}
+            verification={isPublicPreview && operatorVerification ? {
+              certificateId: operatorVerification.certificateId,
+              approvedAt: operatorVerification.approvedAt,
+              verificationUrl: operatorVerification.verificationUrl,
+            } : null}
+            bookingKey={isPublicPreview && effectiveAgentId > 0 ? publicAgentKey : null}
+            displayPrice={(raw) => {
+              const base = Number(raw);
+              if (!Number.isFinite(base)) return NaN;
+              return shouldShowCommissionAdjustedPrice ? base * (1 + displayCommissionRate) : base;
+            }}
+            previewOnly={!isPublicPreview}
+          />
+        ) : null}
+
+        {isAdminPreview ? (<>
         {/* -- All-in-one journey banner (public preview only) -- */}
         {isPublicPreview ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#02665e]/15 bg-[#02665e]/5 px-4 py-3">
@@ -3115,6 +3142,7 @@ export function OperatorProfilePreviewScreen({
               </>
             )}
         </div>
+        </>) : null}
 
         {/* Footer note */}
         {!isAdminPreview && !isPublicPreview ? (

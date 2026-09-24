@@ -20,7 +20,6 @@ import {
   Ticket,
   ArrowRight,
   Home,
-  Users,
 } from "lucide-react";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -92,6 +91,18 @@ function formatCountdown(totalSeconds: number) {
 
 function fmt(n: number, currency = "TZS"): string {
   return `${currency} ${Number(n).toLocaleString("en-US")}`;
+}
+
+/** A payment brand logo in a small white tile, as on the stay page's payment methods. */
+function BrandMark({ src, alt }: { src: string; alt: string }) {
+  return (
+    <span className="inline-flex items-center justify-center rounded-md bg-white p-1 shadow-sm ring-1 ring-black/5" title={alt}>
+      <span className="relative block h-6 w-8">
+        {/* Above the fold on the method list, so load eagerly (Next flagged these as LCP) */}
+        <Image src={src} alt={alt} fill sizes="32px" loading="eager" className="object-contain" />
+      </span>
+    </span>
+  );
 }
 
 function isPaymentCooldownMessage(msg: string | null): boolean {
@@ -470,91 +481,101 @@ export default function TourPaymentPage() {
 
   // ── Success screen ────────────────────────────────────────────────────────
   if (paymentStatus === "success" || booking?.paymentStatus === "PAID") {
+    const paidAmount = Number(booking?.amountDue ?? booking?.grossAmount ?? 0);
+    const paidCurrency = booking?.currency || "TZS";
+    const tripHref = tourBookingId ? `/account/tour-packages/${encodeURIComponent(String(tourBookingId))}` : "/account/tour-packages";
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <div className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-          <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Payment Confirmed</p>
-            </div>
+      <div className="min-h-screen bg-[#f5faf9]">
+        <div className="sticky top-0 z-30 border-0 border-b border-solid border-gray-100 bg-white/95 shadow-sm backdrop-blur-sm">
+          <div className="mx-auto flex h-14 max-w-2xl items-center justify-between gap-3 px-4">
+            <p className="m-0 text-sm font-bold text-gray-900">Payment confirmed</p>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+              <CheckCircle2 className="h-3 w-3" aria-hidden /> PAID
+            </span>
           </div>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
-          <div className="w-full max-w-md flex flex-col items-center text-center">
-            <div
-              className="w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-teal-900/20"
-              style={{ background: "linear-gradient(135deg, #02665e, #4ecdc4)" }}
-            >
-              <CheckCircle2 className="w-10 h-10 text-white" />
+
+        <div className="mx-auto max-w-2xl px-4 py-8 sm:py-12">
+          {/* Same success panel as a stay payment: what happened, the code, what was paid, what next */}
+          <div className="box-border overflow-hidden rounded-2xl border border-solid border-[#02665e]/25 bg-white shadow-lg">
+            <div className="p-6 text-center lg:p-8">
+              <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#02665e]/10">
+                <CheckCircle2 className="h-9 w-9 text-[#02665e]" aria-hidden />
+              </span>
+              <h1 className="m-0 mt-4 text-[24px] font-bold leading-tight text-slate-950 lg:text-[28px]">Payment successful</h1>
+              <p className="m-0 mx-auto mt-2 max-w-md text-[14.5px] leading-6 text-slate-600">
+                Your tour{booking?.title ? ` "${booking.title}"` : ""} is confirmed
+                {(booking?.operatorSnapshot as any)?.companyName ? ` with ${(booking.operatorSnapshot as any).companyName}` : ""}. Your voucher and day-by-day plan are in your account.
+              </p>
+              {booking?.bookingCode ? (
+                <div className="mx-auto mt-5 box-border flex max-w-sm flex-col items-center rounded-xl border border-solid border-[#02665e]/25 bg-[#02665e]/5 px-5 py-4">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#02665e]">Booking code</span>
+                  <span className="mt-1 font-mono text-[22px] font-black tracking-[0.08em] text-slate-950">{booking.bookingCode}</span>
+                </div>
+              ) : null}
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h1>
-            <p className="text-gray-500 text-sm mb-6 max-w-sm">
-              Your tour package booking has been paid and confirmed. The operator will be in touch with you.
-            </p>
 
-            {booking?.bookingCode && (
-              <div className="w-full bg-white rounded-2xl border border-[#02665e]/20 px-6 py-4 mb-4 shadow-sm">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1">Booking Reference</p>
-                <p className="text-xl font-bold text-[#02665e] tracking-widest">{booking.bookingCode}</p>
+            {/* What was paid */}
+            <div className="box-border grid grid-cols-1 border-0 border-t border-solid border-slate-100 bg-slate-50/70 sm:grid-cols-3">
+              <div className="px-4 py-3">
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Amount paid</div>
+                <div className="mt-1 text-[16px] font-bold tabular-nums text-[#02665e]">{fmt(paidAmount, paidCurrency)}</div>
               </div>
-            )}
-
-            {booking && (
-              <div className="w-full bg-white rounded-2xl border border-gray-200 shadow-sm text-left mb-6 overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50/60">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Building2 className="w-4 h-4 text-[#02665e] shrink-0" />
-                    <span className="text-sm font-semibold text-gray-900 truncate">
-                      {(booking.operatorSnapshot as any)?.companyName || "Tour Operator"}
-                    </span>
-                  </div>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                    <CheckCircle2 className="w-3 h-3" /> PAID
-                  </span>
-                </div>
-                <div className="px-5 py-4 space-y-2.5">
-                  {booking.title && (
-                    <div className="flex justify-between gap-4 text-sm">
-                      <span className="text-gray-500 inline-flex items-center gap-1.5"><Ticket className="w-3.5 h-3.5" /> Package</span>
-                      <span className="font-medium text-gray-900 text-right">{booking.title}</span>
-                    </div>
-                  )}
-                  {booking.destination && (
-                    <div className="flex justify-between gap-4 text-sm">
-                      <span className="text-gray-500 inline-flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Destination</span>
-                      <span className="font-medium text-gray-900 text-right">{booking.destination}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between gap-4 text-sm">
-                    <span className="text-gray-500 inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Travelers</span>
-                    <span className="font-medium text-gray-900">{booking.travelerCount}</span>
-                  </div>
-                  <div className="flex justify-between gap-4 text-sm pt-2.5 border-t border-gray-100">
-                    <span className="text-gray-500">Amount Paid</span>
-                    <span className="font-bold text-[#02665e]">{fmt(Number(booking.amountDue ?? booking.grossAmount), booking.currency)}</span>
-                  </div>
-                </div>
+              <div className="border-0 border-t border-solid border-slate-200 px-4 py-3 sm:border-l sm:border-t-0">
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Travellers</div>
+                <div className="mt-1 text-[14px] font-semibold text-slate-900">{booking?.travelerCount || 1}</div>
               </div>
-            )}
+              <div className="border-0 border-t border-solid border-slate-200 px-4 py-3 sm:border-l sm:border-t-0">
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Destination</div>
+                <div className="mt-1 truncate text-[14px] font-semibold text-slate-900">{booking?.destination || "Confirmed"}</div>
+              </div>
+            </div>
 
+            {/* What next */}
+            <div className="grid gap-3 p-5 sm:grid-cols-2 lg:p-6">
+              <Link
+                href={tripHref}
+                className="box-border inline-flex items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 py-3 text-[14.5px] font-semibold text-white no-underline shadow-md transition hover:bg-[#014e47]"
+              >
+                <Ticket className="h-5 w-5" aria-hidden />
+                My trip and voucher
+              </Link>
+              <Link
+                href="/account/tour-packages"
+                className="box-border inline-flex items-center justify-center gap-2 rounded-xl border border-solid border-[#02665e]/30 bg-white px-5 py-3 text-[14.5px] font-semibold text-[#02665e] no-underline transition hover:bg-[#02665e]/5"
+              >
+                All my tours
+              </Link>
+            </div>
+          </div>
+
+          {/* The tour is paid, so leaving this page costs nothing: suggest a stay near where the trip goes */}
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-solid border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                <Building2 className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 text-[14px] font-bold text-gray-900">Need a place to stay?</p>
+                <p className="m-0 mt-0.5 text-[12.5px] leading-relaxed text-gray-500">
+                  {booking?.destination
+                    ? `Verified hotels and lodges near ${booking.destination}, for before or after your tour.`
+                    : "Verified hotels and lodges for before or after your tour."}
+                </p>
+              </div>
+            </div>
             <Link
-              href={tourBookingId ? `/account/tour-packages/${encodeURIComponent(String(tourBookingId))}` : "/account/tour-packages"}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-semibold text-white shadow-md shadow-teal-900/20 transition-transform hover:scale-[1.01] active:scale-[0.99]"
-              style={{ background: "linear-gradient(135deg, #02665e, #038a7f)" }}
+              href={booking?.destination ? `/public/properties?q=${encodeURIComponent(String(booking.destination))}` : "/public/properties"}
+              className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-xl border border-solid border-[#02665e]/30 bg-white px-4 text-[13px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-[#02665e]/5"
             >
-              <Ticket className="w-4 h-4" />
-              View Receipt &amp; Voucher
-              <ArrowRight className="w-4 h-4" />
+              Browse stays
+              <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
-            <p className="text-xs text-gray-400 mt-2 mb-4">
-              Available anytime under <span className="font-medium text-gray-500">My Tour Packages</span> in your account.
-            </p>
+          </div>
 
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900"
-            >
-              <Home className="w-3.5 h-3.5" />
+          <div className="mt-6 text-center">
+            <Link href="/" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-gray-500 no-underline hover:text-gray-800">
+              <Home className="h-3.5 w-3.5" aria-hidden />
               Return to home
             </Link>
           </div>
@@ -588,7 +609,7 @@ export default function TourPaymentPage() {
   const isTZS        = currency === "TZS";
 
   const bookingSummaryCard = booking ? (
-    <div className="rounded-2xl overflow-hidden shadow-sm border border-[#02665e]/10">
+    <div className="rounded-2xl overflow-hidden shadow-sm border border-solid border-[#02665e]/10">
       <div
         className="px-5 pt-5 pb-4"
         style={{ background: "linear-gradient(135deg, #02665e 0%, #028570 55%, #3ab8af 100%)" }}
@@ -612,22 +633,34 @@ export default function TourPaymentPage() {
           )}
         </div>
       </div>
-      <div className="bg-white px-5 py-3.5 space-y-1.5">
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">Travelers</span>
-          <span className="font-medium text-gray-900">{booking.travelerCount}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">Service Fee</span>
-          <span className="font-medium text-gray-900">{fmt(Number(booking.commissionAmount || 0), currency)}</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-500">Tax</span>
-          <span className="font-medium text-gray-900">{fmt(0, currency)}</span>
-        </div>
-        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-          <span className="text-sm font-semibold text-gray-700">Total Due</span>
-          <span className="text-xl font-bold text-[#02665e]">{fmt(amount, currency)}</span>
+      <div className="bg-white px-5 py-4 space-y-2">
+        {(() => {
+          const fee = Number(booking.commissionAmount || 0);
+          const pax = Math.max(1, Number(booking.travelerCount) || 1);
+          const tourPart = Math.max(0, amount - fee);
+          return (
+            <>
+              <div className="flex justify-between gap-3 text-sm">
+                <span className="text-gray-500">
+                  Tour <span className="text-gray-400">· {pax} traveller{pax === 1 ? "" : "s"}</span>
+                </span>
+                <span className="font-medium tabular-nums text-gray-900">{fmt(tourPart, currency)}</span>
+              </div>
+              {fee > 0 ? (
+                <div className="flex justify-between gap-3 text-sm">
+                  <span className="text-gray-500">NoLSAF service fee</span>
+                  <span className="font-medium tabular-nums text-gray-900">{fmt(fee, currency)}</span>
+                </div>
+              ) : null}
+            </>
+          );
+        })()}
+        <div className="flex items-end justify-between border-0 border-t border-dashed border-gray-200 pt-3">
+          <div className="leading-tight">
+            <span className="block text-sm font-semibold text-gray-800">Total due</span>
+            <span className="block text-[11px] text-gray-400">Nothing added at checkout</span>
+          </div>
+          <span className="text-2xl font-black tabular-nums text-[#02665e]">{fmt(amount, currency)}</span>
         </div>
       </div>
     </div>
@@ -640,12 +673,14 @@ export default function TourPaymentPage() {
   return (
     <div className="min-h-screen bg-[#f5faf9] overflow-x-hidden">
       {/* Top bar */}
-      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm border-0 border-b border-solid border-gray-100 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
           {paymentStatus === "idle" || paymentStatus === "failed" ? (
             <button
+              type="button"
+              aria-label="Back"
               onClick={() => router.back()}
-              className="p-2 -ml-2 rounded-full hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              className="-ml-2 inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent transition-colors hover:bg-gray-100 active:bg-gray-200"
             >
               <ChevronLeft className="w-5 h-5 text-gray-700" />
             </button>
@@ -667,51 +702,154 @@ export default function TourPaymentPage() {
           <div className="space-y-5 min-w-0 overflow-hidden">
             <div className="lg:hidden">{bookingSummaryCard}</div>
 
-            {/* Pending state */}
-            {paymentStatus === "pending" && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 text-center">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  {paymentChannel === "CARD"
-                    ? <CreditCard className="w-5 h-5 text-amber-600" />
-                    : paymentChannel === "BANK"
-                    ? <Building2 className="w-5 h-5 text-amber-600" />
-                    : <Smartphone className="w-5 h-5 text-amber-600 animate-pulse" />
-                  }
-                  <p className="font-semibold text-amber-800 text-sm">
-                    {paymentChannel === "CARD"
-                      ? "Verifying your card payment..."
-                      : paymentChannel === "BANK"
-                      ? "Confirming bank checkout"
-                      : `Check your phone for a payment prompt`}
-                  </p>
+            {/* ── Pending: what is happening, how long is left, and where the payment has reached ── */}
+            {paymentStatus === "pending" && (() => {
+              const steps =
+                paymentChannel === "MNO"
+                  ? ["Request sent to your phone", "Approve the prompt", "Tour confirmed"]
+                  : paymentChannel === "BANK"
+                  ? ["Bank checkout opened", "Bank confirming the OTP", "Tour confirmed"]
+                  : ["Card details submitted", "Your bank is verifying", "Tour confirmed"];
+              const elapsedPct = Math.max(0, Math.min(100, ((PAYMENT_WAIT_SECONDS - remainingSeconds) / PAYMENT_WAIT_SECONDS) * 100));
+              const running = remainingSeconds > 0;
+              return (
+                <div className="box-border overflow-hidden rounded-2xl border border-solid border-[#02665e]/20 bg-white shadow-lg">
+                  <div className="flex flex-col gap-4 border-0 border-b border-solid border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between lg:p-6">
+                    <div className="flex min-w-0 items-center gap-4">
+                      <span className="relative flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#02665e]/10">
+                        <span className="absolute inset-0 animate-ping rounded-2xl bg-[#02665e]/10" aria-hidden />
+                        <Loader2 className="relative h-6 w-6 animate-spin text-[#02665e]" aria-hidden />
+                      </span>
+                      <div className="min-w-0">
+                        <h2 className="m-0 text-[20px] font-bold leading-tight text-slate-950 sm:text-[22px]">
+                          {paymentChannel === "CARD" ? "Verifying your card payment" : paymentChannel === "BANK" ? "Confirming your bank payment" : "Waiting for your approval"}
+                        </h2>
+                        <p className="m-0 mt-1 text-[14px] leading-5 text-slate-600">
+                          {paymentChannel === "MNO"
+                            ? `We sent a payment request to your phone. Approve it on ${selectedMethod ? PAYMENT_METHODS.find((m) => m.id === selectedMethod)?.name || selectedMethod : "your wallet"} to confirm this tour.`
+                            : paymentChannel === "BANK"
+                            ? `We are confirming the ${BANK_PROVIDERS.find((b) => b.code === selectedBankCode)?.name || "bank"} checkout using the OTP you generated.`
+                            : "Your bank is checking the card. This usually takes a few seconds."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 rounded-xl bg-slate-50 px-4 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                        <Clock3 className="h-3.5 w-3.5" aria-hidden />
+                        Time left
+                      </div>
+                      <div className={`mt-0.5 font-mono text-[26px] font-black leading-none tabular-nums ${running ? "text-slate-950" : "text-amber-700"}`}>
+                        {formatCountdown(remainingSeconds)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="h-1 w-full bg-slate-100" role="presentation">
+                    <div className="h-full bg-[#02665e] transition-all duration-1000 ease-linear" style={{ width: `${elapsedPct}%` }} />
+                  </div>
+
+                  <div className="p-5 lg:p-6">
+                    <ol className="m-0 grid list-none gap-2 p-0 sm:grid-cols-3">
+                      {steps.map((label, index) => {
+                        const done = index === 0;
+                        const active = index === 1;
+                        return (
+                          <li
+                            key={label}
+                            className={`box-border flex items-center gap-2.5 rounded-xl border border-solid px-3 py-2.5 ${
+                              active ? "border-[#02665e]/30 bg-[#02665e]/5" : done ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-50"
+                            }`}
+                          >
+                            <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${done ? "bg-[#02665e] text-white" : active ? "bg-[#02665e]/15 text-[#02665e]" : "bg-slate-200 text-slate-500"}`}>
+                              {done ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> : index + 1}
+                            </span>
+                            <span className={`min-w-0 text-[13px] font-semibold leading-tight ${active ? "text-[#02665e]" : done ? "text-slate-700" : "text-slate-500"}`}>{label}</span>
+                            {active ? <span className="ml-auto block h-2 w-2 flex-shrink-0 animate-pulse rounded-full bg-[#02665e]" aria-hidden /> : null}
+                          </li>
+                        );
+                      })}
+                    </ol>
+
+                    <div className="mt-4 box-border grid grid-cols-1 overflow-hidden rounded-xl border border-solid border-slate-200 bg-slate-50/70 sm:grid-cols-3">
+                      <div className="px-4 py-3">
+                        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Booking</div>
+                        <div className="mt-1 truncate font-mono text-[13.5px] font-semibold text-slate-900">{booking?.bookingCode || `#${tourBookingId}`}</div>
+                      </div>
+                      <div className="border-0 border-t border-solid border-slate-200 px-4 py-3 sm:border-l sm:border-t-0">
+                        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Amount</div>
+                        <div className="mt-1 text-[16px] font-bold tabular-nums text-slate-950">{fmt(amount, currency)}</div>
+                      </div>
+                      <div className="border-0 border-t border-solid border-slate-200 px-4 py-3 sm:border-l sm:border-t-0">
+                        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                          {paymentChannel === "MNO" ? "Phone" : paymentChannel === "BANK" ? "Bank" : "Method"}
+                        </div>
+                        <div className="mt-1 truncate text-[14px] font-semibold text-slate-900">
+                          {paymentChannel === "MNO"
+                            ? phoneNumber || booking?.guestPhone || "-"
+                            : paymentChannel === "BANK"
+                            ? BANK_PROVIDERS.find((b) => b.code === selectedBankCode)?.name || selectedBankCode || "-"
+                            : "Visa / Mastercard"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-slate-500">
+                      <span className="inline-flex items-center gap-1.5 font-medium text-slate-600">
+                        <ShieldCheck className="h-4 w-4 text-[#02665e]" aria-hidden />
+                        Keep this page open until it finishes.
+                      </span>
+                      {_paymentRef ? (
+                        <span>Reference <span className="font-mono text-slate-700">{_paymentRef}</span></span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs text-amber-600 mb-3">
-                  {paymentChannel === "CARD"
-                    ? "Please wait while we confirm your card payment."
-                    : paymentChannel === "BANK"
-                    ? `We are confirming the ${BANK_PROVIDERS.find((b) => b.code === selectedBankCode)?.name || "bank"} checkout using the OTP you generated.`
-                    : `Approve the payment on your ${selectedMethod} app or dial the USSD code to confirm.`}
-                </p>
-                <div className="flex items-center justify-center gap-2 text-amber-700">
-                  <Clock3 className="w-4 h-4" />
-                  <span className="font-mono font-bold text-lg">{formatCountdown(remainingSeconds)}</span>
-                  <span className="text-xs">remaining</span>
+              );
+            })()}
+
+            {/* ── Timeout ── */}
+            {paymentStatus === "timeout" && (
+              <div className="rounded-2xl border border-solid border-amber-200 bg-white p-5 shadow-lg lg:p-6">
+                <div className="flex items-start gap-4">
+                  <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+                    <Clock3 className="h-5 w-5 text-amber-700" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="m-0 text-xl font-bold leading-tight text-amber-950 sm:text-2xl">Payment not confirmed yet</h2>
+                    <p className="m-0 mt-2 text-sm leading-6 text-amber-800">
+                      Your tour booking is still saved. If you did not approve the prompt, send a new payment request below. You do not need to fill the form again.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Timeout state */}
-            {paymentStatus === "timeout" && (
-              <div className="bg-gray-100 border border-gray-300 rounded-2xl px-5 py-4 text-center">
-                <AlertCircle className="w-6 h-6 text-gray-500 mx-auto mb-2" />
-                <p className="font-semibold text-gray-700 text-sm mb-1">Payment window expired</p>
-                <p className="text-xs text-gray-500">You can try again below.</p>
+            {/* ── Failed ── */}
+            {paymentStatus === "failed" && (
+              <div className="rounded-2xl border border-solid border-rose-200 bg-white p-5 shadow-lg shadow-rose-950/5 lg:p-6">
+                <div className="flex items-start gap-4">
+                  <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-rose-50 ring-1 ring-rose-100">
+                    <AlertCircle className="h-5 w-5 text-rose-700" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="m-0 text-xl font-bold leading-tight text-slate-950 sm:text-2xl">
+                      {paymentChannel === "CARD" ? "Card payment not completed" : "Payment request failed"}
+                    </h2>
+                    <p className="m-0 mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                      {paymentChannel === "CARD"
+                        ? isTZS
+                          ? "Your tour booking is still saved and unpaid. Try the card again, or choose mobile money or bank transfer."
+                          : "Your tour booking is still saved and unpaid. You can try the card again below."
+                        : "Your tour booking is saved. Check the details below and try again."}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 
             {/* Error */}
             {error && paymentStatus !== "pending" && (
-              <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              <div className="rounded-xl bg-red-50 border border-solid border-red-200 px-4 py-3 text-sm text-red-700">
                 {error}
               </div>
             )}
@@ -749,11 +887,11 @@ export default function TourPaymentPage() {
 
                 {/* USD-only notice */}
                 {!isTZS && !paymentChannel && (
-                  <div className="flex items-start gap-2.5 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 text-xs text-blue-700">
-                    <ShieldCheck className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-500" />
-                    <span>
-                      This booking is priced in <strong>USD</strong>. Please pay by card below. Any Visa or Mastercard works, and your bank will convert the amount automatically.
-                    </span>
+                  <div className="flex items-start gap-3 rounded-2xl border border-solid border-sky-100 bg-sky-50/70 px-4 py-3">
+                    <span className="mt-0.5 inline-flex h-7 min-w-[2.5rem] flex-shrink-0 items-center justify-center rounded-lg bg-white px-1.5 text-[11px] font-black tracking-wide text-sky-700 ring-1 ring-sky-100">USD</span>
+                    <p className="m-0 text-[12.5px] leading-relaxed text-slate-600">
+                      <span className="font-semibold text-slate-900">Priced in US dollars, paid by card.</span> Any Visa or Mastercard works, and your bank converts the amount for you.
+                    </p>
                   </div>
                 )}
 
@@ -765,7 +903,7 @@ export default function TourPaymentPage() {
                     <button
                       type="button"
                       onClick={() => toggleChannel("MNO")}
-                      className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 text-left transition-all duration-200 ${
+                      className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-solid text-left cursor-pointer transition-all duration-200 ${
                         paymentChannel === "MNO"
                           ? "border-red-300 bg-red-50 shadow-lg shadow-red-100"
                           : "border-slate-100 bg-white shadow-sm hover:border-slate-200 hover:shadow-md"
@@ -780,9 +918,12 @@ export default function TourPaymentPage() {
                         <div className={`font-bold text-[15px] transition-colors ${paymentChannel === "MNO" ? "text-red-900" : "text-gray-900"}`}>
                           Mobile Money
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5 font-medium">Airtel · M-Pesa · Mixx · HaloPesa</div>
+                        <div className="text-xs text-slate-400 mt-0.5 font-medium">Approve on your phone</div>
                       </div>
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      <span className="hidden flex-shrink-0 items-center gap-1.5 sm:flex">
+                        {PAYMENT_METHODS.map((m) => <BrandMark key={m.id} src={m.icon} alt={m.name} />)}
+                      </span>
+                      <div className={`w-5 h-5 rounded-full border-2 border-solid flex items-center justify-center flex-shrink-0 transition-all ${
                         paymentChannel === "MNO" ? "border-red-500 bg-red-500" : "border-gray-300"
                       }`}>
                         {paymentChannel === "MNO" && <div className="w-2 h-2 rounded-full bg-white" />}
@@ -795,7 +936,7 @@ export default function TourPaymentPage() {
                     <button
                       type="button"
                       onClick={() => toggleChannel("BANK")}
-                      className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 text-left transition-all duration-200 ${
+                      className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-solid text-left cursor-pointer transition-all duration-200 ${
                         paymentChannel === "BANK"
                           ? "border-green-300 bg-green-50 shadow-lg shadow-green-100"
                           : "border-slate-100 bg-white shadow-sm hover:border-slate-200 hover:shadow-md"
@@ -810,9 +951,12 @@ export default function TourPaymentPage() {
                         <div className={`font-bold text-[15px] transition-colors ${paymentChannel === "BANK" ? "text-green-900" : "text-gray-900"}`}>
                           Bank Transfer
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5 font-medium">CRDB · NMB OTP checkout</div>
+                        <div className="text-xs text-slate-400 mt-0.5 font-medium">OTP checkout</div>
                       </div>
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      <span className="flex flex-shrink-0 items-center gap-1.5">
+                        {BANK_PROVIDERS.map((b) => <BrandMark key={b.code} src={b.logo} alt={b.name} />)}
+                      </span>
+                      <div className={`w-5 h-5 rounded-full border-2 border-solid flex items-center justify-center flex-shrink-0 transition-all ${
                         paymentChannel === "BANK" ? "border-green-600 bg-green-600" : "border-gray-300"
                       }`}>
                         {paymentChannel === "BANK" && <div className="w-2 h-2 rounded-full bg-white" />}
@@ -825,7 +969,7 @@ export default function TourPaymentPage() {
                     <button
                       type="button"
                       onClick={() => toggleChannel("CARD")}
-                      className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 text-left transition-all duration-200 ${
+                      className={`group w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 border-solid text-left cursor-pointer transition-all duration-200 ${
                         paymentChannel === "CARD"
                           ? "border-violet-300 bg-violet-50 shadow-lg shadow-violet-100"
                           : "border-slate-100 bg-white shadow-sm hover:border-slate-200 hover:shadow-md"
@@ -840,9 +984,13 @@ export default function TourPaymentPage() {
                         <div className={`font-bold text-[15px] transition-colors ${paymentChannel === "CARD" ? "text-violet-900" : "text-gray-900"}`}>
                           Debit / Credit Card
                         </div>
-                        <div className="text-xs text-slate-400 mt-0.5 font-medium">Visa · Mastercard · Secure checkout</div>
+                        <div className="text-xs text-slate-400 mt-0.5 font-medium">Secure checkout, any bank</div>
                       </div>
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      <span className="flex flex-shrink-0 items-center gap-1.5">
+                        <BrandMark src="/assets/visa_card.png" alt="Visa" />
+                        <BrandMark src="/assets/Mastercard_Logo.png" alt="Mastercard" />
+                      </span>
+                      <div className={`w-5 h-5 rounded-full border-2 border-solid flex items-center justify-center flex-shrink-0 transition-all ${
                         paymentChannel === "CARD" ? "border-violet-600 bg-violet-600" : "border-gray-300"
                       }`}>
                         {paymentChannel === "CARD" && <div className="w-2 h-2 rounded-full bg-white" />}
@@ -854,7 +1002,7 @@ export default function TourPaymentPage() {
 
                 {/* ── Form panel — appears below when a channel is selected ── */}
                 {paymentChannel && (
-                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="bg-white rounded-2xl border border-solid border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="px-5 pb-5 pt-4 space-y-4">
 
                       {/* ── MNO form ── */}
