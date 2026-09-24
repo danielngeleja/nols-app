@@ -129,6 +129,9 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
     }
   };
 
+  // The API runs on UTC servers; every date and time on a receipt is Tanzanian time (EAT, UTC+3)
+  const EAT = "Africa/Dar_es_Salaam";
+
   const formatDate = (value: Date | string | undefined | null): string => {
     const d = parseValidDate(value);
     if (!d) return "—";
@@ -136,19 +139,21 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
       year: "numeric",
       month: "long",
       day: "numeric",
+      timeZone: EAT,
     });
   };
 
   const formatDateTime = (value: Date | string | undefined | null): string => {
     const d = parseValidDate(value);
     if (!d) return "—";
-    return d.toLocaleString("en-US", {
+    return `${d.toLocaleString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
-    });
+      timeZone: EAT,
+    })} EAT`;
   };
 
   // Logo: use a configured image URL if provided; otherwise embed a print-safe SVG logo.
@@ -161,13 +166,7 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   const supportEmail = process.env.PAYMENTS_EMAIL || "payments@nolsaf.com";
   const supportPhone = process.env.SUPPORT_PHONE || process.env.SUPPORT_TEL || "";
   const supportWebsite = "nolsaf.com";
-  const generatedAt = new Date().toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const generatedAt = formatDateTime(new Date());
   const checkIn = formatDate(details.checkIn);
   const checkOut = formatDate(details.checkOut);
   const providedNights = typeof details.nights === "number" && Number.isFinite(details.nights) ? details.nights : null;

@@ -37,7 +37,7 @@ const RCPT_OUTER  = "#e2eae9";
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-GB", {
-    weekday: "short", day: "numeric", month: "long", year: "numeric",
+    weekday: "short", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam",
   });
 }
 
@@ -601,7 +601,7 @@ export async function generateNrmsAgentVoucherPdf(data: AgentVoucherData): Promi
     const fonts = registerNrmsFonts(doc);
     const left = M;
     let y = M;
-    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
 
     // ── Masthead, matching the invoice construction at voucher scale ───────
     doc.font(fonts.bold).fontSize(12).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: W * 0.5, ellipsis: true });
@@ -726,7 +726,7 @@ export async function generatePaymentReceiptPdf(data: PaymentReceiptData): Promi
     const left = MARGIN;
     const width = COL_W;
     let y = MARGIN;
-    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not recorded");
+    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : "Not recorded");
     const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
       doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
       doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "Not provided", x, rowY + 11, { width: rowW, ellipsis: true });
@@ -1425,7 +1425,7 @@ export async function generateNrmsProFormaPdf(data: NrmsProFormaPdfData): Promis
     const left = MARGIN;
     const width = COL_W;
     let y = MARGIN;
-    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
     const addPage = () => {
       doc.addPage({ size: "A4", margin: MARGIN });
       y = MARGIN;
