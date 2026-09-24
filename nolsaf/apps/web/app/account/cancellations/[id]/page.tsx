@@ -1,10 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Send, MapPin, Calendar, DollarSign, MessageSquare } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BedDouble,
+  CalendarX2,
+  Check,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Hash,
+  MapPin,
+  MessageSquareReply,
+  Send,
+  User,
+  XCircle,
+} from "lucide-react";
 import LayoutFrame from "@/components/LayoutFrame";
 import LogoSpinner from "@/components/LogoSpinner";
 
@@ -35,11 +50,11 @@ type Item = {
     guestName?: string | null;
     guestPhone?: string | null;
     roomCode?: string | null;
-    property: { 
-      title: string; 
+    property: {
+      title: string;
       type?: string | null;
-      regionName?: string | null; 
-      city?: string | null; 
+      regionName?: string | null;
+      city?: string | null;
       district?: string | null;
       ward?: string | null;
       country?: string | null;
@@ -48,26 +63,25 @@ type Item = {
   messages: Msg[];
 };
 
-function fmt(d: string) {
-  try {
-    return new Date(d).toLocaleString();
-  } catch {
-    return d;
-  }
-}
+const day = (d: string) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const stamp = (d: string) =>
+  new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const tzs = (n: number) => `TZS ${Math.round(Number(n || 0)).toLocaleString("en-US")}`;
 
-function badge(status: string) {
-  const s = (status || "").toUpperCase();
-  const base = "inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide border";
-  if (s === "SUBMITTED") return `${base} bg-blue-50 text-blue-700 border-blue-200`;
-  if (s === "REVIEWING") return `${base} bg-amber-50 text-amber-700 border-amber-200`;
-  if (s === "NEED_INFO") return `${base} bg-orange-50 text-orange-700 border-orange-200`;
-  if (s === "APPROVED") return `${base} bg-teal-50 text-teal-700 border-teal-200`;
-  if (s === "REFUND_PENDING") return `${base} bg-purple-50 text-purple-700 border-purple-200`;
-  if (s === "REFUNDED") return `${base} bg-emerald-50 text-emerald-700 border-emerald-200`;
-  if (s === "REJECTED") return `${base} bg-red-50 text-red-700 border-red-200`;
-  return `${base} bg-gray-50 text-gray-700 border-gray-200`;
-}
+/** Plain words for each status, plus what the customer should expect next. */
+const STATUS: Record<string, { label: string; tone: string; next: string }> = {
+  SUBMITTED: { label: "Submitted", tone: "bg-sky-500/15 text-sky-200 ring-sky-400/30", next: "The team will pick this up shortly. You do not need to do anything yet." },
+  REVIEWING: { label: "In review", tone: "bg-amber-500/15 text-amber-200 ring-amber-400/30", next: "The team is checking your booking against the policy. Replies appear below." },
+  NEED_INFO: { label: "Needs your reply", tone: "bg-orange-500/15 text-orange-200 ring-orange-400/30", next: "The team asked for more information. Reply below to keep your claim moving." },
+  APPROVED: { label: "Approved", tone: "bg-teal-500/15 text-teal-200 ring-teal-400/30", next: "Your cancellation is approved. The refund will be sent to the way you paid." },
+  REFUND_PENDING: { label: "Refund on the way", tone: "bg-indigo-500/15 text-indigo-200 ring-indigo-400/30", next: "The refund has been sent. Banks and wallets usually take 5 to 10 business days." },
+  REFUNDED: { label: "Refunded", tone: "bg-emerald-500/15 text-emerald-200 ring-emerald-400/30", next: "The refund is complete. This claim is closed." },
+  REJECTED: { label: "Declined", tone: "bg-rose-500/15 text-rose-200 ring-rose-400/30", next: "This claim was declined. The team's note explains why." },
+};
+
+/** Where each status sits on the journey (Declined ends it at the review step). */
+const JOURNEY = ["Submitted", "In review", "Approved", "Refund sent", "Refunded"];
+const STAGE: Record<string, number> = { SUBMITTED: 0, REVIEWING: 1, NEED_INFO: 1, APPROVED: 2, REFUND_PENDING: 3, REFUNDED: 4, REJECTED: 1 };
 
 export default function CustomerCancellationDetailPage() {
   const params = useParams<{ id: string }>();
@@ -76,19 +90,22 @@ export default function CustomerCancellationDetailPage() {
   const [item, setItem] = useState<Item | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Kept apart: a failed send must not replace the whole page with an error
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
+  async function load(quiet = false) {
+    if (!quiet) setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.get(`/api/customer/cancellations/${id}`);
       setItem(res.data.item);
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to load cancellation request");
+      if (!quiet) setLoadError(e?.response?.data?.error || "Failed to load cancellation request");
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }
 
@@ -103,292 +120,323 @@ export default function CustomerCancellationDetailPage() {
     const body = message.trim();
     if (!body) return;
     setSending(true);
-    setError(null);
+    setSendError(null);
     try {
       await api.post(`/api/customer/cancellations/${item.id}/messages`, { body });
       setMessage("");
-      await load();
+      await load(true);
+      window.requestAnimationFrame(() => threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
     } catch (e: any) {
-      setError(e?.response?.data?.error || "Failed to send message");
+      setSendError(e?.response?.data?.error || "Failed to send message");
     } finally {
       setSending(false);
     }
   }
 
+  const backLink = (
+    <Link href="/account/cancellations" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white/60 no-underline transition-colors hover:text-white">
+      <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+      Cancellations
+    </Link>
+  );
+
+  if (loading) {
+    return (
+      <div id="claim-page" className="w-full space-y-4" aria-busy="true">
+        <LayoutFrame />
+        <div className="rounded-2xl bg-[#0a1110] px-5 py-6 sm:px-6">
+          <div className="h-3 w-24 rounded bg-white/10" />
+          <div className="mt-3 h-7 w-56 rounded-lg bg-white/15" />
+          <div className="mt-2 h-3 w-72 max-w-full rounded bg-white/10" />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="h-72 animate-pulse rounded-2xl bg-white ring-1 ring-slate-200" />
+          <div className="h-72 animate-pulse rounded-2xl bg-white ring-1 ring-slate-200" />
+        </div>
+        <span role="status" className="sr-only">
+          <LogoSpinner size="xs" ariaLabel="Loading cancellation claim" />
+        </span>
+      </div>
+    );
+  }
+
+  if (loadError || !item) {
+    return (
+      <div className="w-full space-y-4">
+        <LayoutFrame />
+        <div className="rounded-2xl bg-[#0a1110] px-5 py-5 sm:px-6">{backLink}</div>
+        <div className="flex items-start gap-3 rounded-2xl border border-solid border-rose-200 bg-white p-5">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-rose-600" aria-hidden />
+          <div>
+            <div className="text-[14px] font-bold text-slate-900">This claim could not be opened</div>
+            <div className="mt-0.5 text-[13px] text-slate-600">{loadError || "It may have been removed, or it belongs to another account."}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const status = String(item.status || "").toUpperCase();
+  const meta = STATUS[status] || { label: status.replace(/_/g, " ").toLowerCase(), tone: "bg-white/10 text-white ring-white/20", next: "" };
+  const stage = STAGE[status] ?? 0;
+  const declined = status === "REJECTED";
+  const closed = status === "REFUNDED" || declined;
+  const needsReply = status === "NEED_INFO";
+  const p = item.booking.property;
+  const place = [p.ward, p.district, p.city, p.regionName].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(", ");
+  const pct = item.policyRefundPercent;
+  const expected = item.refundAmount != null ? Number(item.refundAmount) : typeof pct === "number" ? (Number(item.booking.totalAmount || 0) * pct) / 100 : null;
+  const messages = [...(item.messages || [])].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
   return (
-    <div className="w-full min-w-0">
+    <div id="claim-page" className="w-full min-w-0 space-y-4">
+      <style>{`#claim-page, #claim-page * { box-sizing: border-box; }`}</style>
       <LayoutFrame />
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6 sm:space-y-8 overflow-x-hidden">
-      {/* Back Button */}
-      <div className="flex items-center">
-        <Link 
-          href="/account/cancellations" 
-          className="group no-underline inline-flex items-center justify-center gap-2 h-9 w-9 sm:h-10 sm:w-10 rounded-full text-slate-700 hover:text-slate-900 hover:bg-slate-100 active:bg-slate-200 transition-all duration-200 hover:scale-105 active:scale-95"
-        >
-          <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 transition-transform group-hover:-translate-x-0.5" />
-        </Link>
+
+      {/* ── Header band: claim, status and what happens next ── */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#0a1110] text-white shadow-[0_18px_40px_-26px_rgba(0,0,0,0.8)]" style={{ isolation: "isolate" }}>
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(190,18,60,0.42), rgba(190,18,60,0))" }} />
+        <div className="px-5 pb-5 pt-5 sm:px-6">
+          {backLink}
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-[26px] font-bold leading-tight text-white">
+                <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-rose-500/15 text-rose-300 ring-1 ring-rose-400/30">
+                  <CalendarX2 className="h-5 w-5" aria-hidden />
+                </span>
+                Claim #{item.id}
+                <span className={`ml-3 inline-flex translate-y-[-3px] items-center rounded-full px-2.5 py-1 align-middle text-[12px] font-bold ring-1 ${meta.tone}`}>{meta.label}</span>
+              </h1>
+              <p className="m-0 mt-1 truncate text-[13.5px] text-white/60">
+                {p.title} · <span className="font-mono">{item.bookingCode}</span> · sent {day(item.createdAt)}
+              </p>
+            </div>
+          </div>
+
+          {/* Journey: where the claim is now */}
+          <ol className="m-0 mt-5 grid list-none grid-cols-5 gap-1.5 p-0" aria-label={`Progress: ${meta.label}`}>
+            {JOURNEY.map((label, i) => {
+              const reached = declined ? i <= 1 : i <= stage;
+              const current = i === stage;
+              const endsHere = declined && i === 1;
+              return (
+                <li key={label} className="min-w-0">
+                  <span
+                    className={`block h-1.5 rounded-full ${endsHere ? "bg-rose-400" : reached ? "bg-[#3ab8af]" : "bg-white/10"}`}
+                    aria-hidden
+                  />
+                  <span className={`mt-1.5 hidden truncate text-[11px] sm:block ${current ? "font-bold text-white" : reached ? "text-white/60" : "text-white/35"}`}>
+                    {endsHere ? "Declined" : label}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          {meta.next ? <p className="m-0 mt-3 text-[13px] text-white/70">{meta.next}</p> : null}
+        </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center rounded-xl border border-gray-200 bg-white p-12 shadow-sm">
-          <div className="flex flex-col items-center gap-3">
-            <LogoSpinner size="md" ariaLabel="Loading cancellation request" />
-            <div className="text-sm font-medium text-gray-600">Loading cancellation request...</div>
+      {needsReply ? (
+        <div className="flex items-start gap-3 rounded-2xl border border-solid border-orange-200 bg-orange-50 p-4">
+          <MessageSquareReply className="mt-0.5 h-5 w-5 flex-shrink-0 text-orange-600" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="text-[14px] font-bold text-orange-950">The team is waiting for you</div>
+            <div className="mt-0.5 text-[12.5px] text-orange-800">Read their last message and reply below to keep your claim moving.</div>
           </div>
         </div>
-      ) : error ? (
-        <div className="rounded-xl border-2 border-red-200 bg-red-50 px-6 py-5 shadow-sm">
-          <div className="text-sm font-semibold text-red-900">{error}</div>
-        </div>
-      ) : !item ? null : (
-        <div className="space-y-6 sm:space-y-8">
-          {/* Cancellation Claim Card */}
-          <div className="rounded-xl border border-gray-200 bg-white p-6 sm:p-8 shadow-sm transition-all duration-300">
-            {/* Header Section */}
-            <div className="border-b border-gray-200 pb-4 mb-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#02665e]/10 to-[#02665e]/5 flex items-center justify-center border-2 border-[#02665e]/20 flex-shrink-0">
-                    <span className="text-xl font-bold text-[#02665e]">#{item.id}</span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Cancellation claim</div>
-                    <div className="text-sm text-gray-600">
-                      <span className="font-medium">Booking code:</span>{" "}
-                      <span className="font-mono font-semibold text-gray-900">{item.bookingCode}</span>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Created {new Date(item.createdAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex-shrink-0">
-                  <span className={`${badge(item.status)} border transition-all`}>{item.status.replace(/_/g, " ")}</span>
-                </div>
-              </div>
-            </div>
+      ) : null}
 
-            {/* Booking Details Section */}
-            <div className="space-y-4">
-              <div className="p-5 rounded-lg bg-gray-50 border border-gray-100">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Booking Details</div>
-                
-                {/* Property Information */}
-                <div className="flex items-start gap-3 mb-5">
-                  <div className="w-10 h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
-                    <MapPin className="h-5 w-5 text-[#02665e]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-base text-gray-900 mb-1">{item.booking.property.title}</div>
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <div>
-                        {[
-                          item.booking.property.ward,
-                          item.booking.property.district,
-                          item.booking.property.city,
-                          item.booking.property.regionName,
-                          item.booking.property.country
-                        ]
-                          .filter(Boolean)
-                          .join(" • ")}
-                      </div>
-                      {item.booking.property.type && (
-                        <div className="text-xs text-gray-500">
-                          Type: <span className="font-medium">{item.booking.property.type}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Guest Information */}
-                {(item.booking.guestName || item.booking.guestPhone) && (
-                  <div className="pt-4 border-t border-gray-200 mb-4">
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Guest Information</div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {item.booking.guestName && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="text-gray-500 font-medium">Full Name:</div>
-                          <div className="text-gray-900 font-semibold">{item.booking.guestName}</div>
-                        </div>
-                      )}
-                      {item.booking.guestPhone && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="text-gray-500 font-medium">Phone:</div>
-                          <div className="text-gray-900 font-semibold">{item.booking.guestPhone}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Booking Dates & Amount */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-200">
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                      <Calendar className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Check-in</div>
-                      <div className="font-semibold text-sm text-gray-900">{new Date(item.booking.checkIn).toLocaleDateString()}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                      <Calendar className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Check-out</div>
-                      <div className="font-semibold text-sm text-gray-900">{new Date(item.booking.checkOut).toLocaleDateString()}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-3 col-span-2 sm:col-span-1">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                      <DollarSign className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Amount</div>
-                      <div className="font-semibold text-sm text-gray-900">{Number(item.booking.totalAmount).toLocaleString()} TZS</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Room Information */}
-                {item.booking.roomCode && (
-                  <div className="pt-4 border-t border-gray-200 mt-4">
-                    <div className="flex items-center gap-2 text-sm">
-                      <div className="text-gray-500 font-medium">Room Type/Code:</div>
-                      <div className="text-gray-900 font-semibold">{item.booking.roomCode}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {item.refundAmount != null && (
-                <div className="grid gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-5 py-4 sm:grid-cols-3">
-                  <div><div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Approved refund</div><div className="mt-1 font-bold text-emerald-950">{Number(item.refundAmount).toLocaleString()} TZS</div></div>
-                  <div><div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Provider</div><div className="mt-1 font-bold text-emerald-950">{item.refundProvider || "Not initiated"}</div></div>
-                  <div><div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Reference</div><div className="mt-1 break-all font-bold text-emerald-950">{item.refundReference || "Awaiting confirmation"}</div></div>
-                </div>
-              )}
-
-              {/* Admin Note */}
-              {item.decisionNote && (
-                <div className="rounded-lg border-2 border-amber-200 bg-amber-50/50 px-5 py-4">
-                  <div className="text-xs font-semibold text-amber-900 uppercase tracking-wide mb-2">Admin Note</div>
-                  <div className="text-sm text-amber-800 leading-relaxed whitespace-pre-wrap">{item.decisionNote}</div>
-                </div>
-              )}
-            </div>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        {/* ── Conversation ── */}
+        <div className="flex min-w-0 flex-col rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="flex items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-5 py-3.5">
+            <h2 className="m-0 text-[15px] font-bold text-slate-900">Conversation</h2>
+            <span className="text-[12px] text-slate-500">With the NoLSAF team</span>
           </div>
 
-          {/* Messages Card */}
-          <div className="rounded-xl border border-gray-200 bg-white p-6 sm:p-8 shadow-sm transition-all duration-300">
-            <div className="flex items-center gap-2 mb-6">
-              <MessageSquare className="h-5 w-5 text-[#02665e]" />
-              <div className="text-lg font-semibold text-gray-900">Messages</div>
-              {item.messages.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-gray-100 text-xs font-medium text-gray-700">
-                  {item.messages.length}
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-4 mb-6">
-              {item.messages.length === 0 ? (
-                <div className="text-center py-12 px-4">
-                  <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                  <div className="text-sm font-medium text-gray-700">No messages yet</div>
-                  <div className="text-sm text-gray-500 mt-1">Start a conversation with the admin team</div>
+          <div className="space-y-4 px-5 py-5">
+            {/* The request itself opens the thread */}
+            {item.reason ? (
+              <div className="flex justify-end">
+                <div className="max-w-[88%] sm:max-w-[78%]">
+                  <div className="mb-1 flex items-center justify-end gap-2 text-[11.5px] text-slate-400">
+                    <span className="font-semibold text-slate-500">Your request</span>
+                    <span>{stamp(item.createdAt)}</span>
+                  </div>
+                  <div className="whitespace-pre-wrap rounded-2xl rounded-tr-md bg-[#02665e] px-4 py-3 text-[13.5px] leading-relaxed text-white">{item.reason}</div>
                 </div>
-              ) : (
-                item.messages.map((m) => {
-                  const isAdmin = m.senderRole === "ADMIN";
-                  return (
+              </div>
+            ) : null}
+
+            {messages.map((m) => {
+              const fromTeam = String(m.senderRole || "").toUpperCase() === "ADMIN";
+              return (
+                <div key={m.id} className={`flex ${fromTeam ? "justify-start" : "justify-end"}`}>
+                  <div className="max-w-[88%] sm:max-w-[78%]">
+                    <div className={`mb-1 flex items-center gap-2 text-[11.5px] text-slate-400 ${fromTeam ? "" : "justify-end"}`}>
+                      <span className={`font-semibold ${fromTeam ? "text-slate-700" : "text-slate-500"}`}>{fromTeam ? "NoLSAF team" : "You"}</span>
+                      <span>{stamp(m.createdAt)}</span>
+                    </div>
                     <div
-                      key={m.id}
-                      className={`flex gap-3 ${isAdmin ? "flex-row" : "flex-row-reverse"}`}
+                      className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[13.5px] leading-relaxed ${
+                        fromTeam ? "rounded-tl-md bg-slate-100 text-slate-800" : "rounded-tr-md bg-[#02665e] text-white"
+                      }`}
                     >
-                      <div className={`flex-1 ${isAdmin ? "max-w-[85%] sm:max-w-[75%]" : "max-w-[85%] sm:max-w-[75%]"}`}>
-                        <div
-                          className={`rounded-2xl px-4 py-3 transition-all duration-200 ${
-                            isAdmin
-                              ? "bg-blue-50/50 border-l-4 border-blue-400 shadow-sm"
-                              : "bg-[#02665e]/5 border-l-4 border-[#02665e] shadow-sm ml-auto"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className={`text-xs font-semibold ${
-                              isAdmin ? "text-blue-700" : "text-[#02665e]"
-                            }`}>
-                              {isAdmin ? "Admin" : "You"}
-                            </div>
-                            <div className="text-[11px] text-gray-500">
-                              {fmt(m.createdAt)}
-                            </div>
-                          </div>
-                          <div className="text-sm leading-relaxed whitespace-pre-wrap text-gray-800">
-                            {m.body}
-                          </div>
-                        </div>
-                      </div>
+                      {m.body}
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  </div>
+                </div>
+              );
+            })}
 
-            {/* Message Input */}
-            <div className="border-t border-gray-200 pt-6">
-              {["REFUNDED", "REJECTED"].includes(item.status) ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">This cancellation is final. The message history remains available for your records.</div>
-              ) : <div className="space-y-3">
-                <div className="relative">
+            {/* The team's decision, kept visible as the last word */}
+            {item.decisionNote ? (
+              <div className={`rounded-xl p-4 ring-1 ${declined ? "bg-rose-50 ring-rose-200" : "bg-[#02665e]/[0.05] ring-[#02665e]/20"}`}>
+                <div className={`flex items-center gap-1.5 text-[12px] font-bold ${declined ? "text-rose-800" : "text-[#02665e]"}`}>
+                  {declined ? <XCircle className="h-4 w-4" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
+                  Decision from the NoLSAF team
+                </div>
+                <p className="m-0 mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-700">{item.decisionNote}</p>
+              </div>
+            ) : null}
+
+            {!item.reason && messages.length === 0 && !item.decisionNote ? (
+              <div className="py-8 text-center text-[13px] text-slate-500">No messages yet. Anything you add below goes straight to the team.</div>
+            ) : null}
+            <div ref={threadEndRef} />
+          </div>
+
+          {/* Composer */}
+          <div className="border-0 border-t border-solid border-slate-100 p-4">
+            {closed ? (
+              <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-[13px] text-slate-600 ring-1 ring-slate-200">
+                <FileText className="h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+                This claim is closed. The conversation stays here for your records.
+              </div>
+            ) : (
+              <div>
+                <div className="rounded-xl border border-solid border-slate-300 bg-white transition-[border-color,box-shadow] focus-within:border-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]">
+                  <label htmlFor="claim-reply" className="sr-only">Reply to the team</label>
                   <textarea
+                    id="claim-reply"
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
+                    onChange={(e) => {
+                      setMessage(e.target.value);
+                      if (sendError) setSendError(null);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                         e.preventDefault();
                         void send();
                       }
                     }}
-                    rows={4}
-                    className="w-full min-w-0 max-w-full rounded-xl border-2 border-gray-300 bg-white px-4 py-3 pr-24 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] transition-all resize-none box-border"
-                    placeholder="Reply to admin / provide more information..."
+                    rows={3}
+                    placeholder={needsReply ? "Answer the team's question here..." : "Add information or ask the team a question..."}
+                    className="block w-full resize-none rounded-xl border-0 bg-transparent px-3.5 pb-1 pt-3 text-[14px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
                   />
-                  <button
-                    type="button"
-                    onClick={send}
-                    disabled={sending || !message.trim()}
-                    className="absolute right-2 bottom-2 inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#014d47] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
-                  >
-                    {sending ? (
-                      <LogoSpinner size="xs" className="h-4 w-4" ariaLabel="Sending message" />
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        <span className="hidden sm:inline">Send</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-500">
-                    Press Ctrl+Enter or Cmd+Enter to send
+                  <div className="flex items-center justify-between gap-2 px-3 pb-3">
+                    <span className="hidden text-[11.5px] text-slate-400 sm:inline">Ctrl + Enter to send</span>
+                    <button
+                      type="button"
+                      onClick={send}
+                      disabled={sending || !message.trim()}
+                      className="ml-auto inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[#014e47] disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {sending ? <LogoSpinner size="xs" className="h-4 w-4" ariaLabel="Sending" /> : <Send className="h-4 w-4" aria-hidden />}
+                      Send
+                    </button>
                   </div>
-                  {error && (
-                    <div className="text-xs text-red-600 font-medium">{error}</div>
-                  )}
                 </div>
-              </div>}
-            </div>
+                {sendError ? <div className="mt-2 text-[12.5px] font-medium text-rose-600">{sendError}</div> : null}
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        {/* ── Side: the money, then the booking ── */}
+        <aside className="space-y-4">
+          <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <h2 className="m-0 text-[14.5px] font-bold text-slate-900">Refund</h2>
+            <div className="mt-3">
+              <div className="text-[12px] font-semibold text-slate-500">
+                {status === "REFUNDED" ? "Refunded" : item.refundAmount != null ? "Approved amount" : declined ? "Refund" : "Expected under the policy"}
+              </div>
+              <div className={`mt-0.5 text-[24px] font-extrabold leading-tight tabular-nums ${declined ? "text-slate-400" : "text-[#02665e]"}`}>
+                {declined ? "None" : expected != null ? tzs(expected) : "To be confirmed"}
+              </div>
+              <div className="mt-0.5 text-[12px] text-slate-500">
+                {typeof pct === "number" ? `${pct}% of ${tzs(item.booking.totalAmount)}` : `Booking total ${tzs(item.booking.totalAmount)}`}
+                {!item.policyEligible && !declined ? " · outside the refund windows, reviewed by the team" : ""}
+              </div>
+            </div>
+
+            <dl className="m-0 mt-4 space-y-2 border-0 border-t border-solid border-slate-100 pt-3 text-[12.5px]">
+              {[
+                { label: "Sent through", value: item.refundProvider || (status === "APPROVED" ? "Being arranged" : "Not yet") },
+                { label: "Reference", value: item.refundReference || "Shown once sent", mono: Boolean(item.refundReference) },
+                { label: "Sent on", value: item.refundInitiatedAt ? day(item.refundInitiatedAt) : "Not yet" },
+                { label: "Completed", value: item.refundedAt ? day(item.refundedAt) : "Not yet" },
+              ].map((row) => (
+                <div key={row.label} className="flex items-start justify-between gap-3">
+                  <dt className="text-slate-500">{row.label}</dt>
+                  <dd className={`m-0 min-w-0 break-all text-right font-semibold text-slate-800 ${row.mono ? "font-mono" : ""}`}>{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <h2 className="m-0 text-[14.5px] font-bold text-slate-900">Booking</h2>
+            <div className="mt-3 text-[14px] font-semibold text-slate-900">{p.title}</div>
+            {place || p.type ? (
+              <div className="mt-0.5 flex items-start gap-1.5 text-[12.5px] text-slate-500">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                <span>{[p.type, place].filter(Boolean).join(" · ")}</span>
+              </div>
+            ) : null}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                <div className="text-[11px] text-slate-500">Check-in</div>
+                <div className="text-[13px] font-bold text-slate-900">{day(item.booking.checkIn)}</div>
+              </div>
+              <div className="rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                <div className="text-[11px] text-slate-500">Check-out</div>
+                <div className="text-[13px] font-bold text-slate-900">{day(item.booking.checkOut)}</div>
+              </div>
+            </div>
+            <dl className="m-0 mt-3 space-y-2 text-[12.5px]">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="inline-flex items-center gap-1.5 text-slate-500"><Hash className="h-3.5 w-3.5" aria-hidden />Booking code</dt>
+                <dd className="m-0 font-mono font-semibold text-slate-800">{item.bookingCode}</dd>
+              </div>
+              {item.booking.guestName ? (
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="inline-flex items-center gap-1.5 text-slate-500"><User className="h-3.5 w-3.5" aria-hidden />Guest</dt>
+                  <dd className="m-0 truncate font-semibold text-slate-800">{item.booking.guestName}</dd>
+                </div>
+              ) : null}
+              {item.booking.roomCode ? (
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="inline-flex items-center gap-1.5 text-slate-500"><BedDouble className="h-3.5 w-3.5" aria-hidden />Room</dt>
+                  <dd className="m-0 truncate font-semibold text-slate-800">{item.booking.roomCode}</dd>
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 pt-2">
+                <dt className="text-slate-500">Paid</dt>
+                <dd className="m-0 font-bold tabular-nums text-slate-900">{tzs(item.booking.totalAmount)}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <div className="flex items-start gap-2.5 px-1 text-[12px] text-slate-500">
+            {closed ? <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden /> : <Clock className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />}
+            <span>
+              Last updated {stamp(item.updatedAt)}. Questions about the policy?{" "}
+              <Link href="/cancellation-policy" className="font-semibold text-[#02665e] no-underline hover:underline">Read it here</Link>.
+            </span>
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
-
-

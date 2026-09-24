@@ -14,6 +14,7 @@ import { audit } from "../lib/audit.js";
 import { calculateETA, validateCoordinates } from "../lib/mapbox.js";
 import { generateTransportTripCode } from "../lib/tripCode.js";
 import { computeTransportFare } from "../lib/transportPolicy.js";
+import { buildDriverVerificationCode } from "../lib/driverVerificationCode.js";
 
 export const router = Router();
 
@@ -321,7 +322,20 @@ router.get("/:id", requireAuth as RequestHandler, (async (req: AuthedRequest, re
       numberOfPassengers: booking.numberOfPassengers,
       notes: booking.notes,
       user: booking.user,
-      driver: booking.driver,
+      // The assigned driver carries the same ID printed on their own NoLSAF
+      // driver card, so the passenger can check it before getting in.
+      driver: booking.driver
+        ? {
+            ...booking.driver,
+            verificationCode: (() => {
+              try {
+                return buildDriverVerificationCode(booking.driver.id);
+              } catch {
+                return null;
+              }
+            })(),
+          }
+        : null,
       property: booking.property,
       paymentStatus: booking.paymentStatus,
       createdAt: booking.createdAt,

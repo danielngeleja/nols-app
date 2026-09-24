@@ -6,7 +6,8 @@
 
 import { prisma } from "@nolsaf/prisma";
 import { createHash } from "node:crypto";
-import { generatePaymentReceiptPdf } from "./pdfDocuments.js";
+import { generateCustomerBookingReceiptPdf } from "./pdfDocuments.js";
+import { makeQR } from "./qr.js";
 
 const RECEIPT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -39,6 +40,11 @@ export type GroupStayDepositReceiptDataResult =
       paymentMethod: string;
       paymentRef: string | null;
       paidAt: Date;
+      headcount: number | null;
+      roomsNeeded: number | null;
+      accommodationType: string | null;
+      /** True when the booking has real stay dates (checkIn/checkOut fall back to paidAt otherwise). */
+      hasDates: boolean;
     } }
   | { ok: false; status: number; error: string; message: string };
 
@@ -49,6 +55,7 @@ export async function loadGroupStayDepositReceiptData(bookingId: number, userId:
       id: true, toRegion: true, toDistrict: true, checkIn: true, checkOut: true,
       totalAmount: true, depositAmount: true, ownerAmount: true, depositPaid: true, depositPaidAt: true,
       currency: true, paymentRef: true, paymentProvider: true,
+      headcount: true, roomsNeeded: true, accommodationType: true,
       confirmedProperty: { select: { title: true } },
       user: { select: { name: true, fullName: true, email: true } },
     },
@@ -79,7 +86,49 @@ export async function loadGroupStayDepositReceiptData(bookingId: number, userId:
     paymentMethod: booking.paymentProvider || "AZAMPAY",
     paymentRef: booking.paymentRef || null,
     paidAt,
+    headcount: booking.headcount ?? null,
+    roomsNeeded: booking.roomsNeeded ?? null,
+    accommodationType: booking.accommodationType ?? null,
+    hasDates: Boolean(booking.checkIn && booking.checkOut),
   } };
+}
+
+type GroupStayReceipt = Extract<GroupStayDepositReceiptDataResult, { ok: true }>["receipt"];
+
+/**
+ * The wording of a group stay deposit receipt, shared by the HTML receipt
+ * (pdfGenerator) and the vector PDF (pdfDocuments) so both read the same.
+ */
+export function describeGroupStayDeposit(receipt: GroupStayReceipt) {
+  const longDate = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const shortDate = (d: Date) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+  const nights = receipt.hasDates
+    ? Math.max(1, Math.round((receipt.checkOut.getTime() - receipt.checkIn.getTime()) / 86_400_000))
+    : null;
+  const guests = Number(receipt.headcount || 0);
+  const rooms = Number(receipt.roomsNeeded || 0);
+  const kind = receipt.accommodationType
+    ? receipt.accommodationType.charAt(0).toUpperCase() + receipt.accommodationType.slice(1).toLowerCase()
+    : "Group accommodation";
+  const pct = receipt.bookingTotal > 0 ? Math.round((receipt.depositPaid / receipt.bookingTotal) * 100) : null;
+  const stayFacts = [
+    nights ? `${nights} night${nights === 1 ? "" : "s"}` : null,
+    guests > 0 ? `${guests} guest${guests === 1 ? "" : "s"}` : null,
+    rooms > 0 ? `${rooms} room${rooms === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" | ");
+  const share = pct != null
+    ? `${pct}% of ${Math.round(receipt.bookingTotal).toLocaleString("en-US")} ${receipt.currency}`
+    : null;
+  return {
+    kind,
+    location: receipt.destination ? `${receipt.destination}, Tanzania` : "Tanzania",
+    periodLong: receipt.hasDates ? `${longDate(receipt.checkIn)} to ${longDate(receipt.checkOut)}` : "Dates to be confirmed",
+    periodShort: receipt.hasDates ? `${shortDate(receipt.checkIn)} - ${shortDate(receipt.checkOut)}` : "Dates to be confirmed",
+    stayFacts,
+    share,
+    lineTitle: "Group stay deposit",
+    confirmationCopy: "Your group stay is confirmed. The balance is payable as agreed in your booking. This document is not a fiscal tax receipt.",
+  };
 }
 
 export async function loadGroupStayDepositReceipt(bookingId: number, userId: number): Promise<GroupStayDepositReceiptResult> {
@@ -87,20 +136,40 @@ export async function loadGroupStayDepositReceipt(bookingId: number, userId: num
   if (!result.ok) return result;
   const receipt = result.receipt;
 
-  const buffer = await generatePaymentReceiptPdf({
+  const d = describeGroupStayDeposit(receipt);
+  const qr = await makeQR(JSON.stringify({
+    type: "NOLSAF_GROUP_STAY_DEPOSIT_RECEIPT",
     receiptNumber: receipt.receiptNumber,
-    invoiceNumber: receipt.paymentRef || `GBDEP-${receipt.bookingId}`,
-    bookingId: receipt.bookingId,
+    paymentRef: receipt.paymentRef,
+    amount: receipt.depositPaid,
+    currency: receipt.currency,
+  })).catch(() => null);
+
+  // Same A5 document as the stay and tour receipts, worded for a deposit
+  const buffer = await generateCustomerBookingReceiptPdf({
+    receiptNumber: receipt.receiptNumber,
+    invoiceNumber: null,
+    bookingCode: receipt.paymentRef || receipt.receiptNumber,
+    paidAt: receipt.paidAt,
     guestName: receipt.guestName,
-    guestEmail: receipt.guestEmail,
+    guestPhone: receipt.guestEmail,
     propertyName: receipt.propertyName,
+    propertyLocation: [d.kind, d.location].join(" | "),
     checkIn: receipt.checkIn,
     checkOut: receipt.checkOut,
-    total: receipt.depositPaid,
-    paymentMethod: receipt.paymentMethod,
-    paymentRef: receipt.paymentRef,
-    paidAt: receipt.paidAt,
+    totalAmount: receipt.depositPaid,
     currency: receipt.currency,
+    qrPng: qr?.png ?? null,
+    document: {
+      title: "DEPOSIT RECEIPT",
+      reservationLabel: "GROUP STAY",
+      periodLabel: "STAY",
+      periodText: d.periodShort,
+      lineTitle: d.lineTitle,
+      lineSub: [d.share, d.stayFacts].filter(Boolean).join(" | "),
+      balanceDue: receipt.remainingBalance,
+      confirmationCopy: d.confirmationCopy,
+    },
   });
 
   return { ok: true, buffer, filename: `Group-Stay-Deposit-Receipt-${receipt.bookingId}.pdf` };

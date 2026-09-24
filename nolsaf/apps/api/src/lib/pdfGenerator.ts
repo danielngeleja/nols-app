@@ -48,6 +48,10 @@ export interface BookingDetails {
     currency?: string;
     confirmationCopy?: string;
     verifyUrl?: string | null;
+    /** Part payments (e.g. a group stay deposit): what is still owed after this payment. Defaults to 0. */
+    balanceDue?: number;
+    /** Heading beside the QR. Defaults to "Payment received in full", or "Deposit received" when a balance is due. */
+    confirmationTitle?: string;
   };
 }
 
@@ -210,6 +214,8 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   const lineTitle = doc.lineTitle || roomDescription || details.property.type || "Accommodation";
   const confirmationCopy = doc.confirmationCopy
     || "The reservation is confirmed. Present the reservation code above at check-in. This document is not a fiscal tax receipt.";
+  const balanceDue = Math.max(0, Number(doc.balanceDue || 0));
+  const confirmationTitle = doc.confirmationTitle || (balanceDue > 0 ? "Deposit received" : "Payment received in full");
 
   return `
 <!DOCTYPE html>
@@ -713,12 +719,12 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
 
   <section class="totals">
     <div class="total-row"><span>Amount received</span><strong>${amount} ${esc(currency)}</strong></div>
-    <div class="total-row final"><span>Balance</span><span>0 ${esc(currency)}</span></div>
+    <div class="total-row final"><span>Balance</span><span>${balanceDue.toLocaleString("en-US")} ${esc(currency)}</span></div>
   </section>
 
   <section class="confirmation-row">
       <div>
-        <div class="confirmation-title">Payment received in full</div>
+        <div class="confirmation-title">${esc(confirmationTitle)}</div>
         <div class="confirmation-copy">${esc(confirmationCopy)}</div>
       </div>
       <div class="document-qr">

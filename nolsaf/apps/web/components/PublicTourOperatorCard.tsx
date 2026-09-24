@@ -214,7 +214,8 @@ export default function PublicTourOperatorCard({
               href ? "bg-[#02665e] text-white group-hover:bg-[#014e47]" : "bg-slate-100 text-slate-400"
             }`}
           >
-            {href ? (packageCount > 1 ? "View tours" : "View tour") : "Not available"}
+            {/* An action, not a peek: the operator page is where the tour is booked */}
+            {href ? "Book & Pay" : "Not available"}
           </span>
         </div>
       </div>
@@ -225,7 +226,7 @@ export default function PublicTourOperatorCard({
     <Link
       href={href}
       className="group block h-full text-slate-900 no-underline"
-      aria-label={`View tours by ${companyName}${cheapest ? `, from ${cheapest.currency} ${Math.round(cheapest.price).toLocaleString("en-US")} per person` : ""}`}
+      aria-label={`Book a tour with ${companyName}${cheapest ? `, from ${cheapest.currency} ${Math.round(cheapest.price).toLocaleString("en-US")} per person` : ""}`}
     >
       {card}
     </Link>

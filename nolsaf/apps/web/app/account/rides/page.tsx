@@ -1,10 +1,48 @@
 "use client";
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
-import { Car, Star, User, CheckCircle, Calendar, ArrowRight, Phone, Eye, Clock, RefreshCw, AlertCircle } from "lucide-react";
+import { Car, Star, User, CheckCircle, Calendar, ArrowRight, Phone, Eye, Clock, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, Search, SlidersHorizontal, X, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
+import DatePicker from "@/components/ui/DatePicker";
 
 const api = apiClient;
+
+const RIDE_SORTS = [
+  { key: "date-late", label: "Ride date, latest" },
+  { key: "date-soon", label: "Ride date, soonest" },
+  { key: "amount-high", label: "Highest fare" },
+  { key: "amount-low", label: "Lowest fare" },
+] as const;
+type RideSort = (typeof RIDE_SORTS)[number]["key"];
+
+const DRIVER_OPTIONS = [
+  { key: "any", label: "Any" },
+  { key: "assigned", label: "Assigned" },
+  { key: "none", label: "Not yet" },
+] as const;
+type DriverKey = (typeof DRIVER_OPTIONS)[number]["key"];
+
+/** "2026-09-12" reads as "12 Sep 2026". */
+function shortDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** "DAR-ES-SALAAM" and "dar es salaam" both read as "Dar Es Salaam". */
+function tidy(value?: string | null): string {
+  return String(value || "").replace(/[-_]+/g, " ").trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pl-2.5 pr-1 text-[11.5px] font-semibold text-slate-700">
+      {label}
+      <button type="button" aria-label={`Remove ${label}`} onClick={onClear} className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-200">
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
 
 type Ride = {
   id: number;
@@ -40,6 +78,15 @@ export default function MyRidesPage() {
   const [rides, setRides] = useState<Ride[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "scheduled" | "completed" | "expired">("all");
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState<RideSort>("date-late");
+  const [showFilters, setShowFilters] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [region, setRegion] = useState("");
+  const [driverFilter, setDriverFilter] = useState<DriverKey>("any");
   const [entered, setEntered] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,8 +104,16 @@ export default function MyRidesPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await api.get("/api/customer/rides");
-      setRides(response.data.items || []);
+      // Walk the API pages: tabs and counts need every ride, not just the first page
+      const items: Ride[] = [];
+      for (let p = 1; p <= 20; p += 1) {
+        const response = await api.get(`/api/customer/rides?pageSize=50&page=${p}`);
+        const batch: Ride[] = response.data.items || [];
+        items.push(...batch);
+        const total = Number(response.data.total || 0);
+        if (batch.length < 50 || (total > 0 && items.length >= total)) break;
+      }
+      setRides(items);
     } catch (err: any) {
       const msg = err?.response?.data?.error || "Failed to load rides";
       setError(msg);
@@ -80,6 +135,55 @@ export default function MyRidesPage() {
     if (filter === "expired") return !ride.isValid && ride.status !== "COMPLETED";
     return true;
   });
+
+  // Search and filters narrow the tab; options come from the customer's own rides
+  const regionOptions = Array.from(new Set(rides.map((r) => tidy(r.toRegion)).filter(Boolean))).sort();
+  const filterCount = (dateFrom ? 1 : 0) + (region ? 1 : 0) + (driverFilter !== "any" ? 1 : 0);
+  const clearFinders = () => {
+    setQuery("");
+    setDateFrom("");
+    setDateTo("");
+    setRegion("");
+    setDriverFilter("any");
+    setPage(1);
+  };
+  const queryWords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const fromMs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+  const toMs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null;
+  const timeOf = (v?: string | null) => (v ? new Date(v).getTime() || 0 : 0);
+  const shownRides = filteredRides
+    .filter((r) => {
+      if (queryWords.length) {
+        const bag = [r.fromAddress, r.fromWard, r.fromDistrict, r.fromRegion, r.toAddress, r.toWard, r.toDistrict, r.toRegion, r.property?.title, r.driver?.name, r.rideReference]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!queryWords.every((w) => bag.includes(w))) return false;
+      }
+      const at = timeOf(r.scheduledDate);
+      if (fromMs != null && at < fromMs) return false;
+      if (toMs != null && at > toMs) return false;
+      if (region && tidy(r.toRegion) !== region) return false;
+      if (driverFilter === "assigned" && !r.driver) return false;
+      if (driverFilter === "none" && r.driver) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "date-soon") return timeOf(a.scheduledDate) - timeOf(b.scheduledDate);
+      if (sortBy === "amount-high") return Number(b.amount || 0) - Number(a.amount || 0);
+      if (sortBy === "amount-low") return Number(a.amount || 0) - Number(b.amount || 0);
+      return timeOf(b.scheduledDate) - timeOf(a.scheduledDate);
+    });
+
+  // Page the list on screen; a new tab or filter starts on page 1
+  const PAGE_SIZE = 10;
+  const pageCount = Math.max(1, Math.ceil(shownRides.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedRides = shownRides.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const goToPage = (next: number) => {
+    setPage(Math.min(pageCount, Math.max(1, next)));
+    window.requestAnimationFrame(() => document.getElementById("rides-list")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
   const scheduledCount = rides.filter((r) => r.isValid).length;
   const completedCount = rides.filter((r) => !r.isValid && r.status === "COMPLETED").length;
@@ -155,7 +259,7 @@ export default function MyRidesPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-5xl space-y-4" aria-busy="true">
+      <div className="w-full space-y-4" aria-busy="true">
         <span role="status" className="sr-only">Loading rides</span>
         <div className="rounded-2xl bg-[#0a1110] px-5 py-5 sm:px-6">
           <div className="h-3 w-28 rounded bg-white/10" />
@@ -187,7 +291,7 @@ export default function MyRidesPage() {
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-5xl">
+      <div className="w-full">
         <div className="flex flex-col items-center rounded-2xl border border-solid border-rose-200 bg-white px-6 py-12 text-center shadow-sm">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-600">
             <AlertCircle className="h-6 w-6" aria-hidden />
@@ -210,7 +314,7 @@ export default function MyRidesPage() {
   return (
     <div
       className={[
-        "mx-auto w-full max-w-5xl space-y-4 transition-all duration-300 ease-out",
+        "w-full space-y-4 transition-all duration-300 ease-out",
         entered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
       ].join(" ")}
     >
@@ -247,7 +351,7 @@ export default function MyRidesPage() {
             </Link>
           </div>
 
-          <div role="tablist" aria-label="Filter rides" className="mt-5 flex gap-1 overflow-x-auto rounded-xl border border-solid border-white/10 bg-white/[0.04] p-1 [scrollbar-width:none]">
+          <div role="tablist" aria-label="Filter rides" className="mt-5 flex w-full gap-1 overflow-x-auto rounded-xl border border-solid border-white/10 bg-white/[0.04] p-1 [scrollbar-width:none] sm:w-fit sm:max-w-full">
             {tabs.map((t) => {
               const on = filter === t.key;
               return (
@@ -256,10 +360,13 @@ export default function MyRidesPage() {
                   type="button"
                   role="tab"
                   aria-selected={on}
-                  onClick={() => setFilter(t.key)}
+                  onClick={() => {
+                    setFilter(t.key);
+                    setPage(1);
+                  }}
                   style={{ fontFamily: "inherit" }}
                   className={[
-                    "inline-flex flex-1 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-[13.5px] font-semibold transition-colors",
+                    "inline-flex flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3.5 py-2 text-[13.5px] font-semibold transition-colors",
                     on ? "bg-white text-slate-900" : "bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white",
                   ].join(" ")}
                 >
@@ -273,6 +380,209 @@ export default function MyRidesPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Find: search, filters and sort ── */}
+      {rides.length > 0 ? (
+        <section aria-label="Find a ride" className="rounded-2xl border border-solid border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full border border-solid border-slate-300 bg-white px-4 text-slate-400 transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]">
+              <Search className="h-4 w-4 flex-shrink-0" aria-hidden />
+              <span className="sr-only">Search rides</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search place, stay, driver or reference"
+                className="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="relative block min-w-0 flex-1 sm:w-48 sm:flex-none">
+                <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                <select
+                  aria-label="Sort rides"
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value as RideSort);
+                    setPage(1);
+                  }}
+                  className="h-10 w-full cursor-pointer appearance-none bg-none rounded-full border border-solid border-slate-300 bg-white pl-9 pr-9 text-[13px] font-semibold text-slate-800 transition-colors hover:border-slate-400 focus:border-[#02665e] focus:outline-none"
+                >
+                  {RIDE_SORTS.map((o) => (
+                    <option key={o.key} value={o.key}>{o.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+              </span>
+              <button
+                type="button"
+                aria-expanded={showFilters}
+                aria-controls="ride-filters"
+                onClick={() => setShowFilters((v) => !v)}
+                className={`inline-flex h-10 flex-shrink-0 cursor-pointer items-center gap-2 rounded-full border border-solid px-3.5 text-[13px] font-semibold transition-colors sm:px-4 ${
+                  showFilters || filterCount > 0
+                    ? "border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e]"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                <span className="hidden sm:inline">Filters</span>
+                {filterCount > 0 ? (
+                  <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#02665e] px-1.5 text-[11px] font-bold text-white">{filterCount}</span>
+                ) : null}
+              </button>
+            </div>
+          </div>
+
+          {showFilters ? (
+            <div id="ride-filters" className="mt-3 grid gap-x-4 gap-y-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200 sm:grid-cols-3 sm:p-4">
+              {/* Every filter: a label on one line, then one 40px control */}
+              <div className="relative min-w-0">
+                <div className="text-[11.5px] font-bold text-slate-600">Ride dates</div>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={datePickerOpen}
+                  onClick={() => setDatePickerOpen((v) => !v)}
+                  className={`mt-1.5 flex h-10 w-full cursor-pointer items-center gap-2 rounded-xl border border-solid bg-white px-3 text-left text-[13px] font-semibold transition-colors ${
+                    dateFrom || datePickerOpen ? "border-[#02665e] text-slate-900" : "border-slate-300 text-slate-500 hover:border-slate-400"
+                  }`}
+                >
+                  <Calendar className={`h-4 w-4 flex-shrink-0 ${dateFrom ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{dateFrom ? `${shortDay(dateFrom)} to ${dateTo ? shortDay(dateTo) : "any"}` : "Any dates"}</span>
+                  {dateFrom ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Clear dates"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDateFrom("");
+                        setDateTo("");
+                        setPage(1);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDateFrom("");
+                          setDateTo("");
+                          setPage(1);
+                        }
+                      }}
+                      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </span>
+                  ) : null}
+                </button>
+                {datePickerOpen ? (
+                  <div className="absolute left-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)]">
+                    <DatePicker
+                      selected={dateFrom ? (dateTo ? [dateFrom, dateTo] : dateFrom) : undefined}
+                      allowRange
+                      allowPast
+                      resetRangeAnchor
+                      onSelectAction={(value) => {
+                        if (Array.isArray(value)) {
+                          setDateFrom(value[0] || "");
+                          setDateTo(value[value.length - 1] || "");
+                          setDatePickerOpen(false);
+                        } else {
+                          setDateFrom(value);
+                          setDateTo("");
+                        }
+                        setPage(1);
+                      }}
+                      onCloseAction={() => setDatePickerOpen(false)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="block min-w-0">
+                <span className="block text-[11.5px] font-bold text-slate-600">Going to</span>
+                <span className="relative mt-1.5 block">
+                  <select
+                    value={region}
+                    onChange={(e) => {
+                      setRegion(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-10 w-full cursor-pointer appearance-none bg-none rounded-xl border border-solid border-slate-300 bg-white pl-3 pr-9 text-[13px] font-semibold text-slate-800 transition-colors hover:border-slate-400 focus:border-[#02665e] focus:outline-none"
+                  >
+                    <option value="">All regions</option>
+                    {regionOptions.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                </span>
+              </label>
+
+              <div className="min-w-0">
+                <div className="text-[11.5px] font-bold text-slate-600">Driver</div>
+                <div role="radiogroup" aria-label="Driver" className="mt-1.5 flex h-10 rounded-xl bg-white p-1 ring-1 ring-slate-300">
+                  {DRIVER_OPTIONS.map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      role="radio"
+                      aria-checked={driverFilter === o.key}
+                      onClick={() => {
+                        setDriverFilter(o.key);
+                        setPage(1);
+                      }}
+                      className={`h-full min-w-0 flex-1 cursor-pointer whitespace-nowrap rounded-lg border-0 px-1.5 text-[12.5px] font-semibold transition-colors ${
+                        driverFilter === o.key ? "bg-[#02665e] text-white shadow-sm" : "bg-transparent text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {query || filterCount > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-slate-100 pt-3">
+              <span className="text-[12.5px] text-slate-500">
+                <strong className="font-bold tabular-nums text-slate-900">{shownRides.length}</strong> of {filteredRides.length} match
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {dateFrom ? (
+                  <FilterChip label={`${shortDay(dateFrom)} to ${dateTo ? shortDay(dateTo) : "any"}`} onClear={() => { setDateFrom(""); setDateTo(""); setPage(1); }} />
+                ) : null}
+                {region ? <FilterChip label={`To ${region}`} onClear={() => { setRegion(""); setPage(1); }} /> : null}
+                {driverFilter !== "any" ? (
+                  <FilterChip label={driverFilter === "assigned" ? "Driver assigned" : "No driver yet"} onClear={() => { setDriverFilter("any"); setPage(1); }} />
+                ) : null}
+                <button type="button" onClick={clearFinders} className="cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline">
+                  Clear all
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* ── Nothing matches the search or filters ── */}
+      {filteredRides.length > 0 && shownRides.length === 0 ? (
+        <div className="flex flex-col items-center rounded-2xl border border-solid border-slate-200 bg-white px-6 py-10 text-center">
+          <Search className="h-6 w-6 text-slate-300" aria-hidden />
+          <div className="mt-3 text-[15px] font-bold text-slate-900">
+            {query.trim() ? <>Nothing matches &ldquo;{query.trim()}&rdquo;</> : "No rides match these filters"}
+          </div>
+          <div className="mt-1 text-[13px] text-slate-500">Try another word, widen the dates or clear the filters.</div>
+          <button type="button" onClick={clearFinders} className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-800 hover:border-[#02665e] hover:text-[#02665e]">
+            Clear all
+          </button>
+        </div>
+      ) : null}
 
       {/* ── Empty state ── */}
       {filteredRides.length === 0 ? (
@@ -302,8 +612,8 @@ export default function MyRidesPage() {
         </div>
       ) : (
         /* ── Ride cards ── */
-        <div className="space-y-3">
-          {filteredRides.map((ride) => {
+        <div id="rides-list" className={`scroll-mt-24 space-y-3 ${shownRides.length === 0 ? "hidden" : ""}`}>
+          {pagedRides.map((ride) => {
             const isActive = ride.isValid;
             const isCompleted = !ride.isValid && ride.status === "COMPLETED";
             const muted = !isActive;
@@ -394,6 +704,60 @@ export default function MyRidesPage() {
           })}
         </div>
       )}
+
+      {/* ── Pagination ── */}
+      {shownRides.length > PAGE_SIZE ? (
+        <nav aria-label="Rides pages" className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 sm:flex-row">
+          <span className="text-[12.5px] text-slate-500">
+            Showing{" "}
+            <strong className="font-bold tabular-nums text-slate-900">
+              {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, shownRides.length)}
+            </strong>{" "}
+            of <span className="tabular-nums">{shownRides.length}</span> rides
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              aria-label="Previous page"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </button>
+            {Array.from({ length: pageCount }, (_, i) => i + 1)
+              // First, last, and the pages around the current one; gaps become "..."
+              .filter((n) => n === 1 || n === pageCount || Math.abs(n - currentPage) <= 1)
+              .map((n, i, list) => (
+                <span key={n} className="flex items-center gap-1">
+                  {i > 0 && n - list[i - 1] > 1 ? <span className="px-1 text-[13px] text-slate-400">...</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => goToPage(n)}
+                    aria-current={n === currentPage ? "page" : undefined}
+                    className={[
+                      "inline-flex h-9 min-w-[36px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] font-semibold tabular-nums transition-colors",
+                      n === currentPage
+                        ? "border-0 bg-[#02665e] text-white"
+                        : "border border-solid border-slate-200 bg-white text-slate-700 hover:border-[#02665e]/40 hover:text-[#02665e]",
+                    ].join(" ")}
+                  >
+                    {n}
+                  </button>
+                </span>
+              ))}
+            <button
+              type="button"
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === pageCount}
+              aria-label="Next page"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        </nav>
+      ) : null}
     </div>
   );
 }

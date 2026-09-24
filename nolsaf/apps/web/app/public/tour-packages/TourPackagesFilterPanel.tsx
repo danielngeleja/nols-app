@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Filter, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Filter, Search, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import PublicTourOperatorCard, { type PublicTourOperatorProfile, type PublicTourPackageItem } from "@/components/PublicTourOperatorCard";
 
@@ -28,6 +28,27 @@ const defaultCategories = [
   "City Tours",
   "Family Travel",
 ];
+
+// Words that describe the kind of thing, not the thing itself, so they never decide a match
+const GENERIC_WORDS = new Set(["tours", "tour", "travel", "holidays", "holiday", "trips", "trip", "national", "park", "parks", "conservation", "area", "game", "reserve", "the", "and", "of", "&"]);
+
+/** The meaningful lowercase words of a label: "Serengeti National Park" -> ["serengeti"]. */
+function keyWords(label: string): string[] {
+  const words = label.toLowerCase().split(/[\s,/()-]+/).filter(Boolean);
+  const meaningful = words.filter((w) => !GENERIC_WORDS.has(w));
+  return meaningful.length ? meaningful : words;
+}
+
+/** Whether an operator's text matches a search, category and park. */
+function matchesLookup(bag: string, lookup: { q: string; category: string; park: string }): boolean {
+  // Search: every word must appear somewhere, in any order ("serengeti safari" finds "Safari ... Serengeti")
+  if (lookup.q && !lookup.q.split(/\s+/).filter(Boolean).every((word) => bag.includes(word))) return false;
+  // Category: match on its meaningful words, so "Safari Tours" also finds "Wildlife Safari"
+  if (lookup.category !== "All" && !keyWords(lookup.category).every((word) => bag.includes(word))) return false;
+  // Park or site: match on the name without generic words ("Serengeti National Park" -> "serengeti")
+  if (lookup.park !== "All" && !keyWords(lookup.park).every((word) => bag.includes(word))) return false;
+  return true;
+}
 
 function SkeletonCard() {
   return (
@@ -81,7 +102,7 @@ export default function TourPackagesFilterPanel() {
       try {
         const [categoryRes, sitesRes] = await Promise.all([
           apiClient.get<{ items?: Array<{ name?: string } | string> }>("/api/public/agents/categories").catch(() => ({ data: { items: [] } })),
-          apiClient.get<{ items?: NamedOption[] }>("/api/public/tourism-sites", { params: { country: "all" } }).catch(() => ({ data: { items: [] } })),
+          apiClient.get<{ items?: NamedOption[] }>("/api/public/tourism-sites", { params: { country: "Tanzania" } }).catch(() => ({ data: { items: [] } })),
         ]);
 
         if (cancelled) return;
@@ -95,6 +116,7 @@ export default function TourPackagesFilterPanel() {
           setCategories(Array.from(new Set(categoryItems)).sort((a, b) => a.localeCompare(b)));
         }
 
+        // Coverage is Tanzania only (sites are requested for Tanzania), so e.g. Diani Beach, Kenya is not offered
         setParksAndSites((sitesRes.data.items || []).filter((item) => item?.name));
       } catch {
         // Keep the static fallbacks so the public page still renders.
@@ -151,52 +173,78 @@ export default function TourPackagesFilterPanel() {
     };
   }, []);
 
+  // What the listing holds overall, for the hero's live counts
+  const catalogStats = useMemo(() => {
+    let operators = 0;
+    let packages = 0;
+    for (const agent of agents) {
+      if (!(Number(agent.id) > 0) || !/^[a-z0-9]{20,40}$/.test(String(agent.publicKey || ""))) continue;
+      const live = (agent.profile?.packageItems || []).filter((pkg) =>
+        ["APPROVED", "LIVE", "PUBLISHED", "ACTIVE"].includes(String(pkg.status || "APPROVED").toUpperCase())
+      ).length;
+      if (!live) continue;
+      operators += 1;
+      packages += live;
+    }
+    return { operators, packages };
+  }, [agents]);
+
+  // Filters in use (search counts separately; sort counts only when changed)
+  const activeFilterCount = (category !== "All" ? 1 : 0) + (parkOrSite !== "All" ? 1 : 0) + (sortBy !== "recommended" ? 1 : 0);
+  const resetFilters = () => {
+    setCategory("All");
+    setParkOrSite("All");
+    setSortBy("recommended");
+  };
+  const clearAll = () => {
+    setSearch("");
+    resetFilters();
+  };
+  const SORT_LABELS: Record<string, string> = { rating: "Top rated", "price-asc": "Price: low to high", "price-desc": "Price: high to low" };
+
   const hasActiveLookup = Boolean(search.trim() || category !== "All" || parkOrSite !== "All");
   const lookupLabel = search.trim() || (parkOrSite !== "All" ? parkOrSite : category !== "All" ? category : "your filters");
-  const operatorCards = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const isApprovedPackage = (pkg: PublicTourPackageItem) => {
-      const status = String(pkg.status || "APPROVED").toUpperCase();
-      return ["APPROVED", "LIVE", "PUBLISHED", "ACTIVE"].includes(status);
-    };
-
-    const cards = agents
+  // Every listable operator once, with the text that search and filters match against
+  const catalog = useMemo(() => {
+    const isApprovedPackage = (pkg: PublicTourPackageItem) => ["APPROVED", "LIVE", "PUBLISHED", "ACTIVE"].includes(String(pkg.status || "APPROVED").toUpperCase());
+    return agents
       .map((agent) => {
         const agentId = Number(agent.id);
         if (!Number.isFinite(agentId) || agentId <= 0) return null;
         const profile = agent.profile || {};
         const packages = (profile.packageItems || []).filter(isApprovedPackage);
         const agentPublicKey = String(agent.publicKey || "");
-        if (!/^[a-z0-9]{20,40}$/.test(agentPublicKey)) return null;
-        return { agentId, agentPublicKey, agent, profile, packages };
+        if (!/^[a-z0-9]{20,40}$/.test(agentPublicKey) || !packages.length) return null;
+        const p = profile as any;
+        const bag = [
+          profile.companyName,
+          profile.physicalLocation,
+          profile.businessAddress,
+          ...(profile.operatingRegions || []),
+          ...(p.registeredParks || []), // parks the operator is registered for (was missing, so park filters never matched)
+          ...(profile.services || []),
+          ...(profile.addOns || []),
+          ...(profile.tourismTypes || []),
+          ...(profile.specializations || []),
+          ...Object.values((p.serviceClassification || {}) as Record<string, string[]>).flat(),
+          ...packages.flatMap((pkg) => [pkg.name, pkg.title, pkg.destination, pkg.category]),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return { agentId, agentPublicKey, agent, profile, packages, bag };
       })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .filter((item) => item.packages.length > 0);
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }, [agents]);
 
-    const filtered = cards.filter(({ profile, packages }) => {
-      const bag = [
-        profile.companyName,
-        profile.physicalLocation,
-        profile.businessAddress,
-        ...(profile.operatingRegions || []),
-        ...(profile.services || []),
-        ...(profile.addOns || []),
-        ...(profile.tourismTypes || []),
-        ...(profile.specializations || []),
-        ...packages.flatMap((pkg) => [pkg.name, pkg.title, pkg.destination, pkg.category]),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+  /** How many operators match a given search, category and park, for the result count and suggestions. */
+  const countMatches = (lookup: { q: string; category: string; park: string }) => catalog.filter((item) => matchesLookup(item.bag, lookup)).length;
 
-      if (q && !bag.includes(q)) return false;
-      if (category !== "All" && !bag.includes(category.toLowerCase())) return false;
-      if (parkOrSite !== "All" && !bag.includes(parkOrSite.toLowerCase())) return false;
-      return true;
-    });
-
+  const operatorCards = useMemo(() => {
+    const lookup = { q: search.trim().toLowerCase(), category, park: parkOrSite };
+    const filtered = catalog.filter((item) => matchesLookup(item.bag, lookup));
     const priceOf = (pkg: PublicTourPackageItem) => Number(pkg.pricePerPerson || pkg.price || 0) || Number.POSITIVE_INFINITY;
-    const confidenceOf = (item: typeof filtered[number]) => {
+    const confidenceOf = (item: (typeof filtered)[number]) => {
       const confidence = (item.profile as any)?.tripConfidence || {};
       const score = Number(confidence?.score || 0);
       const totalRatings = Number(confidence?.totalRatings || 0);
@@ -212,7 +260,7 @@ export default function TourPackagesFilterPanel() {
       }
       return Number(b.agent.totalCompletedTrips || 0) - Number(a.agent.totalCompletedTrips || 0);
     });
-  }, [agents, search, category, parkOrSite, sortBy]);
+  }, [catalog, search, category, parkOrSite, sortBy]);
 
   useEffect(() => {
     if (!hasActiveLookup) {
@@ -228,57 +276,83 @@ export default function TourPackagesFilterPanel() {
   }, [hasActiveLookup, search, category, parkOrSite]);
 
   return (
-    <section className="mt-10 min-w-0 overflow-x-hidden">
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{
-          backgroundColor: "#02665e",
-          backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.16) 1px, transparent 1.2px), linear-gradient(135deg, rgba(255,255,255,0.05), rgba(0,0,0,0.08))",
-          backgroundPosition: "0 0, 0 0",
-          backgroundSize: "30px 30px, auto",
-          border: "1px solid rgba(255,255,255,0.12)",
-          boxShadow: "0 8px 32px rgba(2,102,94,0.25), inset 0 1px 0 rgba(255,255,255,0.08)",
-        }}
-      >
-        <div className="px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6">
-          <div className="flex min-w-0 flex-col gap-3 sm:gap-4">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <label className="min-w-0 flex-1">
-            <span className="sr-only">Search</span>
-                <div className="relative w-full min-w-0 max-w-full">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 sm:left-3 sm:h-5 sm:w-5" style={{ color: "rgba(255,255,255,0.54)" }} aria-hidden />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search package or operator"
-                    className="box-border w-full min-w-0 max-w-full rounded-lg py-2 pl-9 pr-3 text-xs font-medium outline-none transition-all placeholder:text-white/45 sm:py-2.5 sm:pl-10 sm:pr-4 sm:text-sm"
-                    style={{ background: "#0b6f68", border: "1.5px solid rgba(255,255,255,0.20)", color: "rgba(255,255,255,0.92)" }}
-              />
-            </div>
-              </label>
+    <section className="min-w-0 overflow-x-clip">
+      {/* overflow-x-clip, not -hidden: hidden makes this section a scroll box and draws a stray vertical scrollbar */}
+      {/* One calm hero: title, one line, search and filters in it, live counts under it */}
+      <div className="overflow-hidden rounded-3xl bg-[#024d47] text-white">
+        <div className="px-4 py-6 sm:px-10 sm:py-10">
+          <div className="mx-auto max-w-3xl text-center">
+            <h1 className="m-0 text-[28px] font-extrabold leading-tight tracking-tight sm:text-[42px]">Tour Packages</h1>
+            <p className="m-0 mt-1.5 text-[13.5px] text-white/70 sm:mt-2 sm:text-[15px]">Compare prices, inclusions and itineraries from verified operators.</p>
 
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((value) => !value)}
-                className="flex flex-shrink-0 items-center justify-center gap-1.5 rounded-full px-2 py-1 text-xs font-semibold transition-all sm:px-2.5 sm:py-1.5"
-                style={showAdvanced ? { background: "#0b6f68", border: "1.5px solid rgba(255,255,255,0.30)", color: "#ffffff" } : { background: "#0b6f68", border: "1.5px solid rgba(255,255,255,0.20)", color: "rgba(255,255,255,0.86)" }}
-            aria-expanded={showAdvanced}
-                aria-label="Advanced Filters"
-                title="Advanced Filters"
-          >
-                <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden />
-                <span className="hidden sm:inline">Advanced Filters</span>
-                <span className="hidden sm:inline-flex">
-                  {showAdvanced ? <ChevronUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden /> : <ChevronDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden />}
-                </span>
-          </button>
+            <div className="mt-5 flex min-w-0 items-center gap-1.5 rounded-xl bg-white p-1 shadow-[0_18px_40px_-18px_rgba(0,0,0,0.5)] sm:mt-6 sm:gap-2 sm:rounded-2xl sm:p-1.5">
+              <label className="relative min-w-0 flex-1">
+                <span className="sr-only">Search tours or operators</span>
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 sm:left-3 sm:h-5 sm:w-5" aria-hidden />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search a tour, park or operator"
+                  className="box-border h-9 w-full min-w-0 rounded-lg border-0 bg-transparent pl-8 pr-9 text-[13.5px] text-slate-900 outline-none placeholder:text-slate-400 sm:h-11 sm:rounded-xl sm:pl-10 sm:pr-10 sm:text-[14.5px]"
+                />
+                {search ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    aria-label="Clear search"
+                    className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 sm:right-2 sm:h-7 sm:w-7 cursor-pointer items-center justify-center rounded-full border-0 bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                ) : null}
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((value) => !value)}
+                aria-expanded={showAdvanced}
+                aria-label="Filters"
+                className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-[13.5px] font-semibold transition sm:h-11 sm:rounded-xl sm:px-4 ${
+                  showAdvanced ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                <Filter className="h-4 w-4" aria-hidden />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilterCount ? (
+                  <span className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${showAdvanced ? "bg-white text-[#02665e]" : "bg-[#02665e] text-white"}`}>
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+                {showAdvanced ? <ChevronUp className="hidden h-4 w-4 sm:block" aria-hidden /> : <ChevronDown className="hidden h-4 w-4 sm:block" aria-hidden />}
+              </button>
             </div>
-        </div>
+
+            {/* Live counts from the listing, not fixed numbers */}
+            <p className="m-0 mt-3 text-[11.5px] text-white/55 sm:mt-4 sm:text-[12.5px]">
+              {agentsLoading ? (
+                "Loading verified operators"
+              ) : (
+                <>
+                  {catalogStats.operators} verified operator{catalogStats.operators === 1 ? "" : "s"} · {catalogStats.packages} package{catalogStats.packages === 1 ? "" : "s"}
+                  {/* The fee note is long; phones get the short line only */}
+                  <span className="hidden sm:inline"> · Prices per person, NoLSAF fee included</span>
+                </>
+              )}
+            </p>
+          </div>
 
         {showAdvanced ? (
-            <div className="mt-3 space-y-3 rounded-lg bg-[#075d56]/80 p-3 sm:mt-4 sm:space-y-4 sm:p-4" style={{ border: "1px solid rgba(255,255,255,0.12)" }}>
+            <div className="mx-auto mt-4 max-w-3xl space-y-3 rounded-2xl bg-white/[0.06] p-3 text-left ring-1 ring-white/10 sm:space-y-4 sm:p-4">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>Advanced Filters</h2>
+                <h2 className="m-0 text-sm font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>Filters</h2>
+                {activeFilterCount ? (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-full border-0 bg-white/10 px-3 py-1 text-[12px] font-semibold text-white/85 transition hover:bg-white/20"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden /> Reset filters
+                  </button>
+                ) : null}
               </div>
 
               <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
@@ -311,7 +385,6 @@ export default function TourPackagesFilterPanel() {
                     {parksAndSites.map((site) => (
                       <option key={site.id ?? `${site.country || "site"}-${site.name}`} value={site.name} style={{ background: "#0d2320" }}>
                         {site.name}
-                        {site.country ? `, ${site.country}` : ""}
                       </option>
                     ))}
                   </select>
@@ -337,7 +410,42 @@ export default function TourPackagesFilterPanel() {
           </div>
       </div>
 
-      <div className="mt-8">
+      {/* What is being shown, and one tap to undo any part of it */}
+      {!agentsLoading && (search.trim() || activeFilterCount) ? (
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-[13.5px] text-slate-600">
+            <span className="font-bold text-slate-900">{operatorCards.length}</span> of {catalogStats.operators} operator{catalogStats.operators === 1 ? "" : "s"}
+          </span>
+          {[
+            search.trim() ? { key: "q", label: `"${search.trim()}"`, clear: () => setSearch("") } : null,
+            category !== "All" ? { key: "c", label: category, clear: () => setCategory("All") } : null,
+            parkOrSite !== "All" ? { key: "p", label: parkOrSite, clear: () => setParkOrSite("All") } : null,
+            sortBy !== "recommended" ? { key: "s", label: SORT_LABELS[sortBy] || sortBy, clear: () => setSortBy("recommended") } : null,
+          ]
+            .filter((chip): chip is { key: string; label: string; clear: () => void } => Boolean(chip))
+            .map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.clear}
+                aria-label={`Remove ${chip.label}`}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-solid border-[#02665e]/25 bg-[#02665e]/[0.06] py-1 pl-3 pr-2 text-[12.5px] font-semibold text-[#024d47] transition hover:bg-[#02665e]/[0.12]"
+              >
+                {chip.label}
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            ))}
+          <button
+            type="button"
+            onClick={clearAll}
+            className="cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-semibold text-slate-500 underline-offset-2 hover:text-slate-900 hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      ) : null}
+
+      <div className="mt-6">
         {agentsLoading ? (
           <>
             {/* Mobile skeleton carousel */}
@@ -386,16 +494,69 @@ export default function TourPackagesFilterPanel() {
             </div>
           </>
         ) : hasSearched ? (
-        <div className="mt-5 rounded-2xl border border-[#02665e]/25 bg-white px-4 py-5 text-center shadow-[0_12px_30px_rgba(2,102,94,0.08)] sm:px-6">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#02665e]">
-            {isChecking ? "Checking approved packages" : "No approved package found yet"}
-          </p>
-          <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-700">
-            {isChecking
-              ? `Searching for ${lookupLabel} among approved tour packages...`
-              : `We could not find an approved tour package matching ${lookupLabel} right now. Try another destination, park, site, or tour category while we continue onboarding verified operators and packages.`}
-          </p>
-        </div>
+          (() => {
+            // For each active filter: how many operators you would see without it
+            const base = { q: search.trim().toLowerCase(), category, park: parkOrSite };
+            const suggestions = [
+              base.q ? { key: "q", label: `"${search.trim()}"`, count: countMatches({ ...base, q: "" }), undo: () => setSearch("") } : null,
+              base.category !== "All" ? { key: "c", label: category, count: countMatches({ ...base, category: "All" }), undo: () => setCategory("All") } : null,
+              base.park !== "All" ? { key: "p", label: parkOrSite, count: countMatches({ ...base, park: "All" }), undo: () => setParkOrSite("All") } : null,
+            ]
+              .filter((s): s is { key: string; label: string; count: number; undo: () => void } => Boolean(s))
+              .sort((a, b) => b.count - a.count);
+            return (
+              <div className="mx-auto mt-2 max-w-xl rounded-3xl border border-solid border-slate-200 bg-white px-5 py-8 text-center sm:px-8">
+                {isChecking ? (
+                  <div className="flex items-center justify-center gap-2 py-4 text-[14px] text-slate-500">
+                    <Search className="h-4 w-4 animate-pulse text-[#02665e]" aria-hidden /> Checking verified tours
+                  </div>
+                ) : (
+                  <>
+                    <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                      <Search className="h-6 w-6" aria-hidden />
+                    </span>
+                    <h2 className="m-0 mt-4 text-[19px] font-bold text-slate-900">No tours match all of these</h2>
+                    <p className="m-0 mx-auto mt-1.5 max-w-sm text-[13.5px] leading-6 text-slate-500">
+                      Nothing fits every filter at once. Remove one to see more.
+                    </p>
+
+                    {/* One tap back to results, best option first */}
+                    {suggestions.length ? (
+                      <div className="mt-5 space-y-2 text-left">
+                        {suggestions.map((s) => (
+                          <button
+                            key={s.key}
+                            type="button"
+                            onClick={s.undo}
+                            disabled={s.count === 0}
+                            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 text-left transition hover:border-[#02665e]/40 hover:bg-[#02665e]/[0.03] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white"
+                          >
+                            <span className="inline-flex min-w-0 items-center gap-2 text-[13.5px] text-slate-700">
+                              <X className="h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden />
+                              <span className="truncate">
+                                Remove <span className="font-semibold text-slate-900">{s.label}</span>
+                              </span>
+                            </span>
+                            <span className={`flex-shrink-0 rounded-full px-2.5 py-0.5 text-[12px] font-bold ${s.count ? "bg-[#02665e]/10 text-[#02665e]" : "bg-slate-100 text-slate-400"}`}>
+                              {s.count ? `${s.count} operator${s.count === 1 ? "" : "s"}` : "Still none"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={clearAll}
+                      className="mt-4 inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-xl border-0 bg-transparent px-3 text-[13px] font-semibold text-[#02665e] hover:bg-[#02665e]/5"
+                    >
+                      Clear everything and show all {catalogStats.operators}
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()
         ) : (
         <div className="mt-8 rounded-3xl border border-dashed border-[#02665e]/35 bg-emerald-50/70 px-5 py-7 text-center shadow-[0_14px_34px_rgba(2,102,94,0.08)] sm:px-8">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#02665e]">Tour Packages Onboarding</p>

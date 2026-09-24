@@ -71,6 +71,8 @@ type Ride = {
     operationArea?: string | null;
     district?: string | null;
     region?: string | null;
+    /** The ID printed on the driver's own NoLSAF card (HMAC-checked, issued by the server). */
+    verificationCode?: string | null;
   };
   property?: { id: number; title: string; regionName?: string; district?: string };
   paymentStatus?: string;
@@ -102,29 +104,6 @@ function arrivalIcon(type?: string) {
   return <Car className="h-5 w-5" />;
 }
 
-type DriverBioInput = {
-  name?: string | null;
-  rating?: number | null;
-  isVipDriver?: boolean;
-  operationArea?: string | null;
-  district?: string | null;
-  vehicleMake?: string | null;
-};
-
-function pickExtendedBio(d: DriverBioInput): string {
-  const first = (d.name ?? "").split(" ")[0] || "Your driver";
-  if (d.isVipDriver)
-    return `Exclusively trained for executive and long-distance travel, ${first} is one of NoLSAF\u2019s Premium-certified specialists. Clients receive complete discretion, immaculate presentation, and an on-time arrival record that only genuine professionalism builds. Expect first-class service on every journey.`;
-  if (d.rating != null && d.rating >= 4.5)
-    return `With a near-perfect rating earned across hundreds of journeys, ${first} has built a reputation that only consistent excellence creates. Composed under any condition, communicative when it counts, and unfailingly punctual, ${first} is the standard every NoLSAF driver aspires to.`;
-  const area = d.operationArea || d.district;
-  if (area)
-    return `Nobody reads ${area} the way ${first} does. Every route is mentally mapped before the journey begins: peak-hour shortcuts, alternate roads, and the local instinct to adapt on the spot. Passengers arrive relaxed, on time, and in the best possible hands.`;
-  if (d.vehicleMake)
-    return `Behind the wheel of a ${d.vehicleMake}, ${first} treats every trip as a VIP assignment. The vehicle is inspected before each journey, kept spotless inside and out, and driven with the steady care that tells a passenger they are exactly where they should be.`;
-  return `Background-checked, fully licensed, and trusted by hundreds of NoLSAF passengers across Tanzania. ${first} brings calm conviction to every route. From pickup to drop-off, reliability is not a policy here; it is simply how ${first} works, every single time.`;
-}
-
 export default function RideDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -134,7 +113,6 @@ export default function RideDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
-  const [cardFlipped, setCardFlipped] = useState(false);
 
   useEffect(() => {
     fetchAccountSession().then((res) => setCurrentUserId(res.data?.id || null)).catch(() => {});
@@ -165,7 +143,7 @@ export default function RideDetailPage() {
   /* --- Loading --- */
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-5xl space-y-4" aria-busy="true">
+      <div className="w-full space-y-4" aria-busy="true">
         <span role="status" className="sr-only">Loading ride</span>
         <div className="rounded-2xl bg-[#0a1110] px-5 py-5 sm:px-6">
           <div className="h-3 w-24 rounded bg-white/10" />
@@ -186,7 +164,7 @@ export default function RideDetailPage() {
   /* --- Error --- */
   if (error || !ride) {
     return (
-      <div className="mx-auto w-full max-w-5xl">
+      <div className="w-full">
         <div className="flex flex-col items-center rounded-2xl border border-solid border-rose-200 bg-white px-6 py-12 text-center">
           <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-500">
             <AlertCircle className="h-6 w-6" aria-hidden />
@@ -250,7 +228,7 @@ export default function RideDetailPage() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4">
+    <div className="w-full space-y-4">
       {/* --- Header band --- */}
       <div className="relative overflow-hidden rounded-2xl bg-[#0a1110] text-white shadow-[0_18px_40px_-26px_rgba(0,0,0,0.8)]" style={{ isolation: "isolate" }}>
         <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.6), rgba(2,102,94,0))" }} />
@@ -378,348 +356,137 @@ export default function RideDetailPage() {
             </section>
           ) : null}
 
-          {/* ===== Driver Physical ID Card ===== */}
-          {ride.driver && (<>
-            {/* Perspective wrapper — 3D flip card LANDSCAPE */}
-            <div style={{ perspective: "1200px" }}>
-              <div
-                className="h-[360px] sm:h-[300px] motion-reduce:[transform:none!important]"
-                style={{
-                  position: "relative",
-                  transformStyle: "preserve-3d",
-                  transition: "transform 0.7s cubic-bezier(0.4,0,0.2,1)",
-                  transform: cardFlipped ? "rotateY(180deg)" : "rotateY(0deg)",
-                }}
-              >
-
-                {/* ── FRONT FACE — LANDSCAPE ── */}
-                <div
-                  style={{ position: "absolute", inset: 0, backfaceVisibility: "hidden" }}
-                  className="rounded-[20px] overflow-hidden shadow-2xl cursor-default select-none"
-                >
-                  {/* bg */}
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #0a1110 0%, #0f1c1b 55%, #0f3a35 100%)" }} />
-                  {/* left photo strip — always visible */}
-                  <div className="absolute top-0 left-0 bottom-0 w-[110px] sm:w-[140px]" style={{ background: "linear-gradient(180deg, rgba(2,102,94,0.22) 0%, rgba(2,102,94,0.12) 100%)", borderRight: "1px solid rgba(5,150,105,0.18)" }} />
-                  {/* decorative SVG */}
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 500 300" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden>
-                    {/* concentric arcs top-right */}
-                    <circle cx="480" cy="40" r="110" stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-                    <circle cx="480" cy="40" r="78"  stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-                    <circle cx="480" cy="40" r="48"  stroke="white" strokeOpacity="0.035" strokeWidth="1" fill="none" />
-                    {/* road path behind photo strip */}
-                    <path d="M60 300 Q70 200 90 150 Q105 110 110 0" stroke="white" strokeOpacity="0.06" strokeWidth="24" fill="none" strokeLinecap="round" />
-                    <path d="M60 300 Q70 200 90 150 Q105 110 110 0" stroke="white" strokeOpacity="0.12" strokeWidth="1.5" strokeDasharray="10 8" fill="none" strokeLinecap="round" />
-                    {/* fingerprint — centred on the right detail column ~(330,170) */}
-                    <g transform="translate(310,90)" opacity="0.055">
-                      {/* core loops */}
-                      <ellipse cx="40" cy="80" rx="6"  ry="9"  stroke="white" strokeWidth="1.3" fill="none"/>
-                      <ellipse cx="40" cy="80" rx="13" ry="17" stroke="white" strokeWidth="1.3" fill="none"/>
-                      <ellipse cx="40" cy="80" rx="21" ry="27" stroke="white" strokeWidth="1.2" fill="none"/>
-                      <ellipse cx="40" cy="80" rx="30" ry="38" stroke="white" strokeWidth="1.2" fill="none"/>
-                      <ellipse cx="40" cy="80" rx="39" ry="49" stroke="white" strokeWidth="1.1" fill="none"/>
-                      <ellipse cx="40" cy="80" rx="49" ry="60" stroke="white" strokeWidth="1.1" fill="none"/>
-                      <ellipse cx="40" cy="80" rx="59" ry="71" stroke="white" strokeWidth="1.0" fill="none"/>
-                      {/* open bottom arcs to give fingerprint feel */}
-                      <path d="M10 130 Q40 150 70 130" stroke="white" strokeWidth="1.1" fill="none" strokeLinecap="round"/>
-                      <path d="M2  118 Q40 142 78 118" stroke="white" strokeWidth="1.0" fill="none" strokeLinecap="round"/>
-                      {/* centre dot */}
-                      <circle cx="40" cy="80" r="2.5" fill="white"/>
-                    </g>
-                  </svg>
-                  {/* top sheen */}
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent pointer-events-none" />
-                  {/* left green accent line */}
-                  <div className="absolute top-0 left-0 bottom-0 w-[3px]" style={{ background: "#02665e" }} />
-                  {/* bottom green stripe */}
-                  <div className="absolute bottom-0 left-[110px] sm:left-[140px] right-0 h-[3px]" style={{ background: "#02665e" }} />
-
-                  {/* FRONT CONTENT — side-by-side on all sizes */}
-                  <div className="relative flex flex-row h-full">
-
-                    {/* LEFT — photo column */}
-                    <div className="w-[110px] sm:w-[140px] flex-shrink-0 flex flex-col items-center justify-center gap-2 px-2 sm:px-3">
-                      <div
-                        className="h-[88px] w-[88px] rounded-full overflow-hidden flex items-center justify-center flex-shrink-0"
-                        style={{
-                          border: "2.5px solid rgba(5,150,105,0.7)",
-                          boxShadow: "0 0 0 4px rgba(5,150,105,0.13), 0 8px 28px rgba(0,0,0,0.5)",
-                          background: "rgba(2,102,94,0.3)",
-                        }}
-                      >
-                        {ride.driver.avatarUrl ? (
+          {/* ===== Your driver: who, how to recognise the car, how to reach them ===== */}
+          {ride.driver && (() => {
+            const d = ride.driver;
+            // Same ID as the driver's own NoLSAF card; the server issues it, the client cannot derive it
+            const driverId = d.verificationCode || null;
+            const plate = d.plateNumber || d.vehiclePlate || null;
+            const vehicle = [d.vehicleMake, d.vehicleType ? human(d.vehicleType) : null].filter(Boolean).join(" · ") || (ride.vehicleType ? human(ride.vehicleType) : null);
+            const area = d.operationArea || [d.district, d.region].filter(Boolean).join(", ") || null;
+            const initials = (d.name || "Driver").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
+            return (
+              <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm" aria-label="Your driver">
+                {/* Identity */}
+                <div className="relative bg-[#0a1110] px-5 pb-5 pt-4 text-white" style={{ isolation: "isolate" }}>
+                  <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 -z-10 h-52 w-52 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.5), rgba(2,102,94,0))" }} />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-semibold text-white/60">Your driver</span>
+                    {driverId ? (
+                      <span className="rounded-md bg-white/[0.08] px-2 py-0.5 font-mono text-[11.5px] font-semibold tracking-wider text-white/80 ring-1 ring-white/10" title="Driver ID">
+                        {driverId}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex items-center gap-4">
+                    <div className="relative flex-shrink-0">
+                      <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-[#02665e] ring-2 ring-white/10">
+                        {d.avatarUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={ride.driver.avatarUrl} alt={ride.driver.name ?? "Driver"} className="h-full w-full object-cover" />
+                          <img src={d.avatarUrl} alt={d.name ?? "Driver"} className="h-full w-full object-cover" />
                         ) : (
-                          <span className="font-black text-white" style={{ fontSize: "2rem" }}>
-                            {(ride.driver.name ?? "?")[0].toUpperCase()}
-                          </span>
+                          <span className="text-[22px] font-bold text-white">{initials || "D"}</span>
                         )}
                       </div>
-                      {/* verified pill */}
-                      <div
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
-                        style={{ background: "#02665e", border: "1.5px solid #0a1110" }}
-                      >
-                        <BadgeCheck className="h-3 w-3 flex-shrink-0 text-white" aria-hidden />
-                        <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-white">Verified</span>
-                      </div>
+                      <span className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-[#02665e] ring-[3px] ring-[#0a1110]" title="Verified by NoLSAF">
+                        <BadgeCheck className="h-3.5 w-3.5 text-white" aria-hidden />
+                      </span>
                     </div>
-
-                    {/* RIGHT — details column */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-between py-3 pr-4 pl-3">
-
-                      {/* top: branding + route icon + flip */}
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/40">NoLSAF</p>
-                          <p className="text-[10px] font-black text-white/55 tracking-widest">DRIVER ID CARD</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setCardFlipped(true)}
-                            type="button"
-                            className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-emerald-500/20"
-                            style={{ border: "1px solid rgba(255,255,255,0.15)", background: "transparent" }}
-                            aria-label="View driver profile"
-                          >
-                            <svg viewBox="0 0 10 10" className="h-3 w-3" fill="none" aria-hidden>
-                              <path d="M3.5 2L6.5 5L3.5 8" stroke="rgba(255,255,255,0.45)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </button>
-                          {/* Route / navigation icon replacing chip */}
-                          <div
-                            className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ background: "rgba(5,150,105,0.18)", border: "1px solid rgba(5,150,105,0.35)" }}
-                          >
-                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-                              {/* steering wheel */}
-                              <circle cx="12" cy="12" r="9" stroke="#10b981" strokeWidth="1.6" />
-                              <circle cx="12" cy="12" r="2.5" stroke="#10b981" strokeWidth="1.4" />
-                              <line x1="12" y1="9.5" x2="12" y2="3" stroke="#10b981" strokeWidth="1.4" strokeLinecap="round" />
-                              <line x1="14.5" y1="13.5" x2="20.2" y2="16.8" stroke="#10b981" strokeWidth="1.4" strokeLinecap="round" />
-                              <line x1="9.5" y1="13.5" x2="3.8" y2="16.8" stroke="#10b981" strokeWidth="1.4" strokeLinecap="round" />
-                            </svg>
-                          </div>
-                        </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[18px] font-bold leading-tight">{d.name || "Your driver"}</div>
+                      <div className="mt-0.5 text-[12.5px] font-semibold text-[#5ec8bb]">
+                        {d.isVipDriver ? "Premium certified driver" : "Verified NoLSAF driver"}
                       </div>
-
-                      {/* name + title + stars */}
-                      <div>
-                        <p
-                          className="font-black text-white uppercase leading-tight"
-                          style={{ fontSize: "clamp(1.05rem, 4vw, 1.3rem)", letterSpacing: "-0.01em", textShadow: "0 2px 10px rgba(0,0,0,0.4)" }}
-                        >
-                          {ride.driver.name}
-                        </p>
-                        <p className="mt-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">
-                          <BadgeCheck className="h-3 w-3" aria-hidden />
-                          {ride.driver.isVipDriver ? "Premium certified" : "NoLSAF certified driver"}
-                        </p>
-                        {ride.driver.rating != null && (
-                          <div className="flex items-center gap-0.5 mt-0.5">
-                            {[1,2,3,4,5].map((i) => (
-                              <Star key={i} className="h-2.5 w-2.5"
-                                style={{
-                                  fill: i <= Math.round(ride.driver!.rating!) ? "#fbbf24" : "transparent",
-                                  color: i <= Math.round(ride.driver!.rating!) ? "#fbbf24" : "rgba(255,255,255,0.18)",
-                                }}
-                              />
-                            ))}
-                            <span className="ml-1 text-[9px] font-black text-white/45">{ride.driver.rating.toFixed(1)}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* info grid */}
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">ID No.</p>
-                          <p className="text-[10px] font-black text-white tracking-wider mt-0.5">
-                            NLS-{String(ride.driver.id).padStart(4,"0")}-{new Date(ride.createdAt).getFullYear()}
-                          </p>
+                      {d.rating != null ? (
+                        <div className="mt-1 flex items-center gap-1" aria-label={`Rated ${d.rating.toFixed(1)} of 5`}>
+                          {[1, 2, 3, 4, 5].map((i) => (
+                            <Star
+                              key={i}
+                              className={`h-3.5 w-3.5 ${i <= Math.round(d.rating!) ? "fill-amber-400 text-amber-400" : "fill-transparent text-white/20"}`}
+                              aria-hidden
+                            />
+                          ))}
+                          <span className="ml-1 text-[12px] font-bold text-white/70">{d.rating.toFixed(1)}</span>
                         </div>
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Plate No.</p>
-                          <p className="text-[10px] font-black text-white tracking-wider mt-0.5">
-                            {ride.driver.plateNumber || ride.driver.vehiclePlate || "Not set"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Vehicle</p>
-                          <p className="text-[10px] font-black text-white mt-0.5 truncate">
-                            {[ride.driver.vehicleMake, ride.driver.vehicleType].filter(Boolean).join(" · ") || ride.vehicleType || "Not set"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Region / District</p>
-                          <p className="text-[10px] font-black text-white mt-0.5 truncate">
-                            {ride.driver.operationArea || ride.driver.district || ride.driver.region || "Tanzania"}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Languages</p>
-                          <p className="text-[10px] font-black text-white mt-0.5">English · Kiswahili</p>
-                        </div>
-                        {/* barcode + active dot — shares last row with Languages */}
-                        <div className="flex flex-col justify-center gap-1">
-                          <svg width="100" height="20" viewBox="0 0 100 20" aria-hidden>
-                            {(() => {
-                              const bars: { x: number; w: number }[] = [];
-                              let x = 0;
-                              let s = Math.abs((ride.driver!.id * 6364136223846793005 + 1442695040888963407) | 0) >>> 0;
-                              const next = () => { s = ((s * 1664525) + 1013904223) >>> 0; return s; };
-                              while (x < 100) {
-                                const barW = (next() % 3) + 1;
-                                const gapW = (next() % 3) + 2;
-                                bars.push({ x, w: barW });
-                                x += barW + gapW;
-                              }
-                              return bars.map(({ x, w }) => (
-                                <rect key={x} x={x} y={1} width={w} height={18} rx="0.5" fill="rgba(255,255,255,0.72)" />
-                              ));
-                            })()}
-                          </svg>
-                          <div className="inline-flex items-center gap-1">
-                            <span className="relative flex h-1.5 w-1.5 flex-shrink-0">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-                            </span>
-                            <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-white/40">Active</span>
-                          </div>
-                        </div>
-                      </div>
-
+                      ) : null}
                     </div>
                   </div>
                 </div>
-                {/* END FRONT FACE */}
 
-                {/* ── BACK FACE — LANDSCAPE ── */}
-                <div
-                  style={{ position: "absolute", inset: 0, backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
-                  className="rounded-[20px] overflow-hidden shadow-2xl cursor-default select-none"
-                >
-                  {/* bg */}
-                  <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #0a1110 0%, #0f1c1b 55%, #0f3a35 100%)" }} />
-                  {/* top stripe */}
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-[#02665e]" />
-                  <div className="absolute top-[3px] left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/18 to-transparent pointer-events-none" />
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 500 230" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden>
-                    <circle cx="460" cy="200" r="130" stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-                    <circle cx="460" cy="200" r="90"  stroke="white" strokeOpacity="0.03" strokeWidth="1" fill="none" />
-                    <circle cx="40"  cy="40"  r="80"  stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-                  </svg>
-
-                  {/* BACK CONTENT — side-by-side on all sizes */}
-                  <div className="relative flex flex-row h-full">
-
-                    {/* LEFT — quote stripe */}
-                    <div className="w-[5px] flex-shrink-0" style={{ background: "#02665e" }} />
-                    <div className="hidden sm:flex w-[110px] sm:w-[140px] flex-shrink-0 flex-col justify-center items-center gap-3 px-3 border-r border-white/8">
-                      {/* big quote mark */}
-                      <span className="font-black leading-none select-none" style={{ fontSize: "5rem", color: "rgba(16,185,129,0.18)", lineHeight: 1 }}>&ldquo;</span>
-                      <div className="text-center">
-                        <ShieldCheck className="mx-auto mb-2 h-5 w-5 text-emerald-400" aria-hidden />
-                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">About</p>
-                        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-emerald-400">Driver</p>
-                      </div>
-                      {/* pulsing dot */}
-                      <div className="inline-flex items-center gap-1">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                {/* Recognise the car */}
+                <div className="px-5 py-4">
+                  <div className="flex items-center gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11.5px] font-semibold text-slate-500">Plate number</div>
+                      {plate ? (
+                        <span className="mt-1 inline-flex rounded-md border-2 border-solid border-slate-900 bg-[#fde047] px-2.5 py-0.5 font-mono text-[17px] font-extrabold tracking-[0.12em] text-slate-900">
+                          {plate.toUpperCase()}
                         </span>
-                      </div>
+                      ) : (
+                        <div className="mt-1 text-[13.5px] font-semibold text-slate-400">Shared before pickup</div>
+                      )}
                     </div>
-
-                    {/* RIGHT — bio + commitments */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-between py-3 sm:py-3.5 pr-4 pl-4 sm:pl-3">
-                      <div className="flex items-start justify-between mb-2">
-                        <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/50">NoLSAF · Driver Profile</p>
-                        <button
-                          onClick={() => setCardFlipped(false)}
-                          type="button"
-                          className="ml-2 flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-emerald-500/20"
-                          style={{ border: "1px solid rgba(255,255,255,0.15)", background: "transparent" }}
-                          aria-label="Back to ID card"
-                        >
-                          <svg viewBox="0 0 10 10" className="h-3 w-3" fill="none" aria-hidden>
-                            <path d="M6.5 2L3.5 5L6.5 8" stroke="rgba(255,255,255,0.45)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </button>
+                    {vehicle ? (
+                      <div className="min-w-0 text-right">
+                        <div className="text-[11.5px] font-semibold text-slate-500">Vehicle</div>
+                        <div className="mt-1 inline-flex items-center gap-1.5 text-[14px] font-bold text-slate-900">
+                          <Car className="h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden />
+                          <span className="truncate">{vehicle}</span>
+                        </div>
                       </div>
-
-                      {/* bio */}
-                      <p className="text-[11px] leading-[1.7] text-white/75 mb-3">
-                        {pickExtendedBio(ride.driver)}
-                      </p>
-
-                      {/* commitment pills — 2 columns */}
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                        {[
-                          "Safety-first on every road",
-                          "On-time, every time",
-                          "Licensed & NoLSAF-verified",
-                          "Clean vehicle, smooth ride",
-                        ].map((item, i) => (
-                          <div key={i} className="flex items-center gap-2 min-w-0">
-                            <span
-                              className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center"
-                              style={{ background: "rgba(5,150,105,0.25)", border: "1.5px solid rgba(5,150,105,0.5)" }}
-                            >
-                              <svg viewBox="0 0 6 6" className="h-2 w-2">
-                                <path d="M1 3L2.5 4.5L5 1.5" stroke="#10b981" strokeWidth="1.4" fill="none" strokeLinecap="round" />
-                              </svg>
-                            </span>
-                            <p className="text-[10.5px] font-semibold text-white/65 leading-tight truncate">{item}</p>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* footer */}
-                      <div className="flex items-center justify-between mt-2">
-                        <p className="text-[8px] font-black uppercase tracking-widest text-white/30">NoLSAF © {new Date().getFullYear()}</p>
-                        <p className="text-[8px] font-black tracking-widest text-white/30">
-                          NLS-{String(ride.driver.id).padStart(4,"0")}
-                        </p>
-                      </div>
+                    ) : null}
+                  </div>
+                  {area ? (
+                    <div className="mt-3 flex items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 pt-3 text-[12.5px]">
+                      <span className="text-slate-500">Drives in</span>
+                      <span className="truncate font-semibold text-slate-800">{area}</span>
                     </div>
-
+                  ) : null}
+                  <div className="mt-3 flex items-start gap-2 rounded-xl bg-[#02665e]/[0.05] px-3 py-2.5 text-[12.5px] leading-snug text-slate-700 ring-1 ring-[#02665e]/15">
+                    <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden />
+                    <span>
+                      Before you get in, match the plate and ask the driver to say your name.
+                      {driverId ? (
+                        <>
+                          {" "}
+                          <a href={`/verify/driver/${encodeURIComponent(driverId)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#02665e] underline underline-offset-2">
+                            Check this driver ID
+                          </a>
+                          .
+                        </>
+                      ) : null}
+                    </span>
                   </div>
                 </div>
-                {/* END BACK FACE */}
 
-              </div>
-            </div>
-            {/* end 3D flip wrapper */}
-            {/* Action buttons below the ID card */}
-            <div className="flex gap-2 mt-1">
-              {ride.driver.phone && (
-                <a
-                  href={`tel:${ride.driver.phone}`}
-                  className="flex-1 inline-flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold bg-[#02665e] text-white hover:bg-[#014e47] transition-colors no-underline"
-                >
-                  <Phone className="h-4 w-4" />
-                  Call driver
-                </a>
-              )}
-              <button
-                onClick={() => setShowChat(!showChat)}
-                className={`${
-                  ride.driver.phone ? "flex-1" : "w-full"
-                } inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors ${
-                  showChat
-                    ? "border-0 bg-[#0a1110] text-white"
-                    : "border border-solid border-slate-200 bg-white text-slate-800 hover:border-[#02665e]/40 hover:text-[#02665e]"
-                }`}
-                style={{ fontFamily: "inherit" }}
-              >
-                <MessageCircle className="h-4 w-4" />
-                {showChat ? "Hide chat" : "Chat with driver"}
-              </button>
-            </div>
-          </>)}
+                {/* Reach them */}
+                <div className="flex gap-2 border-0 border-t border-solid border-slate-100 px-5 py-4">
+                  {d.phone ? (
+                    <a
+                      href={`tel:${d.phone}`}
+                      className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#02665e] text-sm font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
+                    >
+                      <Phone className="h-4 w-4" aria-hidden />
+                      Call
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setShowChat(!showChat)}
+                    className={`inline-flex h-11 flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-colors ${
+                      showChat
+                        ? "border-0 bg-[#0a1110] text-white"
+                        : "border border-solid border-slate-200 bg-white text-slate-800 hover:border-[#02665e]/40 hover:text-[#02665e]"
+                    }`}
+                    style={{ fontFamily: "inherit" }}
+                  >
+                    <MessageCircle className="h-4 w-4" aria-hidden />
+                    {showChat ? "Hide chat" : "Message"}
+                  </button>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* Payment */}
           <section className="rounded-2xl border border-solid border-slate-200 bg-white px-5 py-4 shadow-sm">

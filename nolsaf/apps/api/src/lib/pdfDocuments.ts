@@ -425,6 +425,22 @@ export interface CustomerBookingReceiptData {
   totalAmount: number | string;
   currency?: string;
   qrPng?: Buffer | null;
+  /**
+   * Wording for receipts that are not a plain stay (e.g. a group stay deposit).
+   * All optional; when absent the booking receipt renders exactly as before.
+   */
+  document?: {
+    title?: string;
+    reservationLabel?: string;
+    periodLabel?: string;
+    periodText?: string;
+    lineTitle?: string;
+    lineSub?: string;
+    /** What is still owed after this payment. Defaults to 0. */
+    balanceDue?: number;
+    confirmationTitle?: string;
+    confirmationCopy?: string;
+  };
 }
 
 /** A5 vector receipt using the same PDFKit and Trebuchet document system as NRMS. */
@@ -451,8 +467,10 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
     doc.font(fonts.bold).fontSize(15).fillColor(TEXT_MAIN).text("NoLSAF", M, y, { lineBreak: false });
     doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
       .text("Quality Stay for Every Wallet", M, y + 19, { lineBreak: false });
+    const d = data.document ?? {};
+    const balanceDue = Math.max(0, Number(d.balanceDue || 0));
     doc.font(fonts.bold).fontSize(17).fillColor(TEAL)
-      .text("BOOKING RECEIPT", M, y, { width: W, align: "right", lineBreak: false });
+      .text(d.title || "BOOKING RECEIPT", M, y, { width: W, align: "right", lineBreak: false });
     doc.font("Courier-Bold").fontSize(7.5).fillColor(TEXT_MAIN)
       .text(data.receiptNumber, M, y + 23, { width: W, align: "right", lineBreak: false });
     doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
@@ -467,7 +485,7 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
     const rightW = M + W - rightX;
     doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
       .text("ISSUED TO", M, y, { characterSpacing: 0.8, lineBreak: false })
-      .text("RESERVATION", rightX, y, { characterSpacing: 0.8, lineBreak: false });
+      .text(d.reservationLabel || "RESERVATION", rightX, y, { characterSpacing: 0.8, lineBreak: false });
     doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN)
       .text(data.guestName, M, y + 14, { width: leftW, ellipsis: true })
       .text(data.propertyName, rightX, y + 14, { width: rightW, ellipsis: true });
@@ -494,16 +512,16 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
     const descW = W - dateW - amountW;
     doc.rect(M, y, W, 18).fill(TEAL);
     doc.font(fonts.bold).fontSize(6.3).fillColor("#ffffff")
-      .text("STAY", M + 7, y + 6, { width: dateW - 8, lineBreak: false })
+      .text(d.periodLabel || "STAY", M + 7, y + 6, { width: dateW - 8, lineBreak: false })
       .text("DESCRIPTION", M + dateW + 7, y + 6, { width: descW - 8, lineBreak: false })
       .text("AMOUNT", M + dateW + descW, y + 6, { width: amountW - 7, align: "right", lineBreak: false });
     y += 18;
     doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN)
-      .text(`${dateOnly(data.checkIn)} - ${dateOnly(data.checkOut)}`, M + 7, y + 7, { width: dateW - 8, height: 22, ellipsis: true })
-      .text(data.roomDescription || "Accommodation", M + dateW + 7, y + 7, { width: descW - 8, ellipsis: true })
+      .text(d.periodText || `${dateOnly(data.checkIn)} - ${dateOnly(data.checkOut)}`, M + 7, y + 7, { width: dateW - 8, height: 22, ellipsis: true })
+      .text(d.lineTitle || data.roomDescription || "Accommodation", M + dateW + 7, y + 7, { width: descW - 8, ellipsis: true })
       .text(fmtMoney(data.totalAmount, currency), M + dateW + descW, y + 7, { width: amountW - 7, align: "right", lineBreak: false });
     doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
-      .text(`${nights} night${nights === 1 ? "" : "s"}`, M + dateW + 7, y + 21, { width: descW - 8, lineBreak: false });
+      .text(d.lineSub ?? `${nights} night${nights === 1 ? "" : "s"}`, M + dateW + 7, y + 21, { width: descW - 8, height: 10, ellipsis: true });
     y += 39;
     doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y).lineTo(M + W, y).stroke();
     y += 18;
@@ -520,15 +538,15 @@ export async function generateCustomerBookingReceiptPdf(data: CustomerBookingRec
     doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
       .text("BALANCE", totalsX, y, { width: 98, lineBreak: false });
     doc.font(fonts.bold).fontSize(9).fillColor(TEAL)
-      .text(fmtMoney(0, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+      .text(fmtMoney(balanceDue, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
     y += 34;
 
     doc.strokeColor(TEAL).lineWidth(0.8).moveTo(M, y).lineTo(M + W, y).stroke();
     y += 13;
     doc.font(fonts.bold).fontSize(8).fillColor(TEAL)
-      .text("PAYMENT RECEIVED IN FULL", M, y, { characterSpacing: 0.6, lineBreak: false });
+      .text(d.confirmationTitle || (balanceDue > 0 ? "DEPOSIT RECEIVED" : "PAYMENT RECEIVED IN FULL"), M, y, { characterSpacing: 0.6, lineBreak: false });
     doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
-      .text("The reservation is confirmed. Present the booking code at check-in. This document is not a fiscal tax receipt.", M, y + 16, { width: W - (data.qrPng ? 82 : 0), lineGap: 1.5 });
+      .text(d.confirmationCopy || "The reservation is confirmed. Present the booking code at check-in. This document is not a fiscal tax receipt.", M, y + 16, { width: W - (data.qrPng ? 82 : 0), lineGap: 1.5 });
     if (data.qrPng) {
       try {
         doc.image(data.qrPng, M + W - 68, y - 2, { fit: [62, 62] });
