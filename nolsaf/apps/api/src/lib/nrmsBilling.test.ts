@@ -175,7 +175,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
       nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
-    await expect(finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN", checkOut: new Date("2026-09-30T00:00:00Z") }, 10, [], { businessDate: "2026-09-10" }))
+    await expect(finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN", checkOut: new Date("2099-09-30T00:00:00Z") }, 10, [], { businessDate: "2026-09-10" }))
       .rejects.toThrow("NRMS_ROOM_VACANCY_CONFIRMATION_REQUIRED");
   });
 
@@ -188,7 +188,7 @@ describe("finalizeNrmsCheckout guest settlement guard", () => {
       nrmsMasterFolioItem: { aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }) },
     };
 
-    await expect(finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN", checkOut: new Date("2026-09-30T00:00:00Z") }, 10, [], { businessDate: "2026-09-10", roomVacantConfirmed: true }))
+    await expect(finalizeNrmsCheckout(tx, { id: 1, propertyId: 1, source: "WALK_IN", checkOut: new Date("2099-09-30T00:00:00Z") }, 10, [], { businessDate: "2026-09-10", roomVacantConfirmed: true }))
       .rejects.toThrow("NRMS_EARLY_DEPARTURE_REASON_REQUIRED");
   });
 });

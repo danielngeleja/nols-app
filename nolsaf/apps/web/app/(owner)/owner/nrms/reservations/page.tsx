@@ -2001,9 +2001,11 @@ function ReservationDetailModal({
   const [checkoutConfirmOpen, setCheckoutConfirmOpen] = useState(false);
   const [roomVacantConfirmed, setRoomVacantConfirmed] = useState(false);
   const [earlyDepartureReason, setEarlyDepartureReason] = useState("");
-  // The server decides early departure on the hotel's business day (it only
-  // advances when the night audit closes); the browser cannot see that day.
+  // The server decides early departure on today's EAT date (never on a
+  // business day held open by Night Audit); this catches a browser whose
+  // clock or time zone disagrees with it.
   const [departureDeclarationNeeded, setDepartureDeclarationNeeded] = useState(false);
+  const [auditBehindDate, setAuditBehindDate] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const r = await apiClient.get<any>(`/api/owner/nrms/reservations/${reservationId}`);
@@ -2032,7 +2034,9 @@ function ReservationDetailModal({
     setError(null);
     setRoomNotReady(null);
     try {
-      await apiClient.post(`/api/owner/nrms/reservations/${reservationId}/${action}`, body ?? {});
+      const response = await apiClient.post(`/api/owner/nrms/reservations/${reservationId}/${action}`, body ?? {});
+      const billing = (response.data as { billing?: { businessDate?: string; businessDayBehind?: boolean } } | undefined)?.billing;
+      if (action === "check-out") setAuditBehindDate(billing?.businessDayBehind && billing.businessDate ? billing.businessDate : null);
       await reload();
       await onChanged();
       return true;
@@ -2573,6 +2577,12 @@ function ReservationDetailModal({
           )}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
+
+          {auditBehindDate && r.status === "CHECKED_OUT" && (
+            <div role="status" className="rounded-xl border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
+              Checkout recorded on today&apos;s date. The business day is still open at {fmtDate(auditBehindDate)}, so its postings land there until Night Audit catches up. <Link href="/owner/nrms/finance?view=audit" className="font-semibold text-amber-900 underline">Open Night Audit</Link>
+            </div>
+          )}
 
           {roomNotReady && r.status === "CONFIRMED" && (
             <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">

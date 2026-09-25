@@ -152,10 +152,20 @@ export type NrmsCheckoutDeclaration = {
   actorId?: number | null;
 };
 
-export function checkoutDepartureFacts(plannedCheckOut: Date, businessDate: string) {
-  const actualDepartureDate = shiftDateOnly(businessDate);
+/**
+ * The physical departure is a calendar fact. A business day held open by an
+ * unfinished Night Audit must never make a guest look like they left early,
+ * and must never cut billing short of nights that really happened, so the
+ * departure day is the later of the open business day and today's EAT date.
+ */
+export function checkoutDepartureFacts(plannedCheckOut: Date, businessDate: string, now: Date = new Date()) {
+  const calendarDate = shiftDayKey(now);
+  const departureDateKey = businessDate > calendarDate ? businessDate : calendarDate;
+  const actualDepartureDate = shiftDateOnly(departureDateKey);
   return {
     actualDepartureDate,
+    departureDateKey,
+    businessDayBehind: businessDate < calendarDate,
     earlyDeparture: actualDepartureDate < utcDay(plannedCheckOut),
   };
 }
@@ -272,7 +282,9 @@ export async function finalizeNrmsCheckout(
         usageEvents: result.usageEvents,
         billableAmount: result.billableAmount,
         plannedCheckOut: new Date(reservation.checkOut).toISOString(),
-        actualDepartureDate: businessDate,
+        actualDepartureDate: departure.departureDateKey,
+        businessDate,
+        ...(departure.businessDayBehind ? { businessDayBehind: true } : {}),
         earlyDeparture: departure.earlyDeparture,
         earlyDepartureReason,
         roomVacantConfirmed: Boolean(declaration.roomVacantConfirmed),
@@ -285,7 +297,7 @@ export async function finalizeNrmsCheckout(
       },
     },
   });
-  return result;
+  return { ...result, businessDate, businessDayBehind: departure.businessDayBehind };
 }
 
 export type NrmsPaymentReconcileInput = {

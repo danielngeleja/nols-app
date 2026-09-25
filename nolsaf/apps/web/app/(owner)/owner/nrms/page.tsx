@@ -248,6 +248,7 @@ function NrmsFrontDeskPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<{ reservation: Reservation; action: "check-in" | "check-out" } | null>(null);
   const [roomNotReady, setRoomNotReady] = useState<string | null>(null);
+  const [auditBehindDate, setAuditBehindDate] = useState<string | null>(null);
   // Early departure is decided on the hotel's business day, which only moves on
   // when the night audit closes. The browser cannot see that day, so when the
   // server says a departure declaration is needed, the modal must show it.
@@ -354,10 +355,12 @@ function NrmsFrontDeskPage() {
     setError(null);
     setRoomNotReady(null);
     try {
-      await apiClient.post(
+      const response = await apiClient.post(
         `/api/owner/nrms/reservations/${id}/${action}`,
         action === "check-out" ? { verifiedChargeIds, ...checkoutDeclaration } : overrideRoomReadiness ? { overrideRoomReadiness: true } : {},
       );
+      const billing = (response.data as { billing?: { businessDate?: string; businessDayBehind?: boolean } } | undefined)?.billing;
+      setAuditBehindDate(action === "check-out" && billing?.businessDayBehind && billing.businessDate ? billing.businessDate : null);
       await load();
       setPendingAction(null);
     } catch (e: any) {
@@ -461,6 +464,14 @@ function NrmsFrontDeskPage() {
           <span>{error}</span>
         </div>
       ) : null}
+
+      {auditBehindDate && (
+        <div role="status" className="flex items-start gap-2 rounded-2xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <span className="min-w-0 flex-1">Checkout recorded on today&apos;s date. The business day is still open at {shortDate(auditBehindDate)}, so its postings land there until Night Audit catches up. <Link href="/owner/nrms/finance?view=audit" className="font-semibold text-amber-900 underline">Open Night Audit</Link></span>
+          <button type="button" onClick={() => setAuditBehindDate(null)} aria-label="Dismiss" className="cursor-pointer border-0 bg-transparent p-0 text-amber-700"><X className="h-4 w-4" /></button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-2xl border border-neutral-200 bg-white text-neutral-400">
@@ -927,7 +938,7 @@ function StayActionModal({
                   <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">
                     {reservation.checkOut.slice(0, 10) > localDateKey()
                       ? `This stay was planned until ${shortDate(reservation.checkOut)}. Future calendar dates will be released and NRMS will retain the original schedule for audit.`
-                      : `The hotel's business day has not yet reached ${shortDate(reservation.checkOut)}, usually because the last night audit is still open, so NRMS records this checkout as early.`}
+                      : `This stay was planned until ${shortDate(reservation.checkOut)} and the guest is leaving before that date in Tanzania time, so NRMS records this checkout as early.`}
                   </p>
                   <textarea value={earlyDepartureReason} onChange={(event) => setEarlyDepartureReason(event.target.value)} rows={2} maxLength={300} placeholder="Reason for leaving early" className="mt-2 box-border w-full resize-none rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/10" />
                   <label className="mt-2 flex cursor-pointer items-start gap-2 text-[11px] leading-4 text-neutral-700"><input type="checkbox" checked={roomVacantConfirmed} onChange={(event) => setRoomVacantConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" /><span><strong className="font-semibold text-neutral-900">The guest has physically left and the room is vacant.</strong> This declaration is stored with the departure record.</span></label>
