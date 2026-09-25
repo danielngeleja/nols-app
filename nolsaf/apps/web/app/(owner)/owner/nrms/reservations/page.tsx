@@ -18,6 +18,7 @@ import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/Nrm
 import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
 import { roomReadiness, roomAssignmentRequirement } from "@/lib/nrmsRoomReadiness";
 import NrmsRoomAssignmentPicker from "../_components/NrmsRoomAssignmentPicker";
+import NationalityPicker from "../_components/NationalityPicker";
 
 type Allocation = {
   id: number;
@@ -192,8 +193,28 @@ type GuestSearchResult = {
   email: string | null;
   nationality: string | null;
   reservationCount: number;
-  lastStay: { checkIn: string; checkOut: string; status: string } | null;
+  lastStay?: { checkIn: string; checkOut: string; status: string } | null;
 };
+
+const GUEST_LOOKUP_LIMIT = 6;
+
+/** Subscriber digits of a phone-shaped query; mirrors guestPhoneSearchTail on the API. */
+function phoneSearchTail(q: string): string | null {
+  if (!/^[+\d\s()-]+$/.test(q)) return null;
+  const digits = q.replace(/\D/g, "");
+  const tail = digits.startsWith("255") ? digits.slice(3) : digits.startsWith("0") ? digits.slice(1) : digits;
+  return tail.length >= 3 ? tail : null;
+}
+
+/** Same rule the API search applies, so a cached result can be narrowed locally. */
+function guestMatchesQuery(guest: GuestSearchResult, q: string): boolean {
+  const needle = q.toLowerCase();
+  const tail = phoneSearchTail(q);
+  return guest.fullName.toLowerCase().includes(needle)
+    || (guest.phone ?? "").toLowerCase().includes(needle)
+    || (guest.email ?? "").toLowerCase().includes(needle)
+    || (tail != null && (guest.phone ?? "").includes(tail));
+}
 
 type GuestHistory = GuestSearchResult & {
   notes?: string | null;
@@ -548,6 +569,26 @@ function localDateKey(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+// Country calling codes the front desk meets most, longest first so +2557
+// never falls through to a shorter code. Only a suggestion; staff can change it.
+const PHONE_NATIONALITY: Array<[string, string]> = [
+  ["255", "Tanzanian"], ["254", "Kenyan"], ["256", "Ugandan"], ["250", "Rwandan"], ["257", "Burundian"],
+  ["243", "Congolese"], ["260", "Zambian"], ["265", "Malawian"], ["258", "Mozambican"], ["251", "Ethiopian"],
+  ["27", "South African"], ["234", "Nigerian"], ["971", "Emirati"], ["44", "British"], ["49", "German"],
+  ["33", "French"], ["39", "Italian"], ["31", "Dutch"], ["34", "Spanish"], ["91", "Indian"], ["86", "Chinese"],
+];
+
+function nationalityFromPhone(phone: string): string | null {
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  // A local 0-prefixed mobile (07xx / 06xx, 10 digits) is a Tanzanian number.
+  if (/^0[67]\d{8}$/.test(digits) && !trimmed.startsWith("+")) return "Tanzanian";
+  if (!trimmed.startsWith("+") && !digits.startsWith("255")) return null;
+  if (digits.length < 9) return null;
+  const match = [...PHONE_NATIONALITY].sort((a, b) => b[0].length - a[0].length).find(([code]) => digits.startsWith(code));
+  return match ? match[1] : null;
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number {
@@ -1322,31 +1363,55 @@ function ReturningGuestMatches({
   query?: string;
   onSelect: (guest: GuestSearchResult) => void;
 }) {
-  // While a query is in flight the previous query's rows are stale, so they are
-  // replaced by placeholders rather than left on screen looking like results.
-  const showRows = !loading && !error && guests.length > 0;
+  // Soft loading: while a new query runs, the previous rows stay in place but
+  // dimmed and unclickable, so the panel never blinks on every keystroke.
+  // Placeholders appear only on a first search that is actually slow.
+  const refreshing = loading && !error && guests.length > 0;
+  const showRows = !error && guests.length > 0 && (!loading || refreshing);
+  const [slowFirstLoad, setSlowFirstLoad] = useState(false);
+  useEffect(() => {
+    if (!loading || guests.length > 0) {
+      setSlowFirstLoad(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowFirstLoad(true), 220);
+    return () => window.clearTimeout(timer);
+  }, [loading, guests.length]);
   return (
     <span className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-20 mt-1 block w-[min(36rem,calc(100vw-3rem))] overflow-hidden rounded-md border border-neutral-300 bg-white shadow-[0_14px_35px_-18px_rgba(15,23,42,0.28)]`}>
-      <span className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3">
+      <span className="relative flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-3">
         <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-800">Returning guests</span>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
-          {loading ? <><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />Checking</> : error ? "Unavailable" : `${guests.length} match${guests.length === 1 ? "" : "es"}`}
+        <span className={`inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${loading ? "text-neutral-400" : "text-neutral-500"}`}>
+          {loading ? "Searching" : error ? "Unavailable" : `${guests.length} match${guests.length === 1 ? "" : "es"}`}
         </span>
+        <span
+          aria-hidden="true"
+          className={`absolute inset-x-0 bottom-0 block h-0.5 transition-opacity duration-300 ${loading ? "animate-shimmer opacity-100" : "opacity-0"}`}
+          style={{ backgroundImage: "linear-gradient(90deg, transparent 0%, rgba(2,102,94,0.45) 50%, transparent 100%)", backgroundSize: "480px 100%", backgroundRepeat: "no-repeat" }}
+        />
       </span>
-      {loading && (
-        <span className="block px-4 py-4" role="status" aria-live="polite">
-          <span className="block h-1.5 overflow-hidden rounded-full bg-neutral-100">
-            <span className="block h-full w-2/3 animate-pulse rounded-full bg-gradient-to-r from-emerald-200 via-emerald-500 to-emerald-200" />
-          </span>
-          <span className="mt-2 block text-[11px] text-neutral-500">Checking saved guest records…</span>
+      {loading && <span className="sr-only" role="status" aria-live="polite">Searching saved guests for {query}</span>}
+      {loading && !refreshing && slowFirstLoad && (
+        <span className="block" aria-hidden="true">
+          {[0, 1, 2].map((row) => (
+            <span key={row} className="flex items-center gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3 last:border-b-0">
+              <span className="min-w-0 flex-1 space-y-1.5">
+                <span className="skeleton block h-2.5" style={{ width: `${[46, 58, 38][row]}%` }} />
+                <span className="skeleton block h-2 w-24" />
+              </span>
+              <span className="skeleton hidden h-2.5 w-20 sm:block" />
+            </span>
+          ))}
         </span>
       )}
       {!loading && error && <span className="block px-4 py-4 text-xs text-red-700">{error}</span>}
       {!loading && !error && guests.length === 0 && (
-        <span className="block px-4 py-4 text-xs text-neutral-500">
-          No returning guest matches {query ? <b className="font-semibold text-neutral-700">{query}</b> : "that search"}. Keep typing to register a new guest.
+        <span className="flex items-start gap-2.5 px-4 py-3.5 text-xs text-neutral-600">
+          <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+          <span><b className="font-semibold text-neutral-900">New guest.</b> No saved profile matches {query ? <b className="font-semibold text-neutral-700">{query}</b> : "that search"}, so a new guest profile is created with this reservation.</span>
         </span>
       )}
+      <span className={`block transition-opacity duration-200 ${refreshing ? "pointer-events-none opacity-50" : "opacity-100"}`}>
       {showRows && <span className="hidden border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-neutral-500 sm:grid sm:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_auto] sm:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_auto]">
         <span>Guest</span>
         <span>Phone</span>
@@ -1367,7 +1432,8 @@ function ReturningGuestMatches({
           <span className="shrink-0 text-right text-[10px] font-bold text-neutral-500">{guest.reservationCount} stay{guest.reservationCount === 1 ? "" : "s"}</span>
         </button>
       ))}
-      <span className="block border-t border-neutral-200 bg-white px-4 py-2.5 text-[10px] font-medium text-neutral-500">Select a guest to review the full profile</span>
+      {showRows && <span className="block border-t border-neutral-200 bg-white px-4 py-2.5 text-[10px] font-medium text-neutral-500">Select a guest to review the full profile</span>}
+      </span>
     </span>
   );
 }
@@ -1398,6 +1464,8 @@ function CreateReservationModal({
   const [guestHistory, setGuestHistory] = useState<GuestHistory | null>(null);
   const [searchingGuests, setSearchingGuests] = useState(false);
   const [guestSearchError, setGuestSearchError] = useState<string | null>(null);
+  // Answers already fetched in this form, keyed by field and query.
+  const guestLookupCache = useRef(new Map<string, GuestSearchResult[]>());
   const [billingBlock, setBillingBlock] = useState<NrmsBillingBlock | null>(null);
   const [showGuestMatches, setShowGuestMatches] = useState(false);
   const [guestSearchField, setGuestSearchField] = useState<"name" | "phone" | null>(null);
@@ -1416,6 +1484,8 @@ function CreateReservationModal({
   const [previewGuest, setPreviewGuest] = useState<GuestSearchResult | null>(null);
   const [previewDetail, setPreviewDetail] = useState<GuestHistory | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [nationalityEdited, setNationalityEdited] = useState(false);
+  const [freeByType, setFreeByType] = useState<Record<number, number>>({});
 
   useEffect(() => {
     apiClient
@@ -1433,32 +1503,54 @@ function CreateReservationModal({
       setGuestSearchError(null);
       return;
     }
-    let cancelled = false;
-    // Enter the loading state on the keystroke, not when the debounce fires.
-    // Setting it inside the timer left the first 250ms with no feedback at all,
-    // which reads as a dead input on anything slower than a local connection.
-    setSearchingGuests(true);
     setGuestSearchError(null);
     setShowGuestMatches(true);
+    const cache = guestLookupCache.current;
+    const key = (text: string) => `${guestSearchField}:${text.toLowerCase()}`;
+    // Answer instantly when possible: an exact earlier answer, or a shorter
+    // earlier query that returned everything it matched (below the limit),
+    // since a longer query can only ever match a subset of those guests.
+    const cached = cache.get(key(query));
+    if (cached) {
+      setGuestMatches(cached);
+      setSearchingGuests(false);
+      return;
+    }
+    for (let length = query.length - 1; length >= minimumLength; length -= 1) {
+      const shorter = cache.get(key(query.slice(0, length)));
+      if (shorter && shorter.length < GUEST_LOOKUP_LIMIT) {
+        const narrowed = shorter.filter((guest) => guestMatchesQuery(guest, query));
+        cache.set(key(query), narrowed);
+        setGuestMatches(narrowed);
+        setSearchingGuests(false);
+        return;
+      }
+    }
+    // Enter the loading state on the keystroke, not when the debounce fires,
+    // so the input never reads as dead while the request is pending.
+    setSearchingGuests(true);
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
       apiClient
-        .get<any>(`/api/owner/nrms/guests/${propertyId}`, { params: { q: query, pageSize: 6 } })
+        .get<any>(`/api/owner/nrms/guests/${propertyId}`, { params: { q: query, pageSize: GUEST_LOOKUP_LIMIT, mode: "lookup" }, signal: controller.signal })
         .then((response) => {
-          if (cancelled) return;
-          setGuestMatches(response.data?.guests ?? []);
+          const guests: GuestSearchResult[] = response.data?.guests ?? [];
+          cache.set(key(query), guests);
+          if (controller.signal.aborted) return;
+          setGuestMatches(guests);
           setShowGuestMatches(true);
         })
         .catch(() => {
-          if (cancelled) return;
+          if (controller.signal.aborted) return;
           setGuestMatches([]);
           setGuestSearchError("Guest search is unavailable right now. You can still type the name to create a new guest.");
         })
         .finally(() => {
-          if (!cancelled) setSearchingGuests(false);
+          if (!controller.signal.aborted) setSearchingGuests(false);
         });
-    }, 250);
+    }, 150);
     return () => {
-      cancelled = true;
+      controller.abort();
       window.clearTimeout(timer);
     };
   }, [guestName, guestPhone, guestSearchField, propertyId, selectedGuestId]);
@@ -1539,6 +1631,36 @@ function CreateReservationModal({
   useEffect(() => {
     if (roomUnitId !== "" && unitAvailability[roomUnitId] === false) setRoomUnitId("");
   }, [roomUnitId, unitAvailability]);
+
+  // Free rooms per type for the chosen dates, so the type list says what can
+  // actually be sold instead of making the desk pick blind.
+  useEffect(() => {
+    if (!roomTypes.length || !checkIn || !checkOut || checkOut <= checkIn) {
+      setFreeByType({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(roomTypes.map((roomType) =>
+      apiClient
+        .get<any>(`/api/owner/nrms/rooms/${propertyId}/availability`, { params: { roomTypeId: roomType.id, checkIn, checkOut } })
+        .then((r) => [roomType.id, (r.data?.units ?? []).filter((unit: any) => unit.available).length] as const)
+        .catch(() => null),
+    )).then((rows) => {
+      if (cancelled) return;
+      const next: Record<number, number> = {};
+      for (const row of rows) if (row) next[row[0]] = row[1];
+      setFreeByType(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [propertyId, roomTypes, checkIn, checkOut]);
+
+  const suggestedNationality = nationalityFromPhone(guestPhone);
+  useEffect(() => {
+    if (nationalityEdited || selectedGuestId || !suggestedNationality) return;
+    setNationality(suggestedNationality);
+  }, [nationalityEdited, selectedGuestId, suggestedNationality]);
 
   useEffect(() => {
     if (totalManuallyEdited) return;
@@ -1659,7 +1781,9 @@ function CreateReservationModal({
             <label className="relative block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Guest name <span className="text-red-500">*</span></span>
               <span className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                {searchingGuests && guestSearchField === "name"
+                  ? <Loader2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600/60 [animation-duration:1.2s]" />
+                  : <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />}
                 <input
                   required
                   autoComplete="off"
@@ -1684,7 +1808,9 @@ function CreateReservationModal({
             <label className="relative block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Phone number <span className="text-red-500">*</span></span>
               <span className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                {searchingGuests && guestSearchField === "phone"
+                  ? <Loader2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-emerald-600/60 [animation-duration:1.2s]" />
+                  : <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />}
                 <input
                   required
                   type="tel"
@@ -1709,7 +1835,12 @@ function CreateReservationModal({
             </label>
             <label className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Nationality <span className="text-red-500">*</span></span>
-              <input required autoComplete="country-name" className={inputCls} value={nationality} onChange={(e) => setNationality(e.target.value)} placeholder="Tanzanian" />
+              <NationalityPicker
+                value={nationality}
+                onChange={(next) => { setNationality(next); setNationalityEdited(true); }}
+                inputClassName={inputCls}
+                hint={!nationalityEdited && !selectedGuestId && suggestedNationality && nationality === suggestedNationality ? "Suggested from the phone number. Change it if the guest says otherwise." : null}
+              />
             </label>
             <label className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">Booking source</span>
@@ -1793,16 +1924,22 @@ function CreateReservationModal({
                 }}
               >
                 <option value="">Select room type</option>
-                {roomTypes.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
+                {roomTypes.map((t) => {
+                  const free = freeByType[t.id];
+                  const full = free === 0;
+                  return (
+                    <option key={t.id} value={t.id} disabled={full && t.id !== roomTypeId}>
+                      {t.name}
+                      {free != null ? (full ? " · fully booked" : ` · ${free} free`) : ""}
+                      {t.baseRate != null ? ` · ${t.currency} ${Number(t.baseRate).toLocaleString()}/night` : ""}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label className="block min-w-0 text-sm">
               <span className="mb-1.5 block font-medium text-neutral-700">
-                Room <span className="font-normal text-neutral-400">(optional{loadingAvailability ? ", checking availability..." : ""})</span>
+                Room <span className="font-normal text-neutral-400">(optional{loadingAvailability ? ", checking availability..." : type ? `, ${activeUnits.filter((u) => unitAvailability[u.id] !== false).length} of ${activeUnits.length} free` : ""})</span>
               </span>
               <select className={inputCls} value={roomUnitId} onChange={(e) => setRoomUnitId(e.target.value ? Number(e.target.value) : "")} disabled={!type}>
                 <option value="">Assign later</option>
@@ -1838,7 +1975,7 @@ function CreateReservationModal({
                     setTotal(e.target.value.replace(/[^\d.]/g, ""));
                     setTotalManuallyEdited(true);
                   }}
-                  placeholder="90,000"
+                  placeholder={type ? "Enter the agreed total" : "Select a room type first"}
                 />
               </span>
               {type?.baseRate != null && (
