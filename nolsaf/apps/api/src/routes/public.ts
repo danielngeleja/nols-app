@@ -16,6 +16,7 @@ import publicNrmsMenuRouter from "./public.nrmsMenu";
 import publicNrmsGuestRouter from "./public.nrmsGuest";
 import publicNrmsAgentAuthRouter from "./public.nrmsAgentAuth";
 import publicNrmsRoomingListRouter from "./public.nrmsRoomingList";
+import publicNrmsMasterFolioPaymentRouter from "./public.nrmsMasterFolioPayment";
 import publicNrmsCalendarRouter from "./public.nrmsCalendar";
 import publicNrmsProFormaRouter from "./public.nrmsProForma";
 import publicNrmsSupplierOrderRouter from "./public.nrmsSupplierOrder";
@@ -68,6 +69,7 @@ export function registerPublicContentRoutes(app: Express): void {
   // Mounted before the menu router so /nrms/rooming-lists/* never falls through
   // to its parameterized routes.
   app.use("/api/public/nrms/rooming-lists", publicNrmsRoomingListRouter);
+  app.use("/api/public/nrms/master-folio-payments", publicNrmsMasterFolioPaymentRouter);
   app.use("/api/public/nrms/pro-formas", publicNrmsProFormaRouter);
   app.use("/api/public/nrms/supplier-orders", publicNrmsSupplierOrderRouter);
   // Also ahead of the menu router, whose /:token routes would otherwise swallow it.

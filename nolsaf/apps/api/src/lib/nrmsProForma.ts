@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import QRCode from "qrcode";
 import { decrypt, encrypt } from "./crypto.js";
-import { generateNrmsProFormaPdf, type NrmsProFormaPdfData } from "./pdfDocuments.js";
+import { generateNrmsProFormaPdf, generatePaymentReceiptPdf, type NrmsProFormaPdfData } from "./pdfDocuments.js";
 import { sendMail } from "./mailer.js";
 
 export type ProFormaItemSnapshot = {
@@ -311,6 +311,52 @@ export async function renderMasterProFormaPdf(record: any): Promise<Buffer> {
     qrPng,
   };
   return generateNrmsProFormaPdf(data);
+}
+
+/** The receipt pairs with its Pro Forma: PF-2026-000007-R1 becomes RCT-2026-000007-R1. */
+export function proFormaReceiptNumber(proFormaNumber: string): string {
+  return proFormaNumber.replace(/^PF-/, "RCT-");
+}
+
+/**
+ * Payment receipt for money received against a Pro Forma. Uses the house
+ * receipt layout (generatePaymentReceiptPdf), which already mirrors the Pro
+ * Forma PDF, so the request and its receipt read as one pair. Advance
+ * payments leave the master folio in CREDIT until rooms are billed, so the
+ * folio statement cannot serve as this receipt; the Pro Forma is the source.
+ */
+export async function renderProFormaReceiptPdf(record: any): Promise<{ pdf: Buffer; number: string }> {
+  const view = serializeProForma(record);
+  if (view.paidNow <= 0.005) throw new Error("NRMS_PRO_FORMA_NOT_PAID");
+  const stay = proFormaStay(record);
+  const payments = (record.masterFolio?.payments ?? [])
+    .filter((payment: any) => !payment.voidedAt)
+    .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const last = payments.at(-1) ?? null;
+  const single = payments.length === 1 ? payments[0] : null;
+  const number = proFormaReceiptNumber(record.number);
+  const qrPng = await QRCode.toBuffer(proFormaVerificationUrl(record.publicToken), { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+  const pdf = await generatePaymentReceiptPdf({
+    receiptNumber: number,
+    invoiceNumber: record.number,
+    bookingId: record.masterFolioId,
+    bookingCode: stay.reference,
+    guestName: record.billToName,
+    guestEmail: record.contactEmail,
+    propertyName: record.propertyName,
+    propertyLocation: record.propertyLocation,
+    checkIn: stay.checkIn,
+    checkOut: stay.checkOut,
+    total: view.paidNow,
+    invoiceTotal: view.quotedTotal,
+    balanceAfter: view.liveBalance,
+    paymentMethod: single ? single.method : payments.length > 1 ? `${payments.length} payments` : null,
+    paymentRef: single ? (single.reference || single.receiptNumber) : payments.map((payment: any) => payment.receiptNumber).join(", "),
+    paidAt: last?.createdAt ?? null,
+    currency: record.currency,
+    qrPng,
+  });
+  return { pdf, number };
 }
 
 function escapeHtml(value: unknown): string {

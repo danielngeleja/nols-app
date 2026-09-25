@@ -187,6 +187,7 @@
     "20260916090000_add_twiga_support_handoff": "5cebb0a9fa853760e6448d9e308b3bd98371f39c99ec97349bcbebe3a1b89c16",
     "20260916150000_add_twiga_read_receipts": "79ddcaab8267bc10db6e5a95ce3a809510c35fbca6b62fea76848aa341be209d",
     "20260917100000_add_newsletter_subscribers": "ff665c6090476370b9418568e2a5c317528a8ac2192eda90e7c5de7a40d03eae",
-    "20260923170000_add_sales_withholding_tax": "d930dac57a23b5e8dc71e504ed1b3a0fe0e50ef9c6fa6ebc2e6e400b1cbe445e"
+    "20260923170000_add_sales_withholding_tax": "d930dac57a23b5e8dc71e504ed1b3a0fe0e50ef9c6fa6ebc2e6e400b1cbe445e",
+    "20260925150000_add_nrms_master_folio_payment_links": "451a17fc2cbd16cd021a143b9cb6b3f60c1944042cb9c710a332249b735009bd"
   }
 }

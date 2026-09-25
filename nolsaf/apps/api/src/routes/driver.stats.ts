@@ -1616,7 +1616,7 @@ const postPasskeysCreate: RequestHandler = async (req, res) => {
     const options = await generateRegistrationOptions({
       rpName: process.env.APP_NAME || 'nolsaf',
       rpID,
-      userID: new TextEncoder().encode(String(user.id)),
+      userID: String(user.id),
       userName: (user as any).email || `user-${user.id}`,
       timeout: 60000,
       attestationType: 'direct',
@@ -1701,13 +1701,13 @@ const postPasskeysVerify: RequestHandler = async (req, res) => {
     try { await deleteDriverPasskeyChallenge(user.id); } catch { /* ignore */ }
 
     const regInfo = verification.registrationInfo;
-    if (!regInfo?.credential?.id || !regInfo.credential.publicKey) {
+    if (!regInfo?.credentialID || !regInfo.credentialPublicKey) {
       return res.status(500).json({ error: 'missing registration info' });
     }
 
-    const credentialId = regInfo.credential.id;
-    const publicKey = toBase64Url(Buffer.from(regInfo.credential.publicKey));
-    const signCount = typeof regInfo.credential.counter === 'number' ? regInfo.credential.counter : 0;
+    const credentialId = toBase64Url(regInfo.credentialID);
+    const publicKey = toBase64Url(regInfo.credentialPublicKey);
+    const signCount = typeof regInfo.counter === 'number' ? regInfo.counter : 0;
 
     // persist credential
     if ((prisma as any).passkey) {
@@ -1809,9 +1809,9 @@ const postPasskeysAuthenticateVerify: RequestHandler = async (req, res) => {
         expectedChallenge: storedChallenge,
         expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
-        credential: {
-          publicKey: fromBase64Url(publicKey),
-          id: stored.credentialId || stored.id,
+        authenticator: {
+          credentialPublicKey: fromBase64Url(publicKey),
+          credentialID: fromBase64Url(stored.credentialId || stored.id),
           counter: signCount,
         },
       } as any);

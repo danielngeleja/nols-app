@@ -27,6 +27,7 @@ import {
   runBlockPickupForGuest,
   type PickupErrorCode,
 } from "../lib/nrmsGroupPickup.js";
+import { issueMasterFolioPaymentLink, serializeMasterFolioPaymentLink } from "../lib/nrmsMasterFolioPaymentLink.js";
 
 export const router = Router();
 
@@ -500,14 +501,29 @@ router.post("/blocks/:blockId/confirm", (async (req: AuthedRequest, res: Respons
       await prisma.nrmsRoomingList.update({ where: { id: after.id }, data: { status: "CONFIRMED", reviewedAt: new Date(), reviewedById: actorId } });
     }
 
+    const updatedBlock = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: { ...blockInclude, masterFolio: true } });
+    let paymentLink: ReturnType<typeof serializeMasterFolioPaymentLink> = null;
+    if (after && !outstanding && updatedBlock?.masterFolio && updatedBlock.masterFolio.status !== "SETTLED") {
+      try {
+        const issued = await prisma.$transaction((tx: any) =>
+          issueMasterFolioPaymentLink(tx, updatedBlock.masterFolio!.id, actorId, { reuseMatching: true }),
+        );
+        paymentLink = serializeMasterFolioPaymentLink(issued);
+      } catch (paymentError) {
+        // Confirmation is inventory-critical and must remain successful even if
+        // online collection is not yet available. Staff can generate the link
+        // later; the manual payment workflow remains available throughout.
+        console.error("[owner.nrms.roomingList] automatic payment link failed", { blockId: block.id }, paymentError);
+      }
+    }
     const list = await prisma.nrmsRoomingList.findUnique({ where: { id: loaded.list.id }, include: listInclude });
-    const updatedBlock = await prisma.nrmsGroupBlock.findUnique({ where: { id: block.id }, include: blockInclude });
     const responseStatus = confirmed.length ? 200 : failed.some((item) => item.code === "PICKUP_TIMEOUT") ? 503 : 409;
     res.status(responseStatus).json({
       roomingList: list ? formatList(list, block) : null,
       confirmed,
       failed,
       blockStatus: updatedBlock?.status ?? block.status,
+      paymentLink,
     });
   } catch (err) {
     console.error("[owner.nrms.roomingList] confirm failed", err);

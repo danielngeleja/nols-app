@@ -298,6 +298,29 @@ export async function getMasterFolioTotals(tx: any, masterFolioId: number) {
   return { billed, paymentsReceived, refunded, paid, balance: money(billed - paid) };
 }
 
+/**
+ * What the agency can pay right now. Before pickup the ledger can legitimately
+ * hold no room items yet, so the current Pro Forma is the approved ceiling for
+ * an advance payment; once charges exist, the routed ledger is authoritative.
+ * Manual recording, payment links and the agency's own Pay online button all
+ * use this one rule so the three never disagree on the amount.
+ */
+export async function getMasterFolioPayableBalance(tx: any, masterFolioId: number) {
+  const totals = await getMasterFolioTotals(tx, masterFolioId);
+  const [latestProForma, ledgerItems] = await Promise.all([
+    tx.nrmsMasterFolioProForma.findFirst({
+      where: { masterFolioId, status: { in: ["DRAFT", "SENT"] } },
+      orderBy: { revision: "desc" },
+      select: { quotedTotal: true },
+    }),
+    tx.nrmsMasterFolioItem.count({ where: { masterFolioId } }),
+  ]);
+  const payableTotal = ledgerItems > 0
+    ? totals.billed
+    : Math.max(totals.billed, Number(latestProForma?.quotedTotal ?? 0));
+  return { ...totals, payableTotal: money(payableTotal), payableBalance: money(payableTotal - totals.paid) };
+}
+
 export async function refreshMasterFolioStatus(tx: any, masterFolioId: number) {
   const totals = await getMasterFolioTotals(tx, masterFolioId);
   const status = totals.balance > 0.005 ? "OPEN" : totals.balance < -0.005 ? "CREDIT" : "SETTLED";

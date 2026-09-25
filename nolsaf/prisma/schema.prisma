@@ -4763,6 +4763,7 @@ model NrmsMasterFolio {
   payments            NrmsMasterFolioPayment[]
   refunds             NrmsMasterFolioRefund[]
   proFormas           NrmsMasterFolioProForma[]
+  paymentLinks        NrmsMasterFolioPaymentLink[]
 
   @@index([propertyId, status])
   @@index([ownerId, createdAt])
@@ -4822,6 +4823,32 @@ model NrmsMasterFolioPayment {
   @@index([masterFolioId, createdAt])
   @@index([method])
   @@map("nrms_master_folio_payment")
+}
+
+/// A short-lived bearer capability that lets the agency settle one frozen
+/// master-folio balance through the property's configured collection rails.
+/// It is deliberately separate from the rooming-list token: the names remain
+/// viewable after confirmation, while the authority to start a payment expires.
+model NrmsMasterFolioPaymentLink {
+  id            Int      @id @default(autoincrement())
+  masterFolioId Int
+  publicToken   String   @unique(map: "nrms_mf_pay_link_token_uq") @db.VarChar(80)
+  amount        Decimal  @db.Decimal(12, 2)
+  currency      String   @default("TZS") @db.VarChar(3)
+  /// ACTIVE, PROCESSING, PAID, EXPIRED, REVOKED, STALE
+  status        String   @default("ACTIVE") @db.VarChar(20)
+  expiresAt     DateTime
+  createdById   Int?
+  paidAt        DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  masterFolio NrmsMasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade, map: "nrms_mf_pay_link_folio_fk")
+
+  @@index([masterFolioId, status, expiresAt], map: "nrms_mf_pay_link_folio_status_exp_idx")
+  @@index([status, expiresAt], map: "nrms_mf_pay_link_status_exp_idx")
+  @@map("nrms_master_folio_payment_link")
 }
 
 /// Money actually returned to the agency or group organiser. Refunds are kept

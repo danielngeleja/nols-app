@@ -414,6 +414,14 @@ describe("enrolled account MFA enforcement", () => {
     state.passkeyOwner = owner.id;
     const options = await post("passkeys/options", {}).expect(200);
     const login = await post("passkeys/verify", { sessionId: options.body.sessionId, response: { id: "dGVzdA" } }).expect(202);
+    const { verifyAuthenticationResponse } = await import("@simplewebauthn/server");
+    const verificationInput = vi.mocked(verifyAuthenticationResponse).mock.lastCall?.[0] as any;
+    expect(verificationInput.authenticator).toMatchObject({
+      credentialID: expect.any(Uint8Array),
+      credentialPublicKey: expect.any(Uint8Array),
+      counter: 0,
+    });
+    expect(verificationInput.credential).toBeUndefined();
     expect(login.body.mfaRequired).toBe(true);
     expect(state.sessions).toHaveLength(0);
   });

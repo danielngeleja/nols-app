@@ -114,7 +114,7 @@ export async function generatePasskeyRegistrationOptions(user: { id: string | nu
   const opts = await generateRegistrationOptions({
     rpName,
     rpID,
-    userID: new TextEncoder().encode(String(user.id)),
+    userID: String(user.id),
     userName: user.name || String(user.id),
     userDisplayName: user.displayName || user.name || String(user.id),
     attestationType: "none",
@@ -163,13 +163,15 @@ export async function verifyPasskeyAuthentication(response: any, expectedChallen
     expectedChallenge,
     expectedOrigin: expectedOrigins,
     expectedRPID: rpID,
-    credential: {
-      id: credential?.credentialId,
+    authenticator: {
+      credentialID: typeof credential?.credentialId === "string"
+        ? Uint8Array.from(Buffer.from(credential.credentialId, "base64url"))
+        : credential?.credentialId,
       counter: credential?.signCount || 0,
-      publicKey: typeof credential?.publicKey === "string"
+      credentialPublicKey: typeof credential?.publicKey === "string"
         ? Uint8Array.from(Buffer.from(credential.publicKey, "base64url"))
         : credential?.publicKey,
-    } as any,
+    },
   } as any).catch((e) => ({ verified: false, error: (e as Error).message }));
 
   return verification as any;

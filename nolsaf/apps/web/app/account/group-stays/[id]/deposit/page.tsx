@@ -24,38 +24,25 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { type PaymentChannel } from "@/components/PaymentChannelSelector";
+import {
+  BANK_OTP_INSTRUCTIONS,
+  capTzPhone,
+  detectTzProvider,
+  isValidTzMobile,
+  normalizeTz,
+  TZ_CHECKOUT_BANKS,
+  TZ_MNO_PROVIDERS,
+  type TzBankCode,
+  type TzMnoProvider,
+} from "@/lib/tzMobileMoney";
 
 const PAYMENT_WAIT_SECONDS = 4 * 60;
 const POLL_INTERVAL_MS = 3000;
 
-const PROVIDERS = [
-  { id: "Mpesa", name: "M-Pesa", icon: "/assets/M-pesa.png" },
-  { id: "Tigo", name: "Mixx by Yas", icon: "/assets/mix by yas.png" },
-  { id: "Airtel", name: "Airtel Money", icon: "/assets/airtel_money.png" },
-  { id: "Halopesa", name: "HaloPesa", icon: "/assets/halopesa.png" },
-] as const;
-type MnoProvider = (typeof PROVIDERS)[number]["id"];
-
-const BANKS = [
-  { code: "CRDB", name: "CRDB Bank", logo: "/assets/NoLSAF_CRDB.png" },
-  { code: "NMB", name: "NMB Bank", logo: "/assets/NoLSAF_NMB.png" },
-] as const;
-type BankCode = (typeof BANKS)[number]["code"];
-
-const BANK_OTP_INSTRUCTIONS: Record<BankCode, { title: string; steps: string[] }> = {
-  CRDB: {
-    title: "Generate CRDB OTP",
-    steps: [
-      "Dial *150*03# and enter your SIM Banking PIN.",
-      "Choose 7 Other services, then 5 AzamPay.",
-      "Select Link AzamPay Account to generate the OTP.",
-    ],
-  },
-  NMB: {
-    title: "Generate NMB OTP",
-    steps: ["Dial *150*66#.", "Choose 8 More, then 5 Register Sarafu.", "Choose 1 Select Account No. to generate the OTP."],
-  },
-};
+const PROVIDERS = TZ_MNO_PROVIDERS;
+type MnoProvider = TzMnoProvider;
+const BANKS = TZ_CHECKOUT_BANKS;
+type BankCode = TzBankCode;
 
 type Channel = PaymentChannel;
 type Status = "idle" | "pending" | "success" | "timeout" | "failed";
@@ -72,32 +59,9 @@ type DepositStatus = {
   depositDueAt?: string | null;
 };
 
-function capTzPhone(v: string) {
-  return v.replace(/[^\d+]/g, "").slice(0, 13);
-}
-
-// Smart Tanzanian mobile-money helpers: normalize, validate, and detect the
-// network from the dialing prefix so we can auto-select the provider as the
-// customer types.
-const PREFIX_PROVIDER: Record<string, MnoProvider> = {
-  "074": "Mpesa", "075": "Mpesa", "076": "Mpesa",
-  "065": "Tigo", "067": "Tigo", "071": "Tigo", "077": "Tigo",
-  "068": "Airtel", "069": "Airtel", "078": "Airtel",
-  "062": "Halopesa",
-};
-function normalizeTz(input: string): string {
-  let d = input.replace(/\D/g, "");
-  if (d.startsWith("255")) d = "0" + d.slice(3);
-  else if (d.length === 9 && (d[0] === "7" || d[0] === "6")) d = "0" + d;
-  return d;
-}
-function detectProvider(input: string): MnoProvider | null {
-  const d = normalizeTz(input);
-  return d.length >= 3 ? PREFIX_PROVIDER[d.slice(0, 3)] ?? null : null;
-}
-function isValidTzMobile(input: string): boolean {
-  return /^0[67]\d{8}$/.test(normalizeTz(input));
-}
+// Network detection from the dialling prefix lives in lib/tzMobileMoney so the
+// provider is auto-selected as the customer types, the same on every page.
+const detectProvider = detectTzProvider;
 function fmtCountdown(total: number) {
   const s = Math.max(0, Math.floor(total));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;

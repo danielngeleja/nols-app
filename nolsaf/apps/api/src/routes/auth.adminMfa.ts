@@ -344,9 +344,9 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
       expectedChallenge: loaded.challenge.authenticationChallenge,
       expectedOrigin: expectedOrigins,
       expectedRPID: rpID,
-      credential: {
-        id: stored.credentialId,
-        publicKey: base64UrlToBuffer(stored.publicKey),
+      authenticator: {
+        credentialID: base64UrlToBuffer(stored.credentialId),
+        credentialPublicKey: base64UrlToBuffer(stored.publicKey),
         counter: stored.signCount,
       },
       requireUserVerification: true,
@@ -460,7 +460,7 @@ adminMfaRouter.post("/admin-mfa/passkey/register/options", async (req, res) => {
   const options = await generateRegistrationOptions({
     rpName: process.env.APP_NAME || "NoLSAF",
     rpID,
-    userID: new TextEncoder().encode(String(user.id)),
+    userID: String(user.id),
     userName: user.email || `admin-${user.id}`,
     userDisplayName: user.name || user.email || `Admin ${user.id}`,
     timeout: 60_000,
@@ -488,15 +488,15 @@ adminMfaRouter.post("/admin-mfa/passkey/register/verify", async (req, res) => {
       requireUserVerification: true,
     } as any);
     const info = verification.registrationInfo;
-    if (!verification.verified || !info?.credential?.id || !info.credential.publicKey) throw new Error("not verified");
-    const credentialId = info.credential.id;
-    const publicKey = bufferToBase64Url(Buffer.from(info.credential.publicKey));
+    if (!verification.verified || !info?.credentialID || !info.credentialPublicKey) throw new Error("not verified");
+    const credentialId = bufferToBase64Url(Buffer.from(info.credentialID));
+    const publicKey = bufferToBase64Url(Buffer.from(info.credentialPublicKey));
     await prisma.passkey.create({
       data: {
         userId: loaded.challenge.userId,
         credentialId,
         publicKey,
-        signCount: typeof info.credential.counter === "number" ? info.credential.counter : 0,
+        signCount: typeof info.counter === "number" ? info.counter : 0,
         transports: Array.isArray(req.body?.response?.response?.transports) ? req.body.response.response.transports : undefined,
       },
     });
