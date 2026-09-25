@@ -32,9 +32,9 @@ import { agentInvoiceInclude, agentProFormaSource, ensureAgentMasterFolio } from
 import { createMasterProForma, emailMasterProForma, renderMasterProFormaPdf, serializeProForma } from "../lib/nrmsProForma.js";
 import { generatePaymentReceiptPdf } from "../lib/pdfDocuments.js";
 import QRCode from "qrcode";
-import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, refreshMasterFolioStatus } from "../lib/nrmsMasterFolio.js";
+import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, masterFolioStatusFromBalance, refreshMasterFolioStatus } from "../lib/nrmsMasterFolio.js";
+import { afterAgentFolioPayment } from "../lib/nrmsAgentSettlement.js";
 import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
-import { emailAgentVoucher } from "../lib/nrmsAgentVoucher.js";
 import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
 import { agentAccountReference, isNrmsAgentRequestReference, matchesNrmsAgentRequestReference, nrmsAgentRequestReference } from "../lib/customerBookingReference.js";
 import { materialiseAgentBookingRooms, repairSplitAgencyBooking, type MaterialiseOutcome } from "../lib/nrmsAgentGroupMaterialise.js";
@@ -1251,11 +1251,21 @@ router.post("/requests/:requestId/payments/confirm", (async (req: AuthedRequest,
       // the reservation used to be how the front desk saw a paid agency stay,
       // and it made the same payment appear twice wherever a view added the
       // reservation's own amountPaid to the folio. Views now read the folio.
-      return { payment, status: totalsAfter.status, idempotent: false };
+      return { payment, status: totalsAfter.status, statusBefore: masterFolioStatusFromBalance(totals.balance), idempotent: false };
     });
-    if (result.status === "SETTLED" || result.status === "CREDIT") {
-      void emailAgentVoucher(prisma as any, owned.request.id);
-      if (owned.request.link.agentAccount.primaryUserId) void notifyUser(owned.request.link.agentAccount.primaryUserId, "nrms_agent_payment_confirmed", { requestId: owned.request.id, propertyTitle: owned.active.property.title, receiptNumber: result.payment.receiptNumber });
+    // Same follow-up as an online AzamPay payment: the voucher and the agency
+    // notice go out once, for the payment that settles the account. A retried
+    // request (idempotent) no longer sends the voucher a second time.
+    if (!result.idempotent) {
+      await afterAgentFolioPayment({
+        masterFolioId: owned.request.masterFolio!.id,
+        paymentId: result.payment.id,
+        receiptNumber: result.payment.receiptNumber,
+        amount: data.amount,
+        statusBefore: "statusBefore" in result ? result.statusBefore ?? null : null,
+        statusAfter: result.status,
+        source: "DESK",
+      });
     }
     await audit(req, "NRMS_AGENT_PAYMENT_RECEIVED", "NRMS_AGENT_BOOKING_REQUEST", null, { paymentId: result.payment.id, receiptNumber: result.payment.receiptNumber, amount: data.amount }, owned.request.id);
     res.status(result.idempotent ? 200 : 201).json({ ok: true, settled: result.status === "SETTLED", receiptNumber: result.payment.receiptNumber });

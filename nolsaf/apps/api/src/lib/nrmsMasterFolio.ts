@@ -321,9 +321,14 @@ export async function getMasterFolioPayableBalance(tx: any, masterFolioId: numbe
   return { ...totals, payableTotal: money(payableTotal), payableBalance: money(payableTotal - totals.paid) };
 }
 
+/** The folio status a balance implies: OPEN while owed, CREDIT when overpaid. */
+export function masterFolioStatusFromBalance(balance: number): "OPEN" | "SETTLED" | "CREDIT" {
+  return balance > 0.005 ? "OPEN" : balance < -0.005 ? "CREDIT" : "SETTLED";
+}
+
 export async function refreshMasterFolioStatus(tx: any, masterFolioId: number) {
   const totals = await getMasterFolioTotals(tx, masterFolioId);
-  const status = totals.balance > 0.005 ? "OPEN" : totals.balance < -0.005 ? "CREDIT" : "SETTLED";
+  const status = masterFolioStatusFromBalance(totals.balance);
   await tx.nrmsMasterFolio.update({
     where: { id: masterFolioId },
     data: { status, settledAt: status === "SETTLED" ? new Date() : null },

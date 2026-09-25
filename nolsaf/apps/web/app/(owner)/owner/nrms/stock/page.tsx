@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, Boxes, CheckCircle2, Link2, Loader2, Minus, Package, PackageX, Plus, RefreshCw, Search, Store, TriangleAlert, UtensilsCrossed, Wine } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useNrms } from "../_components/NrmsProvider";
@@ -47,7 +48,6 @@ function categoryColor(name: string | null): string {
 }
 
 type StockView = "goods" | "menu";
-const VIEW_KEY = "nolsaf:nrms-stock-view";
 
 /**
  * Two views of one question. "Goods on hand" is the physical stock (bottles,
@@ -60,17 +60,14 @@ export default function NrmsStockPage() {
   // The storekeeper handles goods only; the menu board is the serving floor's.
   const menuAllowed = accessRole !== "STOREKEEPER";
   const canSetUp = accessRole === "OWNER" || accessRole === "MANAGER";
-  const [view, setView] = useState<StockView>("goods");
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(VIEW_KEY);
-      if (saved === "menu" || saved === "goods") setView(saved);
-    } catch { /* storage unavailable: keep the default */ }
-  }, []);
+  // The address decides the view, so the sidebar can link straight to the
+  // menu board (and its attention badge lands on the items it counts).
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const view: StockView = searchParams.get("view") === "menu" ? "menu" : "goods";
+  const attentionFromLink = searchParams.get("attention") === "1";
   const choose = (next: StockView) => {
-    setView(next);
-    try { window.localStorage.setItem(VIEW_KEY, next); } catch { /* ignore */ }
+    router.replace(next === "menu" ? "/owner/nrms/stock?view=menu" : "/owner/nrms/stock", { scroll: false });
   };
   const activeView: StockView = menuAllowed ? view : "goods";
 
@@ -109,19 +106,20 @@ export default function NrmsStockPage() {
       </section>
 
       {selectedPropertyId && activeView === "goods" && <StockGoodsPanel propertyId={selectedPropertyId} />}
-      {activeView === "menu" && <MenuAvailabilityBoard onOpenGoods={() => choose("goods")} />}
+      {activeView === "menu" && <MenuAvailabilityBoard key={attentionFromLink ? "attention" : "all"} startWithAttention={attentionFromLink} onOpenGoods={() => choose("goods")} />}
     </div>
   );
 }
 
-function MenuAvailabilityBoard({ onOpenGoods }: { onOpenGoods: () => void }) {
+function MenuAvailabilityBoard({ onOpenGoods, startWithAttention = false }: { onOpenGoods: () => void; startWithAttention?: boolean }) {
   const { selectedPropertyId, selectedProperty } = useNrms();
   const [data, setData] = useState<StockState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const [attentionOnly, setAttentionOnly] = useState(false);
+  // Arriving from the sidebar badge opens straight onto the items it counted.
+  const [attentionOnly, setAttentionOnly] = useState(startWithAttention);
   const [outletFilter, setOutletFilter] = useState<number | "all">("all");
   const [qtyDrafts, setQtyDrafts] = useState<Record<number, string>>({});
 

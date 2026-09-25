@@ -187,6 +187,9 @@ const NAV_GROUPS: NavGroup[] = [
             icon: Package,
             children: [
               { href: "/owner/nrms/stock", label: "Goods on hand", icon: Package, exact: true },
+              // Where the Stock badge points: menu items switched off or below
+              // their low-stock number. The storekeeper handles goods only.
+              { href: "/owner/nrms/stock?view=menu", label: "Menu availability", icon: UtensilsCrossed, roles: ["OWNER", "MANAGER", "OUTLET_SUPERVISOR", "RESTAURANT", "BAR"] },
               { href: "/owner/nrms/stock/operations", label: "Store operations", icon: Truck },
               { href: "/owner/nrms/stock/purchasing", label: "Purchasing", icon: ShoppingCart },
               { href: "/owner/nrms/stock/counts", label: "Counts & variance", icon: Scale },
@@ -828,6 +831,8 @@ function NrmsShell({ children }: { children: ReactNode }) {
                               ? `${child.href}&businessDate=${encodeURIComponent(financeTargetDate)}`
                               : child.href === "/owner/nrms/finance?view=cashiers" && cashierTargetDate
                               ? `${child.href}&businessDate=${encodeURIComponent(cashierTargetDate)}`
+                              : child.href === "/owner/nrms/stock?view=menu" && attention?.stock.total
+                              ? `${child.href}&attention=1`
                               : child.href;
                             const childActive = isNestedActive(pathname, searchParams, child);
                             const childOutletId = child.href.startsWith("/owner/nrms/orders?outlet=") ? Number(child.href.split("outlet=")[1]) : null;
@@ -848,12 +853,14 @@ function NrmsShell({ children }: { children: ReactNode }) {
                               ? ((attention?.finance.unclassifiedTenders || attention?.finance.overdueBusinessDays) ? ((attention?.finance.unclassifiedTenders ?? 0) + (attention?.finance.overdueBusinessDays ?? 0)) : null)
                               : child.href === "/owner/nrms/finance?view=cashiers"
                               ? (attention?.finance.unreconciledShifts ? attention.finance.unreconciledShifts : null)
+                              : child.href === "/owner/nrms/stock?view=menu"
+                              ? (attention?.stock.total ? attention.stock.total : null)
                               : null;
                             return (
                               <Link key={child.href} href={childHref} aria-current={childActive ? "page" : undefined} className={`group flex min-h-8 items-center gap-2 rounded-lg border px-2 text-[12px] font-medium no-underline transition hover:no-underline ${childActive ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-100" : "border-transparent text-emerald-50/50 hover:bg-white/[0.06] hover:text-white"}`}>
                                 <ChildIcon className="h-3.5 w-3.5 shrink-0" />
                                 <span className="min-w-0 flex-1 truncate">{child.label}</span>
-                                {childBadge != null && <span className={`min-w-[16px] shrink-0 rounded-full px-1 text-center text-[9px] font-bold leading-4 text-white ${(childProvider || child.href.startsWith("/owner/nrms/finance?view=")) ? "bg-rose-500" : "bg-violet-500"}`} aria-label={childOutletId ? `${childBadge} new orders for ${child.label}` : `${childBadge} items need attention in ${child.label}`}>{childBadge > 99 ? "99+" : childBadge}</span>}
+                                {childBadge != null && <span className={`min-w-[16px] shrink-0 rounded-full px-1 text-center text-[9px] font-bold leading-4 ${child.href === "/owner/nrms/stock?view=menu" ? "bg-amber-400 text-amber-950" : (childProvider || child.href.startsWith("/owner/nrms/finance?view=")) ? "bg-rose-500 text-white" : "bg-violet-500 text-white"}`} aria-label={childOutletId ? `${childBadge} new orders for ${child.label}` : `${childBadge} items need attention in ${child.label}`}>{childBadge > 99 ? "99+" : childBadge}</span>}
                               </Link>
                             );
                           })}

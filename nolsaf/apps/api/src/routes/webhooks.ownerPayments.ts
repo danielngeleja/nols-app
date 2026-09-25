@@ -3,8 +3,9 @@ import { typedPrisma as prisma } from "@nolsaf/prisma";
 
 import { ingestProviderEvent } from "../services/payments/inbox.js";
 import { AzamPayOwnerCollectionAdapter } from "../services/payments/providers/azampayOwner.js";
-import { buildMasterPaymentReceiptNumber, refreshMasterFolioStatus } from "../lib/nrmsMasterFolio.js";
+import { buildMasterPaymentReceiptNumber, getMasterFolioTotals, masterFolioStatusFromBalance, refreshMasterFolioStatus } from "../lib/nrmsMasterFolio.js";
 import { fiscaliseSettlement } from "../lib/nrmsFiscal.js";
+import { afterAgentFolioPayment } from "../lib/nrmsAgentSettlement.js";
 
 const router = Router();
 
@@ -36,17 +37,22 @@ async function projectSettledPayment(intentId: number) {
   }
 
   if (intent.sourceType !== "NRMS_MASTER_FOLIO") return;
-  await prisma.$transaction(async (tx) => {
+  const recorded = await prisma.$transaction(async (tx) => {
     const folio = await tx.nrmsMasterFolio.findUnique({
       where: { id: intent.sourceId },
       select: { id: true, propertyId: true, currency: true },
     });
-    if (!folio || folio.propertyId !== intent.propertyId || folio.currency !== intent.currency) return;
+    if (!folio || folio.propertyId !== intent.propertyId || folio.currency !== intent.currency) return null;
     const idempotencyKey = `payment-intent:${intent.id}`;
     const duplicate = await tx.nrmsMasterFolioPayment.findUnique({
       where: { masterFolioId_idempotencyKey: { masterFolioId: folio.id, idempotencyKey } },
     });
-    if (duplicate) return;
+    // A replayed webhook finds the payment already recorded and stops here,
+    // so the follow-up below (voucher, notice, audit) cannot run twice.
+    if (duplicate) return null;
+    // Derived from the ledger, not the stored label, which is only refreshed
+    // when money moves and can lag behind charges added since.
+    const statusBefore = masterFolioStatusFromBalance((await getMasterFolioTotals(tx, folio.id)).balance);
     const attempt = intent.attempts[0];
     const payment = await tx.nrmsMasterFolioPayment.create({
       data: {
@@ -69,7 +75,7 @@ async function projectSettledPayment(intentId: number) {
       currency: intent.currency,
       grossAmount: Number(intent.amount),
     });
-    await refreshMasterFolioStatus(tx, folio.id);
+    const after = await refreshMasterFolioStatus(tx, folio.id);
     await tx.nrmsMasterFolioPaymentLink.updateMany({
       where: {
         masterFolioId: folio.id,
@@ -79,7 +85,18 @@ async function projectSettledPayment(intentId: number) {
       },
       data: { status: "PAID", paidAt: intent.settledAt ?? new Date() },
     });
+    return {
+      masterFolioId: folio.id,
+      paymentId: payment.id,
+      receiptNumber: payment.receiptNumber,
+      amount: Number(intent.amount),
+      statusBefore,
+      statusAfter: after.status,
+    };
   });
+  // Outside the transaction: email and notices must never hold or roll back
+  // the recorded money. A no-op for group-block accounts.
+  if (recorded) await afterAgentFolioPayment({ ...recorded, source: "ONLINE" });
 }
 
 router.post("/:connectionId", (async (req, res) => {

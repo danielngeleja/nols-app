@@ -138,7 +138,12 @@ export default function StockGoodsPanel({ propertyId }: { propertyId: number }) 
     { icon: PackageX, label: "Out or below zero", value: String(outCount), tone: "text-red-600" },
     ...(data.showCost ? [{ icon: Wallet, label: "Stock value at cost", value: formatMoney(totalValue, currency), tone: "text-sky-600" }] : []),
   ];
-  const cols = data.showCost ? "grid-cols-[minmax(0,1fr)_130px_170px_130px_120px_170px]" : "grid-cols-[minmax(0,1fr)_130px_190px_170px]";
+  // Spare width is shared in proportion across every column, so the item name
+  // cannot swallow it and leave the figures squeezed against the edge. Status
+  // sits beside the item it describes; the three figures stay together.
+  const cols = data.showCost
+    ? "grid-cols-[minmax(200px,2.2fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(150px,1.2fr)_minmax(120px,1fr)_minmax(196px,auto)]"
+    : "grid-cols-[minmax(200px,2.2fr)_minmax(110px,1fr)_minmax(110px,1fr)_minmax(196px,auto)]";
 
   return (
     <div className="space-y-4">
@@ -219,9 +224,9 @@ export default function StockGoodsPanel({ propertyId }: { propertyId: number }) 
                   <p className="m-0 px-4 py-8 text-center text-sm text-neutral-400">{query ? "No goods match." : "Nothing stocked here yet. Record a delivery or an opening count to start."}</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <div className={data.showCost ? "min-w-[820px]" : "min-w-[640px]"}>
-                      <div className={`grid ${cols} items-center gap-3 bg-neutral-50/80 px-4 py-2 text-xs font-bold uppercase tracking-wide text-neutral-500 sm:px-5`}>
-                        <span>Item</span><span className="text-right">On hand</span><span>Status</span>
+                    <div className={data.showCost ? "min-w-[940px]" : "min-w-[680px]"}>
+                      <div className={`grid ${cols} items-center gap-x-6 bg-neutral-50/80 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-neutral-500 sm:px-5`}>
+                        <span>Item</span><span>Status</span><span className="text-right">On hand</span>
                         {data.showCost && <><span className="text-right">Avg cost</span><span className="text-right">Value</span></>}
                         <span className="text-right">Actions</span>
                       </div>
@@ -229,7 +234,7 @@ export default function StockGoodsPanel({ propertyId }: { propertyId: number }) 
                         const tone = balanceTone(balance);
                         const catTone = categoryTone(good.category);
                         return (
-                          <div key={good.id} className={`grid ${cols} items-center gap-3 border-0 border-t border-solid border-neutral-100 px-4 py-2.5 transition hover:bg-neutral-50/70 sm:px-5`}>
+                          <div key={good.id} className={`grid ${cols} items-center gap-x-6 border-0 border-t border-solid border-neutral-100 px-4 py-3 transition hover:bg-neutral-50/70 sm:px-5`}>
                             <div className="flex min-w-0 items-center gap-2.5">
                               <span className={`h-2 w-2 shrink-0 rounded-full ${catTone.dot}`} aria-hidden />
                               <div className="min-w-0">
@@ -237,19 +242,19 @@ export default function StockGoodsPanel({ propertyId }: { propertyId: number }) 
                                 <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">{STOCK_CATEGORY_LABELS[good.category] ?? good.category}{good.menuItemCount > 0 ? ` · on ${good.menuItemCount} menu ${good.menuItemCount === 1 ? "item" : "items"}` : " · not on the menu yet"}</p>
                               </div>
                             </div>
-                            <span className={`text-right text-sm font-bold tabular-nums ${balance.quantity < 0 ? "text-red-700" : "text-neutral-900"}`}>{formatStockQuantity(balance.quantity, good.baseUnit)}</span>
                             <span><Pill tone={tone}>{TONE[tone].label}</Pill></span>
+                            <span className={`whitespace-nowrap text-right text-sm font-bold tabular-nums ${balance.quantity < 0 ? "text-red-700" : "text-neutral-900"}`}>{formatStockQuantity(balance.quantity, good.baseUnit)}</span>
                             {data.showCost && (
                               <>
-                                <span className="text-right text-sm tabular-nums text-neutral-600">{good.averageCost ? `${formatUnitCost(good.averageCost, currency)} / ${unitShort(good.baseUnit)}` : "No cost yet"}</span>
-                                <span className="text-right text-sm tabular-nums text-neutral-700">{formatMoney(Math.max(0, balance.quantity) * (good.averageCost ?? 0), currency)}</span>
+                                <span className={`whitespace-nowrap text-right text-sm tabular-nums ${good.averageCost ? "text-neutral-600" : "text-neutral-400"}`}>{good.averageCost ? `${formatUnitCost(good.averageCost, currency)} / ${unitShort(good.baseUnit)}` : "No cost yet"}</span>
+                                <span className={`whitespace-nowrap text-right text-sm font-semibold tabular-nums ${good.averageCost ? "text-neutral-900" : "text-neutral-400"}`}>{good.averageCost ? formatMoney(Math.max(0, balance.quantity) * good.averageCost, currency) : "Not valued"}</span>
                               </>
                             )}
                             <div className="flex justify-end gap-1.5">
                               {data.canWriteOff && good.status === "ACTIVE" && (
-                                <button type="button" onClick={() => setWriteOffFor({ locationId: outlet.id, stockItemId: good.id })} className={quietButton}><Trash className="h-3.5 w-3.5" />Write off</button>
+                                <button type="button" onClick={() => setWriteOffFor({ locationId: outlet.id, stockItemId: good.id })} className={`${quietButton} whitespace-nowrap`}><Trash className="h-3.5 w-3.5 shrink-0" />Write off</button>
                               )}
-                              <button type="button" onClick={() => setHistoryFor({ good, locationId: outlet.id })} className={quietButton}><History className="h-3.5 w-3.5" />History</button>
+                              <button type="button" onClick={() => setHistoryFor({ good, locationId: outlet.id })} className={`${quietButton} whitespace-nowrap`}><History className="h-3.5 w-3.5 shrink-0" />History</button>
                             </div>
                           </div>
                         );
@@ -350,6 +355,7 @@ export function ReceiveModal({ propertyId, data, initial, onClose, onSaved }: {
       subtitle={opening ? "What is on the shelf today, before NRMS starts counting" : "What actually arrived, and what was paid"}
       icon={<ArrowDownToLine className="h-5 w-5" />}
       onClose={onClose}
+      wide
       footer={(
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="h-10 rounded-lg border border-solid border-neutral-200 bg-white px-4 text-[15px] font-bold [font-family:inherit] text-neutral-700 hover:bg-neutral-50">Cancel</button>
@@ -380,7 +386,7 @@ export function ReceiveModal({ propertyId, data, initial, onClose, onSaved }: {
             <div>
               <p className={`${labelClass} m-0`}>Quantity</p>
               <div className="mt-1.5 flex gap-2">
-                <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value.replace(/[^\d.]/g, ""))} placeholder="0" className="[font-family:inherit] box-border h-10 w-28 min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[15px] font-bold tabular-nums outline-none focus:border-emerald-500" />
+                <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value.replace(/[^\d.]/g, ""))} placeholder="0" className="[font-family:inherit] box-border h-10 w-32 min-w-0 shrink-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[15px] font-bold tabular-nums outline-none focus:border-emerald-500" />
                 <select value={packId} onChange={(event) => setPackId(event.target.value === "units" ? "units" : Number(event.target.value))} className="[font-family:inherit] box-border h-10 min-w-0 flex-1 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[15px] outline-none focus:border-emerald-500">
                   {good.packUnits.map((row) => <option key={row.id} value={row.id}>{row.name} ({formatStockQuantity(row.baseQuantity, good.baseUnit)})</option>)}
                   <option value="units">{good.baseUnit === "G" ? "grams" : good.baseUnit === "ML" ? "millilitres" : formatStockQuantity(2, good.baseUnit).replace(/^2 /, "")}</option>
