@@ -36,6 +36,12 @@ import ownerNrmsMessagingRouter from "./owner.nrms.messaging";
 import ownerNrmsRateRequestsRouter from "./owner.nrms.rateRequests";
 import nrmsPaymentsRouter from "./nrms.payments";
 import nrmsOperationsRouter from "./nrms.operations";
+import nrmsStockRouter from "./nrms.stock";
+import nrmsStockOperationsRouter from "./nrms.stock.operations";
+import nrmsStockCountsRouter from "./nrms.stock.counts";
+import nrmsStockPurchasingRouter from "./nrms.stock.purchasing";
+import nrmsStockPayablesRouter from "./nrms.stock.payables";
+import nrmsStockInsightsRouter from "./nrms.stock.insights";
 
 export function registerOwnerPropertyRoutes(app: Express): void {
   app.use("/owner/properties", ownerProperties);
@@ -51,6 +57,12 @@ export function registerOwnerReportsRoute(app: Express): void {
 export function registerOwnerBusinessRoutes(app: Express): void {
   app.use("/api/nrms/payments", nrmsPaymentsRouter as RequestHandler);
   app.use("/api/nrms/operations", nrmsOperationsRouter as RequestHandler);
+  app.use("/api/nrms/stock", nrmsStockRouter as RequestHandler);
+  app.use("/api/nrms/stock", nrmsStockOperationsRouter as RequestHandler);
+  app.use("/api/nrms/stock", nrmsStockCountsRouter as RequestHandler);
+  app.use("/api/nrms/stock", nrmsStockPurchasingRouter as RequestHandler);
+  app.use("/api/nrms/stock", nrmsStockPayablesRouter as RequestHandler);
+  app.use("/api/nrms/stock", nrmsStockInsightsRouter as RequestHandler);
   app.use("/api/owner/revenue", requireRole("OWNER") as RequestHandler, ownerRevenue);
   app.use("/api/owner/notifications", requireRole("OWNER") as RequestHandler, ownerNotificationsRouter as RequestHandler);
   app.use("/api/owner/availability", ownerAvailabilityRouter as RequestHandler);

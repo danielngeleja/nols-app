@@ -242,6 +242,10 @@ describe("NRMS finance access boundaries", () => {
       nrmsMasterFolioPayment: { findMany: empty },
       nrmsUsageEvent: { findMany: empty },
       nrmsExpense: { findMany: empty },
+      // Stock control milestone 5: nothing to post from stock or supplier payments.
+      nrmsSupplierPayment: { findMany: empty },
+      nrmsStockMovement: { findMany: empty, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      nrmsStockTransfer: { findMany: empty },
       nrmsNightAuditRun: { create: vi.fn().mockResolvedValue({ id: 4, status: "DRAFT" }), update: nightAuditUpdate },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 99 }) },
     };
@@ -283,6 +287,10 @@ describe("NRMS finance access boundaries", () => {
       nrmsMasterFolioPayment: { findMany: empty },
       nrmsUsageEvent: { findMany: empty },
       nrmsExpense: { findMany: empty },
+      // Stock control milestone 5: nothing to post from stock or supplier payments.
+      nrmsSupplierPayment: { findMany: empty },
+      nrmsStockMovement: { findMany: empty, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      nrmsStockTransfer: { findMany: empty },
       nrmsNightAuditRun: {
         create: vi.fn().mockResolvedValue({ id: 4, status: "DRAFT" }),
         update: vi.fn().mockResolvedValue({ id: 4, status: "CLOSED" }),

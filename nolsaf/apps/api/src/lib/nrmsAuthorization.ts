@@ -57,6 +57,26 @@ export const NRMS_CAPABILITIES = [
   "outlet.shift.manage",
   "outlet.exception.request",
   "outlet.exception.approve",
+  // Stock control (docs/NRMS_STOCK_AND_PURCHASING.md). Not outlet-prefixed on
+  // purpose: a storekeeper works across outlets. Routes narrow outlet staff to
+  // their own outlet's location themselves.
+  "stock.read",
+  "stock.receive",
+  "stock.catalog.manage",
+  "stock.supplier.manage",
+  "stock.transfer.send",
+  "stock.transfer.receive",
+  "stock.writeoff.record",
+  "stock.count",
+  "stock.adjustment.approve",
+  // Purchasing (milestone 4): anyone who works a shelf may ask for goods;
+  // only owner and manager raise, approve and send purchase orders.
+  "stock.requisition",
+  "stock.purchase.manage",
+  // Supplier invoices and payments (milestone 5): owner and manager only.
+  "stock.payables.manage",
+  // Profit, price, supplier, wastage and valuation reports (milestone 6).
+  "stock.insights.read",
   "staff.directory.read",
   "staff.lower_role.assign",
   "staff.lower_role.revoke",
@@ -79,7 +99,8 @@ export type NrmsWorkspace =
   | "FRONT_DESK"
   | "OUTLET_SUPERVISOR"
   | "RESTAURANT"
-  | "BAR";
+  | "BAR"
+  | "STOREKEEPER";
 
 export const RETIRED_NRMS_ROLES = ["HOUSEKEEPER"] as const;
 
@@ -126,6 +147,19 @@ const MANAGER_CAPABILITIES = [
   "outlet.shift.read",
   "outlet.shift.manage",
   "outlet.exception.request",
+  "stock.read",
+  "stock.receive",
+  "stock.catalog.manage",
+  "stock.supplier.manage",
+  "stock.transfer.send",
+  "stock.transfer.receive",
+  "stock.writeoff.record",
+  "stock.count",
+  "stock.adjustment.approve",
+  "stock.requisition",
+  "stock.purchase.manage",
+  "stock.payables.manage",
+  "stock.insights.read",
   "staff.directory.read",
   "staff.lower_role.assign",
   "staff.lower_role.revoke",
@@ -188,6 +222,13 @@ export const NRMS_ROLE_CAPABILITIES = {
     "outlet.shift.read",
     "outlet.shift.manage",
     "outlet.exception.request",
+    "stock.read",
+    "stock.receive",
+    "stock.transfer.send",
+    "stock.transfer.receive",
+    "stock.writeoff.record",
+    "stock.count",
+    "stock.requisition",
   ],
   RESTAURANT: [
     "payment.request.create",
@@ -203,6 +244,11 @@ export const NRMS_ROLE_CAPABILITIES = {
     "outlet.shift.read",
     "outlet.shift.manage",
     "outlet.exception.request",
+    "stock.read",
+    "stock.transfer.receive",
+    "stock.writeoff.record",
+    "stock.count",
+    "stock.requisition",
   ],
   BAR: [
     "payment.request.create",
@@ -218,6 +264,22 @@ export const NRMS_ROLE_CAPABILITIES = {
     "outlet.shift.read",
     "outlet.shift.manage",
     "outlet.exception.request",
+    "stock.read",
+    "stock.transfer.receive",
+    "stock.writeoff.record",
+    "stock.count",
+    "stock.requisition",
+  ],
+  // Owns the goods, not the till: sees every location and records what
+  // arrives. Recipes, items and reversals stay with owner and manager.
+  STOREKEEPER: [
+    "stock.read",
+    "stock.receive",
+    "stock.transfer.send",
+    "stock.transfer.receive",
+    "stock.writeoff.record",
+    "stock.count",
+    "stock.requisition",
   ],
 } as const satisfies Record<NrmsRole, readonly NrmsCapability[]>;
 
@@ -229,6 +291,7 @@ const WORKSPACES: Record<NrmsRole, NrmsWorkspace> = {
   OUTLET_SUPERVISOR: "OUTLET_SUPERVISOR",
   RESTAURANT: "RESTAURANT",
   BAR: "BAR",
+  STOREKEEPER: "STOREKEEPER",
 };
 
 const OUTLET_SCOPED_PREFIX = "outlet.";

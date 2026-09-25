@@ -20,6 +20,7 @@ export const NRMS_STAFF_ROLES = [
   "RESTAURANT",
   "BAR",
   "OUTLET_SUPERVISOR",
+  "STOREKEEPER",
 ] as const;
 
 export type NrmsStaffRole = (typeof NRMS_STAFF_ROLES)[number];
@@ -36,6 +37,7 @@ export const NRMS_STAFF_ROLE_LABELS: Record<NrmsStaffRole, string> = {
   RESTAURANT: "Restaurant",
   BAR: "Bar attendant",
   OUTLET_SUPERVISOR: "Outlet supervisor",
+  STOREKEEPER: "Storekeeper",
 };
 
 /**

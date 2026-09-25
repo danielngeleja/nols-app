@@ -1763,3 +1763,267 @@ export async function generateNrmsBreakfastListPdf(data: BreakfastListPdfData): 
     doc.page.margins.bottom = M;
   }, { size: "A4", margin: M });
 }
+
+// ─── NRMS purchase order ──────────────────────────────────────
+
+export interface NrmsPurchaseOrderPdfData {
+  orderNumber: string;
+  statusLabel: string;
+  issuedAt: Date | string;
+  expectedDate?: Date | string | null;
+  currency: string;
+  propertyName: string;
+  propertyLocation?: string | null;
+  deliverTo: string;
+  paymentTerms: string;
+  issuedBy?: string | null;
+  supplier: { name: string; contactName?: string | null; phone?: string | null; email?: string | null; tin?: string | null; location?: string | null };
+  lines: Array<{ description: string; detail?: string | null; quantity: string; unitPrice: number; amount: number }>;
+  total: number;
+  note?: string | null;
+  supplierUrl?: string | null;
+  qrPng?: Buffer | null;
+}
+
+/**
+ * A4 purchase order a property sends to its supplier. Prices are what the
+ * property expects to pay; the goods received note records what actually
+ * arrived. The QR opens the supplier's no-login confirmation page.
+ */
+export async function generateNrmsPurchaseOrderPdf(data: NrmsPurchaseOrderPdfData): Promise<Buffer> {
+  const pageHeight = 841.89;
+  const cur = data.currency;
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+    const addPage = () => {
+      doc.addPage({ size: "A4", margin: MARGIN });
+      y = MARGIN;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(`${data.orderNumber} · ${data.propertyName}`, left, y, { width, align: "right" });
+      y += 22;
+    };
+    const ensure = (height: number) => { if (y + height > pageHeight - 72) addPage(); };
+    const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "-", x, rowY + 11, { width: rowW, ellipsis: true });
+    };
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(21).fillColor(TEAL).text("PURCHASE ORDER", left, y, { width, align: "right" });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.orderNumber, left, y + 29, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text(data.statusLabel, left, y + 42, { width, align: "right" });
+    y += 66;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 16;
+
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("SUPPLIER", left + 12, y + 11, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.supplier.name, left + 12, y + 27, { width: cardW - 24, ellipsis: true });
+    const supplierLines = [
+      data.supplier.contactName,
+      [data.supplier.phone, data.supplier.email].filter(Boolean).join(" · ") || null,
+      data.supplier.tin ? `TIN ${data.supplier.tin}` : null,
+      data.supplier.location,
+    ].filter((line): line is string => Boolean(line)).slice(0, 3);
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED);
+    supplierLines.forEach((line, index) => doc.text(line, left + 12, y + 47 + index * 14, { width: cardW - 24, ellipsis: true }));
+    const rightX = left + cardW + cardGap + 12;
+    keyValue("Order date", dateOnly(data.issuedAt), rightX, y + 11, 105);
+    keyValue("Deliver by", data.expectedDate ? dateOnly(data.expectedDate) : "As agreed", rightX + 112, y + 11, 105);
+    keyValue("Deliver to", data.deliverTo, rightX, y + 52, 105);
+    keyValue("Payment terms", data.paymentTerms, rightX + 112, y + 52, 105);
+    y += 118;
+
+    const cols = { description: 250, qty: 78, rate: 80, amount: width - 408 };
+    const tableHeader = () => {
+      doc.rect(left, y, width, 22).fill(TEAL);
+      doc.font(fonts.bold).fontSize(7).fillColor("#ffffff")
+        .text("GOODS", left + 8, y + 7, { width: cols.description - 8 })
+        .text("QUANTITY", left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text("UNIT PRICE", left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text("AMOUNT", left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      y += 22;
+    };
+    tableHeader();
+    for (const line of data.lines) {
+      if (y + 42 > pageHeight - 72) { addPage(); tableHeader(); }
+      const rowH = line.detail ? 34 : 25;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN).text(line.description, left + 8, y + 6, { width: cols.description - 16, ellipsis: true });
+      if (line.detail) doc.font(fonts.regular).fontSize(6.8).fillColor(TEXT_MUTED).text(line.detail, left + 8, y + 19, { width: cols.description - 16, ellipsis: true });
+      doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+        .text(line.quantity, left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text(fmtMoney(line.unitPrice, cur), left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text(fmtMoney(line.amount, cur), left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      doc.strokeColor(BORDER).lineWidth(0.5).moveTo(left, y + rowH).lineTo(left + width, y + rowH).stroke();
+      y += rowH;
+    }
+
+    ensure(60);
+    y += 12;
+    const totalsX = left + width - 230;
+    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MUTED).text("ORDER TOTAL", totalsX, y, { width: 120 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEAL).text(fmtMoney(data.total, cur), totalsX + 110, y - 1, { width: 120, align: "right" });
+    y += 26;
+
+    if (data.note) {
+      ensure(60);
+      doc.font(fonts.bold).fontSize(7).fillColor(TEXT_MUTED).text("NOTES", left, y);
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(data.note, left, y + 12, { width });
+      y += Math.min(50, doc.heightOfString(data.note, { width })) + 20;
+    }
+
+    const cardH = 96;
+    ensure(cardH + 40);
+    doc.roundedRect(left, y, width, cardH, 8).fillAndStroke(LIGHT_TEAL, BORDER);
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text("FOR THE SUPPLIER", left + 14, y + 12, { characterSpacing: 0.8 });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+      .text("Please quote the order number on your delivery note and invoice.", left + 14, y + 30, { width: width - 130 })
+      .text("Goods are counted and weighed on arrival. Only what is accepted at the door is paid for.", left + 14, y + 44, { width: width - 130 })
+      .text(data.qrPng ? "Scan the code to confirm this order and your delivery date. No login needed." : "Confirm this order and your delivery date with the person who sent it.", left + 14, y + 58, { width: width - 130 });
+    if (data.issuedBy) doc.font(fonts.bold).fontSize(7.5).fillColor(TEXT_MUTED).text(`Issued by ${data.issuedBy}`, left + 14, y + 76, { width: width - 130 });
+    if (data.qrPng) {
+      doc.image(data.qrPng, left + width - 88, y + 8, { fit: [72, 72], align: "center", valign: "center" });
+      doc.font(fonts.bold).fontSize(5.8).fillColor(TEXT_MUTED).text("SCAN TO CONFIRM", left + width - 93, y + 82, { width: 86, align: "center" });
+    }
+    y += cardH + 14;
+
+    ensure(32);
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(`${data.orderNumber} · Powered by NoLSAF`, left + width * 0.55, y + 10, { width: width * 0.45, align: "right", ellipsis: true });
+  }, { size: "A4", margin: MARGIN });
+}
+
+// ─── NRMS supplier statement ──────────────────────────────────
+
+export interface NrmsSupplierStatementPdfData {
+  propertyName: string;
+  propertyLocation?: string | null;
+  supplier: { name: string; contactName?: string | null; phone?: string | null; tin?: string | null; paymentTerms: string };
+  currency: string;
+  from: string | null;
+  to: string | null;
+  generatedAt: Date;
+  summary: { opening: number; goods: number; paid: number; adjustments: number; closing: number };
+  ageing: { CURRENT: number; DAYS_1_30: number; DAYS_31_60: number; DAYS_OVER_60: number };
+  lines: Array<{ date: Date | string; reference: string; description: string; charge: number; payment: number; balance: number }>;
+}
+
+/**
+ * A4 statement of what a property owes one supplier: every delivery on credit,
+ * payment and void in date order with a running balance, plus the ageing.
+ * Sent to the supplier to agree the balance, the way paper statements are.
+ */
+export async function generateNrmsSupplierStatementPdf(data: NrmsSupplierStatementPdfData): Promise<Buffer> {
+  const pageHeight = 841.89;
+  const cur = data.currency;
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const day = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+    const period = data.from || data.to
+      ? `${data.from ? day(`${data.from}T12:00:00Z`) : "Start"} to ${data.to ? day(`${data.to}T12:00:00Z`) : "today"}`
+      : "All activity";
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(19).fillColor(TEAL).text("SUPPLIER STATEMENT", left, y, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(period, left, y + 27, { width, align: "right" });
+    y += 56;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 14;
+
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 82, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 82, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("SUPPLIER", left + 12, y + 10, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.supplier.name, left + 12, y + 24, { width: cardW - 24, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED);
+    [data.supplier.contactName, data.supplier.phone, data.supplier.tin ? `TIN ${data.supplier.tin}` : null, `Terms: ${data.supplier.paymentTerms}`]
+      .filter((line): line is string => Boolean(line)).slice(0, 3)
+      .forEach((line, index) => doc.text(line, left + 12, y + 42 + index * 12, { width: cardW - 24, ellipsis: true }));
+    const rx = left + cardW + cardGap + 12;
+    const summaryRow = (label: string, value: number, rowY: number, bold = false) => {
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8).fillColor(bold ? TEXT_MAIN : TEXT_MUTED).text(label, rx, rowY, { width: 110 });
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(bold ? 9.5 : 8).fillColor(bold ? TEAL : TEXT_MAIN).text(fmtMoney(value, cur), rx + 110, rowY, { width: cardW - 134, align: "right" });
+    };
+    summaryRow("Opening balance", data.summary.opening, y + 10);
+    summaryRow("Goods on credit", data.summary.goods, y + 23);
+    summaryRow("Payments", -data.summary.paid, y + 36);
+    if (data.summary.adjustments !== 0) summaryRow("Voids and corrections", data.summary.adjustments, y + 49);
+    summaryRow("Balance owed", data.summary.closing, y + 64, true);
+    y += 96;
+
+    // Ageing strip.
+    const buckets: Array<[string, number]> = [["Not yet due", data.ageing.CURRENT], ["1 to 30 days late", data.ageing.DAYS_1_30], ["31 to 60 days late", data.ageing.DAYS_31_60], ["Over 60 days late", data.ageing.DAYS_OVER_60]];
+    const cellW = width / buckets.length;
+    doc.roundedRect(left, y, width, 40, 6).fillAndStroke(LIGHT_TEAL, BORDER);
+    buckets.forEach(([label, value], index) => {
+      const x = left + cellW * index;
+      doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x + 6, y + 8, { width: cellW - 12, align: "center", characterSpacing: 0.4 });
+      doc.font(fonts.bold).fontSize(9.5).fillColor(index >= 2 && value > 0 ? RED : index === 1 && value > 0 ? AMBER : TEXT_MAIN).text(fmtMoney(value, cur), x + 6, y + 21, { width: cellW - 12, align: "center" });
+    });
+    y += 54;
+
+    const cols = { date: 58, ref: 86, desc: width - 58 - 86 - 3 * 72, money: 72 };
+    const header = () => {
+      doc.rect(left, y, width, 20).fill(TEAL);
+      let x = left;
+      doc.font(fonts.bold).fontSize(6.8).fillColor("#ffffff");
+      doc.text("DATE", x + 6, y + 7, { width: cols.date - 8 }); x += cols.date;
+      doc.text("REFERENCE", x + 4, y + 7, { width: cols.ref - 8 }); x += cols.ref;
+      doc.text("DETAIL", x + 4, y + 7, { width: cols.desc - 8 }); x += cols.desc;
+      doc.text("GOODS", x, y + 7, { width: cols.money - 6, align: "right" }); x += cols.money;
+      doc.text("PAID", x, y + 7, { width: cols.money - 6, align: "right" }); x += cols.money;
+      doc.text("BALANCE", x, y + 7, { width: cols.money - 6, align: "right" });
+      y += 20;
+    };
+    header();
+    if (data.lines.length === 0) {
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text("No activity in this period.", left, y + 14, { width, align: "center" });
+      y += 36;
+    }
+    data.lines.forEach((line, index) => {
+      if (y + 22 > pageHeight - 70) {
+        doc.addPage({ size: "A4", margin: MARGIN });
+        y = MARGIN;
+        doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(`${data.supplier.name} · statement continued`, left, y, { width, align: "right" });
+        y += 18;
+        header();
+      }
+      if (index % 2 === 1) doc.rect(left, y, width, 20).fill("#fafcfb");
+      let x = left;
+      doc.font(fonts.regular).fontSize(7.3).fillColor(TEXT_MAIN);
+      doc.text(day(line.date), x + 6, y + 6, { width: cols.date - 8, lineBreak: false }); x += cols.date;
+      doc.font("Courier").fontSize(6.8).text(line.reference, x + 4, y + 6.5, { width: cols.ref - 8, height: 9, lineBreak: false, ellipsis: true }); x += cols.ref;
+      // A fixed height keeps long details to one clipped line inside the row.
+      doc.font(fonts.regular).fontSize(7.3).fillColor(TEXT_MUTED).text(line.description, x + 4, y + 6, { width: cols.desc - 8, height: 9, ellipsis: true }); x += cols.desc;
+      doc.fillColor(TEXT_MAIN).text(line.charge ? fmtMoney(line.charge, cur) : "", x, y + 6, { width: cols.money - 6, align: "right", lineBreak: false }); x += cols.money;
+      doc.text(line.payment ? fmtMoney(line.payment, cur) : "", x, y + 6, { width: cols.money - 6, align: "right", lineBreak: false }); x += cols.money;
+      doc.font(fonts.bold).text(fmtMoney(line.balance, cur), x, y + 6, { width: cols.money - 6, align: "right", lineBreak: false });
+      doc.strokeColor(BORDER).lineWidth(0.4).moveTo(left, y + 20).lineTo(left + width, y + 20).stroke();
+      y += 20;
+    });
+
+    if (y + 60 > pageHeight - 50) { doc.addPage({ size: "A4", margin: MARGIN }); y = MARGIN; }
+    y += 14;
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+      .text("Goods are the value accepted at our door, not the value on the delivery note. If your records differ, reply with the delivery or payment reference.", left, y, { width });
+    y += 26;
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(`Generated ${fmtDateTime(data.generatedAt)} · Powered by NoLSAF`, left + width * 0.45, y + 10, { width: width * 0.55, align: "right" });
+  }, { size: "A4", margin: MARGIN });
+}

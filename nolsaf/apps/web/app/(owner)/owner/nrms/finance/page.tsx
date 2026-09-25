@@ -30,7 +30,13 @@ type FinanceData = {
   ledger: { loaded: boolean; balanced: boolean; accounts: Array<{ accountCode: string; accountName: string; accountType: string; currency: string; debit: number; credit: number; balance: number }>; transactions: LedgerTransaction[] };
   tax: { total: number; note: string; rows: Array<{ transactionNumber: string; occurredAt: string; description: string; currency: string; tax: number }> };
   nbs: { month: string; reportingDays: number; bedsAvailable: number; bedNightsAvailable: number; bedNightsOccupied: number; domesticBedNights: number; internationalBedNights: number; roomNightsOccupied: number; bedOccupancyRate: number; missingNationalityBedNights: number; methodology: string };
+  stock?: { tracked: boolean; value: number };
 };
+
+/** Food and beverage revenue against its cost (stock control milestone 5). */
+const FNB_REVENUE_CODES = ["4200", "4210", "4220"];
+const COGS_CODES = ["5010", "5020"];
+const STOCK_LOSS_CODES = ["5030", "5040", "5050", "5060"];
 
 const EXPENSE_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "STAFF_WAGES", label: "Staff wages" },
@@ -68,12 +74,13 @@ function shiftRowTone(shift: Shift): string {
   return "";
 }
 
-const ACCOUNT_TYPE_ORDER = ["ASSET", "LIABILITY", "REVENUE", "EXPENSE"];
+const ACCOUNT_TYPE_ORDER = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
 const ACCOUNT_TYPE_STYLE: Record<string, { label: string; dot: string; border: string }> = {
   ASSET: { label: "Assets", dot: "bg-blue-500", border: "shadow-[inset_3px_0_0_0_#60a5fa]" },
   LIABILITY: { label: "Liabilities", dot: "bg-amber-500", border: "shadow-[inset_3px_0_0_0_#fbbf24]" },
   REVENUE: { label: "Revenue", dot: "bg-emerald-500", border: "shadow-[inset_3px_0_0_0_#34d399]" },
   EXPENSE: { label: "Expenses", dot: "bg-violet-500", border: "shadow-[inset_3px_0_0_0_#a78bfa]" },
+  EQUITY: { label: "Equity", dot: "bg-slate-500", border: "shadow-[inset_3px_0_0_0_#94a3b8]" },
 };
 
 /**
@@ -270,6 +277,22 @@ export default function FinanceControlPage() {
       byCurrency.set(account.currency, row);
     }
     return [...byCurrency.entries()].map(([currency, row]) => ({ currency, revenue: row.revenue, expense: row.expense, net: row.revenue - row.expense }));
+  }, [data]);
+  const grossProfit = useMemo(() => {
+    const byCurrency = new Map<string, { revenue: number; cogs: number; losses: number }>();
+    for (const account of data?.ledger.accounts ?? []) {
+      const row = byCurrency.get(account.currency) ?? { revenue: 0, cogs: 0, losses: 0 };
+      if (FNB_REVENUE_CODES.includes(account.accountCode)) row.revenue += account.credit - account.debit;
+      if (COGS_CODES.includes(account.accountCode)) row.cogs += account.debit - account.credit;
+      if (STOCK_LOSS_CODES.includes(account.accountCode)) row.losses += account.debit - account.credit;
+      byCurrency.set(account.currency, row);
+    }
+    return [...byCurrency.entries()]
+      .filter(([, row]) => row.cogs !== 0 || row.losses !== 0)
+      .map(([currency, row]) => {
+        const gross = row.revenue - row.cogs;
+        return { currency, ...row, gross, margin: row.revenue > 0 ? Math.round((gross / row.revenue) * 1000) / 10 : null, afterLosses: gross - row.losses };
+      });
   }, [data]);
   const accountGroups = useMemo(() => {
     const groups = new Map<string, FinanceData["ledger"]["accounts"]>();
@@ -635,12 +658,26 @@ export default function FinanceControlPage() {
     {tab === "ledger" && <section className="space-y-4">
       {profitAndLoss.length > 0 && <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
         <h3 className="m-0 text-sm font-bold">Profit and loss</h3>
-        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range, including staff wages recorded on the Expenses tab. Stock cost and depreciation are not tracked yet, so this is not a complete P&amp;L.</p>
+        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range, including staff wages recorded on the Expenses tab and, where stock control is in use, the cost of goods sold. Depreciation is not tracked, so this is not a complete P&amp;L.</p>
         <div className="mt-3 space-y-3">{profitAndLoss.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-3">
           <Metric label={`Revenue (${row.currency})`} value={cash(row.revenue, row.currency)} note="Room, restaurant, bar and other service revenue" tone="green" />
           <Metric label={`Expenses (${row.currency})`} value={cash(row.expense, row.currency)} note="Platform fees and other posted costs" tone="amber" />
           <Metric label={`Net (${row.currency})`} value={cash(row.net, row.currency)} note={row.net >= 0 ? "Profit for the range" : "Loss for the range"} tone={row.net >= 0 ? "green" : "amber"} />
         </div>)}</div>
+      </div>}
+      {(grossProfit.length > 0 || data?.stock?.tracked) && <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
+        <h3 className="m-0 text-sm font-bold">Food and beverage gross profit</h3>
+        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Restaurant, bar and room service revenue against the cost of the goods sold, valued at what they cost when they left the shelf. Wastage, staff meals, complimentary and count losses are shown after it.</p>
+        <div className="mt-3 space-y-3">
+          {grossProfit.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label={`F&B revenue (${row.currency})`} value={cash(row.revenue, row.currency)} note="Restaurant, bar and room service" tone="green" />
+            <Metric label={`Cost of goods sold (${row.currency})`} value={cash(row.cogs, row.currency)} note="Drinks and food taken from stock by sales" tone="amber" />
+            <Metric label={`Gross profit (${row.currency})`} value={cash(row.gross, row.currency)} note={row.margin == null ? "No F&B revenue in the range" : `${row.margin}% of F&B revenue`} tone={row.gross >= 0 ? "green" : "amber"} />
+            <Metric label={`After stock losses (${row.currency})`} value={cash(row.afterLosses, row.currency)} note={`${cash(row.losses, row.currency)} wastage, staff meals, complimentary and count losses`} tone={row.afterLosses >= 0 ? "neutral" : "amber"} />
+          </div>)}
+          {data?.stock?.tracked && <p className="m-0 text-[11px] text-neutral-600">Stock on the shelves today, at average cost: <strong className="tabular-nums text-neutral-900">{cash(data.stock.value, data.property.currency || "TZS")}</strong></p>}
+          {grossProfit.length === 0 && <p className="m-0 text-[11px] text-neutral-500">No stock has posted in this range yet. Cost of goods sold appears after the Night Audit that follows the first stock sale.</p>}
+        </div>
       </div>}
       <div className="space-y-5">
         {accountGroups.map((group) => {

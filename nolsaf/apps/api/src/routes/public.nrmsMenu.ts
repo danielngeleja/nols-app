@@ -13,6 +13,7 @@ import { prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
 import { nrmsOrderPlacementSettlement } from "../lib/nrmsOrders.js";
 import { StockError, reserveMenuStock } from "../lib/nrmsStock.js";
+import { consumeOrderStock } from "../lib/nrmsInventory.js";
 import { readStayOrderingToken } from "../lib/nrmsStayToken.js";
 import { activeStayReservationWhere } from "../lib/nrmsActiveStay.js";
 import {
@@ -479,6 +480,7 @@ router.post("/menu/:token/orders", limitPublicQrOrderCreate as RequestHandler, (
           items: { orderBy: { id: "asc" } },
         },
       });
+      await consumeOrderStock(tx, { propertyId: point.propertyId, outlet: { id: outlet.id, propertyId: point.propertyId, name: outlet.name }, orderId: createdOrder.id, items: lines });
       if (postCheckoutStay) {
         await tx.reservationEvent.create({
           data: {

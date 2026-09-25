@@ -133,7 +133,9 @@ export function middleware(req: NextRequest) {
     path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/book/") ||
     path.startsWith("/nrms/guest/payment/") ||
-    path.startsWith("/nrms/guest/review/");
+    path.startsWith("/nrms/guest/review/") ||
+    // A supplier opening a purchase order link has no NoLSAF account.
+    path.startsWith("/nrms/supplier-order/");
 
   if (path.startsWith("/admin")) {
     if (role !== "ADMIN") {
@@ -248,7 +250,8 @@ export function middleware(req: NextRequest) {
   const isCapabilityPage =
     path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/guest/payment/") ||
-    path.startsWith("/nrms/guest/review/");
+    path.startsWith("/nrms/guest/review/") ||
+    path.startsWith("/nrms/supplier-order/");
   response.headers.set(
     "Referrer-Policy",
     isCapabilityPage ? "no-referrer" : "strict-origin-when-cross-origin",

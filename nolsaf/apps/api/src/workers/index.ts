@@ -16,6 +16,7 @@ import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
 import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
 import { startNrmsMetaMessagingWorker } from "./nrmsMetaMessaging.js";
+import { startNrmsStockDigestWorker } from "./nrmsStockDigest.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
@@ -114,6 +115,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startNrmsRetentionWorker();
       startNrmsGuestAutomationWorker();
       startNrmsMetaMessagingWorker();
+      // Owner stock digest: off unless the owner switches it on per property.
+      startNrmsStockDigestWorker();
       startSalesCommissionLifecycleWorker();
       // Sales partners: follow-up dates that have arrived, and lead claims about to lapse.
       startSalesLeadReminderWorker();

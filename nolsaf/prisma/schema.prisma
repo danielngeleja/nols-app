@@ -328,6 +328,7 @@ model User {
   nrmsPaymentsRecorded       ExternalPaymentRecord[]       @relation("NrmsPaymentRecordedBy")
   nrmsChargesPosted          ReservationCharge[]           @relation("NrmsChargePostedBy")
   nrmsExpensesRecorded       NrmsExpense[]                 @relation("NrmsExpenseRecordedBy")
+  nrmsStockMovements         NrmsStockMovement[]           @relation("NrmsStockMovementActor")
   nrmsStaffMemberships       NrmsStaffMembership[]         @relation("NrmsStaffUser")
   nrmsHkTasksAssigned        NrmsHousekeepingTask[]        @relation("NrmsHkTaskAssignedTo")
   nrmsHkTasksCreated         NrmsHousekeepingTask[]        @relation("NrmsHkTaskCreatedBy")
@@ -555,6 +556,19 @@ model Property {
   nrmsMessagingConnections NrmsMessagingConnection[]
   nrmsOfflineMutations     NrmsOfflineMutation[]
   nrmsExpenses             NrmsExpense[]
+  nrmsStockItems           NrmsStockItem[]
+  nrmsStockLocations       NrmsStockLocation[]
+  nrmsStockMovements       NrmsStockMovement[]
+  nrmsStockSettings        NrmsStockSettings?
+  nrmsSuppliers            NrmsSupplier[]
+  nrmsGoodsReceipts        NrmsGoodsReceipt[]
+  nrmsStockTransfers       NrmsStockTransfer[]
+  nrmsStockWriteOffs       NrmsStockWriteOff[]
+  nrmsStockCounts          NrmsStockCount[]
+  nrmsStockRequisitions    NrmsStockRequisition[]
+  nrmsPurchaseOrders       NrmsPurchaseOrder[]
+  nrmsSupplierInvoices     NrmsSupplierInvoice[]
+  nrmsSupplierPayments     NrmsSupplierPayment[]
   nrmsPortfolioLinks       NrmsPortfolioProperty[]
   nrmsForecastSnapshots    NrmsForecastSnapshot[]
   nrmsPricingGuidance      NrmsPricingRecommendation[]
@@ -5571,6 +5585,7 @@ model NrmsOutlet {
   memberships   NrmsStaffMembership[]
   orders        NrmsOutletOrder[]
   merchantLinks MerchantPropertyLink[]
+  stockLocation NrmsStockLocation?
 
   @@unique([propertyId, code])
   @@index([propertyId, type, status])
@@ -5702,16 +5717,725 @@ model NrmsMenuItem {
   /// Tracked quantity at or below this level shows as "running low".
   lowStockThreshold Int     @default(5)
   sortOrder         Int     @default(0)
+  /// True when the system (not a person) switched inStock off because a recipe
+  /// ingredient ran short. Only such items are switched back on by a receipt;
+  /// a manual "86" stays off until someone turns it on (NRMS_STOCK_AND_PURCHASING.md).
+  stockAutoOut      Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  outlet     NrmsOutlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  orderItems NrmsOutletOrderItem[]
+  outlet      NrmsOutlet            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  orderItems  NrmsOutletOrderItem[]
+  recipeLines NrmsMenuRecipeLine[]
 
   @@unique([outletId, sku])
   @@index([outletId, status, category])
   @@map("nrms_menu_item")
+}
+
+/// A physical good the property buys and holds (a bottle of Konyagi, a tilapia,
+/// a kilo of rice), as opposed to a menu item, which is what a guest orders.
+/// Quantities everywhere are in `baseUnit`. See docs/NRMS_STOCK_AND_PURCHASING.md.
+model NrmsStockItem {
+  id            Int     @id @default(autoincrement())
+  propertyId    Int
+  name          String  @db.VarChar(160)
+  /// BEER, SPIRITS, WINE, SOFT_DRINKS, WATER, MEAT, FISH_SEAFOOD, POULTRY, PRODUCE, DAIRY_EGGS, DRY_GOODS, OTHER
+  category      String  @db.VarChar(30)
+  /// BOTTLE, CAN, PIECE, ML, G
+  baseUnit      String  @db.VarChar(12)
+  /// WHOLE: counted in whole units and a sale can never take it below zero.
+  /// PARTIAL: counted in fractions or by weight (spirits by the tot, meat by the
+  /// gram); a sale may take the book below zero, which the next count exposes.
+  countStyle    String  @default("WHOLE") @db.VarChar(10)
+  perishable    Boolean @default(false)
+  shelfLifeDays Int?
+  /// Weighted average cost per base unit, recomputed on every receipt.
+  averageCost   Decimal @default(0.0000) @db.Decimal(14, 4)
+  status        String  @default("ACTIVE") @db.VarChar(20)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property       Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  packUnits      NrmsStockPackUnit[]
+  balances       NrmsStockBalance[]
+  movements      NrmsStockMovement[]
+  recipeLines    NrmsMenuRecipeLine[]
+  supplierPrices NrmsSupplierPrice[]
+  receiptLines   NrmsGoodsReceiptLine[]
+  transferLines  NrmsStockTransferLine[]
+  writeOffs      NrmsStockWriteOff[]
+  countLines     NrmsStockCountLine[]
+  requisitionLines   NrmsStockRequisitionLine[]
+  purchaseOrderLines NrmsPurchaseOrderLine[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, status, category])
+  @@map("nrms_stock_item")
+}
+
+/// How a stock item is bought: a crate is 25 bottles, a sack is 25000 g.
+model NrmsStockPackUnit {
+  id           Int     @id @default(autoincrement())
+  stockItemId  Int
+  name         String  @db.VarChar(40)
+  baseQuantity Decimal @db.Decimal(14, 3)
+
+  createdAt DateTime @default(now())
+
+  stockItem NrmsStockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@unique([stockItemId, name])
+  @@map("nrms_stock_pack_unit")
+}
+
+/// Where goods sit. One OUTLET location per outlet that holds stock; a STORE
+/// location is optional (milestone 2) for properties with a store room.
+model NrmsStockLocation {
+  id         Int      @id @default(autoincrement())
+  propertyId Int
+  kind       String   @db.VarChar(10) // STORE, OUTLET
+  outletId   Int?     @unique
+  name       String   @db.VarChar(120)
+  status     String   @default("ACTIVE") @db.VarChar(20)
+  createdAt  DateTime @default(now())
+
+  property      Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  outlet        NrmsOutlet?         @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  balances      NrmsStockBalance[]
+  movements     NrmsStockMovement[]
+  goodsReceipts NrmsGoodsReceipt[]
+  transfersOut  NrmsStockTransfer[] @relation("NrmsTransferFrom")
+  transfersIn   NrmsStockTransfer[] @relation("NrmsTransferTo")
+  writeOffs     NrmsStockWriteOff[]
+  counts        NrmsStockCount[]
+  requisitions  NrmsStockRequisition[]
+  purchaseOrders NrmsPurchaseOrder[]
+
+  @@index([propertyId, kind])
+  @@map("nrms_stock_location")
+}
+
+/// Cached running total of movements for one item at one location. Never set
+/// directly: every change goes through a NrmsStockMovement in the same
+/// transaction, so the balance always equals the sum of its movements.
+model NrmsStockBalance {
+  id           Int      @id @default(autoincrement())
+  locationId   Int
+  stockItemId  Int
+  quantity     Decimal  @default(0.000) @db.Decimal(14, 3)
+  parLevel     Decimal? @db.Decimal(14, 3)
+  reorderPoint Decimal? @db.Decimal(14, 3)
+  updatedAt    DateTime @updatedAt
+
+  location  NrmsStockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  stockItem NrmsStockItem     @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@unique([locationId, stockItemId])
+  @@index([stockItemId])
+  @@map("nrms_stock_balance")
+}
+
+/// Append-only stock ledger. `quantity` is signed in base units (+ in, - out).
+/// Rows are never updated or deleted; a mistake is corrected by a new row.
+model NrmsStockMovement {
+  id          Int      @id @default(autoincrement())
+  propertyId  Int
+  locationId  Int
+  stockItemId Int
+  /// OPENING_BALANCE, RECEIPT, RECEIPT_REVERSAL, SALE, SALE_REVERSAL (later:
+  /// TRANSFER_OUT, TRANSFER_IN, WASTAGE, STAFF_MEAL, COMPLIMENTARY,
+  /// RETURN_TO_SUPPLIER, COUNT_ADJUSTMENT)
+  type        String   @db.VarChar(24)
+  quantity    Decimal  @db.Decimal(14, 3)
+  /// Cost per base unit used for this row (average cost for issues, price paid for receipts).
+  unitCost    Decimal  @db.Decimal(14, 4)
+  totalCost   Decimal  @db.Decimal(14, 2)
+  /// OUTLET_ORDER (sourceId = order id), STOCK_MOVEMENT (sourceId = reversed movement id)
+  sourceType  String?  @db.VarChar(24)
+  sourceId    Int?
+  note        String?  @db.VarChar(300)
+  actorId     Int?
+  occurredAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  /// The Night Audit run that posted this movement to the ledger (milestone 5).
+  /// The only field ever set after insert; null means not posted yet.
+  ledgerRunId Int?
+
+  property  Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  location  NrmsStockLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  stockItem NrmsStockItem     @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  actor     User?             @relation("NrmsStockMovementActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, ledgerRunId])
+  @@index([propertyId, occurredAt])
+  @@index([locationId, stockItemId, occurredAt])
+  @@index([stockItemId, type])
+  @@index([sourceType, sourceId])
+  @@map("nrms_stock_movement")
+}
+
+/// What one unit of a menu item consumes. A menu item with no lines is not
+/// stock-linked and keeps the legacy per-menu-item counter.
+model NrmsMenuRecipeLine {
+  id           Int     @id @default(autoincrement())
+  menuItemId   Int
+  stockItemId  Int
+  /// Base units served per one menu item (25 for a 25 ml tot).
+  quantity     Decimal @db.Decimal(14, 3)
+  /// Usable share after trimming/cooking loss. 85 means 1000 g bought gives 850 g served.
+  yieldPercent Int     @default(100)
+
+  createdAt DateTime @default(now())
+
+  menuItem  NrmsMenuItem  @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  stockItem NrmsStockItem @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  @@unique([menuItemId, stockItemId])
+  @@index([stockItemId])
+  @@map("nrms_menu_recipe_line")
+}
+
+// ---------------------------------------------------------------------------
+// Stock control milestone 2: suppliers, receiving, store, transfers, write-offs
+// (docs/NRMS_STOCK_AND_PURCHASING.md). Actor columns (receivedById and so on)
+// are plain user ids resolved by the routes, kept off the User model so the
+// stock tables do not add a dozen back-relations there.
+// ---------------------------------------------------------------------------
+
+/// Per-property stock rules the owner sets. One row, created on first save.
+model NrmsStockSettings {
+  id                  Int      @id @default(autoincrement())
+  propertyId          Int      @unique
+  /// Whether a main store room exists as its own location.
+  storeEnabled        Boolean  @default(false)
+  /// A receipt above this total from someone without approval rights waits for a manager.
+  directPurchaseLimit Decimal  @default(200000.00) @db.Decimal(14, 2)
+  /// A write-off worth more than this waits for a manager.
+  writeOffLimit       Decimal  @default(20000.00) @db.Decimal(14, 2)
+  /// A price this many percent above the last or agreed price is flagged.
+  priceAlertPercent   Int      @default(10)
+  /// Count variance treated as normal loss, by stock category: { "SPIRITS": 1, "PRODUCE": 5 }.
+  /// Categories not listed use the defaults in nrmsStockCount.ts.
+  varianceTolerances  Json?
+  /// The short high-value list counted at a bar shift handover: { "<locationId>": [stockItemId, ...] }.
+  handoverCountItems  Json?
+  /// A manager's purchase order above this total waits for the owner (milestone 4).
+  purchaseOrderLimit  Decimal  @default(500000.00) @db.Decimal(14, 2)
+  /// A delivery may exceed the ordered quantity by this many percent before a manager must accept it.
+  overDeliveryPercent Int      @default(5)
+  /// Owner stock digest (milestone 6): OFF, DAILY, WEEKLY. Delivered as an in-app notification.
+  digestFrequency     String    @default("OFF") @db.VarChar(10)
+  digestLastSentAt    DateTime?
+  /// A good with stock and no movement for this many days is dead stock.
+  deadStockDays       Int       @default(30)
+  /// What one breakfast cover uses: [{ "stockItemId": 12, "quantity": 2 }], base units per cover.
+  breakfastRecipe     Json?
+  /// The shelf breakfast is taken from (usually the restaurant).
+  breakfastLocationId Int?
+  updatedAt           DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("nrms_stock_settings")
+}
+
+model NrmsSupplier {
+  id           Int      @id @default(autoincrement())
+  propertyId   Int
+  name         String   @db.VarChar(160)
+  contactName  String?  @db.VarChar(120)
+  /// Kept clean (digits, leading +) so a future supplier account can claim this record.
+  phone        String?  @db.VarChar(30)
+  email        String?  @db.VarChar(160)
+  tin          String?  @db.VarChar(30)
+  vrn          String?  @db.VarChar(30)
+  location     String?  @db.VarChar(200)
+  /// CASH_ON_DELIVERY, CREDIT_7, CREDIT_14, CREDIT_30
+  paymentTerms String   @default("CASH_ON_DELIVERY") @db.VarChar(20)
+  /// The supplier's receiving channels: [{ label, value }] (Lipa Namba, bank account).
+  payChannels  Json?
+  /// Free text, e.g. "Fish: Tuesday and Friday".
+  deliveryDays String?  @db.VarChar(120)
+  leadTimeDays Int?
+  notes        String?  @db.VarChar(500)
+  status       String   @default("ACTIVE") @db.VarChar(20)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  property Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  prices         NrmsSupplierPrice[]
+  receipts       NrmsGoodsReceipt[]
+  purchaseOrders NrmsPurchaseOrder[]
+  invoices       NrmsSupplierInvoice[]
+  payments       NrmsSupplierPayment[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, status])
+  @@map("nrms_supplier")
+}
+
+/// What a supplier charges for a good, per base unit. `lastUnitCost` updates
+/// itself from posted receipts; `agreedUnitCost` is what the owner negotiated.
+model NrmsSupplierPrice {
+  id             Int       @id @default(autoincrement())
+  supplierId     Int
+  stockItemId    Int
+  lastUnitCost   Decimal?  @db.Decimal(14, 4)
+  agreedUnitCost Decimal?  @db.Decimal(14, 4)
+  lastReceivedAt DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  supplier  NrmsSupplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  stockItem NrmsStockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, stockItemId])
+  @@index([stockItemId])
+  @@map("nrms_supplier_price")
+}
+
+/// Goods received note: the moment goods change hands. Stock moves only while
+/// POSTED; a PENDING_APPROVAL receipt has moved nothing yet.
+model NrmsGoodsReceipt {
+  id                     Int       @id @default(autoincrement())
+  propertyId             Int
+  receiptNumber          String    @unique @db.VarChar(40)
+  supplierId             Int?
+  locationId             Int
+  /// Set when the delivery was received against a purchase order.
+  purchaseOrderId        Int?
+  /// The supplier invoice that bills this delivery (milestone 5).
+  supplierInvoiceId      Int?
+  /// PENDING_APPROVAL, POSTED, REJECTED, VOIDED
+  status                 String    @default("POSTED") @db.VarChar(20)
+  /// PAID (settled on delivery) or CREDIT (owed to the supplier)
+  paymentMode            String    @default("PAID") @db.VarChar(20)
+  /// CASH, MOBILE_MONEY, BANK, CARD, OTHER when PAID
+  paymentMethod          String?   @db.VarChar(30)
+  paymentReference       String?   @db.VarChar(80)
+  supplierDocumentNumber String?   @db.VarChar(80)
+  photoUrl               String?   @db.VarChar(500)
+  note                   String?   @db.VarChar(300)
+  totalCost              Decimal   @db.Decimal(14, 2)
+  rejectedValue          Decimal   @default(0.00) @db.Decimal(14, 2)
+  flaggedLines           Int       @default(0)
+  receivedById           Int?
+  receivedAt             DateTime  @default(now())
+  decidedById            Int?
+  decidedAt              DateTime?
+  decisionNote           String?   @db.VarChar(300)
+  voidedById             Int?
+  voidedAt               DateTime?
+  voidReason             String?   @db.VarChar(300)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  property Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  supplier      NrmsSupplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  location      NrmsStockLocation      @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  purchaseOrder NrmsPurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  invoice       NrmsSupplierInvoice?   @relation(fields: [supplierInvoiceId], references: [id], onDelete: SetNull)
+  lines         NrmsGoodsReceiptLine[]
+
+  @@index([propertyId, status, receivedAt])
+  @@index([supplierId, receivedAt])
+  @@index([purchaseOrderId])
+  @@index([supplierInvoiceId])
+  @@map("nrms_goods_receipt")
+}
+
+model NrmsGoodsReceiptLine {
+  id               Int       @id @default(autoincrement())
+  receiptId        Int
+  stockItemId      Int
+  packUnitName     String?   @db.VarChar(40)
+  packCount        Decimal?  @db.Decimal(14, 3)
+  /// Accepted quantity in base units: what went onto the shelf.
+  quantity         Decimal   @db.Decimal(14, 3)
+  /// What the supplier's paper said (weighed goods), for the claimed-vs-scale gap.
+  claimedQuantity  Decimal?  @db.Decimal(14, 3)
+  rejectedQuantity Decimal   @default(0.000) @db.Decimal(14, 3)
+  /// DAMAGED, SPOILED, WRONG_ITEM, SHORT_DATED, OTHER
+  rejectReason     String?   @db.VarChar(30)
+  unitCost         Decimal   @db.Decimal(14, 4)
+  lineTotal        Decimal   @db.Decimal(14, 2)
+  /// The price this line was compared against when it was received.
+  previousUnitCost Decimal?  @db.Decimal(14, 4)
+  /// NONE, ABOVE_LAST, ABOVE_AGREED, ABOVE_ORDER
+  priceFlag        String    @default("NONE") @db.VarChar(20)
+  expiresAt        DateTime? @db.Date
+  /// The RECEIPT movement written when the receipt posted.
+  movementId       Int?
+  /// The purchase order line this delivery line fills, when received against an order.
+  purchaseOrderLineId Int?
+
+  receipt           NrmsGoodsReceipt       @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  stockItem         NrmsStockItem          @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  purchaseOrderLine NrmsPurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id], onDelete: SetNull)
+
+  @@index([receiptId])
+  @@index([stockItemId])
+  @@index([purchaseOrderLineId])
+  @@map("nrms_goods_receipt_line")
+}
+
+/// Goods moving between two locations. The sender's stock drops when sent;
+/// the receiver's rises only by what they confirm arrived.
+model NrmsStockTransfer {
+  id             Int       @id @default(autoincrement())
+  propertyId     Int
+  transferNumber String    @unique @db.VarChar(40)
+  fromLocationId Int
+  toLocationId   Int
+  /// IN_TRANSIT, RECEIVED, CANCELLED
+  status         String    @default("IN_TRANSIT") @db.VarChar(20)
+  note           String?   @db.VarChar(300)
+  sentById       Int?
+  sentAt         DateTime  @default(now())
+  receivedById   Int?
+  receivedAt     DateTime?
+  cancelledById  Int?
+  cancelledAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  property     Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  fromLocation NrmsStockLocation       @relation("NrmsTransferFrom", fields: [fromLocationId], references: [id], onDelete: Restrict)
+  toLocation   NrmsStockLocation       @relation("NrmsTransferTo", fields: [toLocationId], references: [id], onDelete: Restrict)
+  lines        NrmsStockTransferLine[]
+
+  @@index([propertyId, status, sentAt])
+  @@index([toLocationId, status])
+  @@map("nrms_stock_transfer")
+}
+
+model NrmsStockTransferLine {
+  id               Int      @id @default(autoincrement())
+  transferId       Int
+  stockItemId      Int
+  quantitySent     Decimal  @db.Decimal(14, 3)
+  /// Null until the receiving side confirms. Sent minus received is lost in transit.
+  quantityReceived Decimal? @db.Decimal(14, 3)
+  unitCost         Decimal  @db.Decimal(14, 4)
+
+  transfer  NrmsStockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  stockItem NrmsStockItem     @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  @@index([transferId])
+  @@index([stockItemId])
+  @@map("nrms_stock_transfer_line")
+}
+
+/// Goods leaving the books for a reason other than a sale. Stock moves only
+/// once APPROVED (immediately when under the limit or recorded by a manager).
+model NrmsStockWriteOff {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  locationId    Int
+  stockItemId   Int
+  /// WASTAGE, STAFF_MEAL, COMPLIMENTARY
+  type          String    @db.VarChar(20)
+  /// BROKEN, SPOILED, EXPIRED, SPILLED, GUEST_RETURN, OTHER (wastage) or the type itself
+  reasonCode    String    @db.VarChar(20)
+  quantity      Decimal   @db.Decimal(14, 3)
+  unitCost      Decimal   @db.Decimal(14, 4)
+  value         Decimal   @db.Decimal(14, 2)
+  note          String?   @db.VarChar(300)
+  photoUrl      String?   @db.VarChar(500)
+  /// PENDING, APPROVED, REJECTED
+  status        String    @default("PENDING") @db.VarChar(20)
+  requestedById Int?
+  decidedById   Int?
+  decidedAt     DateTime?
+  decisionNote  String?   @db.VarChar(300)
+  movementId    Int?
+  createdAt     DateTime  @default(now())
+
+  property  Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  location  NrmsStockLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  stockItem NrmsStockItem     @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  @@index([propertyId, status, createdAt])
+  @@index([locationId, stockItemId])
+  @@map("nrms_stock_write_off")
+}
+
+/// A physical stock count at one location (milestone 3). Blind by default:
+/// counters never see the expected quantity. Approval posts one
+/// COUNT_ADJUSTMENT per line so the book matches the shelf from then on.
+model NrmsStockCount {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  locationId    Int
+  countNumber   String    @unique @db.VarChar(40)
+  /// FULL (every good held there), SPOT (a chosen list), HANDOVER (the bar handover list)
+  scope         String    @default("FULL") @db.VarChar(12)
+  blind         Boolean   @default(true)
+  /// IN_PROGRESS, SUBMITTED, RECOUNT, APPROVED, CANCELLED
+  status        String    @default("IN_PROGRESS") @db.VarChar(20)
+  note          String?   @db.VarChar(300)
+  startedById   Int?
+  startedAt     DateTime  @default(now())
+  submittedById Int?
+  submittedAt   DateTime?
+  approvedById  Int?
+  approvedAt    DateTime?
+  decisionNote  String?   @db.VarChar(500)
+  cancelledById Int?
+  cancelledAt   DateTime?
+  /// Totals frozen at approval, for lists and trends.
+  varianceCost  Decimal?  @db.Decimal(14, 2)
+  varianceSales Decimal?  @db.Decimal(14, 2)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  property Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  location NrmsStockLocation    @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  lines    NrmsStockCountLine[]
+
+  @@index([propertyId, status, startedAt])
+  @@index([locationId, status, approvedAt])
+  @@map("nrms_stock_count")
+}
+
+model NrmsStockCountLine {
+  id               Int       @id @default(autoincrement())
+  countId          Int
+  stockItemId      Int
+  /// Null until counted. Base units (a partial bottle of spirits in ml).
+  countedQuantity  Decimal?  @db.Decimal(14, 3)
+  /// When this line was counted: expected stock is taken as of this moment,
+  /// so sales during a long count are not mistaken for losses.
+  countedAt        DateTime?
+  countedById      Int?
+  /// Frozen at submission.
+  expectedQuantity Decimal?  @db.Decimal(14, 3)
+  varianceQuantity Decimal?  @db.Decimal(14, 3)
+  unitCost         Decimal?  @db.Decimal(14, 4)
+  varianceCost     Decimal?  @db.Decimal(14, 2)
+  /// Selling value per base unit from the menu, when a menu item sells this good.
+  unitSellPrice    Decimal?  @db.Decimal(14, 4)
+  varianceSales    Decimal?  @db.Decimal(14, 2)
+  recountRequested Boolean   @default(false)
+  note             String?   @db.VarChar(300)
+  movementId       Int?
+
+  count     NrmsStockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  stockItem NrmsStockItem  @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+
+  @@unique([countId, stockItemId])
+  @@index([stockItemId])
+  @@map("nrms_stock_count_line")
+}
+
+// ---------------------------------------------------------------------------
+// Stock control milestone 4: requisitions and purchase orders
+// (docs/NRMS_STOCK_AND_PURCHASING.md). Stock still moves only through a goods
+// received note; an order records what was asked for and at what price.
+// ---------------------------------------------------------------------------
+
+/// A shelf asking for goods ("5 crates Kilimanjaro by Friday"). The requester
+/// names neither supplier nor price; a manager turns lines into orders.
+model NrmsStockRequisition {
+  id                Int       @id @default(autoincrement())
+  propertyId        Int
+  requisitionNumber String    @unique @db.VarChar(40)
+  /// The shelf that needs the goods.
+  locationId        Int
+  /// OPEN, PARTLY_ORDERED, ORDERED, CLOSED, CANCELLED
+  status            String    @default("OPEN") @db.VarChar(20)
+  neededBy          DateTime? @db.Date
+  note              String?   @db.VarChar(300)
+  requestedById     Int?
+  requestedAt       DateTime  @default(now())
+  /// Who closed or cancelled it, and why ("supplied from the store").
+  closedById        Int?
+  closedAt          DateTime?
+  closeNote         String?   @db.VarChar(300)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  property Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  location NrmsStockLocation          @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  lines    NrmsStockRequisitionLine[]
+
+  @@index([propertyId, status, requestedAt])
+  @@index([locationId, status])
+  @@map("nrms_stock_requisition")
+}
+
+model NrmsStockRequisitionLine {
+  id              Int      @id @default(autoincrement())
+  requisitionId   Int
+  stockItemId     Int
+  /// Base units asked for.
+  quantity        Decimal  @db.Decimal(14, 3)
+  packUnitName    String?  @db.VarChar(40)
+  packCount       Decimal? @db.Decimal(14, 3)
+  /// Set once a manager puts this line on a purchase order.
+  purchaseOrderId Int?
+
+  requisition   NrmsStockRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  stockItem     NrmsStockItem        @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  purchaseOrder NrmsPurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+
+  @@index([requisitionId])
+  @@index([stockItemId])
+  @@index([purchaseOrderId])
+  @@map("nrms_stock_requisition_line")
+}
+
+/// What the property asks one supplier for, at what price, delivered where.
+/// DRAFT, PENDING_APPROVAL, APPROVED, SENT, PARTIALLY_RECEIVED, RECEIVED,
+/// CANCELLED, CLOSED_SHORT. Receiving happens through goods received notes.
+model NrmsPurchaseOrder {
+  id                   Int       @id @default(autoincrement())
+  propertyId           Int
+  orderNumber          String    @unique @db.VarChar(40)
+  supplierId           Int
+  /// Where the supplier delivers.
+  locationId           Int
+  status               String    @default("DRAFT") @db.VarChar(20)
+  expectedDate         DateTime? @db.Date
+  note                 String?   @db.VarChar(500)
+  /// Expected value at the ordered prices.
+  totalCost            Decimal   @default(0.00) @db.Decimal(14, 2)
+  createdById          Int?
+  submittedById        Int?
+  submittedAt          DateTime?
+  approvedById         Int?
+  approvedAt           DateTime?
+  approvalNote         String?   @db.VarChar(300)
+  /// WHATSAPP, SMS, EMAIL, PDF (downloaded and sent by hand)
+  sentVia              String?   @db.VarChar(20)
+  sentById             Int?
+  sentAt               DateTime?
+  cancelledById        Int?
+  cancelledAt          DateTime?
+  closedById           Int?
+  closedAt             DateTime?
+  /// Why it was cancelled, closed short or returned to draft.
+  closeReason          String?   @db.VarChar(300)
+  /// No-login capability link for the supplier (view, PDF, confirm). Issued on first send.
+  supplierToken        String?   @unique @db.VarChar(96)
+  supplierViewedAt     DateTime?
+  supplierConfirmedAt  DateTime?
+  supplierDeliveryDate DateTime? @db.Date
+  supplierNote         String?   @db.VarChar(300)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  property         Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  supplier         NrmsSupplier               @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  location         NrmsStockLocation          @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  lines            NrmsPurchaseOrderLine[]
+  receipts         NrmsGoodsReceipt[]
+  requisitionLines NrmsStockRequisitionLine[]
+
+  @@index([propertyId, status, createdAt])
+  @@index([supplierId, status])
+  @@index([locationId, status])
+  @@map("nrms_purchase_order")
+}
+
+model NrmsPurchaseOrderLine {
+  id               Int      @id @default(autoincrement())
+  orderId          Int
+  stockItemId      Int
+  packUnitName     String?  @db.VarChar(40)
+  packCount        Decimal? @db.Decimal(14, 3)
+  /// Ordered quantity in base units.
+  quantity         Decimal  @db.Decimal(14, 3)
+  /// Expected price per base unit.
+  unitCost         Decimal  @db.Decimal(14, 4)
+  lineTotal        Decimal  @db.Decimal(14, 2)
+  /// Accepted so far on posted goods received notes, in base units.
+  receivedQuantity Decimal  @default(0.000) @db.Decimal(14, 3)
+
+  order        NrmsPurchaseOrder      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  stockItem    NrmsStockItem          @relation(fields: [stockItemId], references: [id], onDelete: Restrict)
+  receiptLines NrmsGoodsReceiptLine[]
+
+  @@unique([orderId, stockItemId])
+  @@index([stockItemId])
+  @@map("nrms_purchase_order_line")
+}
+
+// ---------------------------------------------------------------------------
+// Stock control milestone 5: supplier invoices and payments
+// (docs/NRMS_STOCK_AND_PURCHASING.md). What is owed comes from deliveries
+// accepted on credit; an invoice documents it and is checked against them; a
+// payment reduces it. NRMS records the money, it never moves it.
+// ---------------------------------------------------------------------------
+
+/// The supplier's bill for one or more deliveries.
+model NrmsSupplierInvoice {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  supplierId    Int
+  /// The supplier's own invoice number.
+  invoiceNumber String    @db.VarChar(80)
+  invoiceDate   DateTime  @db.Date
+  dueDate       DateTime? @db.Date
+  /// What the supplier billed, VAT included.
+  amount        Decimal   @db.Decimal(14, 2)
+  vatAmount     Decimal   @default(0.00) @db.Decimal(14, 2)
+  /// Accepted value of the deliveries it covers, frozen when recorded.
+  receivedValue Decimal   @db.Decimal(14, 2)
+  /// MATCHED, BILLED_MORE, BILLED_LESS
+  matchStatus   String    @default("MATCHED") @db.VarChar(20)
+  photoUrl      String?   @db.VarChar(500)
+  note          String?   @db.VarChar(300)
+  recordedById  Int?
+  voidedById    Int?
+  voidedAt      DateTime?
+  voidReason    String?   @db.VarChar(300)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  property Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  supplier NrmsSupplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  receipts NrmsGoodsReceipt[]
+  payments NrmsSupplierPayment[]
+
+  @@unique([supplierId, invoiceNumber])
+  @@index([propertyId, invoiceDate])
+  @@map("nrms_supplier_invoice")
+}
+
+/// Money paid to a supplier. Posts 2400 Accounts payable / tender at Night Audit.
+model NrmsSupplierPayment {
+  id            Int       @id @default(autoincrement())
+  propertyId    Int
+  supplierId    Int
+  paymentNumber String    @unique @db.VarChar(40)
+  amount        Decimal   @db.Decimal(14, 2)
+  /// CASH, MOBILE_MONEY, BANK, CARD, OTHER
+  method        String    @db.VarChar(30)
+  /// M-Pesa code, bank reference, cheque number.
+  reference     String?   @db.VarChar(80)
+  paidAt        DateTime  @db.Date
+  /// Optional: the invoice this payment was made against.
+  invoiceId     Int?
+  note          String?   @db.VarChar(300)
+  currency      String    @default("TZS") @db.VarChar(3)
+  recordedById  Int?
+  voidedById    Int?
+  voidedAt      DateTime?
+  voidReason    String?   @db.VarChar(300)
+  createdAt     DateTime  @default(now())
+
+  property Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  supplier NrmsSupplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  invoice  NrmsSupplierInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([propertyId, createdAt])
+  @@index([propertyId, voidedAt])
+  @@index([supplierId, paidAt])
+  @@index([invoiceId])
+  @@map("nrms_supplier_payment")
 }
 
 /// Itemised outlet order. A room-folio order links to exactly one immutable

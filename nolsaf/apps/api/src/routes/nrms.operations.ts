@@ -9,6 +9,7 @@ import { advanceNrmsOutletOrder } from "../lib/nrmsOrders.js";
 import { type PerformancePeriod, ON_TIME_MINUTES, customPerformanceWindow, fillSeries, performanceWindow, shapePerformanceSummary } from "../lib/nrmsPerformance.js";
 import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "../lib/nrmsShifts.js";
 import { StockError, deriveStockPatch, reserveMenuStock, restoreMenuStock } from "../lib/nrmsStock.js";
+import { consumeOrderStock, linkedAvailabilityPatch, reverseOrderStock } from "../lib/nrmsInventory.js";
 import { computeOutstanding } from "../lib/nrmsFolio.js";
 import { voidRoutedCharge } from "../lib/nrmsMasterFolio.js";
 import {
@@ -909,9 +910,10 @@ router.patch("/menu-items/:menuItemId", blockImpersonated as RequestHandler, (as
   if (input.inStock !== undefined || input.stockQuantity !== undefined) {
     // Same availability/quantity contract as the stock endpoint, so the menu
     // editor cannot put an item "in stock" that the count says is at zero.
-    const derived = deriveStockPatch(item, { inStock: input.inStock, stockQuantity: input.stockQuantity });
+    const linked = await linkedAvailabilityPatch(db, item, { inStock: input.inStock, stockQuantity: input.stockQuantity });
+    const derived = linked ?? { ...deriveStockPatch(item, { inStock: input.inStock, stockQuantity: input.stockQuantity }) };
     if (derived.error) return res.status(409).json({ error: derived.error });
-    Object.assign(data, derived.data);
+    Object.assign(data, derived.data, linked ? {} : { stockAutoOut: false });
   }
   if (input.lowStockThreshold !== undefined) data.lowStockThreshold = input.lowStockThreshold;
   if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
@@ -931,14 +933,15 @@ router.get("/property/:propertyId/stock", (async (req: AuthedRequest, res: Respo
   if (!access) return;
   const outlets = await db.nrmsOutlet.findMany({
     where: { propertyId: access.property.id, status: "ACTIVE", ...(access.outletId != null ? { id: access.outletId } : {}) },
-    select: { id: true, name: true, type: true, menuItems: { where: { status: "ACTIVE" }, select: { id: true, name: true, category: true, price: true, inStock: true, stockQuantity: true, lowStockThreshold: true }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] } },
+    select: { id: true, name: true, type: true, menuItems: { where: { status: "ACTIVE" }, select: { id: true, name: true, category: true, price: true, inStock: true, stockQuantity: true, lowStockThreshold: true, _count: { select: { recipeLines: true } } }, orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }] } },
     orderBy: [{ type: "asc" }, { name: "asc" }],
   });
   // Only outlets the caller is allowed to serve, so bar staff never see the
   // kitchen's list (and vice versa) even when unscoped to a single outletId.
+  // `linked` items draw from stock items: their quantity lives on the goods.
   const visible = outlets.filter((outlet: any) => outletAllowed(access, outlet)).map((outlet: any) => ({
     id: outlet.id, name: outlet.name, type: outlet.type,
-    items: outlet.menuItems.map((item: any) => ({ id: item.id, name: item.name, category: item.category, price: number(item.price), inStock: item.inStock, stockQuantity: item.stockQuantity, lowStockThreshold: item.lowStockThreshold })),
+    items: outlet.menuItems.map((item: any) => ({ id: item.id, name: item.name, category: item.category, price: number(item.price), inStock: item.inStock, stockQuantity: item.stockQuantity, lowStockThreshold: item.lowStockThreshold, linked: Number(item._count?.recipeLines ?? 0) > 0 })),
     outCount: outlet.menuItems.filter((item: any) => !item.inStock).length,
     lowCount: outlet.menuItems.filter((item: any) => item.inStock && item.stockQuantity != null && item.stockQuantity <= item.lowStockThreshold).length,
   }));
@@ -969,11 +972,12 @@ router.patch("/menu-items/:menuItemId/stock", blockImpersonated as RequestHandle
   if (parsed.data.inStock === undefined && parsed.data.stockQuantity === undefined && parsed.data.lowStockThreshold === undefined) {
     return res.status(400).json({ error: "Nothing to update" });
   }
-  const derived = deriveStockPatch(item, parsed.data);
+  const linked = await linkedAvailabilityPatch(db, item, parsed.data);
+  const derived = linked ?? deriveStockPatch(item, parsed.data);
   if (derived.error) return res.status(409).json({ error: derived.error });
   const updated = await db.nrmsMenuItem.update({
     where: { id: item.id },
-    data: { ...derived.data, ...(parsed.data.lowStockThreshold !== undefined ? { lowStockThreshold: parsed.data.lowStockThreshold } : {}) },
+    data: { ...derived.data, ...(linked ? {} : { stockAutoOut: false }), ...(parsed.data.lowStockThreshold !== undefined ? { lowStockThreshold: parsed.data.lowStockThreshold } : {}) },
     select: { id: true, inStock: true, stockQuantity: true, lowStockThreshold: true },
   });
   res.json({ item: updated });
@@ -1490,7 +1494,7 @@ router.post("/property/:propertyId/orders", blockImpersonated as RequestHandler,
     // so a failed reservation leaves no order and no quantity change.
     const order = await db.$transaction(async (tx: any) => {
       await reserveMenuStock(tx, menuItems, requested);
-      return tx.nrmsOutletOrder.create({
+      const created = await tx.nrmsOutletOrder.create({
         data: {
           propertyId: access.property.id,
           outletId: outlet.id,
@@ -1511,6 +1515,10 @@ router.post("/property/:propertyId/orders", blockImpersonated as RequestHandler,
         },
         include: orderInclude,
       });
+      // Recipe-linked items take their ingredients from the outlet's stock in
+      // the same transaction, so a short WHOLE ingredient rolls the order back.
+      await consumeOrderStock(tx, { propertyId: access.property.id, outlet, orderId: created.id, items: lines, actorId: req.user!.id });
+      return created;
     }, ORDER_TX_OPTIONS);
     res.status(201).json({ order: formatOrder(order) });
   } catch (error) {
@@ -1639,6 +1647,7 @@ router.post("/orders/:orderId/cancel", blockImpersonated as RequestHandler, (asy
       // The goods were never served: a cancelled order gives its quantities back.
       // (Voids stay as-is: a voided posted order was consumed, only the money moves.)
       await restoreMenuStock(tx, order.items);
+      await reverseOrderStock(tx, { orderId: order.id, actorId: req.user!.id, note: "Order cancelled" });
     }, ORDER_TX_OPTIONS);
   } catch (error) {
     if (error instanceof Error && error.message === "NRMS_ORDER_NOT_CANCELLABLE") {

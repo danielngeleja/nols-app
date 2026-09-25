@@ -39,6 +39,9 @@ import {
   Scale,
   ShoppingBasket,
   TrendingUp,
+  Truck,
+  ShoppingCart,
+  HandCoins,
   SlidersHorizontal,
   Sparkles,
   Store,
@@ -178,7 +181,22 @@ const NAV_GROUPS: NavGroup[] = [
             ],
           },
           { href: "/owner/nrms/qr-codes", label: "QR order points", icon: QrCode },
-          { href: "/owner/nrms/stock", label: "Stock", icon: Package },
+          {
+            href: "/owner/nrms/stock",
+            label: "Stock",
+            icon: Package,
+            children: [
+              { href: "/owner/nrms/stock", label: "Goods on hand", icon: Package, exact: true },
+              { href: "/owner/nrms/stock/operations", label: "Store operations", icon: Truck },
+              { href: "/owner/nrms/stock/purchasing", label: "Purchasing", icon: ShoppingCart },
+              { href: "/owner/nrms/stock/counts", label: "Counts & variance", icon: Scale },
+              // Supplier money is owner and manager only (stock.payables.manage).
+              { href: "/owner/nrms/stock/payables", label: "Supplier payables", icon: HandCoins, roles: ["OWNER", "MANAGER"] },
+              { href: "/owner/nrms/stock/insights", label: "Stock insights", icon: TrendingUp, roles: ["OWNER", "MANAGER"] },
+              // Setup is owner and manager only (stock.catalog.manage).
+              { href: "/owner/nrms/stock/items", label: "Stock items & recipes", icon: BookOpen, roles: ["OWNER", "MANAGER"] },
+            ],
+          },
         ],
       },
       {
@@ -349,7 +367,8 @@ const NAV_CAPABILITY: Record<string, string> = {
   "/owner/nrms/breakfast": "outlet.read",
   "/owner/nrms/performance": "finance.revenue.read",
   "/owner/nrms/outlets": "outlet.read",
-  "/owner/nrms/stock": "outlet.order.manage",
+  "/owner/nrms/stock": "stock.read",
+  "/owner/nrms/stock/items": "stock.catalog.manage",
   "/owner/nrms/qr-codes": "property.settings.read",
   "/owner/nrms/staff": "staff.directory.read",
   "/owner/nrms/shift": "finance.shift.read_own",
@@ -384,8 +403,10 @@ function roleCanSee(href: string, role: string, capabilities: readonly string[] 
   if (role === "OWNER") return true;
   // Sales channels stays owner-only, like Revenue and Reports: its API is
   // requireRole("OWNER") and it exposes commission and net payout figures.
-  if (role === "MANAGER") return ["/owner/nrms", "/owner/nrms/sales-performance", "/owner/nrms/inquiries", "/owner/nrms/groups", "/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/agents", "/owner/nrms/calendar", "/owner/nrms/finance"].includes(href);
+  if (role === "MANAGER") return ["/owner/nrms", "/owner/nrms/sales-performance", "/owner/nrms/inquiries", "/owner/nrms/groups", "/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/housekeeping", "/owner/nrms/outlets", "/owner/nrms/stock", "/owner/nrms/stock/items", "/owner/nrms/qr-codes", "/owner/nrms/staff", "/owner/nrms/agents", "/owner/nrms/calendar", "/owner/nrms/finance"].includes(href);
   if (role === "OUTLET_SUPERVISOR") return ["/owner/nrms/orders", "/owner/nrms/tables", "/owner/nrms/performance", "/owner/nrms/outlets", "/owner/nrms/stock"].includes(href);
+  // The storekeeper owns the goods, not the floor or the till.
+  if (role === "STOREKEEPER") return href === "/owner/nrms/stock";
   // Group business is the sales role's own work: they hold sales.group.manage
   // and reservation.read. Reading a block list and shaping a group are both
   // open to them server side; the group master folio money operations are
@@ -446,6 +467,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [financeOpen, setFinanceOpen] = useState(() => pathname.startsWith("/owner/nrms/finance"));
   const [outletsOpen, setOutletsOpen] = useState(() => pathname.startsWith("/owner/nrms/outlets"));
   const [ordersOpen, setOrdersOpen] = useState(() => pathname.startsWith("/owner/nrms/orders"));
+  const [stockOpen, setStockOpen] = useState(() => pathname.startsWith("/owner/nrms/stock"));
   const [pendingWorkspaceChange, setPendingWorkspaceChange] = useState<{ kind: "PROPERTY"; propertyId: number; propertyTitle: string } | { kind: "EXIT" } | null>(null);
   const [sidebarOutlets, setSidebarOutlets] = useState<Array<{ id: number; name: string; type: string }>>([]);
   const [booting, setBooting] = useState(true);
@@ -511,6 +533,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/owner/nrms/finance")) setFinanceOpen(true);
     if (pathname.startsWith("/owner/nrms/outlets")) setOutletsOpen(true);
     if (pathname.startsWith("/owner/nrms/orders")) setOrdersOpen(true);
+    if (pathname.startsWith("/owner/nrms/stock")) setStockOpen(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -701,6 +724,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
     : accessRole === "SALES_EXECUTIVE" ? "Sales workspace"
     : accessRole === "FRONT_DESK" ? "Front desk"
     : accessRole === "OUTLET_SUPERVISOR" ? "Outlet operations"
+    : accessRole === "STOREKEEPER" ? "Store and stock"
     : accessRole === "MANAGER" ? "Hotel management"
     : "Room management system";
 
@@ -748,9 +772,9 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   ? [...(item.children ?? []), ...sidebarOutlets.map((outlet) => ({ href: `/owner/nrms/outlets?outlet=${outlet.id}`, label: outlet.name, icon: outlet.type === "BAR" ? Wine : UtensilsCrossed } satisfies NavItem))]
                   : item.children ?? [];
                 const isNestedGroup = nestedChildren.length > 0;
-                const nestedOpen = item.href === "/owner/nrms/orders" ? ordersOpen : item.href === "/owner/nrms/agents" ? travelAgentsOpen : item.href === "/owner/nrms/channels" ? otaChannelsOpen : item.href === "/owner/nrms/controls" ? hotelControlsOpen : item.href === "/owner/nrms/finance" ? financeOpen : item.href === "/owner/nrms/outlets" ? outletsOpen : false;
-                const toggleNested = item.href === "/owner/nrms/orders" ? setOrdersOpen : item.href === "/owner/nrms/agents" ? setTravelAgentsOpen : item.href === "/owner/nrms/channels" ? setOtaChannelsOpen : item.href === "/owner/nrms/controls" ? setHotelControlsOpen : item.href === "/owner/nrms/finance" ? setFinanceOpen : setOutletsOpen;
-                const nestedId = item.href === "/owner/nrms/orders" ? "nrms-orders-navigation" : item.href === "/owner/nrms/agents" ? "nrms-travel-agent-navigation" : item.href === "/owner/nrms/channels" ? "nrms-ota-navigation" : item.href === "/owner/nrms/controls" ? "nrms-hotel-controls-navigation" : item.href === "/owner/nrms/finance" ? "nrms-finance-navigation" : "nrms-outlet-navigation";
+                const nestedOpen = item.href === "/owner/nrms/orders" ? ordersOpen : item.href === "/owner/nrms/agents" ? travelAgentsOpen : item.href === "/owner/nrms/channels" ? otaChannelsOpen : item.href === "/owner/nrms/controls" ? hotelControlsOpen : item.href === "/owner/nrms/finance" ? financeOpen : item.href === "/owner/nrms/outlets" ? outletsOpen : item.href === "/owner/nrms/stock" ? stockOpen : false;
+                const toggleNested = item.href === "/owner/nrms/orders" ? setOrdersOpen : item.href === "/owner/nrms/agents" ? setTravelAgentsOpen : item.href === "/owner/nrms/channels" ? setOtaChannelsOpen : item.href === "/owner/nrms/controls" ? setHotelControlsOpen : item.href === "/owner/nrms/finance" ? setFinanceOpen : item.href === "/owner/nrms/stock" ? setStockOpen : setOutletsOpen;
+                const nestedId = item.href === "/owner/nrms/orders" ? "nrms-orders-navigation" : item.href === "/owner/nrms/agents" ? "nrms-travel-agent-navigation" : item.href === "/owner/nrms/channels" ? "nrms-ota-navigation" : item.href === "/owner/nrms/controls" ? "nrms-hotel-controls-navigation" : item.href === "/owner/nrms/finance" ? "nrms-finance-navigation" : item.href === "/owner/nrms/stock" ? "nrms-stock-navigation" : "nrms-outlet-navigation";
                 // Tables & tabs is an operational workload count, not only an
                 // unread notification: keep it visible while the page is open
                 // until every table/walk-in order has been completed.

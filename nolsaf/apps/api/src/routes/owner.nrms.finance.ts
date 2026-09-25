@@ -9,6 +9,7 @@ import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.j
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
 import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, NRMS_BUSINESS_DAY_LOCKED, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { buildStockPostings } from "../lib/nrmsStockLedger.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -166,7 +167,7 @@ type Posting = {
 async function buildPostings(source: any, propertyId: number, key: string, eventWindow?: { start: Date; end: Date }): Promise<Posting[]> {
   const serviceWindow = dayRange(key);
   const { start, end } = eventWindow ?? serviceWindow;
-  const [reservations, payments, masterItems, masterPayments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
+  const [reservations, payments, masterItems, masterPayments, charges, outlets, tippedOrders, usageEvents, expenses, supplierPayments] = await Promise.all([
     source.reservation.findMany({
       where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: serviceWindow.end }, checkOut: { gt: serviceWindow.start } },
       select: { id: true, receiptNumber: true, checkIn: true, checkOut: true, totalAmount: true, taxAmount: true, currency: true },
@@ -187,6 +188,9 @@ async function buildPostings(source: any, propertyId: number, key: string, event
     // Expense recognition follows the operational window in which the record
     // was entered; a later void follows the window in which it was reversed.
     source.nrmsExpense.findMany({ where: { propertyId, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    // Supplier payments (stock milestone 5) follow the expense pattern: entered
+    // in one window, reversed in the window in which they were voided.
+    source.nrmsSupplierPayment.findMany({ where: { propertyId, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] }, include: { supplier: { select: { name: true } } } }),
   ]);
   const postings: Posting[] = [];
   for (const stay of reservations) {
@@ -293,6 +297,19 @@ async function buildPostings(source: any, propertyId: number, key: string, event
     if (expense.voidedAt && new Date(expense.voidedAt) >= start && new Date(expense.voidedAt) < end) postings.push({ sourceKey: `EXPENSE_VOID:${propertyId}:${expense.id}`, sourceType: "EXPENSE_REVERSAL", sourceId: expense.id, description: `Reversal: ${expense.description || `${expense.category} expense`}`, currency: expense.currency, occurredAt: expense.voidedAt, entries: [
       { accountCode: settlement.code, accountName: settlement.name, accountType: settlementType, debit: amount, credit: 0 },
       { accountCode: category.code, accountName: category.name, accountType: "EXPENSE", debit: 0, credit: amount },
+    ] });
+  }
+  for (const payment of supplierPayments) {
+    const tender = accountForPayment(payment.method);
+    const amount = money(payment.amount);
+    const label = `${payment.method.replace(/_/g, " ").toLowerCase()} payment to ${payment.supplier?.name ?? "supplier"} ${payment.paymentNumber}`;
+    if (new Date(payment.createdAt) >= start && new Date(payment.createdAt) < end) postings.push({ sourceKey: `SUPPLIER_PAYMENT:${propertyId}:${payment.id}`, sourceType: "SUPPLIER_PAYMENT", sourceId: payment.id, description: label.charAt(0).toUpperCase() + label.slice(1), currency: payment.currency, occurredAt: payment.paidAt, entries: [
+      { accountCode: "2400", accountName: "Accounts payable", accountType: "LIABILITY", debit: amount, credit: 0 },
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+    if (payment.voidedAt && new Date(payment.voidedAt) >= start && new Date(payment.voidedAt) < end) postings.push({ sourceKey: `SUPPLIER_PAYMENT_VOID:${propertyId}:${payment.id}`, sourceType: "SUPPLIER_PAYMENT_REVERSAL", sourceId: payment.id, description: `Reversal: ${label}`, currency: payment.currency, occurredAt: payment.voidedAt, entries: [
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "2400", accountName: "Accounts payable", accountType: "LIABILITY", debit: 0, credit: amount },
     ] });
   }
   return postings;
@@ -416,6 +433,9 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const row = accountMap.get(key) ?? { accountCode: entry.accountCode, accountName: entry.accountName, accountType: entry.accountType, currency: transaction.currency, debit: 0, credit: 0, balance: 0 };
       row.debit = money(row.debit + money(entry.debit)); row.credit = money(row.credit + money(entry.credit)); row.balance = money(row.debit - row.credit); accountMap.set(key, row);
     }
+    // Stock on hand at today's average cost (milestone 5), for gross profit context.
+    const stockBalances = await db.nrmsStockBalance.findMany({ where: { stockItem: { propertyId, status: "ACTIVE" }, quantity: { gt: 0 } }, select: { quantity: true, stockItem: { select: { averageCost: true, category: true } } } });
+    const stockValue = money(stockBalances.reduce((sum: number, row: any) => sum + Number(row.quantity) * Number(row.stockItem.averageCost), 0));
     const taxRows = transactions.flatMap((transaction: any) => transaction.entries.filter((entry: any) => entry.accountCode === "2200").map((entry: any) => ({ transactionNumber: transaction.transactionNumber, occurredAt: transaction.occurredAt, description: transaction.description, currency: transaction.currency, tax: money(entry.credit) - money(entry.debit) })));
     res.json({
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },
@@ -426,6 +446,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },
       nightAudits: day?.nightAudits ?? [],
       nbs,
+      stock: { tracked: stockBalances.length > 0, value: stockValue },
     });
   } catch (error) {
     console.error("Failed to load NRMS financial control", error);
@@ -693,7 +714,15 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         }
         : { required: false, acknowledged: false, count: 0, receipts: [] };
 
-      const candidates = await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow);
+      const stock = await buildStockPostings(tx, {
+        propertyId: active.property.id,
+        reportNumber,
+        currency: (active.property.currency || "TZS").toUpperCase(),
+        occurredAt: calendarWindow.start,
+        closeBoundary,
+        window: eventWindow,
+      });
+      const candidates = [...await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow), ...stock.postings];
       const alreadyPosted = candidates.length
         ? await tx.nrmsLedgerTransaction.findMany({
           where: { propertyId: active.property.id, sourceKey: { in: candidates.map((posting) => posting.sourceKey) } },
@@ -726,8 +755,13 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
           entries: { create: posting.entries },
         });
       }
+      // Each stock movement is posted once: stamp it with this run.
+      for (let index = 0; index < stock.movementIds.length; index += 1000) {
+        await tx.nrmsStockMovement.updateMany({ where: { id: { in: stock.movementIds.slice(index, index + 1000) }, ledgerRunId: null }, data: { ledgerRunId: audit.id } });
+      }
       const summary = {
         transactionCount: postings.length,
+        stockMovementsPosted: stock.movementIds.length,
         debitTotal: money(debitTotal),
         creditTotal: money(debitTotal),
         fiscalBacklogAcknowledgement,

@@ -13,6 +13,7 @@ export const NRMS_STAFF_ROLE_LABELS: Record<NrmsStaffRole, string> = {
   RESTAURANT: "Restaurant staff",
   BAR: "Bar staff",
   OUTLET_SUPERVISOR: "Outlet supervisor",
+  STOREKEEPER: "Storekeeper",
 };
 
 export function nrmsStaffInviteEmail(params: {
