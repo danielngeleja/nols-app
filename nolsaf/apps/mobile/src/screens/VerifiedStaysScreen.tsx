@@ -182,7 +182,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
   }, [items, filters.types.length]);
 
   function openProperty(property: PublicPropertyCard) {
-    navigation.navigate("PropertyDetail", { id: property.id, title: property.title });
+    navigation.navigate("PropertyDetail", { propertyKey: property.slug, title: property.title });
   }
 
   function selectRegion(next: string) {

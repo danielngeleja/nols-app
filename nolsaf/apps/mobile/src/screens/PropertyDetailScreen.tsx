@@ -633,7 +633,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
   const { savedIds, toggleSave } = useSavedProperties(token);
-  const { id } = route.params;
+  const { propertyKey } = route.params;
   const [detail, setDetail] = useState<PublicPropertyDetail | null>(null);
   const [commission, setCommission] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -652,30 +652,34 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
 
   const goToBooking = useCallback(
     (roomCode: string | null) => {
+      if (!detail) return;
       if (!token) {
         navigation.navigate("Login");
         return;
       }
       navigation.navigate("BookingReview", {
-        propertyId: id,
+        propertyId: detail.id,
+        propertyKey: detail.slug,
         propertyTitle: detail?.title,
         roomCode: roomCode ?? null,
         checkIn: checkIn || null,
         checkOut: checkOut || null
       });
     },
-    [token, navigation, id, detail?.title, checkIn, checkOut]
+    [token, navigation, detail, checkIn, checkOut]
   );
 
   const loadReviews = useCallback(() => {
+    if (!detail?.id) return;
     setReviewsLoading(true);
-    fetchPropertyReviews(id)
+    fetchPropertyReviews(detail.id)
       .then((data) => setReviews(data))
       .catch(() => setReviews(null))
       .finally(() => setReviewsLoading(false));
-  }, [id]);
+  }, [detail?.id]);
 
   async function submitReview(rating: number, title: string, comment: string, categoryRatings: Record<string, number>) {
+    if (!detail) return;
     if (!token) {
       setReviewSheetVisible(false);
       navigation.navigate("Login");
@@ -686,7 +690,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     setReviewError(null);
     try {
       await createPropertyReview(token, {
-        propertyId: id,
+        propertyId: detail.id,
         rating,
         title: title || undefined,
         comment: comment || undefined,
@@ -708,7 +712,8 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     setAvailLoading(true);
     setAvailRooms(undefined);
     try {
-      const res = await fetchAvailabilityRange(id, ci, co);
+      if (!detail) return;
+      const res = await fetchAvailabilityRange(detail.id, ci, co);
       setAvailRooms(res.items[0]?.roomsAvailable ?? null);
     } catch {
       setAvailRooms(null);
@@ -727,7 +732,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [data, sysCommission] = await Promise.all([fetchPropertyDetail(id), fetchSystemCommission()]);
+      const [data, sysCommission] = await Promise.all([fetchPropertyDetail(propertyKey), fetchSystemCommission()]);
       setDetail(data);
       setCommission(getPropertyCommission(data.services, sysCommission));
     } catch (e) {
@@ -735,7 +740,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [propertyKey]);
 
   useEffect(() => {
     void load();
@@ -790,8 +795,8 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
           location={location}
           topInset={insets.top}
           onBack={() => navigation.goBack()}
-          saved={savedIds.has(id)}
-          onToggleSave={token ? () => toggleSave(id) : undefined}
+          saved={savedIds.has(detail.id)}
+          onToggleSave={token ? () => toggleSave(detail.id) : undefined}
         />
 
         <View style={styles.body}>
@@ -985,7 +990,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
                       checkIn={checkIn}
                       checkOut={checkOut}
                       onPickDates={() => setCalendarVisible(true)}
-                      onBook={() => goToBooking(nr.roomType)}
+                      onBook={() => goToBooking(nr.code)}
                     />
                   );
                 })}
@@ -1192,7 +1197,13 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
 
             {/* Location */}
             <Section title="Location" icon={<MapPin color={colors.primary} size={18} />}>
-              <LocationMapCard latitude={detail.latitude} longitude={detail.longitude} address={location} />
+              <LocationMapCard
+                latitude={detail.latitude}
+                longitude={detail.longitude}
+                address={location}
+                precision={detail.locationPrecision}
+                radiusMeters={detail.locationRadiusMeters}
+              />
             </Section>
 
             {/* Nearby services */}
@@ -1512,7 +1523,7 @@ function RoomCard({
     }
     let cancelled = false;
     setRoomAvailLoading(true);
-    fetchAvailabilityRange(propertyId, checkIn, checkOut, room.roomType)
+    fetchAvailabilityRange(propertyId, checkIn, checkOut, room.code)
       .then((res) => {
         if (!cancelled) setRoomAvail(res.items[0]?.roomsAvailable ?? null);
       })
@@ -1525,7 +1536,7 @@ function RoomCard({
     return () => {
       cancelled = true;
     };
-  }, [propertyId, checkIn, checkOut, room.roomType]);
+  }, [propertyId, checkIn, checkOut, room.code]);
 
   const soldOut = roomAvail === 0;
   const floorChip = formatFloors(room.floors);

@@ -77,7 +77,7 @@ export async function initiateCardPayment(
   return apiRequest<PaymentInitiateResult & { checkoutUrl?: string }>(`/api/payments/coralcommerce/card/initiate`, {
     method: "POST",
     token,
-    body: { invoiceId: params.invoiceId, accessToken: params.accessToken }
+    body: { invoiceId: params.invoiceId, accessToken: params.accessToken, client: "app" }
   });
 }
 

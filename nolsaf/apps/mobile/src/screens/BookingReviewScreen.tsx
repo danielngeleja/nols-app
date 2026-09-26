@@ -141,7 +141,7 @@ function LockedField({ label, value }: { label: string; value: string }) {
 
 export function BookingReviewScreen({ navigation, route }: Props) {
   const { token, user } = useAuth();
-  const { propertyId, propertyTitle } = route.params;
+  const { propertyId, propertyKey, propertyTitle } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -186,7 +186,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [d, sys] = await Promise.all([fetchPropertyDetail(propertyId), fetchSystemCommission()]);
+      const [d, sys] = await Promise.all([fetchPropertyDetail(propertyKey), fetchSystemCommission()]);
       setDetail(d);
       setCommission(getPropertyCommission(d.services, sys));
     } catch (err) {
@@ -194,7 +194,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [propertyId]);
+  }, [propertyKey]);
 
   useEffect(() => {
     load();
@@ -217,7 +217,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
 
   const selectedRoom = useMemo(() => {
     if (!roomCode) return null;
-    return roomOptions.find((r) => r.roomType === roomCode) ?? null;
+    return roomOptions.find((r) => r.code === roomCode) ?? null;
   }, [roomOptions, roomCode]);
 
   const currency = detail?.currency || "TZS";
@@ -478,12 +478,12 @@ export function BookingReviewScreen({ navigation, route }: Props) {
                 </AppText>
               </AppText>
               {roomOptions.map((room) => {
-                const active = roomCode === room.roomType;
+                const active = roomCode === room.code;
                 return (
                   <Pressable
-                    key={room.roomType}
+                    key={room.code}
                     accessibilityRole="button"
-                    onPress={() => setRoomCode(active ? null : room.roomType)}
+                    onPress={() => setRoomCode(active ? null : room.code)}
                     style={[styles.roomRow, active && styles.roomRowActive]}
                   >
                     <View style={styles.roomIcon}>

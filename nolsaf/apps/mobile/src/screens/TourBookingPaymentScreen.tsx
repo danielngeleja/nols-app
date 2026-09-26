@@ -21,6 +21,7 @@ import { ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
+import { usePaymentAvailability } from "../payments";
 import {
   fetchTourPaymentStatus,
   initiateTourBankPayment,
@@ -96,6 +97,7 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
+  const paymentAvailability = usePaymentAvailability();
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -126,6 +128,16 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
     load();
     return () => stopPolling();
   }, [load, stopPolling]);
+
+  useEffect(() => {
+    if (paymentAvailability.status !== "ready") return;
+    if (provider && !paymentAvailability.isProviderEnabled(provider)) setProvider(null);
+    if (bankCode && !paymentAvailability.isProviderEnabled(`BANK_${bankCode}`)) setBankCode("");
+    if (!paymentAvailability.isChannelEnabled(channel)) {
+      const next = (["MNO", "BANK", "CARD"] as Channel[]).find(paymentAvailability.isChannelEnabled);
+      if (next) setChannel(next);
+    }
+  }, [bankCode, channel, paymentAvailability, provider]);
 
   const beginPolling = useCallback(() => {
     stopPolling();
@@ -178,6 +190,10 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
   }
 
   async function payMobileMoney() {
+    if (!paymentAvailability.isChannelEnabled("MNO")) {
+      setError(paymentAvailability.channelReason("MNO"));
+      return;
+    }
     const phoneForApi = normalizeTzPhone(phone);
     if (!provider) {
       setError("Choose a mobile money provider.");
@@ -199,6 +215,10 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
   }
 
   async function payBank() {
+    if (!paymentAvailability.isChannelEnabled("BANK")) {
+      setError(paymentAvailability.channelReason("BANK"));
+      return;
+    }
     if (!bankCode) {
       setError("Choose your bank.");
       return;
@@ -235,6 +255,10 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
   }
 
   async function payCard() {
+    if (!paymentAvailability.isProviderEnabled("CARD")) {
+      setError(paymentAvailability.providerReason("CARD"));
+      return;
+    }
     setError(null);
     try {
       const res = await initiateTourCardPayment({ bookingId, accessToken });
@@ -308,6 +332,45 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
         </AppCard>
         <AppButton title="Open My Tours" onPress={() => navigation.navigate("MyTours")} icon={<ReceiptText color={colors.white} size={18} />} />
         <AppButton title="Browse more tours" variant="secondary" onPress={() => navigation.navigate("TourPackages")} />
+      </SafeScreen>
+    );
+  }
+
+  if (paymentAvailability.status !== "ready") {
+    return (
+      <SafeScreen scroll={false}>
+        <ScreenHeader title="Tour payment" onBack={() => navigation.goBack()} />
+        <View style={styles.centerFill}>
+          {paymentAvailability.status === "loading" ? (
+            <>
+              <ActivityIndicator color={colors.primary} />
+              <AppText variant="bodySmall" tone="muted">Checking available payment methods...</AppText>
+            </>
+          ) : (
+            <StateView
+              title="Payment methods unavailable"
+              message="We could not verify which payment methods are currently available."
+              actionLabel="Try again"
+              onAction={paymentAvailability.reload}
+            />
+          )}
+        </View>
+      </SafeScreen>
+    );
+  }
+
+  if (!paymentAvailability.hasAnyChannel) {
+    return (
+      <SafeScreen scroll={false}>
+        <ScreenHeader title="Tour payment" onBack={() => navigation.goBack()} />
+        <View style={styles.centerFill}>
+          <StateView
+            title="Payments temporarily unavailable"
+            message="No payment method is open right now. Your tour booking is saved; please try again later."
+            actionLabel="Check again"
+            onAction={paymentAvailability.reload}
+          />
+        </View>
       </SafeScreen>
     );
   }
@@ -406,6 +469,7 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
                 { key: "BANK" as Channel, label: "Bank", Icon: Landmark, color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0" },
                 { key: "CARD" as Channel, label: "Card", Icon: CreditCard, color: "#6d28d9", bg: "#f5f3ff", border: "#ddd6fe" }
               ]
+                .filter((item) => paymentAvailability.isChannelEnabled(item.key))
                 .filter((item) => showChannelChoices || item.key === channel)
                 .map(({ key, label, Icon, color, bg, border }) => {
                 const active = channel === key;
@@ -439,7 +503,7 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
             {channel === "MNO" ? (
               <>
                 <View style={styles.providerGrid}>
-                  {PROVIDERS.map((item) => {
+                  {PROVIDERS.filter((item) => paymentAvailability.isProviderEnabled(item.id)).map((item) => {
                     const active = provider === item.id;
                     return (
                       <Pressable key={item.id} accessibilityRole="button" onPress={() => setProvider(item.id)} style={[styles.providerTile, active && styles.providerTileOn]}>
@@ -463,7 +527,7 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
             ) : channel === "BANK" ? (
               <>
                 <View style={styles.bankList}>
-                  {BANKS.map((item) => {
+                  {BANKS.filter((item) => paymentAvailability.isProviderEnabled(`BANK_${item.code}`)).map((item) => {
                     const active = bankCode === item.code;
                     return (
                       <Pressable key={item.code} accessibilityRole="button" onPress={() => setBankCode(item.code)} style={[styles.bankTile, active && styles.bankTileOn]}>
@@ -559,7 +623,10 @@ export function TourBookingPaymentScreen({ navigation, route }: Props) {
         <AppButton
           title={`Pay ${total.toLocaleString()} ${currency}`}
           onPress={channel === "BANK" ? payBank : channel === "CARD" ? payCard : payMobileMoney}
-          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim()}
+          disabled={
+            !paymentAvailability.isChannelEnabled(channel) ||
+            (channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim())
+          }
           icon={channel === "BANK" ? <Landmark color={colors.white} size={18} /> : channel === "CARD" ? <CreditCard color={colors.white} size={18} /> : <Smartphone color={colors.white} size={18} />}
         />
       </BottomActionBar>

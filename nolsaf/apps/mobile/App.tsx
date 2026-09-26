@@ -4,11 +4,17 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { configureApiClient } from "@nolsaf/native-ui";
 
 import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
 import { NolsafLogoMark } from "./src/components";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
+import { env } from "./src/lib/env";
+
+// Shared native helpers (passkeys and future cross-app auth utilities) use the
+// same API origin as the traveller app's local API client.
+configureApiClient({ apiUrl: env.apiUrl });
 
 const MIN_SPLASH_MS = 2000;
 

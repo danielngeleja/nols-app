@@ -107,7 +107,7 @@ export function SavedPropertiesScreen({ navigation }: Props) {
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => navigation.navigate("PropertyDetail", { id: item.id, title: item.title })}
+                onPress={() => navigation.navigate("PropertyDetail", { propertyKey: item.slug, title: item.title })}
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
               >
                 <View style={styles.imageWrap}>

@@ -18,6 +18,7 @@ import { CostCalculatorScreen } from "../screens/CostCalculatorScreen";
 import { CustomerHomeScreen } from "../screens/CustomerHomeScreen";
 import { ForgotPasswordScreen } from "../screens/ForgotPasswordScreen";
 import { LoginScreen } from "../screens/LoginScreen";
+import { AccountMfaScreen } from "../screens/AccountMfaScreen";
 import { MyBookingsScreen } from "../screens/MyBookingsScreen";
 import { MyRidesScreen } from "../screens/MyRidesScreen";
 import { MyToursScreen } from "../screens/MyToursScreen";
@@ -126,6 +127,7 @@ export function AppNavigator() {
           <>
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
             <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="AccountMfa" component={AccountMfaScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="VerifiedStays" component={VerifiedStaysScreen} />

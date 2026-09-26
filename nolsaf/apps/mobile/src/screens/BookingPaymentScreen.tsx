@@ -30,6 +30,7 @@ import { ApiError } from "../lib/apiClient";
 import { getBankOtpInstruction } from "../lib/bankOtp";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
+import { usePaymentAvailability } from "../payments";
 import { colors, radius, spacing } from "../theme";
 
 import airtelLogo from "../../assets/payments/airtel.png";
@@ -89,6 +90,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
+  const paymentAvailability = usePaymentAvailability();
 
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -125,6 +127,16 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
     load();
     return () => stopPolling();
   }, [load, stopPolling]);
+
+  useEffect(() => {
+    if (paymentAvailability.status !== "ready") return;
+    if (provider && !paymentAvailability.isProviderEnabled(provider)) setProvider(null);
+    if (bankCode && !paymentAvailability.isProviderEnabled(`BANK_${bankCode}`)) setBankCode("");
+    if (!paymentAvailability.isChannelEnabled(channel)) {
+      const next = (["MNO", "BANK", "CARD"] as Channel[]).find(paymentAvailability.isChannelEnabled);
+      if (next) setChannel(next);
+    }
+  }, [bankCode, channel, paymentAvailability, provider]);
 
   const beginPolling = useCallback(() => {
     attemptsRef.current = 0;
@@ -176,6 +188,10 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   }, [invoiceId, accessToken, stopPolling]);
 
   async function handlePay() {
+    if (!paymentAvailability.isChannelEnabled("MNO")) {
+      setError(paymentAvailability.channelReason("MNO"));
+      return;
+    }
     if (!invoice || !provider) {
       setError("Choose a mobile network to continue.");
       return;
@@ -203,6 +219,10 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   }
 
   async function handleBankPay() {
+    if (!paymentAvailability.isChannelEnabled("BANK")) {
+      setError(paymentAvailability.channelReason("BANK"));
+      return;
+    }
     if (!invoice || !bankCode) {
       setError("Choose your bank to continue.");
       return;
@@ -239,6 +259,10 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   }
 
   async function handleCardPay() {
+    if (!paymentAvailability.isProviderEnabled("CARD")) {
+      setError(paymentAvailability.providerReason("CARD"));
+      return;
+    }
     if (!invoice) return;
     setError(null);
     try {
@@ -345,6 +369,45 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
           onPress={() => navigation.navigate("MyBookings")}
         />
         <AppButton title="Back to home" variant="secondary" onPress={() => navigation.navigate("Onboarding")} />
+      </SafeScreen>
+    );
+  }
+
+  if (paymentAvailability.status !== "ready") {
+    return (
+      <SafeScreen scroll={false}>
+        <ScreenHeader title="Payment" onBack={() => navigation.goBack()} />
+        <View style={styles.center}>
+          {paymentAvailability.status === "loading" ? (
+            <>
+              <ActivityIndicator color={colors.primary} />
+              <AppText variant="bodySmall" tone="muted">Checking available payment methods...</AppText>
+            </>
+          ) : (
+            <StateView
+              title="Payment methods unavailable"
+              message="We could not verify which payment methods are currently available."
+              actionLabel="Try again"
+              onAction={paymentAvailability.reload}
+            />
+          )}
+        </View>
+      </SafeScreen>
+    );
+  }
+
+  if (!paymentAvailability.hasAnyChannel) {
+    return (
+      <SafeScreen scroll={false}>
+        <ScreenHeader title="Payment" onBack={() => navigation.goBack()} />
+        <View style={styles.center}>
+          <StateView
+            title="Payments temporarily unavailable"
+            message="No payment method is open right now. Your booking is saved; please try again later."
+            actionLabel="Check again"
+            onAction={paymentAvailability.reload}
+          />
+        </View>
       </SafeScreen>
     );
   }
@@ -470,7 +533,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                   { key: "BANK", label: "Bank", Icon: Landmark, color: "#15803d" },
                   { key: "CARD", label: "Card", Icon: CreditCard, color: "#6d28d9" }
                 ] as Array<{ key: Channel; label: string; Icon: typeof Smartphone; color: string }>
-              ).map(({ key, label, Icon, color }) => {
+              ).filter(({ key }) => paymentAvailability.isChannelEnabled(key)).map(({ key, label, Icon, color }) => {
                 const on = channel === key;
                 return (
                   <Pressable
@@ -496,7 +559,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
             {channel === "MNO" ? (
               <>
                 <View style={styles.providerGrid}>
-                  {PROVIDERS.map((p) => {
+                  {PROVIDERS.filter((p) => paymentAvailability.isProviderEnabled(p.id)).map((p) => {
                     const active = provider === p.id;
                     return (
                       <Pressable
@@ -539,7 +602,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
                   Select your bank
                 </AppText>
                 <View style={styles.bankList}>
-                  {BANKS.map((b) => {
+                  {BANKS.filter((b) => paymentAvailability.isProviderEnabled(`BANK_${b.code}`)).map((b) => {
                     const active = bankCode === b.code;
                     return (
                       <Pressable
@@ -673,7 +736,10 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
             )
           }
           onPress={channel === "BANK" ? handleBankPay : channel === "CARD" ? handleCardPay : handlePay}
-          disabled={channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim()}
+          disabled={
+            !paymentAvailability.isChannelEnabled(channel) ||
+            (channel === "BANK" ? !bankReady : channel === "CARD" ? false : !provider || !phone.trim())
+          }
         />
       </BottomActionBar>
     </View>

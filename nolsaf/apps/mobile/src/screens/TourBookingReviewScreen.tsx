@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { BadgeCheck, CalendarDays, Minus, Plane, Plus, Users } from "lucide-react-native";
+import { BadgeCheck, CalendarDays, CheckSquare2, ExternalLink, Minus, Plane, Plus, Square, Users } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
 import {
@@ -19,6 +19,7 @@ import {
 } from "../components";
 import { ApiError } from "../lib/apiClient";
 import { capTzPhoneInput, normalizeTzPhone } from "../lib/phone";
+import { webOrigin } from "../lib/webOrigin";
 import { RootStackParamList } from "../navigation/types";
 import { createTourBooking, DiscoveryOperator, DiscoveryPackage, fetchTourOperator } from "../tours";
 import { colors, radius, spacing } from "../theme";
@@ -124,7 +125,7 @@ function Stepper({ value, min, max, onChange }: { value: number; min: number; ma
 
 export function TourBookingReviewScreen({ navigation, route }: Props) {
   const { token, user } = useAuth();
-  const { agentId, packageId, packageName, operatorName } = route.params;
+  const { operatorKey, packageId, packageName, operatorName } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -142,6 +143,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
   const [nationality, setNationality] = useState("");
   const [sex, setSex] = useState<(typeof SEX_OPTIONS)[number] | "">("");
   const [notes, setNotes] = useState("");
+  const [cancellationPolicyAccepted, setCancellationPolicyAccepted] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -150,7 +152,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const op = await fetchTourOperator(agentId);
+      const op = await fetchTourOperator(operatorKey);
       if (!op) throw new Error("This tour operator is no longer available.");
       const found = op.packages.find((item) => String(item.id ?? "") === String(packageId)) ?? null;
       if (!found) throw new Error("This tour package is no longer available.");
@@ -163,7 +165,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [agentId, packageId]);
+  }, [operatorKey, packageId]);
 
   useEffect(() => {
     load();
@@ -193,6 +195,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
     phoneValid &&
     emailValid &&
     nationality.trim().length >= 2 &&
+    cancellationPolicyAccepted &&
     travelers >= minTravelers &&
     travelers <= maxTravelers &&
     !submitting;
@@ -222,11 +225,15 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
       setFormError("Please enter your nationality.");
       return;
     }
+    if (!cancellationPolicyAccepted) {
+      setFormError("Please accept the cancellation policy before creating the booking.");
+      return;
+    }
 
     setSubmitting(true);
     try {
       const result = await createTourBooking(token, {
-        operatorAgentId: agentId,
+        operatorAgentId: operator.agentId,
         packageId,
         travelerCount: travelers,
         startDate: ymdToIso(travelDate),
@@ -234,6 +241,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
         guestPhone: phoneForApi,
         guestEmail: guestEmail.trim(),
         nationality: nationality.trim(),
+        cancellationPolicyAccepted: true,
         notes: notes.trim(),
         metadata: {
           departureAirport: airport
@@ -323,6 +331,37 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
               ))}
             </View>
           </AppStack>
+        </AppCard>
+
+        <AppCard>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: cancellationPolicyAccepted }}
+            onPress={() => setCancellationPolicyAccepted((accepted) => !accepted)}
+            style={({ pressed }) => [styles.policyRow, pressed && styles.pressed]}
+          >
+            {cancellationPolicyAccepted ? (
+              <CheckSquare2 color={colors.primary} size={22} />
+            ) : (
+              <Square color={colors.softText} size={22} />
+            )}
+            <View style={styles.flex}>
+              <AppText variant="bodySmall" weight="bold">
+                I accept the cancellation policy
+              </AppText>
+              <AppText variant="caption" tone="muted">
+                Includes the 24-hour cooling-off period, partial-refund windows, non-refundable items, and rules after a tour starts.
+              </AppText>
+            </View>
+          </Pressable>
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => Linking.openURL(`${webOrigin()}/cancellation-policy`).catch(() => undefined)}
+            style={styles.policyLink}
+          >
+            <AppText variant="caption" weight="bold" tone="primary">Read the full policy</AppText>
+            <ExternalLink color={colors.primary} size={13} />
+          </Pressable>
         </AppCard>
 
         <AppCard>
@@ -722,6 +761,8 @@ const styles = StyleSheet.create({
   },
   segmentItemOn: { backgroundColor: colors.primary },
   notesInput: { minHeight: 96, paddingTop: spacing[3], textAlignVertical: "top" },
+  policyRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing[3], minWidth: 0 },
+  policyLink: { flexDirection: "row", alignItems: "center", gap: spacing[1], marginTop: spacing[3], paddingLeft: 34 },
   priceRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], minWidth: 0 },
   divider: { height: 1, backgroundColor: colors.border },
   errorBox: {
@@ -733,4 +774,5 @@ const styles = StyleSheet.create({
   },
   barRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], minWidth: 0 },
   barButton: { minWidth: 150 },
+  pressed: { opacity: 0.78 },
 });

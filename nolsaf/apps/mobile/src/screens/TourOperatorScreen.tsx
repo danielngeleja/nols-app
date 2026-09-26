@@ -76,7 +76,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 export function TourOperatorScreen({ route, navigation }: Props) {
-  const { agentId, operatorName } = route.params;
+  const { operatorKey, operatorName } = route.params;
   const { width } = useWindowDimensions();
   const [operator, setOperator] = useState<DiscoveryOperator | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,7 +90,7 @@ export function TourOperatorScreen({ route, navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const op = await fetchTourOperator(agentId);
+      const op = await fetchTourOperator(operatorKey);
       if (!op) throw new Error("This operator has no approved packages right now.");
       setOperator(op);
     } catch (e) {
@@ -98,7 +98,7 @@ export function TourOperatorScreen({ route, navigation }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [operatorKey]);
 
   useEffect(() => {
     void load();
@@ -364,7 +364,7 @@ export function TourOperatorScreen({ route, navigation }: Props) {
                   accessibilityRole="button"
                   onPress={() =>
                     navigation.navigate("TourPackageDetail", {
-                      agentId: operator.agentId,
+                      operatorKey: operator.publicKey,
                       packageId: operator.packages[0]?.id ?? null,
                       operatorName: operator.operatorName
                     })
@@ -395,7 +395,7 @@ export function TourOperatorScreen({ route, navigation }: Props) {
                 accessibilityRole="button"
                 onPress={() =>
                   navigation.navigate("TourPackageDetail", {
-                    agentId: operator.agentId,
+                    operatorKey: operator.publicKey,
                     packageId: pkg.id,
                     operatorName: operator.operatorName
                   })

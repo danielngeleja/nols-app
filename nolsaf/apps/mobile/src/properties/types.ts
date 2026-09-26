@@ -58,6 +58,8 @@ export type PublicPropertyDetail = {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  locationPrecision?: "EXACT" | "APPROXIMATE";
+  locationRadiusMeters?: number | null;
   images: string[];
   basePrice: number | null;
   currency: string | null;

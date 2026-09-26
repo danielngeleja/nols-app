@@ -53,9 +53,9 @@ export async function createPropertyReview(token: string, input: CreateReviewInp
   return apiRequest<PropertyReview>("/api/property-reviews", { method: "POST", token, body: input });
 }
 
-export async function fetchPropertyDetail(idOrSlug: string | number) {
+export async function fetchPropertyDetail(propertyKey: string) {
   // The endpoint wraps the detail as { property: {...} }.
-  const response = await apiRequest<{ property: PublicPropertyDetail }>(`/api/public/properties/${idOrSlug}`);
+  const response = await apiRequest<{ property: PublicPropertyDetail }>(`/api/public/properties/${encodeURIComponent(propertyKey)}`);
   return response.property;
 }
 

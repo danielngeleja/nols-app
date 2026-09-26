@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
 import { sendOtp, verifyOtp } from "../auth/authApi";
-import { OtpChannel } from "../auth/types";
+import { isAccountMfaChallenge, OtpChannel } from "../auth/types";
 import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen, PhoneNumberField } from "../components";
 import { DEFAULT_PHONE_COUNTRY_CODE, isPhoneLengthValid } from "../lib/phone";
 import { RootStackParamList } from "../navigation/types";
@@ -77,7 +77,13 @@ export function LoginScreen({ navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      await signIn(email.trim(), password);
+      const challenge = await signIn(email.trim(), password);
+      if (challenge) {
+        navigation.navigate("AccountMfa", {
+          challengeId: challenge.challengeId,
+          expiresInSeconds: challenge.expiresInSeconds
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed.");
     } finally {
@@ -110,6 +116,14 @@ export function LoginScreen({ navigation }: Props) {
     setError(null);
     try {
       const res = await verifyOtp(destination, code.trim());
+      if (isAccountMfaChallenge(res)) {
+        setLoading(false);
+        navigation.navigate("AccountMfa", {
+          challengeId: res.challengeId,
+          expiresInSeconds: res.expiresInSeconds
+        });
+        return;
+      }
       if (!res.token) {
         throw new Error(res.message || res.error || "Verification failed. Please try again.");
       }

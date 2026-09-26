@@ -3,11 +3,11 @@ import { signInWithNativePasskey } from "@nolsaf/native-ui";
 
 import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
 import { getCurrentAccount, loginWithPassword, logoutSession, registerCustomer, updateAccountProfile } from "./authApi";
-import { AuthState, AuthUser, RegisterCustomerInput, UpdateProfileInput } from "./types";
+import { AccountMfaChallenge, AuthState, AuthUser, isAccountMfaChallenge, RegisterCustomerInput, UpdateProfileInput } from "./types";
 import { ApiError, configureUnauthorizedHandler } from "../lib/apiClient";
 
 type AuthContextValue = AuthState & {
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<AccountMfaChallenge | null>;
   signInWithPasskey: () => Promise<void>;
   signUpCustomer: (input: RegisterCustomerInput) => Promise<void>;
   /** Adopts a session token obtained from a successful OTP verification. */
@@ -96,6 +96,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async (email: string, password: string) => {
       setState((current) => ({ ...current, error: null }));
       const response = await loginWithPassword(email, password);
+      if (isAccountMfaChallenge(response)) return response;
       const token = response.token;
       const loginUser = response.user;
 
@@ -112,10 +113,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (!isTravellerRole(profile.role)) {
         await clearStoredToken();
         becomeGuest(WRONG_APP_MESSAGE);
-        return;
+        return null;
       }
       await storeToken(token);
       applyAuthenticatedState(token, profile);
+      return null;
     },
     [applyAuthenticatedState, becomeGuest]
   );

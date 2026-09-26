@@ -1,3 +1,6 @@
+export type { AccountMfaChallenge } from "@nolsaf/native-ui";
+export { isAccountMfaChallenge } from "@nolsaf/native-ui";
+
 export type UserRole = "CUSTOMER" | "USER" | "TRAVELLER" | "OWNER" | "DRIVER" | "AGENT" | "ADMIN" | string;
 
 export type AuthUser = {
@@ -24,6 +27,11 @@ export type LoginResponse = {
   user?: AuthUser;
   error?: string;
   message?: string;
+  mfaRequired?: boolean;
+  code?: string;
+  method?: "TOTP";
+  challengeId?: string;
+  expiresInSeconds?: number;
 };
 
 export type RegisterCustomerInput = {
@@ -93,6 +101,11 @@ export type VerifyOtpResponse = {
   user?: AuthUser;
   /** Returned when verifying with role "RESET" — pass to /api/auth/reset-password. */
   resetToken?: string;
+  mfaRequired?: boolean;
+  code?: string;
+  method?: "TOTP";
+  challengeId?: string;
+  expiresInSeconds?: number;
 };
 
 export type ResetPasswordResponse = {

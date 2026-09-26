@@ -321,7 +321,7 @@ function PlacesSearch({ navigation, route }: Props) {
                       systemCommission={systemCommission}
                       onPress={() => {
                         navigation.push("VerifiedStays", undefined);
-                        navigation.push("PropertyDetail", { id: property.id, title: property.title });
+                        navigation.push("PropertyDetail", { propertyKey: property.slug, title: property.title });
                       }}
                     />
                   ))}
@@ -337,7 +337,7 @@ function PlacesSearch({ navigation, route }: Props) {
                     operators={tourResults}
                     onPressOperator={(op) => {
                       navigation.push("TourPackages", undefined);
-                      navigation.push("TourOperator", { agentId: op.agentId, operatorName: op.operatorName });
+                      navigation.push("TourOperator", { operatorKey: op.publicKey, operatorName: op.operatorName });
                     }}
                   />
                 </AppStack>

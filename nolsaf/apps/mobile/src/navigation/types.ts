@@ -1,6 +1,7 @@
 export type RootStackParamList = {
   Onboarding: undefined;
   Login: undefined;
+  AccountMfa: { challengeId: string; expiresInSeconds?: number };
   ForgotPassword: undefined;
   Register: { ref?: string } | undefined;
   CustomerHome: undefined;
@@ -44,15 +45,17 @@ export type RootStackParamList = {
       }
     | undefined;
   TourPackages: undefined;
-  TourOperator: { agentId: number; operatorName?: string };
-  TourPackageDetail: { agentId: number; packageId: string | number | null; operatorName?: string };
-  TourBookingReview: { agentId: number; packageId: string | number; packageName?: string; operatorName?: string };
+  TourOperator: { operatorKey: string; operatorName?: string };
+  TourPackageDetail: { operatorKey: string; packageId: string | number | null; operatorName?: string };
+  TourBookingReview: { operatorKey: string; packageId: string | number; packageName?: string; operatorName?: string };
   TourBookingPayment: { bookingId: number; accessToken: string };
   MyTours: undefined;
   TourDetail: { id: number };
-  PropertyDetail: { id: number; title?: string };
+  PropertyDetail: { propertyKey: string; title?: string };
   BookingReview: {
     propertyId: number;
+    /** Opaque public slug/key used to reload the public property detail. */
+    propertyKey: string;
     propertyTitle?: string;
     /** Room type key preselected from the detail screen, if any. */
     roomCode?: string | null;

@@ -113,7 +113,8 @@ function packagePrice(pkg: PublicTourPackageItem, profile: PublicTourOperatorPro
 
 function flattenFeaturedPackages(agent: PublicTourAgent, systemCommission: number): FeaturedTourPackage[] {
   const agentId = Number(agent.id);
-  if (!Number.isFinite(agentId) || agentId <= 0) return [];
+  const publicKey = String(agent.publicKey || "").trim();
+  if (!Number.isFinite(agentId) || agentId <= 0 || !publicKey) return [];
 
   const profile = agent.profile || {};
   const approvedPackages = (profile.packageItems || []).filter(isApprovedPackage);
@@ -132,6 +133,7 @@ function flattenFeaturedPackages(agent: PublicTourAgent, systemCommission: numbe
     key: `${agentId}-${String(pkg.id ?? index)}-${packageTitle(pkg)}`,
     packageId: pkg.id,
     agentId,
+    publicKey,
     title: packageTitle(pkg),
     operatorName,
     destination: String(pkg.destination || location || "East Africa").trim(),
@@ -151,7 +153,8 @@ function flattenFeaturedPackages(agent: PublicTourAgent, systemCommission: numbe
 
 function buildFeaturedOperator(agent: PublicTourAgent, systemCommission: number): FeaturedTourOperator | null {
   const agentId = Number(agent.id);
-  if (!Number.isFinite(agentId) || agentId <= 0) return null;
+  const publicKey = String(agent.publicKey || "").trim();
+  if (!Number.isFinite(agentId) || agentId <= 0 || !publicKey) return null;
 
   const profile = agent.profile || {};
   const approvedPackages = (profile.packageItems || []).filter(isApprovedPackage);
@@ -180,6 +183,7 @@ function buildFeaturedOperator(agent: PublicTourAgent, systemCommission: number)
   return {
     key: `operator-${agentId}`,
     agentId,
+    publicKey,
     operatorName,
     location,
     currency: String(lowestPackage?.currency || "USD").toUpperCase(),
@@ -289,7 +293,8 @@ function parseTimelineToEvents(input: unknown): RawEvent[] {
  *  lowercased search bag the discovery filters match against. */
 function buildDiscoveryOperator(agent: PublicTourAgent, systemCommission: number): DiscoveryOperator | null {
   const agentId = Number(agent.id);
-  if (!Number.isFinite(agentId) || agentId <= 0) return null;
+  const publicKey = String(agent.publicKey || "").trim();
+  if (!Number.isFinite(agentId) || agentId <= 0 || !publicKey) return null;
 
   const profile = agent.profile || {};
   const approved = (profile.packageItems || []).filter(isApprovedPackage);
@@ -378,6 +383,7 @@ function buildDiscoveryOperator(agent: PublicTourAgent, systemCommission: number
 
   return {
     agentId,
+    publicKey,
     operatorName,
     description: profile.description?.trim() ? profile.description.trim() : null,
     location,
@@ -451,9 +457,9 @@ export async function fetchTourOperators(): Promise<DiscoveryOperator[]> {
 }
 
 /** One operator profile with its approved packages, for the operator screen. */
-export async function fetchTourOperator(agentId: number): Promise<DiscoveryOperator | null> {
+export async function fetchTourOperator(publicKey: string): Promise<DiscoveryOperator | null> {
   const [agent, systemCommission] = await Promise.all([
-    apiRequest<PublicTourAgent>(`/api/public/agents/${agentId}`),
+    apiRequest<PublicTourAgent>(`/api/public/agents/${encodeURIComponent(publicKey)}`),
     fetchTourSystemCommission()
   ]);
   return buildDiscoveryOperator(agent, systemCommission);
@@ -564,6 +570,7 @@ export type CreateTourBookingInput = {
   guestPhone: string;
   guestEmail: string;
   nationality: string;
+  cancellationPolicyAccepted: true;
   notes?: string;
   metadata?: Record<string, unknown>;
 };
@@ -662,7 +669,7 @@ export async function initiateTourBankPayment(params: {
 export async function initiateTourCardPayment(params: { bookingId: number; accessToken: string }) {
   return apiRequest<TourPaymentInitiateResult>(`/api/public/tour-bookings/${params.bookingId}/initiate-card-payment`, {
     method: "POST",
-    body: { accessToken: params.accessToken }
+    body: { accessToken: params.accessToken, client: "app" }
   });
 }
 

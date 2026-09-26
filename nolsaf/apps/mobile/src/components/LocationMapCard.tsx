@@ -9,6 +9,8 @@ type LocationMapCardProps = {
   latitude: number | null;
   longitude: number | null;
   address: string;
+  precision?: "EXACT" | "APPROXIMATE";
+  radiusMeters?: number | null;
 };
 
 /**
@@ -16,20 +18,23 @@ type LocationMapCardProps = {
  * no live GL rendering) so there is no battery drain or device heat. Tapping it
  * opens the native maps app for full interactivity.
  */
-export function LocationMapCard({ latitude, longitude, address }: LocationMapCardProps) {
+export function LocationMapCard({ latitude, longitude, address, precision = "EXACT", radiusMeters }: LocationMapCardProps) {
   const { width } = useWindowDimensions();
   const hasCoords = latitude != null && longitude != null;
+  const isApproximate = precision === "APPROXIMATE";
   const token = env.mapboxToken;
 
   const imgW = Math.min(640, Math.round(width - spacing[4] * 2));
   const imgH = 170;
   const mapUrl =
     hasCoords && token
-      ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-l+02665e(${longitude},${latitude})/${longitude},${latitude},14,0/${imgW}x${imgH}@2x?access_token=${token}`
+      ? isApproximate
+        ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${longitude},${latitude},12,0/${imgW}x${imgH}@2x?access_token=${token}`
+        : `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-l+02665e(${longitude},${latitude})/${longitude},${latitude},14,0/${imgW}x${imgH}@2x?access_token=${token}`
       : null;
 
   function openMaps() {
-    if (!hasCoords) return;
+    if (!hasCoords || isApproximate) return;
     const label = encodeURIComponent(address || "Property");
     const url =
       Platform.OS === "ios"
@@ -41,31 +46,48 @@ export function LocationMapCard({ latitude, longitude, address }: LocationMapCar
   return (
     <View style={styles.card}>
       {hasCoords ? (
-        <Pressable accessibilityRole="button" onPress={openMaps} style={[styles.mapWrap, { height: imgH }]}>
+        <Pressable
+          accessibilityRole={isApproximate ? undefined : "button"}
+          disabled={isApproximate}
+          onPress={openMaps}
+          style={[styles.mapWrap, { height: imgH }]}
+        >
           {mapUrl ? (
             <Image source={{ uri: mapUrl }} style={styles.map} resizeMode="cover" />
           ) : (
             <View style={styles.placeholder}>
               <MapPin color={colors.primary} size={28} />
               <AppText variant="caption" tone="muted">
-                Tap to open in maps
+                {isApproximate ? "Approximate area" : "Tap to open in maps"}
               </AppText>
             </View>
           )}
           <View style={styles.openChip}>
-            <ExternalLink color={colors.primary} size={13} />
+            {isApproximate ? <MapPin color={colors.primary} size={13} /> : <ExternalLink color={colors.primary} size={13} />}
             <AppText variant="caption" weight="bold" tone="primary">
-              Open in maps
+              {isApproximate ? "Approximate area" : "Open in maps"}
             </AppText>
           </View>
         </Pressable>
       ) : null}
 
-      <Pressable accessibilityRole="button" onPress={openMaps} disabled={!hasCoords} style={styles.addressRow}>
+      <Pressable
+        accessibilityRole={hasCoords && !isApproximate ? "button" : undefined}
+        onPress={openMaps}
+        disabled={!hasCoords || isApproximate}
+        style={styles.addressRow}
+      >
         <MapPin color={colors.primary} size={18} />
-        <AppText variant="bodySmall" tone="muted" style={styles.flex}>
-          {address || "Location shared after booking"}
-        </AppText>
+        <View style={styles.flex}>
+          <AppText variant="bodySmall" tone="muted">
+            {address || "Location shared after booking"}
+          </AppText>
+          {isApproximate ? (
+            <AppText variant="caption" tone="soft">
+              Exact directions are shared after booking{radiusMeters ? ` · shown within about ${Math.round(radiusMeters / 100) / 10} km` : ""}.
+            </AppText>
+          ) : null}
+        </View>
       </Pressable>
     </View>
   );

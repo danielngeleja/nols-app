@@ -48,6 +48,9 @@ export function getBedDimensions(bedsSummary: string): string | null {
 }
 
 export type NormalizedRoom = {
+  /** Stable API identifier used for availability and booking requests. */
+  code: string;
+  /** Human-readable room label. */
   roomType: string;
   roomsCount: number | null;
   bedsSummary: string;
@@ -93,6 +96,7 @@ export function normalizeRoom(
 ): NormalizedRoom {
   const raw = r as Record<string, unknown>;
   const roomType = String(r.roomType || r.name || raw.label || `Room ${idx + 1}`).trim() || `Room ${idx + 1}`;
+  const code = String(r.code || raw.roomCode || roomType).trim() || roomType;
   const roomsCountRaw = raw.roomsCount ?? r.count ?? r.quantity ?? null;
   const roomsCount = roomsCountRaw == null ? null : Number.isFinite(Number(roomsCountRaw)) ? Number(roomsCountRaw) : null;
 
@@ -136,6 +140,7 @@ export function normalizeRoom(
     : [];
 
   return {
+    code,
     roomType,
     roomsCount,
     bedsSummary,

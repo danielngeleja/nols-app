@@ -608,7 +608,7 @@ export function OnboardingScreen({ navigation }: Props) {
                       width={featuredOperatorWidth}
                       onPress={() => {
                         stopOperatorAutoSlide();
-                        navigation.navigate("TourOperator", { agentId: operator.agentId, operatorName: operator.operatorName });
+                        navigation.navigate("TourOperator", { operatorKey: operator.publicKey, operatorName: operator.operatorName });
                       }}
                     />
                   ))}

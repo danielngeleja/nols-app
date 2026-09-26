@@ -1,4 +1,5 @@
 import { apiRequest } from "../lib/apiClient";
+import { verifyAccountMfaChallenge } from "@nolsaf/native-ui";
 import {
   AuthUser,
   CompleteOtpProfileInput,
@@ -19,6 +20,11 @@ export async function loginWithPassword(email: string, password: string) {
     method: "POST",
     body: { email, password, loginApp: "CUSTOMER" }
   });
+}
+
+/** Completes the second step for accounts protected by an authenticator app. */
+export async function verifyAccountMfa(challengeId: string, code: string, useBackupCode = false) {
+  return verifyAccountMfaChallenge<AuthUser>(challengeId, code, useBackupCode);
 }
 
 /**

@@ -78,6 +78,7 @@ export type PublicTourOperatorProfile = {
 
 export type PublicTourAgent = {
   id?: number;
+  publicKey?: string;
   level?: string;
   totalCompletedTrips?: number;
   profile?: PublicTourOperatorProfile | null;
@@ -91,6 +92,7 @@ export type FeaturedTourPackage = {
   key: string;
   packageId?: string | number;
   agentId: number;
+  publicKey: string;
   title: string;
   operatorName: string;
   destination: string;
@@ -146,6 +148,7 @@ export type DiscoveryPackage = {
 /** One operator with its approved packages, ready for filtering, search, and sort. */
 export type DiscoveryOperator = {
   agentId: number;
+  publicKey: string;
   operatorName: string;
   description: string | null;
   location: string;
@@ -192,6 +195,7 @@ export type DiscoveryVehicle = {
 export type FeaturedTourOperator = {
   key: string;
   agentId: number;
+  publicKey: string;
   operatorName: string;
   location: string;
   currency: string;
