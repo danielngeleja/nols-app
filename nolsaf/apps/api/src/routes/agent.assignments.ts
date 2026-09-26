@@ -1729,6 +1729,39 @@ router.post(
   })
 );
 
+/**
+ * Guest ratings live per itinerary event in metadata.timelineEventRatings,
+ * either as { ratings: { [userId]: { rating } } } (shared trips) or a single
+ * { rating }. Mirrors the customer-side timelineRatingSummary.
+ */
+function guestRatingSummary(md: any): { average: number; count: number } {
+  const events = md?.timelineEventRatings && typeof md.timelineEventRatings === "object" ? md.timelineEventRatings : {};
+  const values = Object.values(events as Record<string, any>).flatMap((entry) => {
+    const ratings = entry?.ratings && typeof entry.ratings === "object" ? entry.ratings : null;
+    if (ratings && Object.keys(ratings).length) {
+      return Object.values(ratings as Record<string, any>).map((r) => Number(r?.rating ?? r ?? 0));
+    }
+    return entry?.rating ? [Number(entry.rating)] : [];
+  }).filter((r) => Number.isFinite(r) && r >= 1 && r <= 5);
+  const count = values.length;
+  return { average: count ? values.reduce((a, b) => a + b, 0) / count : 0, count };
+}
+
+/** Traveller issue reports on the booking, reduced to what a list row needs. */
+function issueSummary(md: any): { total: number; open: number; highestSeverity: "LOW" | "MEDIUM" | "HIGH" | null; latestTitle: string | null } {
+  const reports = Array.isArray(md?.issueReports) ? md.issueReports : [];
+  const rank = { LOW: 1, MEDIUM: 2, HIGH: 3 } as const;
+  let highest: "LOW" | "MEDIUM" | "HIGH" | null = null;
+  let open = 0;
+  for (const r of reports) {
+    const sev = String(r?.severity || "").toUpperCase() as keyof typeof rank;
+    if (rank[sev] && (!highest || rank[sev] > rank[highest])) highest = sev;
+    if (!["RESOLVED", "CLOSED", "DONE", "FIXED", "REJECTED"].includes(String(r?.status || "").toUpperCase())) open += 1;
+  }
+  const latest = reports.length ? reports[reports.length - 1] : null;
+  return { total: reports.length, open, highestSeverity: highest, latestTitle: latest?.title ? String(latest.title) : null };
+}
+
 // GET /api/agent/tour-bookings
 // Returns TourBooking records where the logged-in agent is the operator (operatorAgentId).
 router.get(
@@ -1799,6 +1832,8 @@ router.get(
           payoutRequestedAt: true,
           payoutApprovedAt: true,
           payoutPaidAt: true,
+          operatorPayoutAmount: true,
+          endDate: true,
           completedAt: true,
           createdAt: true,
           updatedAt: true,
@@ -1849,6 +1884,10 @@ router.get(
         const resolvedCompletedAt = t.completedAt
           ? t.completedAt.toISOString()
           : (checklistLockedAt || null);
+        const guestRating = guestRatingSummary(md);
+        const selfRatingRaw = Number(md?.agentCompletionRating?.overallRating);
+        const selfRating = Number.isFinite(selfRatingRaw) && selfRatingRaw > 0 ? selfRatingRaw : null;
+        const issues = issueSummary(md);
 
         return {
           id: t.id,
@@ -1877,6 +1916,14 @@ router.get(
           currency: t.currency,
           tripType: t.category || null,
           completedAt: resolvedCompletedAt,
+          endDate: t.endDate ? t.endDate.toISOString() : null,
+          operatorPayoutAmount: t.operatorPayoutAmount != null ? Number(t.operatorPayoutAmount) : null,
+          // Guest itinerary ratings, averaged; `rating` stays for older readers.
+          rating: guestRating.count > 0 ? Math.round(guestRating.average * 10) / 10 : null,
+          guestRatingCount: guestRating.count,
+          selfRating,
+          issueSummary: issues,
+          challenges: issues.latestTitle,
           source: "TOUR_BOOKING" as const,
           requester: {
             fullName: t.guestName || null,

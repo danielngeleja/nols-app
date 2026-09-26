@@ -59,7 +59,14 @@ type BookingItem = {
   payoutApprovedAt?: string | null;
   payoutPaidAt?: string | null;
   pickupValidatedAt?: string | null;
+  /** Average of the guests' itinerary ratings. */
   rating?: number | null;
+  guestRatingCount?: number;
+  /** The operator's own completion rating, 1 to 5. */
+  selfRating?: number | null;
+  issueSummary?: { total: number; open: number; highestSeverity: "LOW" | "MEDIUM" | "HIGH" | null; latestTitle: string | null } | null;
+  operatorPayoutAmount?: number | null;
+  endDate?: string | null;
   challenges?: string | null;
   completedAt?: string | null;
   /** "TOUR_BOOKING" for TourBooking records; absent/undefined for PlanRequest assignments */
@@ -89,7 +96,9 @@ type SortKey =
   | "dateConfirmed"
   | "completedAt"
   | "tripRating"
-  | "challenge";
+  | "challenge"
+  | "selfRating"
+  | "payout";
 type SortDir = "asc" | "desc";
 
 // --- Activity helpers ---
@@ -497,6 +506,29 @@ function activityTiming(
   return { state: "late", note: `ended ${formatSpan(minutes - end)} ago` };
 }
 
+function isPayoutSettled(b: BookingItem): boolean {
+  return !!b.payoutPaidAt || String(b.payoutStatus || "").toUpperCase() === "PAID";
+}
+
+function payoutChip(b: BookingItem): { label: string; cls: string; dot: string } {
+  const s = String(b.payoutStatus || "").toUpperCase();
+  if (isPayoutSettled(b)) return { label: "Paid", cls: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" };
+  if (s.includes("RECOVER") || s.includes("HOLD") || s.includes("REJECT")) return { label: s.replace(/_/g, " ").toLowerCase(), cls: "bg-rose-50 text-rose-700", dot: "bg-rose-500" };
+  if (s === "APPROVED" || s === "PROCESSING" || s === "AUTHORIZED" || s === "BATCHED") return { label: s.toLowerCase(), cls: "bg-sky-50 text-sky-700", dot: "bg-sky-500" };
+  if (s) return { label: s.replace(/_/g, " ").toLowerCase(), cls: "bg-amber-50 text-amber-800", dot: "bg-amber-500" };
+  return { label: "Not started", cls: "bg-slate-100 text-slate-500", dot: "bg-slate-400" };
+}
+
+function MiniStars({ value, size = "h-3.5 w-3.5" }: { value: number; size?: string }) {
+  return (
+    <span className="inline-flex items-center gap-px" aria-hidden>
+      {[1, 2, 3, 4, 5].map((s) => (
+        <Star key={s} className={`${size} ${value >= s - 0.25 ? "text-amber-400" : "text-slate-300"}`} fill={value >= s - 0.25 ? "currentColor" : "none"} strokeWidth={1.75} />
+      ))}
+    </span>
+  );
+}
+
 function tickedTime(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -900,12 +932,24 @@ export default function AgentBookingsPage() {
       try {
         setLoading(true);
         setError(null);
-        const [tourBookingsRes, meRes] = await Promise.all([
-          api.get("/api/agent/tour-bookings"),
+        // The endpoint pages (default 20), so walk every page: otherwise older
+        // trips, usually the completed ones, silently fall off the stages.
+        const loadAllTourBookings = async (): Promise<BookingItem[]> => {
+          const all: BookingItem[] = [];
+          for (let page = 1; page <= 20; page += 1) {
+            const res = await api.get(`/api/agent/tour-bookings?page=${page}&pageSize=100`);
+            const batch: BookingItem[] = (res as any)?.data?.items ?? [];
+            const total = Number((res as any)?.data?.total ?? 0);
+            all.push(...batch);
+            if (batch.length < 100 || (total > 0 && all.length >= total)) break;
+          }
+          return all;
+        };
+        const [tourBookings, meRes] = await Promise.all([
+          loadAllTourBookings(),
           api.get("/api/account/me").catch(() => null),
         ]);
         if (!alive) return;
-        const tourBookings: BookingItem[] = (tourBookingsRes as any)?.data?.items ?? [];
         const meData = (meRes as any)?.data?.data ?? (meRes as any)?.data ?? null;
         const resolvedAgentName = String(
           meData?.fullName
@@ -981,6 +1025,26 @@ export default function AgentBookingsPage() {
 
   const [confirmedQuery, setConfirmedQuery] = useState("");
 
+  // ── Completed stage: summary, quick filters and search ──
+  const [completedFilter, setCompletedFilter] = useState<"ALL" | "TO_RATE" | "ISSUES" | "PAYOUT_PENDING">("ALL");
+  const [completedQuery, setCompletedQuery] = useState("");
+  const completedStats = useMemo(() => {
+    const rows = grouped.completed;
+    let ratingSum = 0;
+    let ratingCount = 0;
+    let toRate = 0;
+    let withIssues = 0;
+    let paid = 0;
+    for (const b of rows) {
+      const n = Number(b.guestRatingCount || 0);
+      if (typeof b.rating === "number" && n > 0) { ratingSum += b.rating * n; ratingCount += n; }
+      if (b.selfRating == null) toRate += 1;
+      if ((b.issueSummary?.total || 0) > 0) withIssues += 1;
+      if (isPayoutSettled(b)) paid += 1;
+    }
+    return { total: rows.length, guestAvg: ratingCount ? ratingSum / ratingCount : null, ratingCount, toRate, withIssues, paid };
+  }, [grouped.completed]);
+
   // A minute clock so "running now", "starts in 20m" and "late" stay honest
   // while the operator keeps the page open on tour.
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -1029,7 +1093,7 @@ export default function AgentBookingsPage() {
         setSortDir((d) => (d === "asc" ? "desc" : "asc"));
         return prev;
       }
-      const defaultDir: SortDir = key === "amountPaid" || key.includes("date") || key === "completedAt" || key === "tripRating" ? "desc" : "asc";
+      const defaultDir: SortDir = key === "amountPaid" || key.includes("date") || key === "completedAt" || key === "tripRating" || key === "selfRating" || key === "challenge" ? "desc" : "asc";
       setSortDir(defaultDir);
       return key;
     });
@@ -1057,7 +1121,9 @@ export default function AgentBookingsPage() {
         case "dateConfirmed": return dateConfirmed ? new Date(dateConfirmed).getTime() : 0;
         case "completedAt": return completedAt ? new Date(completedAt).getTime() : 0;
         case "tripRating": return rating;
-        case "challenge": return challenge;
+        case "challenge": return booking.issueSummary ? booking.issueSummary.total : (challenge ? 1 : 0);
+        case "selfRating": return typeof booking.selfRating === "number" ? booking.selfRating : -1;
+        case "payout": return isPayoutSettled(booking) ? 2 : booking.payoutStatus ? 1 : 0;
         default: return "";
       }
     };
@@ -1595,150 +1661,298 @@ export default function AgentBookingsPage() {
                 );
               })()
             ) : isCompletedTab ? (
-              /* ── Completed tab: dedicated summary table ── */
+              /* ── Completed: a record of delivered trips, with what still needs closing ── */
               activeItems.length === 0 ? (
                 <StageEmptyState
                   Icon={CheckCircle2}
                   title="No completed trips yet"
-                  description="Completed bookings will appear here with ratings and trip notes."
+                  description="Completed bookings will appear here with guest ratings, issues and payout status."
                 />
-              ) : (
-              <>
-              <TableScroller label="completed bookings table">
-                <table className="w-full min-w-[1200px] border-collapse text-left">
-                  <thead className="bg-neutral-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
-                    <tr>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Booking By" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Tour Code" column="bookingCode" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Airport Departure" column="airportDeparture" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Nationality" column="nationality" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Type of Package" column="typeOfPackage" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Completed At" column="completedAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Trip Rating" column="tripRating" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Challenge Witnessed" column="challenge" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-left"><SortableHeader label="Amount Paid" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
-                      <th scope="col" className="whitespace-nowrap px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>tr:last-child>td]:shadow-none">
-                    {paginatedActiveItems.map((booking) => {
-                        const bookingBy = booking.requester?.fullName || "Guest";
-                        const nationality = booking.requester?.nationality || "-";
-                        const typeOfPackage = booking.tripType || (booking.title ? String(booking.title).split(" • ")[0] : "Custom");
-                        const completedAt = booking.completedAt || booking.updatedAt || booking.createdAt;
-                        const completedAtLabel = completedAt
-                          ? new Date(completedAt).toLocaleString("en-GB", {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: false,
-                          })
-                          : "-";
-                        const rating = typeof booking.rating === "number" ? booking.rating : null;
-                        const challenge = booking.challenges || booking.description || null;
-                        const currency = booking.currency || "TZS";
-                        const amountPaid = typeof booking.amountPaid === "number"
-                          ? `${currency} ${booking.amountPaid.toLocaleString()}`
-                          : "-";
-                        const isTourBooking = booking.source === "TOUR_BOOKING";
-                        const detailsHref = `/account/agent/bookings/completed/${encodeURIComponent(String(booking.id))}?source=${isTourBooking ? "tour" : "assignment"}`;
+              ) : (() => {
+                const q = completedQuery.trim().toLowerCase();
+                const rows = sortedActiveItems.filter((b) => {
+                  if (completedFilter === "TO_RATE" && b.selfRating != null) return false;
+                  if (completedFilter === "ISSUES" && !(b.issueSummary?.total || 0)) return false;
+                  if (completedFilter === "PAYOUT_PENDING" && isPayoutSettled(b)) return false;
+                  if (!q) return true;
+                  return [b.requester?.fullName, b.bookingCode, b.title, b.tripType, b.requester?.nationality, b.airportDeparture]
+                    .some((v) => String(v || "").toLowerCase().includes(q));
+                });
+                const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+                const page = Math.min(currentPage, pages);
+                const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                const filters = [
+                  { key: "ALL" as const, label: "All", count: completedStats.total },
+                  { key: "TO_RATE" as const, label: "Needs your rating", count: completedStats.toRate },
+                  { key: "ISSUES" as const, label: "With issues", count: completedStats.withIssues },
+                  { key: "PAYOUT_PENDING" as const, label: "Payout pending", count: completedStats.total - completedStats.paid },
+                ];
+                return (
+                  <div id="completed-stage" className="space-y-4 px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
+                    <style>{"#completed-stage, #completed-stage * { box-sizing: border-box; }"}</style>
 
-                        return (
-                          <TableRow key={`${isTourBooking ? "tb" : "pr"}-${String(booking.id)}`} hover={false} className="group transition hover:bg-emerald-50/35">
-                            <td className="px-4 py-3 text-sm font-semibold text-slate-900">{bookingBy}</td>
-                            <td className="px-4 py-3">
-                              {booking.bookingCode ? (
-                                <a
-                                  href={detailsHref}
-                                  className="inline-block whitespace-nowrap rounded border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-bold text-teal-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`Open completed booking ${String(booking.bookingCode)}`}
-                                  title="Open completed booking"
-                                >
-                                  {booking.bookingCode}
-                                </a>
-                              ) : (
-                                <span className="text-xs text-slate-400">—</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-slate-700">{booking.airportDeparture || "-"}</td>
-                            <td className="px-4 py-3 text-sm text-slate-600">{nationality}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700">{typeOfPackage}</td>
-                            <td className="px-4 py-3 text-sm text-slate-600">
-                              <a
-                                href={detailsHref}
-                                className="inline-flex items-center gap-1 text-slate-600 no-underline transition hover:text-[#02665e]"
-                                aria-label={`Open completed booking date ${String(booking.id)}`}
-                                title="Open completed booking"
+                    {/* At a glance */}
+                    <section aria-label="Completed trips at a glance" className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-200 lg:grid-cols-4">
+                      <div className="min-w-0 bg-white px-4 py-3.5">
+                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Trips delivered</p>
+                        <p className="m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums text-slate-900">{completedStats.total}</p>
+                        <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">all time</p>
+                      </div>
+                      <div className="min-w-0 bg-white px-4 py-3.5">
+                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Guest rating</p>
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <p className={`m-0 text-[26px] font-black leading-none tabular-nums ${completedStats.guestAvg != null ? "text-slate-900" : "text-slate-300"}`}>
+                            {completedStats.guestAvg != null ? completedStats.guestAvg.toFixed(1) : "0.0"}
+                          </p>
+                          {completedStats.guestAvg != null ? <MiniStars value={completedStats.guestAvg} size="h-4 w-4" /> : null}
+                        </div>
+                        <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">
+                          {completedStats.ratingCount ? `from ${completedStats.ratingCount} ${completedStats.ratingCount === 1 ? "rating" : "ratings"}` : "no guest ratings yet"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCompletedFilter(completedStats.toRate ? "TO_RATE" : "ALL")}
+                        style={{ fontFamily: "inherit" }}
+                        className="min-w-0 cursor-pointer border-0 bg-white px-4 py-3.5 text-left transition-colors hover:bg-amber-50/50"
+                      >
+                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Awaiting your rating</p>
+                        <p className={`m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums ${completedStats.toRate ? "text-amber-600" : "text-slate-300"}`}>{completedStats.toRate}</p>
+                        <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">{completedStats.toRate ? "rate to build your record" : "all trips rated"}</p>
+                      </button>
+                      <div className="min-w-0 bg-white px-4 py-3.5">
+                        <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Payouts settled</p>
+                        <p className="m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums text-slate-900">
+                          {completedStats.paid}<span className="text-[15px] font-bold text-slate-300">/{completedStats.total}</span>
+                        </p>
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${completedStats.total ? Math.round((completedStats.paid / completedStats.total) * 100) : 0}%` }} />
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* Quick filters and search */}
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div role="tablist" aria-label="Filter completed trips" className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none]">
+                        {filters.map((f) => {
+                          const on = completedFilter === f.key;
+                          if (f.key !== "ALL" && f.count === 0 && !on) return null;
+                          return (
+                            <button
+                              key={f.key}
+                              type="button"
+                              role="tab"
+                              aria-selected={on}
+                              onClick={() => { setCompletedFilter(f.key); setCurrentPage(1); }}
+                              style={{ fontFamily: "inherit" }}
+                              className={`inline-flex h-9 flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-0 px-3.5 text-[13px] font-semibold transition-colors ${
+                                on ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                              }`}
+                            >
+                              {f.label}
+                              <span className={`inline-flex min-w-[20px] justify-center rounded-full px-1.5 text-[11.5px] font-bold tabular-nums ${on ? "bg-white/15 text-white" : f.key === "TO_RATE" ? "bg-amber-100 text-amber-800" : f.key === "ISSUES" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}>{f.count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <label className="flex h-10 w-full items-center gap-2 rounded-full border border-solid border-slate-300 bg-white px-4 text-slate-400 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] lg:w-80">
+                        <Search className="h-4 w-4 flex-shrink-0" aria-hidden />
+                        <span className="sr-only">Search completed trips</span>
+                        <input
+                          type="search"
+                          value={completedQuery}
+                          onChange={(event) => { setCompletedQuery(event.target.value); setCurrentPage(1); }}
+                          placeholder="Search guest, code, tour or airport"
+                          className="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
+                          style={{ fontFamily: "inherit" }}
+                        />
+                      </label>
+                    </div>
+
+                    {rows.length === 0 ? (
+                      <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                        <CheckCircle2 className="h-8 w-8 text-slate-300" aria-hidden />
+                        <p className="m-0 mt-3 text-[15px] font-bold text-slate-900">Nothing matches</p>
+                        <p className="m-0 mt-1 text-[13px] text-slate-500">
+                          {completedFilter === "TO_RATE" ? "Every completed trip has your rating." : completedFilter === "ISSUES" ? "No completed trip has a reported issue." : completedFilter === "PAYOUT_PENDING" ? "Every payout is settled." : "Try a guest name or tour code."}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => { setCompletedFilter("ALL"); setCompletedQuery(""); }}
+                          style={{ fontFamily: "inherit" }}
+                          className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"
+                        >
+                          Show all completed trips
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                        <TableScroller label="completed trips table">
+                          <table className="w-full min-w-[1080px] border-collapse text-left">
+                            <thead className="bg-slate-50/90 [&>tr>th]:shadow-[inset_0_-1px_0_0_#e5e5e5]">
+                              <tr>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3"><SortableHeader label="Trip" column="bookingBy" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3"><SortableHeader label="Completed" column="completedAt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3"><SortableHeader label="Guest rating" column="tripRating" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3"><SortableHeader label="Your rating" column="selfRating" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3"><SortableHeader label="Issues" column="challenge" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3"><SortableHeader label="Payout" column="payout" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="whitespace-nowrap px-4 py-3 text-right"><SortableHeader label="Booking value" column="amountPaid" sortKey={sortKey} sortDir={sortDir} onSort={onSort} /></th>
+                                <th scope="col" className="w-12 px-4 py-3"><span className="sr-only">Open</span></th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white [&>tr>td]:shadow-[inset_0_-1px_0_0_#f1f5f9] [&>tr:last-child>td]:shadow-none">
+                              {pageRows.map((booking) => {
+                                const bid = String(booking.id);
+                                const detailsHref = `/account/agent/bookings/completed/${encodeURIComponent(bid)}?source=tour`;
+                                const { tour, destination } = tourParts(booking);
+                                const completedAt = booking.completedAt || booking.updatedAt || booking.createdAt || null;
+                                const tripDays = booking.tripDate && booking.endDate
+                                  ? Math.round((startOfDayMs(booking.endDate) - startOfDayMs(booking.tripDate)) / 86_400_000) + 1
+                                  : null;
+                                const guestCount = Number(booking.guestRatingCount || 0);
+                                const guestAvg = typeof booking.rating === "number" && guestCount > 0 ? booking.rating : null;
+                                const issues = booking.issueSummary || null;
+                                const payout = payoutChip(booking);
+                                const currency = booking.currency || "TZS";
+                                return (
+                                  <TableRow key={`tb-${bid}`} hover={false} className="group transition hover:bg-slate-50/70">
+                                    <td className="px-4 py-3">
+                                      <a href={detailsHref} className="flex min-w-0 items-center gap-3 no-underline">
+                                        <span className="inline-flex h-10 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[13px] font-black tracking-[0.08em] text-slate-500 transition-colors group-hover:bg-[#02665e]/10 group-hover:text-[#02665e]">
+                                          {placeCodeOf(booking)}
+                                        </span>
+                                        <span className="min-w-0">
+                                          <span className="block max-w-[15rem] truncate text-[13.5px] font-bold text-slate-900">{booking.requester?.fullName || "Guest"}</span>
+                                          <span className="block max-w-[15rem] truncate text-[12px] text-slate-500">
+                                            {[booking.tripType || tour, destination, booking.requester?.nationality].filter(Boolean).join(" · ")}
+                                          </span>
+                                          {booking.bookingCode ? <span className="block font-mono text-[11px] text-slate-400">{booking.bookingCode}</span> : null}
+                                        </span>
+                                      </a>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className="block whitespace-nowrap text-[13px] font-semibold text-slate-800">{completedAt ? new Date(completedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "-"}</span>
+                                      <span className="block whitespace-nowrap text-[11.5px] text-slate-400">
+                                        {[
+                                          booking.tripDate ? `from ${shortTripDate(booking.tripDate)}` : null,
+                                          tripDays && tripDays > 0 ? `${tripDays} ${tripDays === 1 ? "day" : "days"}` : null,
+                                          booking.requester?.travelerCount ? `${booking.requester.travelerCount} pax` : null,
+                                        ].filter(Boolean).join(" · ") || "-"}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      {guestAvg != null ? (
+                                        <span className="flex flex-col gap-0.5">
+                                          <span className="inline-flex items-center gap-1.5">
+                                            <span className="text-[13.5px] font-bold tabular-nums text-slate-900">{guestAvg.toFixed(1)}</span>
+                                            <MiniStars value={guestAvg} />
+                                          </span>
+                                          <span className="text-[11.5px] text-slate-400">{guestCount} {guestCount === 1 ? "rating" : "ratings"}</span>
+                                        </span>
+                                      ) : (
+                                        <span className="text-[12px] text-slate-400">No guest ratings</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      {typeof booking.selfRating === "number" ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-bold text-amber-800">
+                                          <Star className="h-3.5 w-3.5 text-amber-500" fill="currentColor" aria-hidden />
+                                          {booking.selfRating.toFixed(1)}
+                                        </span>
+                                      ) : (
+                                        <a
+                                          href={detailsHref}
+                                          className="inline-flex h-8 items-center gap-1 whitespace-nowrap rounded-full border border-solid border-amber-300 bg-white px-3 text-[12px] font-bold text-amber-700 no-underline transition-colors hover:bg-amber-50"
+                                        >
+                                          <Star className="h-3.5 w-3.5" aria-hidden />
+                                          Rate now
+                                        </a>
+                                      )}
+                                    </td>
+                                    <td className="max-w-[14rem] px-4 py-3">
+                                      {issues && issues.total > 0 ? (
+                                        <span className="flex min-w-0 flex-col gap-0.5" title={issues.latestTitle || undefined}>
+                                          <span className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${issues.highestSeverity === "HIGH" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}>
+                                            <span className={`h-1.5 w-1.5 rounded-full ${issues.highestSeverity === "HIGH" ? "bg-rose-500" : "bg-amber-500"}`} aria-hidden />
+                                            {issues.total} {issues.total === 1 ? "issue" : "issues"}
+                                            {issues.open > 0 ? ` · ${issues.open} open` : ""}
+                                          </span>
+                                          {issues.latestTitle ? <span className="truncate text-[11.5px] text-slate-500">{issues.latestTitle}</span> : null}
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-emerald-700">
+                                          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                                          Clean trip
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className="flex flex-col gap-0.5">
+                                        <span className={`inline-flex w-fit items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold capitalize ${payout.cls}`}>
+                                          <span className={`h-1.5 w-1.5 rounded-full ${payout.dot}`} aria-hidden />
+                                          {payout.label}
+                                        </span>
+                                        {typeof booking.operatorPayoutAmount === "number" ? (
+                                          <span className="whitespace-nowrap text-[11.5px] tabular-nums text-slate-500">{currency} {booking.operatorPayoutAmount.toLocaleString("en-US")}</span>
+                                        ) : null}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                      <span className="whitespace-nowrap text-[13.5px] font-bold tabular-nums text-slate-900">
+                                        {typeof booking.amountPaid === "number" ? booking.amountPaid.toLocaleString("en-US") : "-"}
+                                      </span>
+                                      <span className="ml-1 text-[11px] font-semibold text-slate-400">{currency}</span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                      <a
+                                        href={detailsHref}
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+                                        aria-label={`Open completed trip for ${booking.requester?.fullName || "guest"}`}
+                                        title="Open record"
+                                      >
+                                        <ChevronRight className="h-4 w-4" aria-hidden />
+                                      </a>
+                                    </td>
+                                  </TableRow>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </TableScroller>
+                        {rows.length > PAGE_SIZE ? (
+                          <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-4 py-3">
+                            <span className="text-[12px] font-semibold text-slate-500">
+                              {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, rows.length)} of {rows.length}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setCurrentPage(Math.max(1, page - 1))}
+                                disabled={page <= 1}
+                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                                aria-label="Previous page"
                               >
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                                {completedAtLabel}
-                              </a>
-                            </td>
-                            <td className="px-4 py-3">
-                              {rating !== null ? (
-                                <span className="inline-flex items-center gap-0.5">
-                                  {[1, 2, 3, 4, 5].map((star) => (
-                                    <svg key={star} className={`h-4 w-4 ${star <= rating ? "text-amber-400" : "text-slate-200"}`} fill="currentColor" viewBox="0 0 20 20">
-                                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                    </svg>
-                                  ))}
-                                  <span className="ml-1 text-xs font-semibold text-slate-600">{rating}/5</span>
-                                </span>
-                              ) : (
-                                <span className="text-xs text-slate-400">Not rated</span>
-                              )}
-                            </td>
-                            <td className="max-w-[180px] px-4 py-3 text-sm text-slate-600">
-                              {challenge ? (
-                                <span className="block truncate" title={challenge}>{challenge}</span>
-                              ) : (
-                                <span className="text-xs text-slate-400">None reported</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <a
-                                href={detailsHref}
-                                className="inline-flex items-center no-underline"
-                                aria-label={`Open completed booking status ${String(booking.id)}`}
-                                title="Open completed booking"
+                                <ChevronLeft className="h-4 w-4" aria-hidden />
+                              </button>
+                              <span className="text-[12px] font-semibold text-slate-500">{page} of {pages}</span>
+                              <button
+                                type="button"
+                                onClick={() => setCurrentPage(Math.min(pages, page + 1))}
+                                disabled={page >= pages}
+                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                                aria-label="Next page"
                               >
-                                <BookingStatusBadge status={booking.status} />
-                              </a>
-                            </td>
-                            <td className="px-4 py-3 text-sm font-semibold text-slate-700">{amountPaid}</td>
-                            <td className="px-4 py-3 text-right">
-                              {!isTourBooking ? (
-                                <a
-                                  href={detailsHref}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </a>
-                              ) : (
-                                <a
-                                  href={detailsHref}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                  aria-label={`View tour booking ${String(booking.id)}`}
-                                  title="View details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </a>
-                              )}
-                            </td>
-                          </TableRow>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </TableScroller>
-              {paginationControls}
-              </>
-              )
+                                <ChevronRight className="h-4 w-4" aria-hidden />
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             ) : isConfirmedTab ? (
               <div className="space-y-4 px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
                 <style>{"#confirmed-stage, #confirmed-stage * { box-sizing: border-box; }"}</style>

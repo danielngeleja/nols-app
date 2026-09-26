@@ -378,7 +378,8 @@ export default function CompletedBookingDetailPage() {
               <div className="flex items-center justify-center border-0 border-t-2 border-dashed border-slate-200 bg-slate-50/60 px-5 py-7 md:border-l-2 md:border-t-0">
                 <div className="-rotate-[7deg] select-none rounded-[20px] border-[3px] border-solid border-emerald-600/80 p-1 text-emerald-700" aria-label={`Completed on ${prettyDate(completedAtValue)}`}>
                   <div className="rounded-2xl border border-solid border-emerald-600/60 px-6 py-3 text-center">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-700/80">NoLSAF operator record</div>
+                    {/* The brand keeps its own casing; only the words after it are stamped in capitals. */}
+                    <div className="text-[10px] font-bold tracking-[0.3em] text-emerald-700/80">NoLSAF <span className="uppercase">operator record</span></div>
                     <div className="mt-1 text-[30px] font-black uppercase leading-none tracking-[0.12em]">Completed</div>
                     <div className="mt-1.5 text-[12px] font-bold uppercase tracking-[0.18em] tabular-nums">{prettyDate(completedAtValue)}</div>
                     <div className="mt-2 border-0 border-t border-dashed border-emerald-600/40 pt-1.5 text-[11px] font-semibold text-emerald-700/80">
@@ -432,11 +433,12 @@ export default function CompletedBookingDetailPage() {
                               role="radio"
                               aria-checked={value === score}
                               onClick={() => setRatingForm((prev) => ({ ...prev, [row.key]: prev[row.key] === score ? 0 : score }))}
-                              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 transition-colors ${score <= value ? "text-amber-400" : "text-slate-200 hover:text-amber-200"}`}
+                              className={`inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 transition-colors hover:bg-amber-50 ${score <= value ? "text-amber-500" : "text-slate-400 hover:text-amber-500"}`}
                               aria-label={`${row.label}: ${score} of 5`}
                               title={`${score}/5 · ${ratingStepLabel(score)}`}
                             >
-                              <Star className="h-6 w-6" fill="currentColor" aria-hidden />
+                              {/* Unrated stars are outlines so they read clearly on white; rated ones fill solid. */}
+                              <Star className="h-6 w-6" fill={score <= value ? "currentColor" : "none"} strokeWidth={1.75} aria-hidden />
                             </button>
                           ))}
                         </div>
