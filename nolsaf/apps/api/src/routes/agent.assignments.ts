@@ -1442,12 +1442,16 @@ router.get(
           guestName: true,
           nationality: true,
           metadata: true,
+          paidAt: true,
+          customerConfirmedAt: true,
+          disputeWindowEndsAt: true,
+          _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"] } } } } },
         },
         orderBy: { createdAt: "desc" },
       }),
     ]);
 
-    const isCompletedTour = (status: unknown, metadata: unknown): boolean => {
+    const isCompletedTour =(status: unknown, metadata: unknown): boolean => {
       const s = String(status || "").toUpperCase();
       if (s.includes("COMPLETE") || s.includes("DONE") || s.includes("FINISHED") || s.includes("CHECKED_OUT")) return true;
       const md = metadata && typeof metadata === "object" && !Array.isArray(metadata)
@@ -1518,7 +1522,17 @@ router.get(
 
     const tourItems = tourDerived.map((t) => {
       const rawTour = (tourByReportId.get(t.id) || null) as any;
+      // Same gate the claim endpoint applies, so the page can say up front
+      // whether a trip is claimable and, if not, why and from when.
+      const eligibility = rawTour
+        ? canClaimFinalTourPayout({ ...rawTour, openCaseCount: rawTour._count?.cases || 0 })
+        : { ok: false, reason: "unknown" };
+      const claimAvailableAt = eligibility.reason === "dispute_window_open" && rawTour?.disputeWindowEndsAt
+        ? new Date(rawTour.disputeWindowEndsAt).toISOString()
+        : null;
       return {
+      claimEligibility: { ok: eligibility.ok, reason: eligibility.reason || null, availableAt: claimAvailableAt },
+      openCaseCount: rawTour?._count?.cases || 0,
       source: t.source,
       id: t.id,
       bookingCode: rawTour?.bookingCode || null,

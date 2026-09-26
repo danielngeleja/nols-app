@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, DollarSign, CalendarDays, Clock, HandCoins, Info, Search, XCircle } from "lucide-react";
+import { ArrowLeft, Building2, CheckCircle2, TrendingUp, DollarSign, CalendarDays, Clock, HandCoins, Info, Search, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import LogoSpinner from "@/components/LogoSpinner";
 import TableScroller from "@/components/TableScroller";
 import { publishRailCounts } from "@/lib/agentRailSignals";
 import TableRow from "@/components/TableRow";
+import OperatorPayoutDestination, { isPayoutDestinationComplete } from "@/components/agent/OperatorPayoutDestination";
 
 const api = apiClient;
 
@@ -39,6 +40,9 @@ type RevenueItem = {
   payoutPaidAt?: string | null;
   client: string;
   nationality?: string | null;
+  /** Server-side result of the same gate the claim endpoint applies. */
+  claimEligibility?: { ok: boolean; reason: string | null; availableAt: string | null } | null;
+  openCaseCount?: number;
 };
 
 type RevenueSummary = {
@@ -83,6 +87,50 @@ const STAT_TONES: Record<string, string> = {
   amber: "bg-amber-50 text-amber-700",
   red: "bg-red-50 text-red-700",
 };
+
+function claimBlockedReason(item: RevenueItem): string {
+  const e = item.claimEligibility;
+  if (!e || e.ok) return "";
+  switch (e.reason) {
+    case "already_claimed":
+      return "Already claimed. Follow it in the tracker below.";
+    case "tour_not_completed":
+      return "The trip is not completed yet. Claims open once it is completed.";
+    case "open_case":
+      return `Held while ${item.openCaseCount && item.openCaseCount > 1 ? `${item.openCaseCount} cases are` : "a case is"} open on this trip.`;
+    case "payment_not_confirmed":
+      return "The guest payment is not confirmed yet.";
+    case "dispute_window_open":
+      return e.availableAt
+        ? `Claimable from ${new Date(e.availableAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}, after the guest dispute window, or sooner if the guest confirms completion.`
+        : "Waiting for the guest to confirm completion.";
+    default:
+      return "This trip is not eligible for a payout claim.";
+  }
+}
+
+function claimBlockedShort(item: RevenueItem): string {
+  const e = item.claimEligibility;
+  switch (e?.reason) {
+    case "tour_not_completed":
+      return "Trip not completed";
+    case "open_case":
+      return "Held by open case";
+    case "payment_not_confirmed":
+      return "Payment unconfirmed";
+    case "dispute_window_open":
+      return e.availableAt
+        ? `From ${new Date(e.availableAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+        : "Awaiting guest confirmation";
+    default:
+      return "Not claimable yet";
+  }
+}
+
+function placeCodeFor(title: string): string {
+  const [tour, destination] = String(title || "").split(" • ");
+  return ((destination || tour || "").replace(/[^A-Za-z]/g, "").slice(0, 3) || "TRP").toUpperCase();
+}
 
 function StatCard({
   icon,
@@ -130,6 +178,7 @@ export default function AgentRevenuesPage() {
   const [claimSubmitting, setClaimSubmitting] = useState(false);
   const [claimSubmitSuccessCard, setClaimSubmitSuccessCard] = useState<string | null>(null);
   const [showClaimConfirm, setShowClaimConfirm] = useState(false);
+  const [showWaiting, setShowWaiting] = useState(false);
   const [trendRange, setTrendRange] = useState<TrendRange>("7D");
 
   const router = useRouter();
@@ -204,8 +253,13 @@ export default function AgentRevenuesPage() {
     setClaimLookupMatch(match);
   }, [items]);
 
+  // Only a new code clears the success note. This effect also re-runs when
+  // `items` changes, which happens the moment a claim succeeds.
   useEffect(() => {
-    setClaimSubmitSuccessCard(null);
+    if (claimLookupCode) setClaimSubmitSuccessCard(null);
+  }, [claimLookupCode]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       lookupTourCode(claimLookupCode);
     }, 120);
@@ -216,6 +270,15 @@ export default function AgentRevenuesPage() {
   const handleSubmitClaimInitiator = () => {
     if (!claimLookupMatch?.bookingCode) {
       setClaimLookupError("Please lookup and select a valid tour code first.");
+      return;
+    }
+    if (claimLookupMatch.claimEligibility && !claimLookupMatch.claimEligibility.ok) {
+      setClaimLookupError(claimBlockedReason(claimLookupMatch));
+      return;
+    }
+    if (!isPayoutDestinationComplete(payoutProfile)) {
+      setClaimLookupError("Add a verified payout destination first. Claims are paid to the destination on your account.");
+      document.getElementById("operator-payout")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     if (!claimConsent) {
@@ -245,12 +308,14 @@ export default function AgentRevenuesPage() {
                   payoutRequestedAt: claimedAt,
                   payoutStatus: status,
                   invoiceStatus: item.invoiceStatus || status,
+                  claimEligibility: { ok: false, reason: "already_claimed", availableAt: null },
                 }
               : item
           )
         );
         setClaimSubmitSuccessCard("Thanks for submitting your claim. NoLSAF is processing it and you can track the status above.");
         setClaimConsent(false);
+        setClaimLookupCode("");
       }
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.response?.data?.error || "Failed to submit payout claim";
@@ -395,6 +460,40 @@ export default function AgentRevenuesPage() {
     }
     return counts;
   }, [items, trackerStage]);
+
+  // Claim candidates: what can be claimed now, and what will be claimable
+  // later (with the reason), so nobody has to guess a tour code.
+  const claimReady = useMemo(
+    () => items.filter((item) => item.claimEligibility?.ok),
+    [items]
+  );
+  const claimWaiting = useMemo(
+    () =>
+      items
+        .filter((item) => !item.claimEligibility?.ok && trackerStage(item) === "NEW" && item.claimEligibility?.reason !== "already_claimed")
+        .sort((a, b) => {
+          const ta = a.claimEligibility?.availableAt ? new Date(a.claimEligibility.availableAt).getTime() : Number.MAX_SAFE_INTEGER;
+          const tb = b.claimEligibility?.availableAt ? new Date(b.claimEligibility.availableAt).getTime() : Number.MAX_SAFE_INTEGER;
+          return ta - tb;
+        }),
+    [items, trackerStage]
+  );
+  const claimReadyTotal = useMemo(() => claimReady.reduce((sum, item) => sum + Number(item.agentEarning || 0), 0), [claimReady]);
+
+  // Where every operator dollar sits right now, left to right: claimable,
+  // about to be claimable, with NoLSAF finance, and already paid out.
+  const payoutPipeline = useMemo(() => {
+    const sum = (rows: RevenueItem[]) => rows.reduce((total, item) => total + Number(item.agentEarning || 0), 0);
+    const withFinance = items.filter((item) => ["CLAIMED", "VERIFIED", "APPROVED"].includes(trackerStage(item)));
+    const paidOut = items.filter((item) => trackerStage(item) === "DISBURSED");
+    return [
+      { key: "ready", label: "Ready to claim", amount: claimReadyTotal, count: claimReady.length, hint: "claim it below", tone: "brand" as const },
+      { key: "soon", label: "Opening soon", amount: sum(claimWaiting), count: claimWaiting.length, hint: "not claimable yet", tone: "amber" as const },
+      { key: "finance", label: "With NoLSAF", amount: sum(withFinance), count: withFinance.length, hint: "being processed", tone: "sky" as const },
+      { key: "paid", label: "Paid out", amount: sum(paidOut), count: paidOut.length, hint: "in your account", tone: "emerald" as const },
+    ];
+  }, [items, trackerStage, claimReady, claimReadyTotal, claimWaiting]);
+  const payoutReady = isPayoutDestinationComplete(payoutProfile);
 
   const operationRows = useMemo(() => {
     const filtered = trackerFilter === "ALL" ? [...items] : items.filter((item) => trackerStage(item) === trackerFilter);
@@ -541,151 +640,388 @@ export default function AgentRevenuesPage() {
         </div>
       </header>
 
-      {/* Claim a payout. This is the page's primary action, so it leads rather
-          than sitting halfway down inside the tracker card. */}
-      <section className="mb-4 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-[inset_0_-1px_0_0_#f5f5f5]">
+      {/* Claim a payout. The page's primary action, so it leads: it lists what is
+          claimable now, what will be and why, and fixes the payout destination
+          in place instead of sending the operator away. */}
+      <section id="claim-payout" className="mb-4 overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white">
+        <style>{"#claim-payout, #claim-payout * { box-sizing: border-box; }"}</style>
+
+        {/* Header: title, then where the money sits as a left-to-right flow */}
+        <div className="border-0 border-b border-solid border-neutral-100 p-4 sm:p-5">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
-              <HandCoins className="h-4 w-4" aria-hidden />
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]">
+              <HandCoins className="h-5 w-5" aria-hidden />
             </span>
             <div className="min-w-0">
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Claim a payout</h2>
-              <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">
-                Enter the tour code of a completed trip to open an invoice claim with NoLSAF.
+              <h2 className="m-0 text-[16px] font-bold text-neutral-900">Claim a payout</h2>
+              <p className="m-0 mt-0.5 text-[12.5px] text-neutral-500">
+                {claimReady.length
+                  ? `${claimReady.length} ${claimReady.length === 1 ? "trip is" : "trips are"} ready. Pick one below and send the claim.`
+                  : claimWaiting.length
+                    ? `Nothing to claim today. ${claimWaiting.length} ${claimWaiting.length === 1 ? "trip opens" : "trips open"} for claims soon.`
+                    : "Your earnings move through these stages. Completed trips become claimable here."}
               </p>
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
-              <input
-                type="text"
-                value={claimLookupCode}
-                onChange={(e) => setClaimLookupCode(e.target.value.toUpperCase())}
-                placeholder="Tour code, e.g. TB-14"
-                aria-label="Tour code"
-                className="box-border block h-10 w-full min-w-0 rounded-xl border border-solid border-neutral-200 bg-white pl-9 pr-3 font-mono text-xs font-bold uppercase tracking-wide text-neutral-800 outline-none transition placeholder:font-sans placeholder:font-medium placeholder:normal-case placeholder:tracking-normal placeholder:text-neutral-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
-              />
-            </div>
-          </div>
+          {/* Money rail: four stops joined by one line. Dashes run into any stop
+              that holds money, so the page reads as a flow, not a table. */}
+          <style>{`
+            @keyframes payout-flow { to { background-position: 28px 0; } }
+            @keyframes payout-dash { to { stroke-dashoffset: -28; } }
+            .payout-flow-x { background-image: repeating-linear-gradient(90deg, currentColor 0 10px, transparent 10px 14px); background-size: 28px 100%; animation: payout-flow 1.1s linear infinite; }
+            .payout-dash { stroke-dasharray: 10 4; animation: payout-dash 1.1s linear infinite; }
+            @media (prefers-reduced-motion: reduce) { .payout-flow-x, .payout-dash { animation: none; } }
+          `}</style>
+          {(() => {
+            const stops = payoutPipeline.map((stage, index) => {
+              const next = payoutPipeline[index + 1];
+              const tone = {
+                brand: { node: "bg-[#02665e] text-white shadow-[0_0_0_5px_rgba(2,102,94,0.12)]", amount: "text-[#02665e]", line: "text-[#02665e]" },
+                amber: { node: "bg-amber-500 text-white shadow-[0_0_0_5px_rgba(245,158,11,0.14)]", amount: "text-amber-700", line: "text-amber-400" },
+                sky: { node: "bg-sky-600 text-white shadow-[0_0_0_5px_rgba(2,132,199,0.12)]", amount: "text-sky-700", line: "text-sky-400" },
+                emerald: { node: "bg-emerald-600 text-white shadow-[0_0_0_5px_rgba(5,150,105,0.12)]", amount: "text-emerald-700", line: "text-emerald-400" },
+              };
+              return {
+                ...stage,
+                active: stage.count > 0,
+                last: index === payoutPipeline.length - 1,
+                tone: tone[stage.tone],
+                Icon: stage.key === "ready" ? HandCoins : stage.key === "soon" ? Clock : stage.key === "finance" ? Building2 : CheckCircle2,
+                // The segment leading out of a stop animates when the next stop holds money.
+                flowing: Boolean(next && next.count > 0),
+                nextLine: next ? tone[next.tone].line : "",
+              };
+            });
+            const node = (s: (typeof stops)[number]) => (
+              <span className={`relative z-10 grid h-10 w-10 flex-shrink-0 place-items-center rounded-full transition-colors ${s.active ? s.tone.node : "border-2 border-solid border-neutral-200 bg-white text-neutral-300"}`}>
+                <s.Icon className="h-[18px] w-[18px]" aria-hidden />
+              </span>
+            );
+            const text = (s: (typeof stops)[number], align: "left" | "right" | "center") => (
+              <div className={`min-w-0 ${align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left"}`}>
+                <div className={`text-[12.5px] font-semibold ${s.active ? "text-neutral-800" : "text-neutral-400"}`}>{s.label}</div>
+                <div className={`mt-0.5 text-[18px] font-extrabold leading-tight tabular-nums ${s.active ? s.tone.amount : "text-neutral-300"}`}>
+                  {s.active ? `${displayCurrency} ${s.amount.toLocaleString("en-US")}` : `${displayCurrency} 0`}
+                </div>
+                <div className="mt-0.5 text-[11.5px] leading-snug text-neutral-400">
+                  {s.active ? `${s.count} ${s.count === 1 ? "trip" : "trips"} · ${s.hint}` : s.hint}
+                </div>
+              </div>
+            );
+            return (
+              <>
+                {/* Phones: a zigzag. Stops alternate left and right, joined by
+                    diagonals that run node centre to node centre. */}
+                <ol className="m-0 mt-5 list-none p-0 sm:hidden" aria-label="Where your earnings are">
+                  {stops.map((s, index) => {
+                    const onLeft = index % 2 === 0;
+                    return (
+                      <li key={s.key} className="min-w-0">
+                        <div className={`flex items-center gap-3 ${onLeft ? "" : "flex-row-reverse"}`}>
+                          {node(s)}
+                          {text(s, onLeft ? "left" : "right")}
+                        </div>
+                        {!s.last ? (
+                          <div className="relative -my-1 h-9" aria-hidden>
+                            {/* spans from one node centre (20px in) to the other side's */}
+                            <svg className="absolute inset-y-0 left-5 right-5 h-full w-[calc(100%-2.5rem)] overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+                              <line
+                                x1={onLeft ? 0 : 100}
+                                y1={0}
+                                x2={onLeft ? 100 : 0}
+                                y2={100}
+                                vectorEffect="non-scaling-stroke"
+                                strokeWidth={2}
+                                strokeLinecap="round"
+                                className={s.flowing ? `payout-dash ${s.nextLine}` : "text-neutral-200"}
+                                stroke="currentColor"
+                              />
+                            </svg>
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                {/* Tablet up: one horizontal rail */}
+                <ol className="m-0 mt-5 hidden list-none p-0 sm:flex sm:flex-row" aria-label="Where your earnings are">
+                  {stops.map((s) => (
+                    <li key={s.key} className="relative flex min-w-0 flex-1 flex-col items-center gap-2.5">
+                      {!s.last ? (
+                        <span aria-hidden className={`absolute left-[calc(50%+26px)] right-[calc(-50%+26px)] top-[19px] h-0.5 rounded-full ${s.flowing ? `payout-flow-x ${s.nextLine}` : "bg-neutral-200"}`} />
+                      ) : null}
+                      {node(s)}
+                      <div className="px-2">{text(s, "center")}</div>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            );
+          })()}
         </div>
 
-        <div className="p-4">
-              {claimLookupError ? (
-                <div className="rounded-xl border border-solid border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-                  {claimLookupError}
-                </div>
-              ) : !claimLookupMatch && !claimSubmitSuccessCard ? (
-                <p className="m-0 rounded-xl border border-dashed border-neutral-200 px-3 py-6 text-center text-xs text-neutral-400">
-                  Claims are available on completed trips. Enter a tour code above to load its summary.
-                </p>
-              ) : null}
+        <div className="space-y-4 p-4 sm:p-5">
+          {/* Payout destination: the saved one with Change, or the editor when none is set */}
+          <OperatorPayoutDestination
+            key={payoutReady ? "saved" : "missing"}
+            saved={payoutProfile || {}}
+            onSaved={(next) => {
+              setPayoutProfile((current) => ({ ...(current || {}), ...next }));
+              setClaimLookupError(null);
+            }}
+          />
 
-              {claimLookupMatch && (
-                <div className="mt-4 min-w-0 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 bg-neutral-50/70 px-4 py-2.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-600">Claim summary</p>
-                    <span className="max-w-full truncate rounded-full border border-solid border-teal-200 bg-teal-50 px-2.5 py-0.5 text-[11px] font-bold text-teal-700">
-                      {claimLookupMatch.bookingCode || claimLookupCode}
-                    </span>
-                  </div>
+          {/* Ready to claim: pick a trip instead of typing a code */}
+          <div>
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="m-0 text-[13.5px] font-bold text-neutral-900">
+                Ready to claim <span className="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11.5px] font-bold text-emerald-700">{claimReady.length}</span>
+              </h3>
+              <label className="flex h-9 w-full items-center gap-2 rounded-full border border-solid border-neutral-300 bg-white px-3.5 text-neutral-400 transition-[border-color,box-shadow] hover:border-neutral-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] sm:w-72">
+                <Search className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                <span className="sr-only">Tour code</span>
+                <input
+                  type="text"
+                  value={claimLookupCode}
+                  onChange={(e) => setClaimLookupCode(e.target.value.toUpperCase())}
+                  placeholder="Or paste a tour code"
+                  className="h-full w-full min-w-0 border-0 bg-transparent p-0 font-mono text-[12px] font-bold uppercase tracking-wide text-neutral-800 placeholder:font-sans placeholder:font-medium placeholder:normal-case placeholder:tracking-normal placeholder:text-neutral-400 focus:outline-none focus:ring-0"
+                />
+              </label>
+            </div>
 
-                  <dl className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 sm:grid-cols-2">
-                    {([
-                      ["Operation", claimLookupMatch.title || "-"],
-                      ["Client", claimLookupMatch.client || "-"],
-                      ["Nationality", claimLookupMatch.nationality || "-"],
-                      ["Total Paid", `${claimLookupMatch.currency} ${Number(claimLookupMatch.budget || 0).toLocaleString()}`],
-                      ["Agent Revenue", `${claimLookupMatch.currency} ${Number(claimLookupMatch.agentEarning || 0).toLocaleString()}`],
-                      ["NoLSAF Commission", `${claimLookupMatch.currency} ${Number(claimLookupMatch.commissionAmount || 0).toLocaleString()} (${Number(claimLookupMatch.commissionPercent || 0)}%)`],
-                    ] as const).map(([label, value]) => (
-                      <div key={label} className="min-w-0">
-                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{label}</dt>
-                        <dd className="mt-0.5 break-words text-sm font-semibold text-neutral-800">{value}</dd>
-                      </div>
+            {claimReady.length === 0 ? (
+              <p className="m-0 rounded-2xl border border-dashed border-neutral-300 px-4 py-6 text-center text-[12.5px] text-neutral-500">
+                No trip can be claimed right now. Claims open after a trip is completed and the guest confirms it, or the dispute window closes.
+              </p>
+            ) : (
+              <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                {claimReady.map((item) => {
+                  const selected = claimLookupMatch?.id === item.id;
+                  return (
+                    <button
+                      key={String(item.id)}
+                      type="button"
+                      onClick={() => { setClaimLookupCode(String(item.bookingCode || "")); setClaimConsent(false); setShowClaimConfirm(false); }}
+                      aria-pressed={selected}
+                      style={{ fontFamily: "inherit" }}
+                      className={`flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-2xl border border-solid p-3.5 text-left transition-all ${
+                        selected ? "border-[#02665e] bg-[#02665e]/5 shadow-[0_0_0_3px_rgba(2,102,94,0.12)]" : "border-neutral-200 bg-white hover:-translate-y-px hover:border-neutral-300"
+                      }`}
+                    >
+                      <span className={`inline-flex h-11 w-12 flex-shrink-0 items-center justify-center rounded-xl text-[13px] font-black tracking-[0.08em] ${selected ? "bg-[#02665e] text-white" : "bg-neutral-100 text-[#02665e]"}`}>
+                        {placeCodeFor(item.title)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13.5px] font-bold text-neutral-900">{item.client}</span>
+                        <span className="block truncate font-mono text-[11px] text-neutral-400">{item.bookingCode}</span>
+                      </span>
+                      <span className="flex-shrink-0 text-right">
+                        <span className="block text-[14px] font-extrabold tabular-nums text-neutral-900">{Number(item.agentEarning || 0).toLocaleString("en-US")}</span>
+                        <span className="block text-[10.5px] font-semibold text-neutral-400">{item.currency} to you</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {claimWaiting.length > 0 ? (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowWaiting((open) => !open)}
+                  aria-expanded={showWaiting}
+                  style={{ fontFamily: "inherit" }}
+                  className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-[12.5px] font-semibold text-neutral-500 hover:text-neutral-900"
+                >
+                  <Clock className="h-3.5 w-3.5" aria-hidden />
+                  {claimWaiting.length} not claimable yet
+                  <span className="text-neutral-400">{showWaiting ? "· hide" : "· see why"}</span>
+                </button>
+                {showWaiting ? (
+                  <ul className="m-0 mt-2 list-none divide-y divide-solid divide-neutral-100 overflow-hidden rounded-2xl border border-solid border-neutral-200 p-0 [&>*]:border-x-0">
+                    {claimWaiting.map((item) => (
+                      <li key={String(item.id)} className="flex flex-wrap items-center justify-between gap-2 bg-white px-3.5 py-2.5">
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-semibold text-neutral-800">{item.client}</span>
+                          <span className="block truncate font-mono text-[11px] text-neutral-400">{item.bookingCode}</span>
+                        </span>
+                        <span className="flex items-center gap-3">
+                          <span className="text-[12.5px] font-bold tabular-nums text-neutral-500">{item.currency} {Number(item.agentEarning || 0).toLocaleString("en-US")}</span>
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.claimEligibility?.reason === "open_case" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}
+                            title={claimBlockedReason(item)}
+                          >
+                            {claimBlockedShort(item)}
+                          </span>
+                        </span>
+                      </li>
                     ))}
-                  </dl>
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
-                  <div className="mx-4 mb-4 min-w-0 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-4 py-3">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-500">Preferred payout destination</div>
-                    <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-                      {(String(payoutProfile?.payoutPreferred || "").toUpperCase() === "BANK"
-                        ? ([
-                            ["Method", "Bank Account"],
-                            ["Bank", payoutProfile?.bankName || "Not provided"],
-                            ["Account Name", payoutProfile?.bankAccountName || "Not provided"],
-                            ["Account Number", payoutProfile?.bankAccountNumber || "Not provided"],
-                            ["Branch", payoutProfile?.bankBranch || "Not provided"],
-                          ] as const)
-                        : ([
-                            ["Method", "Mobile Money"],
-                            ["Provider", payoutProfile?.mobileMoneyProvider || "Not provided"],
-                            ["Phone", payoutProfile?.mobileMoneyNumber || "Not provided"],
-                          ] as const)
-                      ).map(([label, value]) => (
-                        <div key={label} className="min-w-0">
-                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">{label}</dt>
-                          <dd className={`mt-0.5 break-words text-xs font-semibold ${String(value) === "Not provided" ? "text-neutral-400" : "text-neutral-700"}`}>{value}</dd>
-                        </div>
-                      ))}
+          {claimLookupError ? (
+            <div role="alert" className="flex items-start gap-2 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[12.5px] font-semibold text-rose-700">
+              <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+              {claimLookupError}
+            </div>
+          ) : null}
+
+          {/* The claim itself: money split, destination and send */}
+          {claimLookupMatch ? (() => {
+            const m = claimLookupMatch;
+            const gross = Number(m.budget || 0);
+            const commission = Number(m.commissionAmount || 0);
+            const net = Number(m.agentEarning || 0);
+            const commissionShare = gross > 0 ? Math.min(100, Math.max(0, (commission / gross) * 100)) : 0;
+            const eligible = !m.claimEligibility || m.claimEligibility.ok;
+            const canSend = eligible && payoutReady && claimConsent && !claimSubmitting;
+            return (
+              <div className="overflow-hidden rounded-2xl border border-solid border-[#02665e]/30 bg-white">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 bg-[#02665e]/5 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[14px] font-bold text-neutral-900">{m.title}</div>
+                    <div className="truncate text-[12px] text-neutral-500">
+                      {[m.client, m.nationality, m.dateFrom ? new Date(m.dateFrom).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <span className="max-w-full truncate rounded-full bg-white px-2.5 py-1 font-mono text-[11px] font-bold text-[#02665e] ring-1 ring-inset ring-[#02665e]/20">{m.bookingCode}</span>
+                </div>
+
+                <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  {/* Money split */}
+                  <div className="min-w-0">
+                    <div className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-neutral-400">You receive</div>
+                    <div className="mt-1 text-[34px] font-black leading-none tabular-nums text-[#02665e]">
+                      {m.currency} {net.toLocaleString("en-US")}
+                    </div>
+                    <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+                      <span className="h-full bg-[#02665e]" style={{ width: `${100 - commissionShare}%` }} />
+                      <span className="h-full bg-amber-400" style={{ width: `${commissionShare}%` }} />
+                    </div>
+                    <dl className="m-0 mt-3 space-y-1.5 text-[13px]">
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-neutral-500">Guest paid</dt>
+                        <dd className="m-0 font-semibold tabular-nums text-neutral-800">{m.currency} {gross.toLocaleString("en-US")}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="inline-flex items-center gap-1.5 text-neutral-500"><span className="h-2 w-2 rounded-full bg-amber-400" aria-hidden />NoLSAF commission ({Number(m.commissionPercent || 0)}%)</dt>
+                        <dd className="m-0 font-semibold tabular-nums text-neutral-800">- {m.currency} {commission.toLocaleString("en-US")}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 border-0 border-t border-dashed border-neutral-200 pt-1.5">
+                        <dt className="inline-flex items-center gap-1.5 font-bold text-neutral-900"><span className="h-2 w-2 rounded-full bg-[#02665e]" aria-hidden />Your payout</dt>
+                        <dd className="m-0 font-extrabold tabular-nums text-neutral-900">{m.currency} {net.toLocaleString("en-US")}</dd>
+                      </div>
                     </dl>
                   </div>
 
-                  <label className="mx-4 flex items-start gap-2 text-xs text-neutral-700">
-                    <input
-                      type="checkbox"
-                      checked={claimConsent}
-                      onChange={(e) => setClaimConsent(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300"
-                    />
-                    <span>I agree with NoLSAF Disbursement Policy and confirm the payout destination details are correct.</span>
-                  </label>
+                  {/* What happens after sending */}
+                  <div className="min-w-0 rounded-2xl bg-neutral-50 p-4">
+                    <div className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-neutral-400">After you send</div>
+                    <ol className="m-0 mt-2.5 list-none space-y-2.5 p-0">
+                      {[
+                        { title: "Claimed", text: "Your invoice claim reaches NoLSAF finance." },
+                        { title: "Verified", text: "Finance checks the trip and amounts." },
+                        { title: "Approved", text: "The payout is approved for release." },
+                        { title: "Disbursed", text: "Money is sent to your payout destination." },
+                      ].map((step, index) => (
+                        <li key={step.title} className="flex gap-2.5">
+                          <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-white text-[10.5px] font-bold text-[#02665e] ring-1 ring-inset ring-[#02665e]/25">{index + 1}</span>
+                          <span className="min-w-0 text-[12px] leading-snug text-neutral-600"><strong className="font-bold text-neutral-900">{step.title}.</strong> {step.text}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                </div>
 
-                  {showClaimConfirm ? (
-                    <div className="mx-4 mb-4 mt-3 rounded-xl border border-solid border-amber-200 bg-amber-50 p-4">
-                      <p className="text-sm font-semibold text-neutral-800">Are you sure you want to claim this payout?</p>
-                      <p className="mt-1 text-xs text-neutral-500">This will submit a payout request to NoLSAF for the selected tour. This action cannot be undone.</p>
+                <div className="border-0 border-t border-solid border-neutral-100 px-4 py-4 sm:px-5">
+                  {!eligible ? (
+                    <div className="flex items-start gap-2 rounded-2xl border border-solid border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] font-semibold text-amber-900">
+                      <Clock className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+                      {claimBlockedReason(m)}
+                    </div>
+                  ) : showClaimConfirm ? (
+                    <div className="rounded-2xl border border-solid border-amber-200 bg-amber-50 p-4">
+                      <p className="m-0 text-[13.5px] font-bold text-neutral-900">
+                        Send a claim for {m.currency} {net.toLocaleString("en-US")}?
+                      </p>
+                      <p className="m-0 mt-1 text-[12px] text-neutral-600">A claim cannot be withdrawn once sent. NoLSAF will pay it to your saved payout destination.</p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={confirmClaimSubmit}
                           disabled={claimSubmitting}
-                          className="rounded-lg border border-solid border-[#02665e] bg-[#02665e] px-4 py-2 text-sm font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+                          style={{ fontFamily: "inherit" }}
+                          className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {claimSubmitting ? "Submitting..." : "Yes, claim payout"}
+                          <HandCoins className="h-4 w-4" aria-hidden />
+                          {claimSubmitting ? "Submitting..." : "Yes, send claim"}
                         </button>
                         <button
                           type="button"
                           onClick={() => setShowClaimConfirm(false)}
                           disabled={claimSubmitting}
-                          className="rounded-lg border border-solid border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          style={{ fontFamily: "inherit" }}
+                          className="inline-flex h-10 cursor-pointer items-center rounded-full border border-solid border-neutral-300 bg-white px-5 text-[13px] font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"
                         >
                           Cancel
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="mx-4 mb-4 mt-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="flex cursor-pointer items-start gap-2 text-[12.5px] text-neutral-700">
+                        <input
+                          type="checkbox"
+                          checked={claimConsent}
+                          onChange={(e) => setClaimConsent(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300"
+                        />
+                        <span>I agree with the NoLSAF Disbursement Policy and confirm my payout destination is correct.</span>
+                      </label>
                       <button
                         type="button"
                         onClick={handleSubmitClaimInitiator}
-                        disabled={claimSubmitting}
-                        className="w-full rounded-lg border border-solid border-[#02665e] bg-[#02665e] px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                        disabled={!canSend}
+                        title={!payoutReady ? "Add a verified payout destination first" : !claimConsent ? "Agree to the policy first" : undefined}
+                        style={{ fontFamily: "inherit" }}
+                        className="inline-flex h-10 flex-shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-45"
                       >
-                        {claimSubmitting ? "Submitting..." : "Send claim to NoLSAF"}
+                        <HandCoins className="h-4 w-4" aria-hidden />
+                        Claim {m.currency} {net.toLocaleString("en-US")}
                       </button>
                     </div>
                   )}
                 </div>
-              )}
+              </div>
+            );
+          })() : null}
 
-              {claimSubmitSuccessCard && (
-                <div className="mt-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-                  {claimSubmitSuccessCard}
+          {claimSubmitSuccessCard ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2.5">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" aria-hidden />
+                <div>
+                  <p className="m-0 text-[13.5px] font-bold text-emerald-900">Claim sent to NoLSAF</p>
+                  <p className="m-0 mt-0.5 text-[12px] text-emerald-800/80">Finance verifies it next. You can follow each step in the tracker.</p>
                 </div>
-              )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setTrackerFilter("CLAIMED"); setClaimSubmitSuccessCard(null); setClaimLookupCode(""); }}
+                style={{ fontFamily: "inherit" }}
+                className="inline-flex h-9 flex-shrink-0 cursor-pointer items-center rounded-full border border-solid border-emerald-300 bg-white px-4 text-[12.5px] font-bold text-emerald-800 hover:bg-emerald-100"
+              >
+                Track my claims
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
