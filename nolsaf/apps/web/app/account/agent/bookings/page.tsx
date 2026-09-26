@@ -451,6 +451,62 @@ function StageRail({ checkpoints, onBrand }: { checkpoints: Checkpoint[]; onBran
   );
 }
 
+type ActivityTiming = "done" | "live" | "late" | "soon" | "today" | "later" | "open";
+
+/** "07:00-09:00", "07:00 - 09:00" or "07:00" as minutes since midnight. */
+function parseWindow(timeLabel?: string): { start: number; end: number | null } | null {
+  const m = String(timeLabel || "").match(/([01]?\d|2[0-3]):([0-5]\d)(?:\s*[-–]\s*([01]?\d|2[0-3]):([0-5]\d))?/);
+  if (!m) return null;
+  const start = Number(m[1]) * 60 + Number(m[2]);
+  const end = m[3] != null ? Number(m[3]) * 60 + Number(m[4]) : null;
+  return { start, end: end != null && end > start ? end : null };
+}
+
+function formatSpan(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  if (h >= 24) return `${Math.floor(h / 24)}d`;
+  return r ? `${h}h ${r}m` : `${h}h`;
+}
+
+/**
+ * Where one activity stands against the clock. The trip's own day (from its
+ * start date) decides which timetable day is "today"; past days are late,
+ * future days wait, and today's items are read against their time window.
+ */
+function activityTiming(
+  done: boolean,
+  groupDay: number,
+  tourDay: number | null,
+  timeLabel: string | undefined,
+  nowMs: number,
+): { state: ActivityTiming; note: string } {
+  if (done) return { state: "done", note: "" };
+  if (tourDay == null) return { state: "open", note: "" };
+  if (groupDay < tourDay) return { state: "late", note: tourDay - groupDay === 1 ? "was due yesterday" : `was due ${tourDay - groupDay} days ago` };
+  if (groupDay > tourDay) return { state: "later", note: groupDay - tourDay === 1 ? "tomorrow" : `in ${groupDay - tourDay} days` };
+  const win = parseWindow(timeLabel);
+  if (!win) return { state: "today", note: "today" };
+  const now = new Date(nowMs);
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const end = win.end ?? win.start + 60;
+  if (minutes < win.start) return { state: "soon", note: `starts in ${formatSpan(win.start - minutes)}` };
+  if (minutes <= end) return { state: "live", note: win.end != null ? `running now · ends in ${formatSpan(end - minutes)}` : "running now" };
+  return { state: "late", note: `ended ${formatSpan(minutes - end)} ago` };
+}
+
+function tickedTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameDay = startOfDayMs(d) === startOfDayMs(Date.now());
+  return sameDay
+    ? `ticked ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}`
+    : `ticked ${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
+}
+
 /** A torn-ticket perforation with a bite out of each edge in the surface colour. */
 function Perforation() {
   return (
@@ -925,6 +981,14 @@ export default function AgentBookingsPage() {
 
   const [confirmedQuery, setConfirmedQuery] = useState("");
 
+  // A minute clock so "running now", "starts in 20m" and "late" stay honest
+  // while the operator keeps the page open on tour.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Smart order: overdue pickups first (oldest first), then today, then the
   // soonest departures, then trips still waiting for a date.
   const confirmedOrdered = useMemo(() => {
@@ -1206,53 +1270,112 @@ export default function AgentBookingsPage() {
                   </div>
                 </div>
               ) : (() => {
-                const plans = activeItems.map((booking) => {
-                  const bid = String(booking.id);
-                  const activityPlan = getActivityPlan(booking);
-                  const allActivities = activityPlan.flatMap((group) => group.items);
-                  const doneCount = allActivities.filter((a) => !!checkedActivities[`${bid}__${a.id}`]).length;
-                  return { booking, bid, activityPlan, allActivities, doneCount };
-                });
+                const plans = activeItems
+                  .map((booking) => {
+                    const bid = String(booking.id);
+                    const activityPlan = getActivityPlan(booking);
+                    const allActivities = activityPlan.flatMap((group) => group.items.map((it) => ({ ...it, day: group.day })));
+                    const doneCount = allActivities.filter((a) => !!checkedActivities[`${bid}__${a.id}`]).length;
+                    const locked = isBookingChecklistLocked(booking);
+                    const d = daysToTrip(booking);
+                    const tourDay = d != null && d <= 0 ? 1 - d : null;
+                    const totalDays = activityPlan.length ? Math.max(...activityPlan.map((g) => g.day)) : null;
+                    const overrunDays = !locked && tourDay != null && totalDays != null && tourDay > totalDays ? tourDay - totalDays : 0;
+                    const timing: Record<string, { state: ActivityTiming; note: string }> = {};
+                    for (const a of allActivities) {
+                      timing[a.id] = activityTiming(!!checkedActivities[`${bid}__${a.id}`], a.day, tourDay, a.timeLabel, nowTick);
+                    }
+                    const liveItems = allActivities.filter((a) => timing[a.id].state === "live");
+                    const lateItems = allActivities.filter((a) => timing[a.id].state === "late");
+                    const focus = locked
+                      ? null
+                      : liveItems[0]
+                        ? { item: liveItems[0], kind: "now" as const }
+                        : lateItems[0]
+                          ? { item: lateItems[0], kind: "late" as const }
+                          : (() => {
+                              const next = allActivities.find((a) => !checkedActivities[`${bid}__${a.id}`]);
+                              return next ? { item: next, kind: "next" as const } : null;
+                            })();
+                    return { booking, bid, activityPlan, allActivities, doneCount, locked, tourDay, totalDays, overrunDays, timing, liveCount: liveItems.length, lateCount: lateItems.length, focus };
+                  })
+                  // Trips that need the operator right now come first.
+                  .sort((a, b) => (b.lateCount + b.liveCount * 2) - (a.lateCount + a.liveCount * 2));
                 const totalTasks = plans.reduce((sum, p) => sum + p.allActivities.length, 0);
                 const totalDone = plans.reduce((sum, p) => sum + p.doneCount, 0);
+                const totalLive = plans.reduce((sum, p) => sum + p.liveCount, 0);
+                const totalLate = plans.reduce((sum, p) => sum + p.lateCount, 0);
+                const firstName = agentName.split(" ")[0];
+                const headline = totalLate > 0
+                  ? `${firstName}, ${totalLate} ${totalLate === 1 ? "activity is" : "activities are"} overdue`
+                  : totalLive > 0
+                    ? `${firstName}, ${totalLive} ${totalLive === 1 ? "activity is" : "activities are"} running now`
+                    : totalTasks - totalDone > 0
+                      ? `Hello ${firstName}, ${totalTasks - totalDone} ${totalTasks - totalDone === 1 ? "activity" : "activities"} left to tick`
+                      : `Well done ${firstName}, every activity is ticked`;
+                const subline = totalLate > 0
+                  ? "Tick each one that was delivered. Anything not delivered should be raised from the trip details, not ticked."
+                  : totalLive > 0
+                    ? "Tick it as soon as it is delivered, once only. A fully ticked timetable locks and completes the trip."
+                    : "Tick an activity once, right after it is delivered. A fully ticked timetable locks and completes the trip.";
+                const nowLabel = new Date(nowTick).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
                 return (
                   <div id="progress-stage" className="space-y-4 px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
                     <style>{"#progress-stage, #progress-stage * { box-sizing: border-box; }"}</style>
 
-                    {/* Today strip: who, how much is left, and the one rule for ticking. */}
-                    <section className="flex flex-col gap-4 rounded-3xl p-5 text-white sm:flex-row sm:items-center sm:justify-between sm:p-6" style={{ backgroundColor: "#02665e" }}>
+                    {/* Today strip: leads with whatever needs the operator first. */}
+                    <section
+                      className="flex flex-col gap-4 rounded-3xl p-5 text-white sm:p-6 lg:flex-row lg:items-center lg:justify-between"
+                      style={{ backgroundColor: totalLate > 0 ? "#9a3412" : "#02665e" }}
+                    >
                       <div className="min-w-0">
-                        <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-white/65">On tour today</p>
-                        <h2 className="m-0 mt-1.5 text-[19px] font-bold leading-tight text-white sm:text-[21px]">Hello {agentName.split(" ")[0]}, {totalTasks - totalDone > 0 ? `${totalTasks - totalDone} ${totalTasks - totalDone === 1 ? "activity" : "activities"} left to tick` : "every activity is ticked"}</h2>
-                        <p className="m-0 mt-1 text-[12.5px] text-white/70">Tick an activity once, right after it is delivered. A fully ticked timetable locks and completes the trip.</p>
+                        <p className="m-0 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/65">
+                          <span className="relative flex h-2 w-2" aria-hidden>
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+                          </span>
+                          On tour · {nowLabel}
+                        </p>
+                        <h2 className="m-0 mt-1.5 text-[19px] font-bold leading-tight text-white sm:text-[21px]">{headline}</h2>
+                        <p className="m-0 mt-1 max-w-2xl text-[12.5px] leading-relaxed text-white/75">{subline}</p>
                       </div>
-                      <div className="flex flex-shrink-0 items-center gap-5">
+                      <dl className="m-0 grid flex-shrink-0 grid-cols-4 gap-2 sm:gap-3">
                         {[
-                          { value: plans.length, label: plans.length === 1 ? "trip" : "trips" },
-                          { value: `${totalDone}/${totalTasks}`, label: "ticked" },
+                          { value: String(plans.length), label: plans.length === 1 ? "Trip" : "Trips", tone: "text-white" },
+                          { value: String(totalLive), label: "Now", tone: totalLive ? "text-white" : "text-white/40" },
+                          { value: String(totalLate), label: "Late", tone: totalLate ? "text-amber-200" : "text-white/40" },
+                          { value: `${totalDone}/${totalTasks}`, label: "Ticked", tone: "text-white" },
                         ].map((s) => (
-                          <div key={s.label} className="text-center">
-                            <div className="text-[28px] font-black leading-none tabular-nums text-white">{s.value}</div>
-                            <div className="mt-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/60">{s.label}</div>
+                          <div key={s.label} className="min-w-[3.75rem] rounded-2xl bg-white/10 px-3 py-2.5 text-center">
+                            <dd className={`m-0 text-[22px] font-black leading-none tabular-nums ${s.tone}`}>{s.value}</dd>
+                            <dt className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/60">{s.label}</dt>
                           </div>
                         ))}
-                      </div>
+                      </dl>
                     </section>
 
-                    {plans.map(({ booking, bid, activityPlan, allActivities, doneCount }) => {
+                    {plans.map(({ booking, bid, activityPlan, allActivities, doneCount, locked: isChecklistLocked, tourDay, totalDays, overrunDays, timing, liveCount, lateCount, focus }) => {
                       const { tour, destination } = tourParts(booking);
-                      const progressPercent = allActivities.length > 0 ? Math.round((doneCount / allActivities.length) * 100) : 0;
-                      const isChecklistLocked = isBookingChecklistLocked(booking);
                       const showCongratsBanner = isChecklistLocked && (congratsExpiresAt[bid] || 0) > Date.now();
                       const usesAgreedPlan = !!(booking.plannedActivities && booking.plannedActivities.trim());
-                      const d = daysToTrip(booking);
-                      const tourDay = d != null && d <= 0 ? 1 - d : null;
-                      const totalDays = activityPlan.length || null;
-                      const todayGroupDay = tourDay && activityPlan.some((g) => g.day === tourDay) ? tourDay : null;
-                      const nextItem = allActivities.find((a) => !checkedActivities[`${bid}__${a.id}`]) || null;
+                      const scheduledEnd = booking.tripDate && totalDays
+                        ? new Date(startOfDayMs(booking.tripDate) + (totalDays - 1) * 86_400_000)
+                        : null;
+                      const chip = isChecklistLocked
+                        ? { label: "Timetable complete", cls: "bg-emerald-50 text-emerald-700", pulse: false }
+                        : overrunDays > 0
+                          ? { label: `Ran over by ${overrunDays} ${overrunDays === 1 ? "day" : "days"}`, cls: "bg-orange-50 text-orange-800", pulse: false }
+                          : liveCount > 0
+                            ? { label: "Activity running", cls: "bg-[#02665e] text-white", pulse: true }
+                            : { label: tourDay && totalDays ? `Day ${tourDay} of ${totalDays}` : "On tour", cls: "bg-[#02665e] text-white", pulse: true };
 
                       return (
-                        <article key={bid} className="min-w-0 overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
+                        <article
+                          key={bid}
+                          className={`min-w-0 overflow-hidden rounded-3xl border border-solid bg-white ${
+                            lateCount > 0 ? "border-orange-200" : liveCount > 0 ? "border-[#02665e]/40" : "border-slate-200"
+                          }`}
+                        >
                           {/* Trip header */}
                           <div className="p-5 sm:p-6">
                             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1266,16 +1389,18 @@ export default function AgentBookingsPage() {
                                 </div>
                               </div>
                               <div className="flex flex-shrink-0 items-center gap-2">
-                                <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${isChecklistLocked ? "bg-emerald-50 text-emerald-700" : "bg-[#02665e] text-white"}`}>
+                                <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${chip.cls}`}>
                                   {isChecklistLocked ? (
                                     <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                                  ) : (
+                                  ) : chip.pulse ? (
                                     <span className="relative flex h-2 w-2" aria-hidden>
                                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
                                       <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
                                     </span>
+                                  ) : (
+                                    <span className="h-1.5 w-1.5 rounded-full bg-orange-500" aria-hidden />
                                   )}
-                                  {isChecklistLocked ? "Timetable complete" : tourDay && totalDays ? `Day ${Math.min(tourDay, totalDays)} of ${totalDays}` : "On tour"}
+                                  {chip.label}
                                 </span>
                                 <Link
                                   href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`}
@@ -1291,8 +1416,8 @@ export default function AgentBookingsPage() {
                             <dl className="m-0 mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                               {[
                                 { label: "Started", value: shortTripDate(booking.tripDate) },
+                                { label: scheduledEnd && scheduledEnd.getTime() < startOfDayMs(nowTick) ? "Was due to end" : "Ends", value: scheduledEnd ? scheduledEnd.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "TBC" },
                                 { label: "Guests", value: String(booking.requester?.travelerCount ?? "-") },
-                                { label: "Value", value: typeof booking.amountPaid === "number" ? `${booking.currency || "TZS"} ${booking.amountPaid.toLocaleString("en-US")}` : "-" },
                                 { label: "Plan", value: usesAgreedPlan ? "Agreed service plan" : "Package template" },
                               ].map((fact) => (
                                 <div key={fact.label} className="min-w-0">
@@ -1302,21 +1427,47 @@ export default function AgentBookingsPage() {
                               ))}
                             </dl>
 
+                            {/* One segment per activity, coloured by where it stands against the clock. */}
                             <div className="mt-4">
-                              <div className="mb-1.5 flex items-center justify-between text-[12px]">
-                                <span className="truncate text-slate-500">
-                                  {isChecklistLocked
-                                    ? "All activities delivered. The record is locked."
-                                    : nextItem
-                                      ? <>Next up: <span className="font-semibold text-slate-800">{nextItem.timeLabel ? `${nextItem.timeLabel} · ` : ""}{nextItem.label}</span></>
-                                      : "No timetable yet"}
+                              <div className="mb-1.5 flex items-center justify-between gap-3 text-[12px]">
+                                <span className="min-w-0 truncate text-slate-500">
+                                  {isChecklistLocked ? (
+                                    "All activities delivered. The record is locked."
+                                  ) : focus ? (
+                                    <>
+                                      <span className={`font-bold ${focus.kind === "late" ? "text-orange-700" : focus.kind === "now" ? "text-[#02665e]" : "text-slate-500"}`}>
+                                        {focus.kind === "late" ? "Overdue:" : focus.kind === "now" ? "Now:" : "Next up:"}
+                                      </span>{" "}
+                                      <span className="font-semibold text-slate-800">{focus.item.label}</span>
+                                      {timing[focus.item.id]?.note ? <span className="text-slate-400"> · {timing[focus.item.id].note}</span> : null}
+                                    </>
+                                  ) : (
+                                    "No timetable yet"
+                                  )}
                                 </span>
                                 <span className="flex-shrink-0 font-bold tabular-nums text-slate-700">{doneCount}/{allActivities.length}</span>
                               </div>
-                              <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                                <div className="h-full rounded-full bg-[#02665e] transition-all duration-500" style={{ width: `${progressPercent}%` }} />
-                              </div>
+                              {allActivities.length > 0 ? (
+                                <div className="flex gap-1" aria-hidden>
+                                  {allActivities.map((a) => {
+                                    const s = timing[a.id]?.state;
+                                    const cls = s === "done" ? "bg-emerald-500" : s === "live" ? "animate-pulse bg-[#02665e]" : s === "late" ? "bg-orange-400" : "bg-slate-200";
+                                    return <span key={a.id} className={`h-1.5 min-w-0 flex-1 rounded-full ${cls}`} />;
+                                  })}
+                                </div>
+                              ) : null}
                             </div>
+
+                            {overrunDays > 0 ? (
+                              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-solid border-orange-200 bg-orange-50/70 px-4 py-3">
+                                <Flag className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-600" aria-hidden />
+                                <div className="min-w-0 text-[12.5px] leading-relaxed text-orange-900">
+                                  <strong className="font-bold">This trip should have closed {scheduledEnd ? `on ${scheduledEnd.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : "already"}.</strong>{" "}
+                                  {allActivities.length - doneCount} {allActivities.length - doneCount === 1 ? "activity is" : "activities are"} still unticked, so the trip cannot complete. Tick what was delivered, or{" "}
+                                  <Link href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`} className="font-bold text-orange-900 underline underline-offset-2">open the trip</Link> to raise what was not.
+                                </div>
+                              </div>
+                            ) : null}
 
                             {showCongratsBanner ? (
                               <div className="mt-4 flex items-start gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3">
@@ -1340,12 +1491,23 @@ export default function AgentBookingsPage() {
                               <ol className="m-0 list-none space-y-5 p-0">
                                 {activityPlan.map((group) => {
                                   const groupDone = group.items.filter((it) => !!checkedActivities[`${bid}__${it.id}`]).length;
-                                  const isToday = todayGroupDay === group.day;
+                                  const isToday = tourDay === group.day;
                                   const groupComplete = groupDone === group.items.length;
+                                  const groupLate = !groupComplete && group.items.some((it) => timing[it.id]?.state === "late");
                                   return (
                                     <li key={`${bid}-${group.label}`} className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-3">
-                                      <span className={`flex h-11 w-11 flex-col items-center justify-center rounded-2xl ${groupComplete ? "bg-emerald-600 text-white" : isToday ? "bg-[#02665e] text-white" : "border border-solid border-slate-200 bg-white text-slate-700"}`}>
-                                        <span className={`text-[8.5px] font-bold uppercase tracking-[0.12em] ${groupComplete || isToday ? "text-white/70" : "text-slate-400"}`}>Day</span>
+                                      <span
+                                        className={`flex h-11 w-11 flex-col items-center justify-center rounded-2xl ${
+                                          groupComplete
+                                            ? "bg-emerald-600 text-white"
+                                            : groupLate
+                                              ? "bg-orange-500 text-white"
+                                              : isToday
+                                                ? "bg-[#02665e] text-white"
+                                                : "border border-solid border-slate-200 bg-white text-slate-700"
+                                        }`}
+                                      >
+                                        <span className={`text-[8.5px] font-bold uppercase tracking-[0.12em] ${groupComplete || groupLate || isToday ? "text-white/75" : "text-slate-400"}`}>Day</span>
                                         <span className="text-[16px] font-black leading-none">{group.day}</span>
                                       </span>
                                       <div className="min-w-0">
@@ -1353,6 +1515,7 @@ export default function AgentBookingsPage() {
                                           <div className="flex min-w-0 items-center gap-2">
                                             <h4 className="m-0 truncate text-[14px] font-bold text-slate-900">{group.title || group.label}</h4>
                                             {isToday ? <span className="rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#02665e]">Today</span> : null}
+                                            {groupLate && !isToday ? <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-orange-700">Unfinished</span> : null}
                                           </div>
                                           <span className={`text-[11.5px] font-bold tabular-nums ${groupComplete ? "text-emerald-600" : "text-slate-400"}`}>{groupDone}/{group.items.length} done</span>
                                         </div>
@@ -1363,7 +1526,24 @@ export default function AgentBookingsPage() {
                                           {group.items.map((act) => {
                                             const key = `${bid}__${act.id}`;
                                             const done = !!checkedActivities[key];
-                                            const isNext = !isChecklistLocked && nextItem?.id === act.id;
+                                            const t = timing[act.id] || { state: "open" as ActivityTiming, note: "" };
+                                            const isFocus = !isChecklistLocked && focus?.item.id === act.id;
+                                            const row =
+                                              t.state === "done"
+                                                ? "border-emerald-200 bg-emerald-50/60"
+                                                : t.state === "live"
+                                                  ? "border-[#02665e] bg-white shadow-[0_0_0_3px_rgba(2,102,94,0.12)]"
+                                                  : t.state === "late"
+                                                    ? isFocus ? "border-orange-400 bg-white shadow-[0_0_0_3px_rgba(234,88,12,0.12)]" : "border-orange-200 bg-white"
+                                                    : isFocus
+                                                      ? "border-[#02665e]/50 bg-white"
+                                                      : "border-slate-200 bg-white hover:border-slate-300";
+                                            const tag =
+                                              t.state === "live" ? { text: "Now", cls: "bg-[#02665e] text-white" }
+                                              : t.state === "late" ? { text: "Late", cls: "bg-orange-500 text-white" }
+                                              : isFocus ? { text: "Next", cls: "bg-slate-900 text-white" }
+                                              : null;
+                                            const note = done ? tickedTime(checkedActivities[key]) : t.note;
                                             return (
                                               <li key={act.id}>
                                                 <button
@@ -1373,27 +1553,29 @@ export default function AgentBookingsPage() {
                                                   aria-pressed={done}
                                                   aria-label={isChecklistLocked ? `Checklist locked for ${act.label}` : done ? `Unmark ${act.label}` : `Mark ${act.label} as done`}
                                                   style={{ fontFamily: "inherit" }}
-                                                  className={`group flex w-full cursor-pointer items-center gap-3 rounded-2xl border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-default ${
-                                                    done
-                                                      ? "border-emerald-200 bg-emerald-50/60"
-                                                      : isNext
-                                                        ? "border-[#02665e] bg-white shadow-[0_0_0_3px_rgba(2,102,94,0.10)]"
-                                                        : "border-slate-200 bg-white hover:border-slate-300"
-                                                  }`}
+                                                  className={`group grid w-full cursor-pointer grid-cols-[auto_4.75rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-default max-sm:grid-cols-[auto_minmax(0,1fr)_auto] ${row}`}
                                                 >
                                                   <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border-2 border-solid transition-colors ${
-                                                    done ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white text-transparent group-hover:border-[#02665e] group-hover:text-[#02665e]/40"
+                                                    done ? "border-emerald-500 bg-emerald-500 text-white" : t.state === "late" ? "border-orange-300 bg-white text-transparent group-hover:border-orange-500 group-hover:text-orange-500/40" : "border-slate-300 bg-white text-transparent group-hover:border-[#02665e] group-hover:text-[#02665e]/40"
                                                   }`}>
                                                     <Check className="h-4 w-4" aria-hidden />
                                                   </span>
-                                                  <span className="min-w-0 flex-1">
-                                                    <span className={`block text-[13.5px] font-bold ${done ? "text-slate-500 line-through decoration-emerald-400" : "text-slate-900"}`}>{act.label}</span>
-                                                    <span className="block text-[11.5px] text-slate-400">
-                                                      {act.timeLabel || act.period}
-                                                      {done ? " · ticked" : isNext ? " · next up" : ""}
+                                                  <span className={`font-mono text-[12px] font-bold tabular-nums max-sm:hidden ${done ? "text-slate-400" : t.state === "late" ? "text-orange-700" : t.state === "live" ? "text-[#02665e]" : "text-slate-600"}`}>
+                                                    {act.timeLabel || act.period}
+                                                  </span>
+                                                  <span className="min-w-0">
+                                                    <span className={`block truncate text-[13.5px] font-bold ${done ? "text-slate-500 line-through decoration-emerald-400" : "text-slate-900"}`}>{act.label}</span>
+                                                    <span className={`block truncate text-[11.5px] ${t.state === "late" ? "text-orange-700" : t.state === "live" ? "text-[#02665e]" : done ? "text-emerald-700" : "text-slate-400"}`}>
+                                                      <span className="sm:hidden">{act.timeLabel || act.period}{note ? " · " : ""}</span>
+                                                      {note || (t.state === "open" ? "tap the circle once delivered" : "")}
                                                     </span>
                                                   </span>
-                                                  {isNext ? <span className="flex-shrink-0 rounded-full bg-[#02665e] px-2 py-0.5 text-[10.5px] font-bold text-white">Next</span> : null}
+                                                  {tag ? (
+                                                    <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${tag.cls}`}>
+                                                      {t.state === "live" ? <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" aria-hidden /> : null}
+                                                      {tag.text}
+                                                    </span>
+                                                  ) : <span />}
                                                 </button>
                                               </li>
                                             );

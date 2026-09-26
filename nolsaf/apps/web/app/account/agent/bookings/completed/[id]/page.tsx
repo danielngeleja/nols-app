@@ -342,48 +342,50 @@ export default function CompletedBookingDetailPage() {
         </div>
       ) : item ? (
         <>
-          {/* ── Trip pass, stamped completed ── */}
-          <section aria-label="Completed trip" className="relative overflow-hidden rounded-3xl bg-slate-900 text-white shadow-[0_24px_48px_-30px_rgba(15,23,42,0.9)]">
-            <div className="grid md:grid-cols-[minmax(0,1fr)_16rem] lg:grid-cols-[minmax(0,1fr)_18rem]">
+          {/* ── Archived ticket, stamped completed ── */}
+          <section aria-label="Completed trip" className="relative overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_40px_-32px_rgba(15,23,42,0.45)]">
+            <div className="grid md:grid-cols-[minmax(0,1fr)_16rem] lg:grid-cols-[minmax(0,1fr)_19rem]">
               <div className="min-w-0 p-5 sm:p-7">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11.5px] font-bold text-emerald-300">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11.5px] font-bold text-emerald-700">
                   <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
                   Trip completed
                 </span>
                 <div className="mt-4 flex items-end gap-3 sm:gap-4">
-                  <span className="text-[40px] font-black leading-none tracking-[0.08em] text-white/90 sm:text-[56px]">{placeCode}</span>
+                  <span className="text-[40px] font-black leading-none tracking-[0.08em] text-slate-300 sm:text-[56px]">{placeCode}</span>
                   <div className="min-w-0 pb-1">
-                    <h1 className="m-0 break-words text-[20px] font-bold leading-tight text-white sm:text-[24px]">{tourName}</h1>
-                    <p className="m-0 mt-0.5 truncate text-[13px] text-white/60">
+                    <h1 className="m-0 break-words text-[20px] font-bold leading-tight text-slate-900 sm:text-[24px]">{tourName}</h1>
+                    <p className="m-0 mt-0.5 truncate text-[13px] text-slate-500">
                       {[destination, item.tripType, `for ${guestName}`].filter(Boolean).join(" · ")}
                     </p>
                   </div>
                 </div>
-                <dl className="m-0 mt-6 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
+                <dl className="m-0 mt-6 grid grid-cols-2 gap-x-4 gap-y-4 border-0 border-t border-solid border-slate-100 pt-5 sm:grid-cols-4">
                   {[
                     { label: "Started", value: prettyDate(item.tripDate) },
-                    { label: tripDays ? "Duration" : "Ended", value: tripDays ? `${tripDays} ${tripDays === 1 ? "day" : "days"}` : prettyDate(tripEndValue) },
-                    { label: "Travellers", value: travellers ? String(travellers) : "-" },
+                    { label: "Ended", value: prettyDate(tripEndValue) },
+                    { label: tripDays ? "Duration" : "Travellers", value: tripDays ? `${tripDays} ${tripDays === 1 ? "day" : "days"} · ${travellers || "-"} pax` : travellers ? String(travellers) : "-" },
                     { label: "Value", value: item.amountPaid != null ? `${currency} ${Number(item.amountPaid).toLocaleString("en-US")}` : "-" },
                   ].map((fact) => (
                     <div key={fact.label} className="min-w-0">
-                      <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/45">{fact.label}</dt>
-                      <dd className="m-0 mt-1 truncate text-[15px] font-bold tabular-nums text-white" title={fact.value}>{fact.value}</dd>
+                      <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                      <dd className="m-0 mt-1 truncate text-[15px] font-bold tabular-nums text-slate-900" title={fact.value}>{fact.value}</dd>
                     </div>
                   ))}
                 </dl>
               </div>
 
-              <div className="relative flex items-center justify-between gap-4 border-0 border-t-2 border-dashed border-white/15 px-5 py-4 md:flex-col md:justify-center md:border-l-2 md:border-t-0 md:p-6 md:text-center">
-                <span aria-hidden className="absolute -top-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-neutral-50 md:block" />
-                <span aria-hidden className="absolute -bottom-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-neutral-50 md:block" />
-                <div className="flex items-baseline gap-2 md:block">
-                  <div className="text-[36px] font-black leading-none text-emerald-300 md:text-[48px]">{overallRating > 0 ? overallRating.toFixed(1) : "Done"}</div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60 md:mt-1.5 md:text-[12px]">
-                    {overallRating > 0 ? `self rating · ${ratingStepLabel(overallRating).toLowerCase()}` : `closed ${prettyDate(completedAtValue)}`}
+              {/* The stamp: a record that is closed, not a live pass. */}
+              <div className="flex items-center justify-center border-0 border-t-2 border-dashed border-slate-200 bg-slate-50/60 px-5 py-7 md:border-l-2 md:border-t-0">
+                <div className="-rotate-[7deg] select-none rounded-[20px] border-[3px] border-solid border-emerald-600/80 p-1 text-emerald-700" aria-label={`Completed on ${prettyDate(completedAtValue)}`}>
+                  <div className="rounded-2xl border border-solid border-emerald-600/60 px-6 py-3 text-center">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-emerald-700/80">NoLSAF operator record</div>
+                    <div className="mt-1 text-[30px] font-black uppercase leading-none tracking-[0.12em]">Completed</div>
+                    <div className="mt-1.5 text-[12px] font-bold uppercase tracking-[0.18em] tabular-nums">{prettyDate(completedAtValue)}</div>
+                    <div className="mt-2 border-0 border-t border-dashed border-emerald-600/40 pt-1.5 text-[11px] font-semibold text-emerald-700/80">
+                      {overallRating > 0 ? `Self rating ${overallRating.toFixed(1)} · ${ratingStepLabel(overallRating)}` : "Awaiting your rating"}
+                    </div>
                   </div>
                 </div>
-                <div className="text-[12px] text-white/50 md:mt-2">{prettyDateTime(completedAtValue)}</div>
               </div>
             </div>
           </section>
@@ -395,45 +397,53 @@ export default function CompletedBookingDetailPage() {
                 title="Rate how this trip went"
                 subtitle="Your honest review of the delivery. It builds your operator record."
                 action={
-                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${markedCount === RATING_ITEMS.length ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
-                    {markedCount}/{RATING_ITEMS.length} marked
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className={`text-[22px] font-black leading-none tabular-nums ${overallRating > 0 ? "text-slate-900" : "text-slate-300"}`}>{overallRating > 0 ? overallRating.toFixed(1) : "0.0"}</div>
+                      <div className="mt-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{markedCount}/{RATING_ITEMS.length} marked</div>
+                    </div>
+                  </div>
                 }
               >
-                <div className="divide-y divide-solid divide-slate-100 [&>*]:border-x-0">
+                <div className="mb-4 flex gap-1" aria-hidden>
+                  {RATING_ITEMS.map((row) => (
+                    <span key={row.key} className={`h-1.5 flex-1 rounded-full ${ratingForm[row.key] > 0 ? "bg-amber-400" : "bg-slate-100"}`} />
+                  ))}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
                   {RATING_ITEMS.map((row) => {
                     const value = ratingForm[row.key];
                     return (
-                      <div key={row.key} className="flex flex-col gap-2 py-3 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="text-[13.5px] font-bold text-slate-900">{row.label}</div>
-                          <div className="text-[12px] text-slate-500">{row.hint}</div>
-                        </div>
-                        <div className="flex flex-shrink-0 items-center gap-2.5">
-                          <div className="flex items-center gap-0.5" role="radiogroup" aria-label={row.label}>
-                            {[1, 2, 3, 4, 5].map((score) => (
-                              <button
-                                key={score}
-                                type="button"
-                                role="radio"
-                                aria-checked={value === score}
-                                onClick={() => setRatingForm((prev) => ({ ...prev, [row.key]: prev[row.key] === score ? 0 : score }))}
-                                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent transition-colors ${score <= value ? "text-amber-400" : "text-slate-200 hover:text-amber-200"}`}
-                                aria-label={`${row.label}: ${score} of 5`}
-                                title={`${score}/5 · ${ratingStepLabel(score)}`}
-                              >
-                                <Star className="h-5 w-5" fill="currentColor" aria-hidden />
-                              </button>
-                            ))}
+                      <div key={row.key} className={`min-w-0 rounded-2xl border border-solid p-3.5 transition-colors ${value ? "border-amber-200 bg-amber-50/40" : "border-slate-200 bg-white"}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-[13.5px] font-bold text-slate-900">{row.label}</div>
+                            <div className="truncate text-[12px] text-slate-500">{row.hint}</div>
                           </div>
-                          <span className={`w-16 text-right text-[12px] font-bold ${value ? "text-slate-700" : "text-slate-300"}`}>{ratingStepLabel(value)}</span>
+                          <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${value ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-400"}`}>
+                            {value ? `${value}/5 · ${ratingStepLabel(value)}` : "Not rated"}
+                          </span>
+                        </div>
+                        <div className="mt-2.5 flex items-center gap-0.5" role="radiogroup" aria-label={row.label}>
+                          {[1, 2, 3, 4, 5].map((score) => (
+                            <button
+                              key={score}
+                              type="button"
+                              role="radio"
+                              aria-checked={value === score}
+                              onClick={() => setRatingForm((prev) => ({ ...prev, [row.key]: prev[row.key] === score ? 0 : score }))}
+                              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 transition-colors ${score <= value ? "text-amber-400" : "text-slate-200 hover:text-amber-200"}`}
+                              aria-label={`${row.label}: ${score} of 5`}
+                              title={`${score}/5 · ${ratingStepLabel(score)}`}
+                            >
+                              <Star className="h-6 w-6" fill="currentColor" aria-hidden />
+                            </button>
+                          ))}
                         </div>
                       </div>
                     );
                   })}
-                </div>
-
-                <label htmlFor="completed-rating-comment" className="mt-4 block">
+                <label htmlFor="completed-rating-comment" className="flex min-w-0 flex-col rounded-2xl border border-dashed border-slate-300 p-3.5">
                   <span className="mb-1.5 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">Notes for the record</span>
                   <textarea
                     id="completed-rating-comment"
@@ -442,13 +452,14 @@ export default function CompletedBookingDetailPage() {
                     rows={4}
                     maxLength={1000}
                     placeholder="What went well, what slowed you down, what you would change next time."
-                    className="block min-h-[110px] w-full resize-y rounded-2xl border border-solid border-slate-300 bg-white px-3.5 py-3 text-[13.5px] leading-relaxed text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)] placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-0 focus:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]"
+                    className="block min-h-[84px] w-full flex-1 resize-y rounded-xl border border-solid border-slate-300 bg-white px-3.5 py-3 text-[13.5px] leading-relaxed text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)] placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-0 focus:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]"
                     style={{ fontFamily: "inherit" }}
                   />
                   <span className="mt-1 block text-right text-[11px] text-slate-400">{ratingForm.comment.length}/1000</span>
                 </label>
+                </div>
 
-                <div className="mt-2 flex flex-wrap items-center gap-3">
+                <div className="mt-4 flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={saveRating}

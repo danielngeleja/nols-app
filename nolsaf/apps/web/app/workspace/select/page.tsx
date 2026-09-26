@@ -178,7 +178,11 @@ export default function WorkspaceSelectPage() {
 
   return (
     <div id="workspace-select" className="flex min-h-screen items-center justify-center bg-[#f4f5f7] px-4 py-10">
-      <div className="w-full max-w-2xl">
+      {/* Preflight is off, so nothing sets border-box globally: the w-full cards
+          and their full-width action pill would render wider than the column
+          (padding and border added on top) and poke out on small phones. */}
+      <style>{"#workspace-select, #workspace-select * { box-sizing: border-box; }"}</style>
+      <div className="w-full min-w-0 max-w-2xl">
         <div className="mb-7 text-center">
           <p className="m-0 text-sm font-medium text-emerald-700">{firstName ? `Welcome back, ${firstName}` : "Welcome back"}</p>
           <h1 className="m-0 mt-1.5 text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">Where would you like to go?</h1>
@@ -200,7 +204,7 @@ export default function WorkspaceSelectPage() {
                 type="button"
                 onClick={() => go(choice.key)}
                 disabled={selecting !== null}
-                className={`group flex min-h-[15rem] w-full flex-col rounded-3xl border-2 border-solid p-5 text-left shadow-[0_18px_40px_-30px_rgba(15,23,42,0.5)] transition duration-200 [font-family:inherit] hover:-translate-y-1 hover:shadow-[0_26px_50px_-30px_rgba(15,23,42,0.55)] focus:outline-none focus-visible:ring-4 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 ${choice.theme.card}`}
+                className={`group flex min-h-[15rem] w-full min-w-0 flex-col rounded-3xl border-2 border-solid p-5 text-left shadow-[0_18px_40px_-30px_rgba(15,23,42,0.5)] transition duration-200 [font-family:inherit] hover:-translate-y-1 hover:shadow-[0_26px_50px_-30px_rgba(15,23,42,0.55)] focus:outline-none focus-visible:ring-4 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 ${choice.theme.card}`}
               >
                 <span className="flex items-start justify-between gap-3">
                   <span className={`grid h-14 w-14 place-items-center rounded-2xl ${choice.theme.icon}`}>
