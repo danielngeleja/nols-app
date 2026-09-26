@@ -41,6 +41,7 @@ import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../serv
 import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
 import { buildDriverVerificationCode } from "../lib/driverVerificationCode.js";
+import { isTravellerDocumentPublicId, signedTravellerDocumentUrl } from "../lib/travellerDocuments.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -719,7 +720,7 @@ const getMe: RequestHandler = async (req, res) => {
     // review but appeared as "Not uploaded" on the owner's own profile.
     try {
       const documentRole = String((user as any).role || "").toUpperCase();
-      if (["DRIVER", "OWNER", "AGENT"].includes(documentRole) && (prisma as any).userDocument) {
+      if (["DRIVER", "OWNER", "AGENT", "CUSTOMER", "USER", "TRAVELLER", "TRAVELER"].includes(documentRole) && (prisma as any).userDocument) {
         const docs = await prisma.userDocument.findMany({
           where: { userId },
           orderBy: { id: 'desc' },
@@ -936,10 +937,16 @@ const upsertMyDocument: RequestHandler = async (req, res) => {
     return sendSuccess(res, { type, url, status: "PENDING" }, "Document saved");
   }
 
-  const existing = await prisma.userDocument.findFirst({
+  const bookingId = typeof metadata?.bookingId === "string" ? metadata.bookingId.trim() : "";
+  const bookingScoped = bookingId.length > 0 && String(metadata?.source || "").startsWith("tour_");
+  const candidates = await prisma.userDocument.findMany({
     where: { userId, type },
     orderBy: { id: "desc" },
+    take: bookingScoped ? 100 : 1,
   });
+  const existing = bookingScoped
+    ? candidates.find((candidate: any) => String(candidate?.metadata?.bookingId || "").trim() === bookingId) || null
+    : candidates[0] || null;
 
   const doc = existing
     ? await prisma.userDocument.update({
@@ -962,6 +969,44 @@ const upsertMyDocument: RequestHandler = async (req, res) => {
   return sendSuccess(res, { doc });
 };
 router.put("/documents", upsertMyDocument as unknown as RequestHandler);
+
+/**
+ * GET /account/documents/:id/view
+ * Authorizes an account-owned document and redirects to a five-minute signed
+ * URL for new private traveller uploads. Legacy public uploads remain readable
+ * so existing customers do not lose access while records are migrated.
+ */
+router.get("/documents/:id/view", (async (req: AuthedRequest, res) => {
+  const documentId = Number(req.params.id);
+  if (!Number.isInteger(documentId) || documentId <= 0) return sendError(res, 400, "Invalid document id");
+
+  const document = await prisma.userDocument.findFirst({
+    where: { id: documentId, userId: getUserId(req) },
+    select: { url: true, metadata: true },
+  });
+  if (!document?.url) return sendError(res, 404, "Document not found");
+
+  const metadata = document.metadata && typeof document.metadata === "object" && !Array.isArray(document.metadata)
+    ? document.metadata as Record<string, unknown>
+    : {};
+  const publicId = metadata.cloudinaryPublicId;
+  const resourceType = String(metadata.cloudinaryResourceType || "image");
+
+  if (isTravellerDocumentPublicId(publicId)) {
+    try {
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.redirect(302, signedTravellerDocumentUrl(publicId, resourceType));
+    } catch {
+      return sendError(res, 503, "Private document delivery is unavailable");
+    }
+  }
+
+  if (!isTrustedUserDocumentUrl(document.url, String(req.user?.role || ""))) {
+    return sendError(res, 400, "Document location is not trusted");
+  }
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.redirect(302, document.url);
+}) as RequestHandler);
 
 /** PUT /account/profile - update authenticated user's profile */
 const updateProfile: RequestHandler = async (req, res) => {

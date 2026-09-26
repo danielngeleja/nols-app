@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import QRCode from "qrcode";
 import type { SignOptions } from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
@@ -10,6 +11,8 @@ import { notifyAdmins } from "../lib/notifications.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 import { mapTourLifecycle } from "../lib/serviceLifecycle.js";
+import { assessVisaItineraryReadiness, buildTourVisaItineraryHtml } from "../lib/tourVisaItinerary.js";
+import { tourVisaVerificationToken } from "../lib/tourVisaVerification.js";
 import {
   customerRecordReference,
   isCustomerRecordReference,
@@ -2257,6 +2260,140 @@ router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
   } catch (error: any) {
     console.error("GET /customer/tour-bookings/:id/receipt.html error:", error);
     return res.status(500).json({ error: "Failed to generate receipt" });
+  }
+}) as RequestHandler);
+
+/**
+ * GET /api/customer/tour-bookings/:id/visa-itinerary.html
+ * A print-ready A4 itinerary for visa/travel applications. Only the booking
+ * owner can open it, and only after payment is confirmed so drafts cannot be
+ * represented as confirmed travel.
+ */
+router.get("/:id/visa-itinerary.html", (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const idNum = Number(req.params.id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
+
+    const booking = await prisma.tourBooking.findFirst({
+      where: { id: idNum, customerId: userId },
+      select: {
+        bookingCode: true,
+        title: true,
+        destination: true,
+        startDate: true,
+        endDate: true,
+        travelerCount: true,
+        guestName: true,
+        nationality: true,
+        status: true,
+        paymentStatus: true,
+        currency: true,
+        grossAmount: true,
+        packageSnapshot: true,
+        operatorSnapshot: true,
+        metadata: true,
+        travelers: {
+          where: { status: "ACTIVE" },
+          select: { fullName: true, nationality: true, documentType: true, documentNumber: true },
+          orderBy: { createdAt: "asc" },
+        },
+        operator: { select: { operatorProfile: true } },
+        _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"] } } } } },
+      },
+    });
+    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+
+    const paymentStatus = String(booking.paymentStatus || "").toUpperCase();
+    if (!["PAID", "APPROVED", "DISBURSED", "SETTLED"].includes(paymentStatus)) {
+      return res.status(409).json({
+        error: "visa_itinerary_not_available",
+        message: "The visa-support itinerary is available after successful payment.",
+      });
+    }
+    const bookingStatus = String(booking.status || "").toUpperCase();
+    if (["CANCELED", "CANCELLED", "REFUNDED"].includes(bookingStatus)) {
+      return res.status(409).json({
+        error: "visa_itinerary_cancelled",
+        message: "A visa-support itinerary cannot be issued for a cancelled booking.",
+      });
+    }
+    // A consulate checks entry and exit dates against the plan: only an
+    // upcoming trip with both dates and a daily schedule gets a document.
+    const readiness = assessVisaItineraryReadiness({
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      bookingStatus: booking.status,
+      packageSnapshot: booking.packageSnapshot,
+      metadata: booking.metadata,
+    });
+    if (!readiness.ready) {
+      return res.status(409).json({
+        error: "visa_itinerary_not_ready",
+        message: readiness.missing.join(" "),
+        missing: readiness.missing,
+      });
+    }
+
+    // The operator's legal details come from their current profile so a
+    // licence or address added after booking still appears.
+    const profile = booking.operator?.operatorProfile && typeof booking.operator.operatorProfile === "object" && !Array.isArray(booking.operator.operatorProfile)
+      ? (booking.operator.operatorProfile as Record<string, any>)
+      : {};
+    const snapshot = booking.operatorSnapshot && typeof booking.operatorSnapshot === "object" && !Array.isArray(booking.operatorSnapshot)
+      ? (booking.operatorSnapshot as Record<string, any>)
+      : {};
+    const profileText = (...values: unknown[]) => values.map((v) => String(v ?? "").trim()).find(Boolean) || null;
+
+    const verificationToken = tourVisaVerificationToken(idNum);
+    const verificationUrl = `${resolveWebOrigin(req)}/verify/tour-itinerary/${encodeURIComponent(verificationToken)}`;
+    const verificationQrDataUrl = await QRCode.toDataURL(verificationUrl, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 220,
+    }).catch(() => null);
+    const rendered = buildTourVisaItineraryHtml({
+      bookingCode: String(booking.bookingCode || ""),
+      title: booking.title || "Tour itinerary",
+      destination: booking.destination,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      travelerCount: booking.travelerCount,
+      guestName: booking.guestName,
+      nationality: booking.nationality,
+      paymentStatus: booking.paymentStatus,
+      bookingStatus: booking.status,
+      currency: booking.currency,
+      amountPaid: Number(booking.grossAmount || 0),
+      packageSnapshot: booking.packageSnapshot,
+      operatorSnapshot: booking.operatorSnapshot,
+      metadata: booking.metadata,
+      travellers: booking.travelers,
+      openCaseCount: booking._count.cases,
+      operator: {
+        name: profileText(profile.companyName, snapshot.companyName),
+        registrationNumber: profileText(profile.businessRegistrationNumber),
+        tourismLicence: profileText(profile.tourismPermitNumber, profile.tourismLicenseNumber, profile.businessLicenseNumber),
+        tin: profileText(profile.tinNumber),
+        address: profileText(profile.businessAddress, profile.physicalLocation),
+        email: profileText(profile.companyEmail, profile.contactEmail, snapshot.contactEmail),
+        phone: profileText(profile.companyPhone, profile.contactPhone, snapshot.contactPhone),
+        website: profileText(profile.companyWebsite),
+      },
+      verificationUrl,
+      verificationQrDataUrl,
+      logoUrl: `${resolveWebOrigin(req)}/assets/NoLS2025-04.png`,
+    });
+
+    const filename = `Visa Itinerary - ${String(booking.bookingCode || "NoLSAF")}.pdf`.replace(/"/g, "");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    res.setHeader("X-NoLSAF-Filename", filename);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(rendered);
+  } catch (error) {
+    console.error("GET /customer/tour-bookings/:id/visa-itinerary.html error:", error);
+    return res.status(500).json({ error: "Failed to generate visa-support itinerary" });
   }
 }) as RequestHandler);
 

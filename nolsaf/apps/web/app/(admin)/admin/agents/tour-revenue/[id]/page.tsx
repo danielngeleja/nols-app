@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import QRCode from "@/components/QRCode";
+import TourAdvancePanel, { type TourAdvanceRow } from "@/components/admin/TourAdvancePanel";
 
 const api = apiClient;
 
@@ -90,6 +91,10 @@ type RevenueDetail = {
     mobileMoneyNumber?: string | null;
   };
   customer: { id: number | null; name: string; email: string | null; phone: string | null };
+  advancePaid?: number;
+  advanceInFlight?: number;
+  balanceAmount?: number;
+  advances?: TourAdvanceRow[];
 };
 
 function money(value: number, currency = "TZS") {
@@ -644,6 +649,15 @@ export default function AdminTourRevenueDetailPage() {
               </div>
             </div>
           </div>
+
+          <TourAdvancePanel
+            currency={revenue.currency}
+            operatorNet={revenue.operatorPayoutAmount}
+            advancePaid={revenue.advancePaid ?? 0}
+            balanceAmount={revenue.balanceAmount ?? revenue.operatorPayoutAmount}
+            advances={revenue.advances ?? []}
+            onChanged={() => void load()}
+          />
 
           <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm overflow-hidden">
             <div className="flex items-center gap-3 mb-4">

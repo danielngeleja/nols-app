@@ -67,6 +67,7 @@ function assertWithinAmountCeiling(amount: Prisma.Decimal): void {
 const SOURCE_REF_CODE: Record<PayoutSourceType, string> = {
   OWNER_INVOICE: "O",
   TOUR_BOOKING: "T",
+  TOUR_ADVANCE: "A",
   DRIVER_TRIP: "D",
   SALES_PAYOUT: "S",
 };
@@ -790,6 +791,49 @@ async function writeBackSourcePaid(
           tourBookingId: booking.id,
           bookingCode: booking.bookingCode,
           paymentRef: externalReferenceId,
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    if (sourceType === "TOUR_ADVANCE") {
+      const current = await tx.tourFinancialTransaction.findUniqueOrThrow({
+        where: { id: sourceId },
+        select: { metadata: true },
+      });
+      const row = await tx.tourFinancialTransaction.update({
+        where: { id: sourceId },
+        data: {
+          status: "DISBURSED",
+          reference: externalReferenceId,
+          metadata: {
+            ...((current.metadata as Record<string, unknown>) || {}),
+            paidAt: now.toISOString(),
+            via: "azampay_disbursement",
+            disbursementId: disbursement.id,
+          } as Prisma.InputJsonValue,
+        },
+        select: { id: true, tourBookingId: true },
+      });
+      // The booking's own payoutStatus tracks the balance. Mark that an
+      // advance left NoLSAF so a cancellation from here on is treated as
+      // "money already released" and opens a recovery, never a plain hold.
+      const booking = await tx.tourBooking.findUnique({
+        where: { id: row.tourBookingId },
+        select: { id: true, operatorAgentId: true, bookingCode: true, payoutStatus: true },
+      });
+      if (booking && ["", "NOT_READY", "AVAILABLE"].includes(String(booking.payoutStatus || "").toUpperCase())) {
+        await tx.tourBooking.update({ where: { id: booking.id }, data: { payoutStatus: "ADVANCE_PAID" } });
+      }
+      const operatorAgent = booking ? await tx.agent.findUnique({ where: { id: booking.operatorAgentId }, select: { userId: true } }) : null;
+      if (booking && operatorAgent?.userId) {
+        void notifyUser(operatorAgent.userId, "agent_payout_disbursed", {
+          tourBookingId: booking.id,
+          bookingCode: booking.bookingCode,
+          paymentRef: externalReferenceId,
+          tranche: "ADVANCE",
+          amount: Number(amount),
+          currency,
         }).catch(() => {});
       }
       return;

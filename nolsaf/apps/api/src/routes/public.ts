@@ -31,6 +31,7 @@ import publicReportsRouter from "./public.reports";
 import publicServiceAvailabilityRouter from "./public.service-availability";
 import publicSupportRouter from "./public.support";
 import publicTourBookingsRouter from "./public.tourBookings";
+import publicTourVisaItinerariesRouter from "./public.tourVisaItineraries";
 import publicTourismSitesRouter from "./public.tourismSites";
 import publicUpdatesRouter from "./public.updates";
 
@@ -79,6 +80,7 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/nrms", publicNrmsMenuRouter);
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);
+  app.use("/api/public/tour-visa-itineraries", publicTourVisaItinerariesRouter);
   app.use("/api/public/driver-verification", publicDriverVerificationRouter);
 }
 

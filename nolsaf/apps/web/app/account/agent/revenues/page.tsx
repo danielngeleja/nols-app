@@ -10,6 +10,7 @@ import TableScroller from "@/components/TableScroller";
 import { publishRailCounts } from "@/lib/agentRailSignals";
 import TableRow from "@/components/TableRow";
 import OperatorPayoutDestination, { isPayoutDestinationComplete } from "@/components/agent/OperatorPayoutDestination";
+import TourAdvanceClaims, { type AdvanceTrip } from "@/components/agent/TourAdvanceClaims";
 
 const api = apiClient;
 
@@ -43,6 +44,9 @@ type RevenueItem = {
   /** Server-side result of the same gate the claim endpoint applies. */
   claimEligibility?: { ok: boolean; reason: string | null; availableAt: string | null } | null;
   openCaseCount?: number;
+  /** Net share minus advances already paid: what the balance claim pays. */
+  balanceAmount?: number;
+  advance?: AdvanceTrip["advance"];
 };
 
 type RevenueSummary = {
@@ -118,6 +122,8 @@ function claimBlockedShort(item: RevenueItem): string {
       return "Held by open case";
     case "payment_not_confirmed":
       return "Payment unconfirmed";
+    case "advance_in_flight":
+      return "Advance in progress";
     case "dispute_window_open":
       return e.availableAt
         ? `From ${new Date(e.availableAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
@@ -483,14 +489,19 @@ export default function AgentRevenuesPage() {
   // Where every operator dollar sits right now, left to right: claimable,
   // about to be claimable, with NoLSAF finance, and already paid out.
   const payoutPipeline = useMemo(() => {
-    const sum = (rows: RevenueItem[]) => rows.reduce((total, item) => total + Number(item.agentEarning || 0), 0);
+    const sum = (rows: RevenueItem[]) => rows.reduce((total, item) => total + Number(item.balanceAmount ?? item.agentEarning ?? 0), 0);
+    // Advances count too: available now, with finance, or already paid out.
+    const advanceReady = items.filter((item) => item.advance?.offer?.ok && !item.advance?.inFlight);
+    const advanceReadyTotal = advanceReady.reduce((total, item) => total + Math.floor(item.advance!.offer!.availableWithoutEvidence), 0);
+    const advanceInFlight = items.reduce((total, item) => total + Number(item.advance?.inFlight || 0), 0);
+    const advancePaid = items.reduce((total, item) => total + Number(item.advance?.paid || 0), 0);
     const withFinance = items.filter((item) => ["CLAIMED", "VERIFIED", "APPROVED"].includes(trackerStage(item)));
     const paidOut = items.filter((item) => trackerStage(item) === "DISBURSED");
     return [
-      { key: "ready", label: "Ready to claim", amount: claimReadyTotal, count: claimReady.length, hint: "claim it below", tone: "brand" as const },
+      { key: "ready", label: "Ready to claim", amount: claimReadyTotal + advanceReadyTotal, count: claimReady.length + advanceReady.length, hint: "claim it below", tone: "brand" as const },
       { key: "soon", label: "Opening soon", amount: sum(claimWaiting), count: claimWaiting.length, hint: "not claimable yet", tone: "amber" as const },
-      { key: "finance", label: "With NoLSAF", amount: sum(withFinance), count: withFinance.length, hint: "being processed", tone: "sky" as const },
-      { key: "paid", label: "Paid out", amount: sum(paidOut), count: paidOut.length, hint: "in your account", tone: "emerald" as const },
+      { key: "finance", label: "With NoLSAF", amount: sum(withFinance) + advanceInFlight, count: withFinance.length + items.filter((item) => (item.advance?.inFlight || 0) > 0).length, hint: "being processed", tone: "sky" as const },
+      { key: "paid", label: "Paid out", amount: sum(paidOut) + advancePaid, count: paidOut.length + items.filter((item) => (item.advance?.paid || 0) > 0 && trackerStage(item) !== "DISBURSED").length, hint: "in your account", tone: "emerald" as const },
     ];
   }, [items, trackerStage, claimReady, claimReadyTotal, claimWaiting]);
   const payoutReady = isPayoutDestinationComplete(payoutProfile);
@@ -773,6 +784,29 @@ export default function AgentRevenuesPage() {
             }}
           />
 
+          {/* Pre-trip advance (Tour Operator Disbursement Policy) */}
+          <TourAdvanceClaims
+            trips={items as AdvanceTrip[]}
+            onClaimed={(tripId, row) =>
+              setItems((prev) =>
+                prev.map((item) =>
+                  item.id === tripId
+                    ? {
+                        ...item,
+                        advance: {
+                          offer: item.advance?.offer ?? null,
+                          paid: item.advance?.paid ?? 0,
+                          inFlight: (item.advance?.inFlight ?? 0) + row.amount,
+                          claims: [...(item.advance?.claims ?? []), row],
+                        },
+                        claimEligibility: item.claimEligibility?.ok ? { ok: false, reason: "advance_in_flight", availableAt: null } : item.claimEligibility,
+                      }
+                    : item
+                )
+              )
+            }
+          />
+
           {/* Ready to claim: pick a trip instead of typing a code */}
           <div>
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-3">
@@ -819,7 +853,7 @@ export default function AgentRevenuesPage() {
                         <span className="block truncate font-mono text-[11px] text-neutral-400">{item.bookingCode}</span>
                       </span>
                       <span className="flex-shrink-0 text-right">
-                        <span className="block text-[14px] font-extrabold tabular-nums text-neutral-900">{Number(item.agentEarning || 0).toLocaleString("en-US")}</span>
+                        <span className="block text-[14px] font-extrabold tabular-nums text-neutral-900">{Number(item.balanceAmount ?? item.agentEarning ?? 0).toLocaleString("en-US")}</span>
                         <span className="block text-[10.5px] font-semibold text-neutral-400">{item.currency} to you</span>
                       </span>
                     </button>
@@ -878,8 +912,11 @@ export default function AgentRevenuesPage() {
             const m = claimLookupMatch;
             const gross = Number(m.budget || 0);
             const commission = Number(m.commissionAmount || 0);
-            const net = Number(m.agentEarning || 0);
+            // The balance: net share minus any advance already paid.
+            const advancedAlready = Number(m.advance?.paid || 0);
+            const net = Number(m.balanceAmount ?? m.agentEarning ?? 0);
             const commissionShare = gross > 0 ? Math.min(100, Math.max(0, (commission / gross) * 100)) : 0;
+            const advanceShare = gross > 0 ? Math.min(100 - commissionShare, Math.max(0, (advancedAlready / gross) * 100)) : 0;
             const eligible = !m.claimEligibility || m.claimEligibility.ok;
             const canSend = eligible && payoutReady && claimConsent && !claimSubmitting;
             return (
@@ -902,7 +939,8 @@ export default function AgentRevenuesPage() {
                       {m.currency} {net.toLocaleString("en-US")}
                     </div>
                     <div className="mt-4 flex h-2.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
-                      <span className="h-full bg-[#02665e]" style={{ width: `${100 - commissionShare}%` }} />
+                      <span className="h-full bg-[#02665e]" style={{ width: `${Math.max(0, 100 - commissionShare - advanceShare)}%` }} />
+                      {advanceShare > 0 ? <span className="h-full bg-sky-400" style={{ width: `${advanceShare}%` }} /> : null}
                       <span className="h-full bg-amber-400" style={{ width: `${commissionShare}%` }} />
                     </div>
                     <dl className="m-0 mt-3 space-y-1.5 text-[13px]">
@@ -914,8 +952,14 @@ export default function AgentRevenuesPage() {
                         <dt className="inline-flex items-center gap-1.5 text-neutral-500"><span className="h-2 w-2 rounded-full bg-amber-400" aria-hidden />NoLSAF commission ({Number(m.commissionPercent || 0)}%)</dt>
                         <dd className="m-0 font-semibold tabular-nums text-neutral-800">- {m.currency} {commission.toLocaleString("en-US")}</dd>
                       </div>
+                      {advancedAlready > 0 ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <dt className="inline-flex items-center gap-1.5 text-neutral-500"><span className="h-2 w-2 rounded-full bg-sky-400" aria-hidden />Advance already paid</dt>
+                          <dd className="m-0 font-semibold tabular-nums text-neutral-800">- {m.currency} {advancedAlready.toLocaleString("en-US")}</dd>
+                        </div>
+                      ) : null}
                       <div className="flex items-center justify-between gap-3 border-0 border-t border-dashed border-neutral-200 pt-1.5">
-                        <dt className="inline-flex items-center gap-1.5 font-bold text-neutral-900"><span className="h-2 w-2 rounded-full bg-[#02665e]" aria-hidden />Your payout</dt>
+                        <dt className="inline-flex items-center gap-1.5 font-bold text-neutral-900"><span className="h-2 w-2 rounded-full bg-[#02665e]" aria-hidden />{advancedAlready > 0 ? "Balance to you" : "Your payout"}</dt>
                         <dd className="m-0 font-extrabold tabular-nums text-neutral-900">{m.currency} {net.toLocaleString("en-US")}</dd>
                       </div>
                     </dl>
@@ -983,7 +1027,7 @@ export default function AgentRevenuesPage() {
                           onChange={(e) => setClaimConsent(e.target.checked)}
                           className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300"
                         />
-                        <span>I agree with the NoLSAF Disbursement Policy and confirm my payout destination is correct.</span>
+                        <span>I agree with the <Link href="/tour-operator-disbursement-policy" target="_blank" className="font-semibold text-[#02665e]">Tour Operator Disbursement Policy</Link> and confirm my payout destination is correct.</span>
                       </label>
                       <button
                         type="button"

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { ArrowLeft, CalendarDays, ClipboardList, CheckCircle2, Activity, Eye, Info, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet2, UserCheck, ShieldCheck, BadgeCheck, HandCoins, Flag, Star, Search, Check, type LucideIcon } from "lucide-react";
+import { ArrowLeft, CalendarDays, ClipboardList, CheckCircle2, Activity, Eye, Info, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet2, UserCheck, ShieldCheck, BadgeCheck, HandCoins, Flag, Star, Search, Check, Clock, type LucideIcon } from "lucide-react";
 import TableRow from "@/components/TableRow";
 import TableScroller from "@/components/TableScroller";
 import { publishRailCounts } from "@/lib/agentRailSignals";
@@ -19,6 +19,8 @@ function BookingStatusBadge({ status }: { status?: string }) {
     PAID:            { label: "Paid",            cls: "bg-blue-50 text-blue-700 border-blue-200" },
     CONFIRMED:       { label: "Confirmed",       cls: "bg-teal-50 text-teal-700 border-teal-200" },
     COMPLETED:       { label: "Completed",       cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    // Timetable finished; completes when the guest confirms or the 48h window closes.
+    OPERATOR_COMPLETED: { label: "Awaiting confirmation", cls: "bg-amber-50 text-amber-800 border-amber-200" },
     CANCELED:        { label: "Cancelled",       cls: "bg-red-50 text-red-600 border-red-200" },
     CANCELLED:       { label: "Cancelled",       cls: "bg-red-50 text-red-600 border-red-200" },
     REFUNDED:        { label: "Refunded",        cls: "bg-slate-100 text-slate-600 border-slate-200" },
@@ -515,6 +517,7 @@ function payoutChip(b: BookingItem): { label: string; cls: string; dot: string }
   if (isPayoutSettled(b)) return { label: "Paid", cls: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" };
   if (s.includes("RECOVER") || s.includes("HOLD") || s.includes("REJECT")) return { label: s.replace(/_/g, " ").toLowerCase(), cls: "bg-rose-50 text-rose-700", dot: "bg-rose-500" };
   if (s === "APPROVED" || s === "PROCESSING" || s === "AUTHORIZED" || s === "BATCHED") return { label: s.toLowerCase(), cls: "bg-sky-50 text-sky-700", dot: "bg-sky-500" };
+  if (s === "ADVANCE_PAID") return { label: "Advance paid", cls: "bg-sky-50 text-sky-700", dot: "bg-sky-500" };
   if (s) return { label: s.replace(/_/g, " ").toLowerCase(), cls: "bg-amber-50 text-amber-800", dot: "bg-amber-500" };
   return { label: "Not started", cls: "bg-slate-100 text-slate-500", dot: "bg-slate-400" };
 }
@@ -1833,6 +1836,12 @@ export default function AgentBookingsPage() {
                                     </td>
                                     <td className="px-4 py-3">
                                       <span className="block whitespace-nowrap text-[13px] font-semibold text-slate-800">{completedAt ? new Date(completedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "-"}</span>
+                                      {String(booking.status || "").toUpperCase() === "OPERATOR_COMPLETED" ? (
+                                        <span className="mt-0.5 inline-flex w-fit items-center gap-1 whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800" title="Completes when the guest confirms, or 48 hours after the trip ends with no open case">
+                                          <Clock className="h-3 w-3" aria-hidden />
+                                          Awaiting guest confirmation
+                                        </span>
+                                      ) : null}
                                       <span className="block whitespace-nowrap text-[11.5px] text-slate-400">
                                         {[
                                           booking.tripDate ? `from ${shortTripDate(booking.tripDate)}` : null,

@@ -31,6 +31,7 @@ import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisb
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
 import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
+import { startFinalizeTourCompletionWorker } from "./finalizeTourCompletion.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -125,6 +126,10 @@ export function startBackgroundWorkers(io: SocketServer): void {
       // Twiga threads an agent took and then left go to Resolved after 12 quiet
       // hours, so the Open view only holds chats someone still has to act on.
       startTwigaAutoResolveWorker();
+      // Tour Operator Disbursement Policy: an operator-completed trip becomes
+      // COMPLETED once its dispute window closes with no open case, so the
+      // balance never waits on a traveller who does not tap "confirm".
+      startFinalizeTourCompletionWorker();
       // Fallback for missed/delayed AzamPay disbursement callbacks: polls
       // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
       // applies the result through the same idempotent ledger path a callback

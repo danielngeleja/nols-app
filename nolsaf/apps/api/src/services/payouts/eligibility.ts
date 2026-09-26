@@ -18,8 +18,16 @@ import { prisma } from "@nolsaf/prisma";
 // Value import, not `import type`: confirmedCustomerPayment constructs a
 // Prisma.Decimal at runtime when an invoice has no settled payment events.
 import { Prisma } from "@prisma/client";
+import { isAdvanceRow, loadAdvanceTotalsFor } from "../../lib/tourPayouts.js";
+import { ADVANCE_MAX_PERCENT, balanceAfterAdvances } from "../../lib/tourPayoutPolicy.js";
 
-export type PayoutSourceType = "OWNER_INVOICE" | "TOUR_BOOKING" | "DRIVER_TRIP" | "SALES_PAYOUT";
+/**
+ * TOUR_BOOKING pays a tour's balance after the trip; TOUR_ADVANCE pays one
+ * pre-trip advance tranche (sourceId = TourFinancialTransaction.id). Keeping
+ * the advance its own source lets a booking carry two disbursements without
+ * breaking the "one live payout per source" guarantee (activeSourceKey).
+ */
+export type PayoutSourceType = "OWNER_INVOICE" | "TOUR_BOOKING" | "TOUR_ADVANCE" | "DRIVER_TRIP" | "SALES_PAYOUT";
 
 export class PayoutIneligibleError extends Error {
   constructor(
@@ -196,12 +204,92 @@ async function loadTourBooking(sourceId: number): Promise<EligiblePayoutSource> 
     );
   }
 
+  // The balance is the net share minus every advance already paid, and it
+  // waits for any advance still moving through finance so the two can never
+  // be paid against the same money twice.
+  const advances = await loadAdvanceTotalsFor(sourceId);
+  if (advances.inFlight > 0) {
+    throw new PayoutIneligibleError("TOUR_BOOKING", sourceId, "an advance for this booking is still being processed, pay or reject it first");
+  }
+  const balance = balanceAfterAdvances(Number(booking.operatorPayoutAmount), advances.paid);
+  if (balance <= 0) {
+    throw new PayoutIneligibleError("TOUR_BOOKING", sourceId, "advances already cover the full operator share, there is no balance to pay");
+  }
+
   return {
     sourceType: "TOUR_BOOKING",
     sourceId,
     payeeUserId: booking.operator.userId,
-    amount: booking.operatorPayoutAmount,
+    amount: new Prisma.Decimal(balance),
     currency: booking.currency,
+  };
+}
+
+/**
+ * A pre-trip advance tranche. Eligible when NoLSAF finance approved the
+ * advance row, the booking is still live, no case is open, and the advances
+ * paid plus this one stay within the policy cap of the operator's net share.
+ */
+async function loadTourAdvance(sourceId: number): Promise<EligiblePayoutSource> {
+  const row = await prisma.tourFinancialTransaction.findUnique({
+    where: { id: sourceId },
+    select: {
+      id: true,
+      kind: true,
+      status: true,
+      amount: true,
+      currency: true,
+      metadata: true,
+      booking: {
+        select: {
+          id: true,
+          status: true,
+          operatorPayoutAmount: true,
+          operator: { select: { userId: true } },
+        },
+      },
+    },
+  });
+  if (!row || row.kind !== "PAYOUT" || !isAdvanceRow(row.metadata)) {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, "advance record not found");
+  }
+  if (row.status !== "APPROVED") {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, `advance status is ${row.status}, expected APPROVED`);
+  }
+  const bookingStatus = String(row.booking.status || "").toUpperCase();
+  if (["CANCELED", "CANCELLED", "REFUNDED"].includes(bookingStatus)) {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, `booking is ${bookingStatus}, an advance can no longer be paid`);
+  }
+  const openCase = await prisma.tourCase.findFirst({
+    where: {
+      tourBookingId: row.booking.id,
+      status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE", "APPROVED"] },
+    },
+    select: { id: true, type: true },
+  });
+  if (openCase) {
+    throw new PayoutIneligibleError(
+      "TOUR_ADVANCE",
+      sourceId,
+      `case #${openCase.id} (${String(openCase.type).toLowerCase()}) is open for this booking, resolve it first`
+    );
+  }
+  const advances = await loadAdvanceTotalsFor(row.booking.id);
+  const cap = (Number(row.booking.operatorPayoutAmount) * ADVANCE_MAX_PERCENT) / 100;
+  if (advances.paid + Number(row.amount) > cap + AMOUNT_TOLERANCE) {
+    throw new PayoutIneligibleError(
+      "TOUR_ADVANCE",
+      sourceId,
+      `advances would reach ${advances.paid + Number(row.amount)}, above the ${ADVANCE_MAX_PERCENT}% cap of ${cap}`
+    );
+  }
+
+  return {
+    sourceType: "TOUR_ADVANCE",
+    sourceId,
+    payeeUserId: row.booking.operator.userId,
+    amount: row.amount,
+    currency: row.currency,
   };
 }
 
@@ -292,6 +380,8 @@ export async function loadEligiblePayoutSource(
       return loadOwnerInvoice(sourceId);
     case "TOUR_BOOKING":
       return loadTourBooking(sourceId);
+    case "TOUR_ADVANCE":
+      return loadTourAdvance(sourceId);
     case "DRIVER_TRIP":
       return loadDriverTrip(sourceId);
     case "SALES_PAYOUT":

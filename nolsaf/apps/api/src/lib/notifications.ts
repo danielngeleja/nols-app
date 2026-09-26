@@ -494,9 +494,26 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Payout Approved",
         body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been approved and is queued for disbursement.`
       },
-      agent_payout_disbursed: {
-        title: "Payout Disbursed",
-        body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. Check your revenues page for details.`
+      agent_payout_disbursed: data.tranche === "ADVANCE"
+        ? {
+            title: "Trip Advance Disbursed",
+            body: `Your advance${data.amount ? ` of ${[data.currency, Number(data.amount).toLocaleString("en-US")].filter(Boolean).join(" ")}` : ""} for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. The balance follows after the trip.`
+          }
+        : {
+            title: "Payout Disbursed",
+            body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. Check your revenues page for details.`
+          },
+      agent_advance_approved: {
+        title: "Trip Advance Approved",
+        body: `Your advance for booking ${data.bookingCode || `#${data.tourBookingId}`} has been approved and is queued for disbursement.`
+      },
+      agent_advance_rejected: {
+        title: "Trip Advance Not Approved",
+        body: `Your advance request for booking ${data.bookingCode || `#${data.tourBookingId}`} was not approved. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      agent_balance_claimable: {
+        title: "Trip Balance Ready to Claim",
+        body: `Booking ${data.bookingCode || `#${data.tourBookingId}`} is now completed. Claim your balance from the revenues page.`
       },
       agent_payout_rejected: {
         title: "Payout Claim Rejected",

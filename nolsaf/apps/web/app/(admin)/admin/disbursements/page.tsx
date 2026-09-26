@@ -76,7 +76,7 @@ type Disbursement = {
   events?: DisbursementEvent[];
 };
 
-const SOURCE_TYPES = ["", "OWNER_INVOICE", "TOUR_BOOKING", "DRIVER_TRIP", "SALES_PAYOUT"];
+const SOURCE_TYPES = ["", "OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"];
 const PAGE_SIZES = [25, 50, 100];
 const STALE_MINUTES = 30;
 
@@ -140,7 +140,9 @@ function sourceLabel(sourceType: string) {
     case "OWNER_INVOICE":
       return "Owner invoice";
     case "TOUR_BOOKING":
-      return "Tour booking";
+      return "Tour balance";
+    case "TOUR_ADVANCE":
+      return "Tour advance";
     case "DRIVER_TRIP":
       return "Driver trip";
     case "SALES_PAYOUT":
