@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildNrmsAttentionSnapshot } from "./nrmsAttention.js";
+import { buildNrmsAttentionSnapshot, summarizeAgentAttention } from "./nrmsAttention.js";
 
 describe("buildNrmsAttentionSnapshot", () => {
   it("returns only an outlet attendant's active orders and stock queues", async () => {
@@ -28,5 +28,16 @@ describe("buildNrmsAttentionSnapshot", () => {
     expect(result.inquiries.total).toBe(0);
     expect(result.finance.total).toBe(0);
     expect(db.nrmsOutletOrder.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ propertyId: 12, outletId: 8 }) }));
+  });
+});
+
+describe("summarizeAgentAttention", () => {
+  it("counts an unsettled offline payment declaration as hotel work", () => {
+    const result = summarizeAgentAttention([], [
+      { status: "CONFIRMED", guestManifestStatus: "IN_PROGRESS", masterFolio: { status: "OPEN", proFormas: [{ payerMarkedPaidAt: new Date() }] } },
+      { status: "CONFIRMED", guestManifestStatus: "IN_PROGRESS", masterFolio: { status: "SETTLED", proFormas: [{ payerMarkedPaidAt: new Date() }] } },
+    ]);
+    expect(result.paymentDeclarations).toBe(1);
+    expect(result.total).toBe(1);
   });
 });

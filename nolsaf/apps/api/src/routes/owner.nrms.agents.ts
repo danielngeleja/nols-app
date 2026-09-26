@@ -329,7 +329,7 @@ router.get("/property/:propertyId/live-count", (async (req: AuthedRequest, res: 
     if (!access) return;
     const active = { property: access.property, account: access.account };
     const now = new Date();
-    const [partnershipRequests, acceptedInvites, bookingRequests, guestManifests] = await Promise.all([
+    const [partnershipRequests, acceptedInvites, bookingRequests, guestManifests, paymentDeclarations] = await Promise.all([
       prisma.nrmsAgentPropertyLink.count({
         where: {
           propertyId: active.property.id,
@@ -350,13 +350,21 @@ router.get("/property/:propertyId/live-count", (async (req: AuthedRequest, res: 
       prisma.nrmsAgentBookingRequest.count({
         where: { propertyId: active.property.id, status: "CONFIRMED", guestManifestStatus: "SUBMITTED" },
       }),
+      prisma.nrmsAgentBookingRequest.count({
+        where: {
+          propertyId: active.property.id,
+          status: "CONFIRMED",
+          masterFolio: { is: { status: { notIn: ["SETTLED", "CREDIT"] }, proFormas: { some: { supersededAt: null, payerMarkedPaidAt: { not: null } } } } },
+        },
+      }),
     ]);
     res.json({
       partnershipRequests,
       acceptedInvites,
       bookingRequests,
       guestManifests,
-      total: partnershipRequests + acceptedInvites + bookingRequests + guestManifests,
+      paymentDeclarations,
+      total: partnershipRequests + acceptedInvites + bookingRequests + guestManifests + paymentDeclarations,
     });
   } catch (err) {
     console.error("[owner.nrms.agents] live-count failed", err);

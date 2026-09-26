@@ -110,7 +110,7 @@ type NrmsAttentionSnapshot = {
   housekeeping: { tasks: number; untrackedRooms: number; total: number };
   orders: { openRoom: number; openTable: number; placedRoom: number; placedTable: number; total: number; byOutlet: Array<{ outletId: number; openRoom: number; placedRoom: number }> };
   stock: { low: number; out: number; total: number };
-  agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number };
+  agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; paymentDeclarations: number; total: number };
   rateProposals: { pending: number; total: number };
   channels: { connections: number; alerts: number; issues: number; total: number; byProvider: Array<{ provider: string; total: number }> };
   finance: {
@@ -651,6 +651,10 @@ function NrmsShell({ children }: { children: ReactNode }) {
     window.addEventListener("nrms-attention-refresh", queueFreshFetch);
     document.addEventListener("visibilitychange", handleVisibility);
     attentionSocket?.on("nrms:inbox:update", handleInboxUpdate);
+    // Agent actions arrive through the owner's ordinary notification channel.
+    // Refresh immediately so Travel agents behaves like Group reservations
+    // instead of waiting for the one-minute fallback poll.
+    attentionSocket?.on("notification:new", queueFreshFetch);
     return () => {
       active = false;
       clearInterval(intervalId);
@@ -658,6 +662,7 @@ function NrmsShell({ children }: { children: ReactNode }) {
       window.removeEventListener("nrms-attention-refresh", queueFreshFetch);
       document.removeEventListener("visibilitychange", handleVisibility);
       attentionSocket?.off("nrms:inbox:update", handleInboxUpdate);
+      attentionSocket?.off("notification:new", queueFreshFetch);
     };
   }, [attentionSocket, selectedPropertyId, accessRole, chime]);
 
@@ -846,7 +851,9 @@ function NrmsShell({ children }: { children: ReactNode }) {
                               : child.href === "/owner/nrms/agents/partnerships"
                               ? (attention?.agents.partnershipRequests ? attention.agents.partnershipRequests : null)
                               : child.href === "/owner/nrms/agents/requests"
-                              ? ((attention?.agents.bookingRequests || attention?.agents.guestManifests) ? ((attention?.agents.bookingRequests ?? 0) + (attention?.agents.guestManifests ?? 0)) : null)
+                              ? ((attention?.agents.bookingRequests || attention?.agents.guestManifests || attention?.agents.paymentDeclarations)
+                                ? ((attention?.agents.bookingRequests ?? 0) + (attention?.agents.guestManifests ?? 0) + (attention?.agents.paymentDeclarations ?? 0))
+                                : null)
                               : childProvider
                               ? (attention?.channels.byProvider?.find((row) => row.provider === childProvider)?.total || null)
                               : child.href === "/owner/nrms/finance?view=audit"
