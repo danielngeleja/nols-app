@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
-import { ArrowLeft, CalendarDays, ClipboardList, CheckCircle2, Activity, Eye, Info, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet2, UserCheck, ShieldCheck, BadgeCheck, HandCoins, Flag, Star, type LucideIcon } from "lucide-react";
+import { ArrowLeft, CalendarDays, ClipboardList, CheckCircle2, Activity, Eye, Info, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Wallet2, UserCheck, ShieldCheck, BadgeCheck, HandCoins, Flag, Star, Search, Check, type LucideIcon } from "lucide-react";
 import TableRow from "@/components/TableRow";
 import TableScroller from "@/components/TableScroller";
 import { publishRailCounts } from "@/lib/agentRailSignals";
@@ -349,20 +349,6 @@ function checkpointTheme(key: CheckpointKey) {
   }
 }
 
-function checkpointRailLabel(key: CheckpointKey): string {
-  switch (key) {
-    case "booked": return "Booking";
-    case "paid": return "Payment";
-    case "validated": return "Agent";
-    case "verified": return "Verify";
-    case "approved": return "Approve";
-    case "disbursed": return "Disburse";
-    case "completed": return "Task";
-    case "rated": return "Trip";
-    default: return "Stage";
-  }
-}
-
 function checkpointIcon(key: CheckpointKey) {
   switch (key) {
     case "booked": return <ClipboardList className="h-3.5 w-3.5" />;
@@ -375,6 +361,105 @@ function checkpointIcon(key: CheckpointKey) {
     case "rated": return <Star className="h-3.5 w-3.5" />;
     default: return <CheckCircle2 className="h-3.5 w-3.5" />;
   }
+}
+
+type Checkpoint = { key: CheckpointKey; title: string; done: boolean; at: string | null; actor: string; details: string };
+
+/** The eight connected stages a confirmed booking moves through, operator and finance side. */
+function buildCheckpoints(booking: BookingItem) {
+  const paidAt = booking.paidAt || (String(booking.paymentStatus || "").toUpperCase() === "PAID" ? booking.updatedAt || booking.createdAt || null : null);
+  const verified = isRevenueVerified(booking.paymentStatus);
+  const payoutApproved = !!booking.payoutApprovedAt || String(booking.payoutStatus || "").toUpperCase() === "APPROVED" || String(booking.paymentStatus || "").toUpperCase() === "APPROVED";
+  const payoutDisbursed = !!booking.payoutPaidAt || String(booking.payoutStatus || "").toUpperCase() === "PAID" || String(booking.paymentStatus || "").toUpperCase() === "DISBURSED";
+  const checkpoints: Checkpoint[] = [
+    { key: "booked", title: "Booking Created", done: !!booking.createdAt, at: booking.createdAt || null, actor: "System", details: "Booking record captured and queued for operations." },
+    { key: "paid", title: "Payment Received", done: !!paidAt, at: paidAt, actor: "Payment Gateway", details: "Guest payment confirmed and funds recorded." },
+    { key: "validated", title: "Agent Validated Pickup", done: !!booking.pickupValidatedAt, at: booking.pickupValidatedAt || null, actor: "Assigned Agent", details: "First meet / pickup verification completed." },
+    { key: "verified", title: "Revenue Verified", done: verified, at: verified ? booking.updatedAt || null : null, actor: "Finance", details: "Revenue line checked for reconciliation and compliance." },
+    { key: "approved", title: "Revenue Approved", done: !!booking.payoutApprovedAt || payoutApproved, at: booking.payoutApprovedAt || null, actor: "Finance Approver", details: "Payout request approved for disbursement workflow." },
+    { key: "disbursed", title: "Revenue Disbursed", done: !!booking.payoutPaidAt || payoutDisbursed, at: booking.payoutPaidAt || null, actor: "Treasury", details: "Operator payout released and marked as settled." },
+    { key: "completed", title: "Task Completed", done: !!booking.completedAt, at: booking.completedAt || null, actor: "Assigned Agent", details: "Service execution marked complete in the workflow." },
+    { key: "rated", title: "Trip Rated", done: typeof booking.rating === "number", at: null, actor: "Customer", details: "Post-trip feedback and quality score recorded." },
+  ];
+  const completedSteps = checkpoints.filter((c) => c.done).length;
+  const nextPending = checkpoints.find((c) => !c.done) || null;
+  return { checkpoints, completedSteps, nextPending, paidAt };
+}
+
+function startOfDayMs(value: string | number | Date): number {
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Whole days from today to the trip's start; negative once the date has passed. */
+function daysToTrip(booking: BookingItem): number | null {
+  if (!booking.tripDate) return null;
+  const ms = startOfDayMs(booking.tripDate);
+  if (Number.isNaN(ms)) return null;
+  return Math.round((ms - startOfDayMs(Date.now())) / 86_400_000);
+}
+
+function tourParts(booking: BookingItem): { tour: string; destination: string | null } {
+  const parts = String(booking.title || "").split(" • ");
+  return { tour: parts[0] || booking.tripType || "Tour", destination: parts[1] || null };
+}
+
+/** Three-letter place code in the style of an airport code: Serengeti becomes SER. */
+function placeCodeOf(booking: BookingItem): string {
+  const { tour, destination } = tourParts(booking);
+  const letters = String(destination || tour || "").replace(/[^A-Za-z]/g, "");
+  return (letters.slice(0, 3) || "TRP").toUpperCase();
+}
+
+function pickupChip(days: number | null): { label: string; cls: string; dot: string; urgent: boolean } {
+  if (days == null) return { label: "Date to confirm", cls: "bg-slate-100 text-slate-600", dot: "bg-slate-400", urgent: false };
+  if (days < 0) {
+    const n = Math.abs(days);
+    return { label: `Pickup overdue ${n}d`, cls: "bg-orange-50 text-orange-800", dot: "bg-orange-500", urgent: true };
+  }
+  if (days === 0) return { label: "Pickup today", cls: "bg-amber-50 text-amber-800", dot: "bg-amber-500", urgent: true };
+  if (days === 1) return { label: "Pickup tomorrow", cls: "bg-[#02665e]/10 text-[#02665e]", dot: "bg-[#02665e]", urgent: false };
+  return { label: `Pickup in ${days} days`, cls: "bg-[#02665e]/10 text-[#02665e]", dot: "bg-[#02665e]", urgent: false };
+}
+
+function shortTripDate(value?: string | null): string {
+  if (!value) return "TBC";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "TBC" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/** Eight connected stages as dots on one line, filled where done. */
+function StageRail({ checkpoints, onBrand }: { checkpoints: Checkpoint[]; onBrand?: boolean }) {
+  const done = checkpoints.filter((c) => c.done).length;
+  return (
+    <div className="flex items-center" role="img" aria-label={`Journey board: ${done} of ${checkpoints.length} stages completed`}>
+      {checkpoints.map((checkpoint, index) => {
+        const theme = checkpointTheme(checkpoint.key);
+        const dot = checkpoint.done
+          ? onBrand ? "bg-white" : theme.dot.split(" ").find((c) => c.startsWith("bg-"))
+          : onBrand ? "bg-white/25" : "bg-slate-200";
+        const line = checkpoint.done ? (onBrand ? "bg-white/60" : "bg-slate-300") : onBrand ? "bg-white/20" : "bg-slate-200";
+        return (
+          <span key={checkpoint.key} className="flex items-center" title={`${checkpoint.title}${checkpoint.done ? " (done)" : ""}`}>
+            {index > 0 ? <span className={`h-px w-3 sm:w-4 ${line}`} /> : null}
+            <span className={`h-2 w-2 rounded-full ${dot}`} />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A torn-ticket perforation with a bite out of each edge in the surface colour. */
+function Perforation() {
+  return (
+    <div className="relative" aria-hidden>
+      <div className="mx-5 border-0 border-t-2 border-dashed border-slate-200" />
+      <span className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-solid border-slate-200 bg-white" style={{ left: -11, clipPath: "inset(0 0 0 50%)" }} />
+      <span className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border border-solid border-slate-200 bg-white" style={{ right: -11, clipPath: "inset(0 50% 0 0)" }} />
+    </div>
+  );
 }
 
 function bucketForStatus(
@@ -822,36 +907,57 @@ export default function AgentBookingsPage() {
   const isProgressTab = activeTab === "progress";
   const isCompletedTab = activeTab === "completed";
 
+  // Confirmed trips are all paid and waiting for the pickup handover, so the
+  // useful numbers are about time to pickup, not when the booking came in.
   const confirmedStats = useMemo(() => {
-    const confirmedItems = grouped.confirmed;
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const weekStart = new Date(todayStart);
-    const day = weekStart.getDay();
-    const diffToMonday = day === 0 ? 6 : day - 1;
-    weekStart.setDate(weekStart.getDate() - diffToMonday);
-
-    const getStamp = (item: BookingItem) => {
-      const raw = item.paidAt || item.confirmedAt || item.createdAt || item.updatedAt;
-      return raw ? new Date(raw) : null;
-    };
-
-    let today = 0;
+    let due = 0;
     let week = 0;
-    for (const item of confirmedItems) {
-      const d = getStamp(item);
-      if (!d || Number.isNaN(d.getTime())) continue;
-      if (d >= todayStart && d < tomorrowStart) today += 1;
-      if (d >= weekStart && d < tomorrowStart) week += 1;
+    let next: number | null = null;
+    for (const item of grouped.confirmed) {
+      const d = daysToTrip(item);
+      if (d == null) continue;
+      if (d <= 0) due += 1;
+      else if (d <= 7) week += 1;
+      if (d >= 0 && (next == null || d < next)) next = d;
     }
-    return {
-      today,
-      week,
-      total: confirmedItems.length,
-    };
+    return { due, week, next, total: grouped.confirmed.length };
   }, [grouped.confirmed]);
+
+  const [confirmedQuery, setConfirmedQuery] = useState("");
+
+  // Smart order: overdue pickups first (oldest first), then today, then the
+  // soonest departures, then trips still waiting for a date.
+  const confirmedOrdered = useMemo(() => {
+    const q = confirmedQuery.trim().toLowerCase();
+    const rows = grouped.confirmed.filter((b) =>
+      !q || [b.requester?.fullName, b.bookingCode, b.title, b.tripType, b.requester?.nationality, b.airportDeparture]
+        .some((v) => String(v || "").toLowerCase().includes(q))
+    );
+    const rank = (b: BookingItem): [number, number] => {
+      const d = daysToTrip(b);
+      if (d == null) return [3, 0];
+      if (d < 0) return [0, d];
+      if (d === 0) return [1, 0];
+      return [2, d];
+    };
+    return [...rows].sort((a, b) => {
+      const [ra, da] = rank(a);
+      const [rb, db] = rank(b);
+      return ra !== rb ? ra - rb : da - db;
+    });
+  }, [grouped.confirmed, confirmedQuery]);
+
+  // The first trip in smart order is the one that needs the operator next; it
+  // gets the full pass and is not repeated in the grid below.
+  const confirmedHero = !confirmedQuery.trim() ? confirmedOrdered[0] ?? null : null;
+  const confirmedGrid = confirmedHero ? confirmedOrdered.slice(1) : confirmedOrdered;
+  const confirmedPages = Math.max(1, Math.ceil(confirmedGrid.length / PAGE_SIZE));
+  const confirmedPage = Math.min(currentPage, confirmedPages);
+  const confirmedPageItems = confirmedGrid.slice((confirmedPage - 1) * PAGE_SIZE, confirmedPage * PAGE_SIZE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [confirmedQuery]);
 
   const onSort = useCallback((key: SortKey) => {
     setSortKey((prev) => {
@@ -1079,292 +1185,233 @@ export default function AgentBookingsPage() {
           <div className="mt-3 lg:mt-0">
             {isProgressTab ? (
               activeItems.length === 0 ? (
-                <div className="px-4 pb-6 pt-2 sm:px-6">
-                  {/* Ghost card — shows the structure the operator will use when a trip is active */}
-                  <div className="overflow-hidden rounded-2xl border border-dashed border-amber-300 bg-amber-50/40">
-                    {/* Ghost header */}
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-amber-100 bg-amber-50/60 px-4 py-3">
-                      <div className="space-y-1.5">
-                        <div className="h-4 w-40 rounded-md bg-amber-200/70" />
-                        <div className="h-3 w-28 rounded-md bg-amber-100" />
-                      </div>
-                      <div className="h-8 w-24 rounded-lg border border-amber-200 bg-white/60" />
-                    </div>
-
-                    {/* Ghost meta */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-4 py-3 sm:grid-cols-3">
-                      {["Trip Date", "Amount", "Progress"].map((label) => (
-                        <p key={label} className="flex items-center gap-2 text-sm">
-                          <span className="font-semibold text-amber-700/60">{label}:</span>
-                          <span className="h-3 w-20 rounded bg-amber-100 inline-block" />
-                        </p>
-                      ))}
-                    </div>
-
-                    {/* Ghost progress bar */}
-                    <div className="mx-4 mb-1 h-2 overflow-hidden rounded-full bg-amber-100">
-                      <div className="h-full w-0 rounded-full bg-gradient-to-r from-amber-300 to-orange-300" />
-                    </div>
-
-                    {/* Ghost activity rows */}
-                    <ul className="divide-y divide-amber-100/60 px-4 pb-4 pt-3">
-                      {["Game Drive (Morning)", "Breakfast at Camp", "Game Drive (Evening)", "Bush Walk", "Sundowners", "Campfire Dinner"].map((activity) => (
-                        <li key={activity} className="flex items-start gap-3 py-2.5 opacity-50">
-                          <span className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2 border-slate-300 bg-white" />
-                          <div className="flex-1 space-y-1">
-                            <p className="text-sm font-semibold text-slate-600">{activity}</p>
-                            <p className="text-xs text-slate-400">Tap to mark as accomplished</p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-
-                    {/* Empty state label at bottom */}
-                    <div className="flex items-center justify-center gap-2 border-t border-amber-100 bg-amber-50/80 px-4 py-3">
-                      <Activity className="h-4 w-4 text-amber-500" />
-                      <p className="text-sm font-semibold text-amber-700">No active trips. This is how activity tracking will look</p>
-                    </div>
+                <div className="px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
+                  <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                    <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]">
+                      <Activity className="h-6 w-6" aria-hidden />
+                    </span>
+                    <p className="m-0 mt-4 text-[16px] font-bold text-slate-900">No trips on tour right now</p>
+                    <p className="m-0 mt-1 max-w-sm text-[13px] leading-relaxed text-slate-500">
+                      A trip moves here the moment you validate the pickup. Its day-by-day timetable then opens for ticking, one activity at a time.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("confirmed")}
+                      style={{ fontFamily: "inherit" }}
+                      className="mt-5 inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[#014d47]"
+                    >
+                      <UserCheck className="h-4 w-4" aria-hidden />
+                      See upcoming pickups
+                    </button>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-3 px-4 pb-6 pt-2 sm:px-6">
-                  <div className="rounded-2xl border border-teal-300 bg-gradient-to-br from-teal-50 to-cyan-50/70 px-3 py-3 shadow-sm sm:px-4">
-                    <div className="grid gap-2.5 sm:grid-cols-[1.2fr,1fr] sm:items-stretch">
-                      <div className="rounded-xl border border-teal-200 bg-white/75 px-3 py-2.5">
-                        <p className="inline-flex items-center rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-teal-800">
-                          Daily Focus
-                        </p>
-                        <p className="mt-1.5 text-base sm:text-lg font-bold text-teal-950">
-                          Hello {agentName}, please complete your timetable tasks today.
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 px-3 py-2.5">
-                        <p className="text-[11px] font-extrabold uppercase tracking-wide text-cyan-800">Please Note</p>
-                        <p className="mt-1 text-sm sm:text-base font-semibold text-cyan-900 leading-relaxed">
-                          After you accomplish an activity, put only one tick mark.
-                        </p>
-                        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-xs font-bold text-emerald-700">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Sample tick
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+              ) : (() => {
+                const plans = activeItems.map((booking) => {
+                  const bid = String(booking.id);
+                  const activityPlan = getActivityPlan(booking);
+                  const allActivities = activityPlan.flatMap((group) => group.items);
+                  const doneCount = allActivities.filter((a) => !!checkedActivities[`${bid}__${a.id}`]).length;
+                  return { booking, bid, activityPlan, allActivities, doneCount };
+                });
+                const totalTasks = plans.reduce((sum, p) => sum + p.allActivities.length, 0);
+                const totalDone = plans.reduce((sum, p) => sum + p.doneCount, 0);
+                return (
+                  <div id="progress-stage" className="space-y-4 px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
+                    <style>{"#progress-stage, #progress-stage * { box-sizing: border-box; }"}</style>
 
-                  <div className="grid grid-cols-1 gap-4">
-                  {activeItems.map((booking) => {
-                    const bid = String(booking.id);
-                    const bookingBy = booking.requester?.fullName || "Guest";
-                    const nationality = booking.requester?.nationality || "-";
-                    const tripDateValue = booking.tripDate || booking.createdAt || "";
-                    const dateOfTrip = tripDateValue
-                      ? new Date(tripDateValue).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
-                      : "-";
-                    const currency = booking.currency || "USD";
-                    const amountPaid = typeof booking.amountPaid === "number"
-                      ? `${currency} ${booking.amountPaid.toLocaleString()}`
-                      : "-";
-                    const typeOfPackage = booking.tripType
-                      || (booking.title ? String(booking.title).split(" • ")[0] : "Custom");
-                    const activityPlan = getActivityPlan(booking);
-                    const allActivities = activityPlan.flatMap((group) => group.items);
-                    const doneCount = allActivities.filter((a) => !!checkedActivities[`${bid}__${a.id}`]).length;
-                    const progressPercent = allActivities.length > 0 ? Math.round((doneCount / allActivities.length) * 100) : 0;
-                    const isChecklistLocked = isBookingChecklistLocked(booking);
-                    const showCongratsBanner = isChecklistLocked && (congratsExpiresAt[bid] || 0) > Date.now();
-                    const bookingCode = booking.bookingCode || null;
-                    const usesAgreedPlan = !!(booking.plannedActivities && booking.plannedActivities.trim());
+                    {/* Today strip: who, how much is left, and the one rule for ticking. */}
+                    <section className="flex flex-col gap-4 rounded-3xl p-5 text-white sm:flex-row sm:items-center sm:justify-between sm:p-6" style={{ backgroundColor: "#02665e" }}>
+                      <div className="min-w-0">
+                        <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-white/65">On tour today</p>
+                        <h2 className="m-0 mt-1.5 text-[19px] font-bold leading-tight text-white sm:text-[21px]">Hello {agentName.split(" ")[0]}, {totalTasks - totalDone > 0 ? `${totalTasks - totalDone} ${totalTasks - totalDone === 1 ? "activity" : "activities"} left to tick` : "every activity is ticked"}</h2>
+                        <p className="m-0 mt-1 text-[12.5px] text-white/70">Tick an activity once, right after it is delivered. A fully ticked timetable locks and completes the trip.</p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-5">
+                        {[
+                          { value: plans.length, label: plans.length === 1 ? "trip" : "trips" },
+                          { value: `${totalDone}/${totalTasks}`, label: "ticked" },
+                        ].map((s) => (
+                          <div key={s.label} className="text-center">
+                            <div className="text-[28px] font-black leading-none tabular-nums text-white">{s.value}</div>
+                            <div className="mt-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/60">{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
 
-                    return (
-                      <article key={bid} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                        {/* Card header */}
-                        <div className="border-b border-amber-100 bg-[radial-gradient(circle_at_15%_50%,rgba(251,191,36,0.12),transparent_55%),linear-gradient(135deg,#fffbeb_0%,#fef3c7_100%)] px-4 py-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="text-base font-bold text-slate-900">{typeOfPackage}</h3>
-                                {bookingCode && (
-                                  <span className="inline-block rounded border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">{bookingCode}</span>
-                                )}
+                    {plans.map(({ booking, bid, activityPlan, allActivities, doneCount }) => {
+                      const { tour, destination } = tourParts(booking);
+                      const progressPercent = allActivities.length > 0 ? Math.round((doneCount / allActivities.length) * 100) : 0;
+                      const isChecklistLocked = isBookingChecklistLocked(booking);
+                      const showCongratsBanner = isChecklistLocked && (congratsExpiresAt[bid] || 0) > Date.now();
+                      const usesAgreedPlan = !!(booking.plannedActivities && booking.plannedActivities.trim());
+                      const d = daysToTrip(booking);
+                      const tourDay = d != null && d <= 0 ? 1 - d : null;
+                      const totalDays = activityPlan.length || null;
+                      const todayGroupDay = tourDay && activityPlan.some((g) => g.day === tourDay) ? tourDay : null;
+                      const nextItem = allActivities.find((a) => !checkedActivities[`${bid}__${a.id}`]) || null;
+
+                      return (
+                        <article key={bid} className="min-w-0 overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
+                          {/* Trip header */}
+                          <div className="p-5 sm:p-6">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="flex min-w-0 items-end gap-3">
+                                <span className="text-[34px] font-black leading-none tracking-[0.08em] text-[#02665e]">{placeCodeOf(booking)}</span>
+                                <div className="min-w-0 pb-0.5">
+                                  <h3 className="m-0 truncate text-[16px] font-bold text-slate-900">{booking.requester?.fullName || "Guest"}</h3>
+                                  <p className="m-0 truncate text-[12.5px] text-slate-500">
+                                    {[booking.tripType || tour, destination, booking.requester?.nationality].filter(Boolean).join(" · ")}
+                                  </p>
+                                </div>
                               </div>
-                              <p className="mt-0.5 text-sm text-slate-600">{bookingBy} &bull; {nationality}</p>
+                              <div className="flex flex-shrink-0 items-center gap-2">
+                                <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${isChecklistLocked ? "bg-emerald-50 text-emerald-700" : "bg-[#02665e] text-white"}`}>
+                                  {isChecklistLocked ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                                  ) : (
+                                    <span className="relative flex h-2 w-2" aria-hidden>
+                                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70" />
+                                      <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+                                    </span>
+                                  )}
+                                  {isChecklistLocked ? "Timetable complete" : tourDay && totalDays ? `Day ${Math.min(tourDay, totalDays)} of ${totalDays}` : "On tour"}
+                                </span>
+                                <Link
+                                  href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`}
+                                  title="Trip details"
+                                  aria-label={`Open details for ${booking.requester?.fullName || "this trip"}`}
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+                                >
+                                  <Eye className="h-4 w-4" aria-hidden />
+                                </Link>
+                              </div>
                             </div>
-                            <Link
-                              href={`/account/agent/tour-bookings/${encodeURIComponent(bid)}`}
-                              className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 no-underline shadow-sm transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                              Details
-                            </Link>
+
+                            <dl className="m-0 mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                              {[
+                                { label: "Started", value: shortTripDate(booking.tripDate) },
+                                { label: "Guests", value: String(booking.requester?.travelerCount ?? "-") },
+                                { label: "Value", value: typeof booking.amountPaid === "number" ? `${booking.currency || "TZS"} ${booking.amountPaid.toLocaleString("en-US")}` : "-" },
+                                { label: "Plan", value: usesAgreedPlan ? "Agreed service plan" : "Package template" },
+                              ].map((fact) => (
+                                <div key={fact.label} className="min-w-0">
+                                  <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                                  <dd className="m-0 mt-0.5 truncate text-[14px] font-bold tabular-nums text-slate-900" title={fact.value}>{fact.value}</dd>
+                                </div>
+                              ))}
+                            </dl>
+
+                            <div className="mt-4">
+                              <div className="mb-1.5 flex items-center justify-between text-[12px]">
+                                <span className="truncate text-slate-500">
+                                  {isChecklistLocked
+                                    ? "All activities delivered. The record is locked."
+                                    : nextItem
+                                      ? <>Next up: <span className="font-semibold text-slate-800">{nextItem.timeLabel ? `${nextItem.timeLabel} · ` : ""}{nextItem.label}</span></>
+                                      : "No timetable yet"}
+                                </span>
+                                <span className="flex-shrink-0 font-bold tabular-nums text-slate-700">{doneCount}/{allActivities.length}</span>
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                <div className="h-full rounded-full bg-[#02665e] transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+                              </div>
+                            </div>
+
+                            {showCongratsBanner ? (
+                              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3">
+                                <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" aria-hidden />
+                                <div>
+                                  <p className="m-0 text-[13.5px] font-bold text-emerald-900">Well done, every activity is delivered.</p>
+                                  <p className="m-0 mt-0.5 text-[12px] text-emerald-800/80">We hope each activity went well. The checklist is now locked.</p>
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
 
-                          {/* Stats chips */}
-                          <div className="mt-2.5 flex flex-wrap gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
-                              <CalendarDays className="h-3 w-3 text-slate-400" />
-                              {dateOfTrip}
-                            </span>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
-                              <Wallet2 className="h-3 w-3 text-slate-400" />
-                              {amountPaid}
-                            </span>
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold shadow-sm ring-1 ${progressPercent === 100 ? "bg-emerald-100 text-emerald-800 ring-emerald-200" : "bg-amber-100 text-amber-800 ring-amber-200"}`}>
-                              <Activity className="h-3 w-3" />
-                              {doneCount}/{allActivities.length} done
-                            </span>
-                            {usesAgreedPlan ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-1 text-xs font-bold text-teal-800 shadow-sm ring-1 ring-teal-200">
-                                <ClipboardList className="h-3 w-3" />
-                                Agreed Service Plan
-                              </span>
+                          {/* Timetable */}
+                          <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 p-5 sm:p-6">
+                            {activityPlan.length === 0 ? (
+                              <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center">
+                                <p className="m-0 text-[13.5px] font-bold text-slate-700">No agreed service timetable yet</p>
+                                <p className="m-0 mt-1 text-[12px] text-slate-500">Once the planned activities are provided for this trip, they appear here for ticking.</p>
+                              </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200">
-                                <Info className="h-3 w-3" />
-                                Package Template
-                              </span>
+                              <ol className="m-0 list-none space-y-5 p-0">
+                                {activityPlan.map((group) => {
+                                  const groupDone = group.items.filter((it) => !!checkedActivities[`${bid}__${it.id}`]).length;
+                                  const isToday = todayGroupDay === group.day;
+                                  const groupComplete = groupDone === group.items.length;
+                                  return (
+                                    <li key={`${bid}-${group.label}`} className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-3">
+                                      <span className={`flex h-11 w-11 flex-col items-center justify-center rounded-2xl ${groupComplete ? "bg-emerald-600 text-white" : isToday ? "bg-[#02665e] text-white" : "border border-solid border-slate-200 bg-white text-slate-700"}`}>
+                                        <span className={`text-[8.5px] font-bold uppercase tracking-[0.12em] ${groupComplete || isToday ? "text-white/70" : "text-slate-400"}`}>Day</span>
+                                        <span className="text-[16px] font-black leading-none">{group.day}</span>
+                                      </span>
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                                          <div className="flex min-w-0 items-center gap-2">
+                                            <h4 className="m-0 truncate text-[14px] font-bold text-slate-900">{group.title || group.label}</h4>
+                                            {isToday ? <span className="rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#02665e]">Today</span> : null}
+                                          </div>
+                                          <span className={`text-[11.5px] font-bold tabular-nums ${groupComplete ? "text-emerald-600" : "text-slate-400"}`}>{groupDone}/{group.items.length} done</span>
+                                        </div>
+                                        {group.description ? (
+                                          <p className="m-0 mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-slate-500" title={group.description}>{group.description}</p>
+                                        ) : null}
+                                        <ul className="m-0 mt-2.5 list-none space-y-1.5 p-0">
+                                          {group.items.map((act) => {
+                                            const key = `${bid}__${act.id}`;
+                                            const done = !!checkedActivities[key];
+                                            const isNext = !isChecklistLocked && nextItem?.id === act.id;
+                                            return (
+                                              <li key={act.id}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => toggleActivity(booking, act.id, isChecklistLocked)}
+                                                  disabled={isChecklistLocked}
+                                                  aria-pressed={done}
+                                                  aria-label={isChecklistLocked ? `Checklist locked for ${act.label}` : done ? `Unmark ${act.label}` : `Mark ${act.label} as done`}
+                                                  style={{ fontFamily: "inherit" }}
+                                                  className={`group flex w-full cursor-pointer items-center gap-3 rounded-2xl border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-default ${
+                                                    done
+                                                      ? "border-emerald-200 bg-emerald-50/60"
+                                                      : isNext
+                                                        ? "border-[#02665e] bg-white shadow-[0_0_0_3px_rgba(2,102,94,0.10)]"
+                                                        : "border-slate-200 bg-white hover:border-slate-300"
+                                                  }`}
+                                                >
+                                                  <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border-2 border-solid transition-colors ${
+                                                    done ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300 bg-white text-transparent group-hover:border-[#02665e] group-hover:text-[#02665e]/40"
+                                                  }`}>
+                                                    <Check className="h-4 w-4" aria-hidden />
+                                                  </span>
+                                                  <span className="min-w-0 flex-1">
+                                                    <span className={`block text-[13.5px] font-bold ${done ? "text-slate-500 line-through decoration-emerald-400" : "text-slate-900"}`}>{act.label}</span>
+                                                    <span className="block text-[11.5px] text-slate-400">
+                                                      {act.timeLabel || act.period}
+                                                      {done ? " · ticked" : isNext ? " · next up" : ""}
+                                                    </span>
+                                                  </span>
+                                                  {isNext ? <span className="flex-shrink-0 rounded-full bg-[#02665e] px-2 py-0.5 text-[10.5px] font-bold text-white">Next</span> : null}
+                                                </button>
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                              </ol>
                             )}
                           </div>
-
-                          {/* Progress bar */}
-                          <div className="mt-2.5">
-                            <div className="h-1.5 overflow-hidden rounded-full bg-amber-200/60">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-500"
-                                style={{ width: `${progressPercent}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {showCongratsBanner ? (
-                            <div className="mt-3 rounded-xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2.5">
-                              <p className="text-sm font-extrabold text-emerald-800">Congratulations for accomplishing your today&apos;s tasks.</p>
-                              <p className="mt-0.5 text-xs font-semibold text-emerald-700">We hope each activity went well. Rest and get ready for the next day. Checklist is now locked.</p>
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {/* Activity checklist */}
-                        <div className="space-y-3 px-4 pb-4 pt-3">
-                          <div className="relative py-1">
-                            <div className="h-px w-full bg-gradient-to-r from-transparent via-teal-300 to-transparent" />
-                            <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-teal-200 bg-white px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-teal-700">
-                              Day Timetable
-                            </span>
-                          </div>
-                          {activityPlan.length === 0 ? (
-                            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center">
-                              <p className="text-sm font-semibold text-slate-700">No agreed service timetable yet</p>
-                              <p className="mt-1 text-xs text-slate-500">Once the planned activities are provided for this task, they will appear here for ticking and rating.</p>
-                            </div>
-                          ) : null}
-                          {activityPlan.map((group, groupIndex) => {
-                            const groupDone = group.items.filter((item) => !!checkedActivities[`${bid}__${item.id}`]).length;
-                            return (
-                              <div key={`${bid}-${group.label}`} className={groupIndex > 0 ? "pt-2" : ""}>
-                                {groupIndex > 0 ? (
-                                  <div className="mb-4 flex items-center gap-3" aria-hidden>
-                                    <span className="h-2 w-2 rounded-full bg-teal-500" />
-                                    <span className="h-px flex-1 bg-gradient-to-r from-teal-300 via-teal-200 to-transparent" />
-                                    <span className="rounded-full border border-teal-200 bg-white px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-teal-700">
-                                      {group.label}
-                                    </span>
-                                  </div>
-                                ) : null}
-                                <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-[#f6fbf9] via-[#f8fcfb] to-[#eef7f3] p-3 sm:p-4">
-                                <div
-                                  aria-hidden
-                                  className="pointer-events-none absolute inset-0"
-                                  style={{
-                                    backgroundImage:
-                                      "radial-gradient(circle at 15% 20%, rgba(2,102,94,0.08) 0, rgba(2,102,94,0) 38%), radial-gradient(circle at 85% 75%, rgba(2,102,94,0.06) 0, rgba(2,102,94,0) 36%), repeating-linear-gradient(-27deg, rgba(2,102,94,0.05) 0px, rgba(2,102,94,0.05) 1px, transparent 1px, transparent 24px)",
-                                    opacity: 0.35,
-                                  }}
-                                />
-                                <div
-                                  aria-hidden
-                                  className="pointer-events-none absolute -right-8 top-6 select-none text-[42px] font-black tracking-[0.18em] text-[#02665e]/[0.05]"
-                                  style={{ transform: "rotate(-18deg)" }}
-                                >
-                                  NO4P
-                                </div>
-                                <div className="relative z-10">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-teal-700">{group.label}</p>
-                                    <h4 className="mt-0.5 text-base font-extrabold text-slate-900">{group.title || group.label}</h4>
-                                    {group.description ? (
-                                      <p className="mt-1 text-sm leading-6 text-slate-600">{group.description}</p>
-                                    ) : null}
-                                  </div>
-                                  <span className="shrink-0 rounded-full bg-white px-2.5 py-0.5 text-[11px] font-bold text-slate-700 ring-1 ring-slate-200">
-                                    {groupDone}/{group.items.length} done
-                                  </span>
-                                </div>
-
-                                <ul className="mt-3 space-y-3">
-                                  {group.items.map((item, itemIndex) => {
-                                    const key = `${bid}__${item.id}`;
-                                    const timestamp = checkedActivities[key];
-                                    const done = !!timestamp;
-                                    return (
-                                      <li key={item.id} className="relative grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5 sm:gap-3">
-                                        <div className="relative mt-1.5 flex w-5 justify-center" aria-hidden>
-                                          {itemIndex < group.items.length - 1 ? (
-                                            <span className="absolute top-3 h-[calc(100%+1.15rem)] w-px bg-gradient-to-b from-teal-300 via-teal-200 to-transparent" />
-                                          ) : null}
-                                          <span className={`mt-1.5 inline-block h-2.5 w-2.5 rounded-full ring-4 ring-white ${done ? "bg-emerald-500" : "bg-teal-600"}`} />
-                                        </div>
-                                        <div className={`rounded-2xl border px-3 py-3 shadow-sm transition-all duration-200 hover:shadow-md ${done ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-50/40" : "border-slate-200 bg-gradient-to-br from-white to-slate-50/55"}`}>
-                                          <div className="flex flex-wrap items-start justify-between gap-2.5">
-                                            <div className="min-w-0">
-                                              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${done ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>
-                                                {item.timeLabel || item.period}
-                                              </span>
-                                              <p className={done ? "mt-1.5 text-base font-bold text-slate-900 line-through decoration-emerald-400" : "mt-1.5 text-base font-bold text-slate-800"}>
-                                                {item.label}
-                                              </p>
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => toggleActivity(booking, item.id, isChecklistLocked)}
-                                              disabled={isChecklistLocked}
-                                              className={`mt-0.5 flex-shrink-0 rounded-full border-2 p-0.5 transition focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-55 ${
-                                                done
-                                                  ? "border-emerald-500 bg-emerald-500 text-white shadow-sm"
-                                                  : "border-slate-300 bg-white text-transparent hover:border-amber-400 hover:bg-amber-50/50"
-                                              }`}
-                                              aria-label={isChecklistLocked ? `Checklist locked for ${item.label}` : done ? `Unmark ${item.label}` : `Mark ${item.label} as done`}
-                                            >
-                                              <CheckCircle2 className="h-4 w-4" />
-                                            </button>
-                                          </div>
-                                          {done && timestamp ? (
-                                            <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-700">
-                                              <CheckCircle2 className="h-3 w-3" />
-                                              Ticked
-                                            </p>
-                                          ) : isChecklistLocked ? (
-                                            <p className="mt-2 text-xs font-semibold text-emerald-700">Task record locked after full completion.</p>
-                                          ) : (
-                                            <p className="mt-2 text-xs text-slate-500">Please tap the circle to tick this activity.</p>
-                                          )}
-                                        </div>
-                                      </li>
-                                    );
-                                  })}
-                                </ul>
-                                </div>
-                                </section>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </article>
-                    );
-                  })}
+                        </article>
+                      );
+                    })}
                   </div>
-                </div>
-              )
+                );
+              })()
             ) : isCompletedTab ? (
               /* ── Completed tab: dedicated summary table ── */
               activeItems.length === 0 ? (
@@ -1511,24 +1558,44 @@ export default function AgentBookingsPage() {
               </>
               )
             ) : isConfirmedTab ? (
-              <div className="space-y-3 px-4 pb-6 pt-2 sm:px-6">
+              <div className="space-y-4 px-4 pb-6 pt-2 sm:px-6 lg:pt-5">
+                <style>{"#confirmed-stage, #confirmed-stage * { box-sizing: border-box; }"}</style>
+                <div id="confirmed-stage" className="space-y-4">
+                {/* At a glance: everything here is paid and waiting for the pickup handover. */}
                 <section
                   aria-label="Confirmed bookings at a glance"
-                  className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200"
+                  className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-200 sm:grid-cols-4"
                 >
                   {([
-                    { label: "Confirmed today", value: confirmedStats.today, helper: "since midnight", tone: "text-emerald-700" },
-                    { label: "This week", value: confirmedStats.week, helper: "last 7 days", tone: "text-neutral-900" },
-                    { label: "Total confirmed", value: confirmedStats.total, helper: "all time", tone: "text-neutral-900" },
+                    {
+                      label: "Pickups due",
+                      value: String(confirmedStats.due),
+                      helper: confirmedStats.due > 0 ? "today or overdue" : "nothing waiting",
+                      tone: confirmedStats.due > 0 ? "text-amber-600" : "text-slate-300",
+                    },
+                    {
+                      label: "Next 7 days",
+                      value: String(confirmedStats.week),
+                      helper: confirmedStats.week === 1 ? "departure" : "departures",
+                      tone: confirmedStats.week > 0 ? "text-[#02665e]" : "text-slate-300",
+                    },
+                    {
+                      label: "Next pickup",
+                      value: confirmedStats.next == null ? "-" : confirmedStats.next === 0 ? "Today" : `${confirmedStats.next}d`,
+                      helper: confirmedStats.next == null ? "no dated trips" : confirmedStats.next === 0 ? "be at the meeting point" : "until handover",
+                      tone: confirmedStats.next == null ? "text-slate-300" : "text-slate-900",
+                    },
+                    {
+                      label: "Confirmed",
+                      value: String(confirmedStats.total),
+                      helper: "paid, awaiting pickup",
+                      tone: confirmedStats.total > 0 ? "text-slate-900" : "text-slate-300",
+                    },
                   ] as const).map((stat) => (
-                    <div key={stat.label} className="min-w-0 bg-white px-4 py-3">
-                      <p className="m-0 truncate text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">{stat.label}</p>
-                      <div className="mt-1.5 flex items-baseline gap-2">
-                        <p className={`m-0 text-2xl font-bold leading-none tabular-nums ${stat.value > 0 ? stat.tone : "text-neutral-300"}`}>
-                          {stat.value}
-                        </p>
-                        <span className="truncate text-[10px] font-medium text-neutral-400">{stat.helper}</span>
-                      </div>
+                    <div key={stat.label} className="min-w-0 bg-white px-4 py-3.5">
+                      <p className="m-0 truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{stat.label}</p>
+                      <p className={`m-0 mt-1.5 text-[26px] font-black leading-none tabular-nums ${stat.tone}`}>{stat.value}</p>
+                      <p className="m-0 mt-1 truncate text-[11.5px] text-slate-400">{stat.helper}</p>
                     </div>
                   ))}
                 </section>
@@ -1540,194 +1607,277 @@ export default function AgentBookingsPage() {
                     description="Confirmed trips appear here once payment is settled."
                   />
                 ) : (
-                  paginatedActiveItems.map((booking) => {
-                    const isTourBooking = booking.source === "TOUR_BOOKING";
-                    const bookingKey = `${isTourBooking ? "tb" : "pr"}-${String(booking.id)}`;
-                    const isExpanded = expandedRoadmapKey === bookingKey;
-                    const bookingBy = booking.requester?.fullName || "Guest";
-                    const typeOfPackage = booking.tripType || (booking.title ? String(booking.title).split(" • ")[0] : "Custom");
-                    const paidAt = booking.paidAt || (String(booking.paymentStatus || "").toUpperCase() === "PAID" ? booking.updatedAt || booking.createdAt : null);
-                    const confirmedAtLabel = formatMilestoneTime(paidAt || booking.confirmedAt || booking.createdAt || null);
-                    const completedAt = booking.completedAt || null;
-                    const ratingLabel = typeof booking.rating === "number" ? `${booking.rating}/5` : "Pending";
-                    const verified = isRevenueVerified(booking.paymentStatus);
-                    const payoutApproved = !!booking.payoutApprovedAt || String(booking.payoutStatus || "").toUpperCase() === "APPROVED" || String(booking.paymentStatus || "").toUpperCase() === "APPROVED";
-                    const payoutDisbursed = !!booking.payoutPaidAt || String(booking.payoutStatus || "").toUpperCase() === "PAID" || String(booking.paymentStatus || "").toUpperCase() === "DISBURSED";
-                    const completedAtSeeded = completedAt;
-                    const pickupValidatedAt = booking.pickupValidatedAt || null;
-                    const approvedAt = booking.payoutApprovedAt || null;
-                    const disbursedAt = booking.payoutPaidAt || null;
+                  <>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="flex h-10 w-full items-center gap-2 rounded-full border border-solid border-slate-300 bg-white px-4 text-slate-400 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)] sm:w-80">
+                        <Search className="h-4 w-4 flex-shrink-0" aria-hidden />
+                        <span className="sr-only">Search confirmed bookings</span>
+                        <input
+                          type="search"
+                          value={confirmedQuery}
+                          onChange={(event) => setConfirmedQuery(event.target.value)}
+                          placeholder="Search guest, code, tour or airport"
+                          className="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
+                          style={{ fontFamily: "inherit" }}
+                        />
+                      </label>
+                      <span className="text-[12.5px] text-slate-500">
+                        <strong className="font-bold tabular-nums text-slate-900">{confirmedOrdered.length}</strong> of {activeItems.length} · ordered by pickup urgency
+                      </span>
+                    </div>
 
-                    const checkpoints = [
-                      {
-                        key: "booked",
-                        title: "Booking Created",
-                        done: !!booking.createdAt,
-                        at: booking.createdAt || null,
-                        actor: "System",
-                        details: "Booking record captured and queued for operations.",
-                      },
-                      {
-                        key: "paid",
-                        title: "Payment Received",
-                        done: !!paidAt,
-                        at: paidAt,
-                        actor: "Payment Gateway",
-                        details: "Guest payment confirmed and funds recorded.",
-                      },
-                      {
-                        key: "validated",
-                        title: "Agent Validated Pickup",
-                        done: !!pickupValidatedAt,
-                        at: pickupValidatedAt,
-                        actor: "Assigned Agent",
-                        details: "First meet / pickup verification completed.",
-                      },
-                      {
-                        key: "verified",
-                        title: "Revenue Verified",
-                        done: verified,
-                        at: verified ? booking.updatedAt || null : null,
-                        actor: "Finance",
-                        details: "Revenue line checked for reconciliation and compliance.",
-                      },
-                      {
-                        key: "approved",
-                        title: "Revenue Approved",
-                        done: !!approvedAt || payoutApproved,
-                        at: approvedAt,
-                        actor: "Finance Approver",
-                        details: "Payout request approved for disbursement workflow.",
-                      },
-                      {
-                        key: "disbursed",
-                        title: "Revenue Disbursed",
-                        done: !!disbursedAt || payoutDisbursed,
-                        at: disbursedAt,
-                        actor: "Treasury",
-                        details: "Operator payout released and marked as settled.",
-                      },
-                      {
-                        key: "completed",
-                        title: "Task Completed",
-                        done: !!completedAtSeeded,
-                        at: completedAtSeeded,
-                        actor: "Assigned Agent",
-                        details: "Service execution marked complete in the workflow.",
-                      },
-                      {
-                        key: "rated",
-                        title: "Trip Rated",
-                        done: typeof booking.rating === "number",
-                        at: null,
-                        actor: "Customer",
-                        details: "Post-trip feedback and quality score recorded.",
-                      },
-                    ];
-                    const completedSteps = checkpoints.filter((c) => c.done).length;
-                    const progressWidth = Math.round((completedSteps / checkpoints.length) * 100);
-                    const nextPending = checkpoints.find((c) => !c.done)?.title || "All stages completed";
-
-                    return (
-                      <article key={bookingKey} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                        <div className="border-b border-slate-100 bg-[radial-gradient(circle_at_15%_20%,rgba(34,211,238,0.11),transparent_45%),radial-gradient(circle_at_88%_18%,rgba(16,185,129,0.14),transparent_38%),linear-gradient(120deg,#f8fafc_0%,#f0fdfa_40%,#ecfeff_100%)] px-4 py-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <h3 className="text-base font-bold text-slate-900">{typeOfPackage}</h3>
-                              <p className="mt-0.5 text-sm text-slate-600">{bookingBy}</p>
-                              <p className="mt-1 text-[11px] font-semibold text-[#02665e]">Journey Board: {completedSteps}/{checkpoints.length} connected stages completed</p>
-                              <p className="mt-1 text-[11px] text-slate-600">Confirmed at: {confirmedAtLabel}</p>
+                    {/* ── Needs you next: boarding pass ── */}
+                    {confirmedHero ? (() => {
+                      const booking = confirmedHero;
+                      const bid = String(booking.id);
+                      const { tour, destination } = tourParts(booking);
+                      const d = daysToTrip(booking);
+                      const { checkpoints, completedSteps, nextPending } = buildCheckpoints(booking);
+                      const detailHref = `/account/agent/tour-bookings/${encodeURIComponent(bid)}`;
+                      const due = d != null && d <= 0;
+                      const countdown = d == null
+                        ? { big: "TBC", small: "date to confirm" }
+                        : d < 0
+                          ? { big: String(Math.abs(d)), small: Math.abs(d) === 1 ? "day overdue" : "days overdue" }
+                          : d === 0
+                            ? { big: "Today", small: "pickup day" }
+                            : { big: String(d), small: d === 1 ? "day to pickup" : "days to pickup" };
+                      return (
+                        <section aria-label="Needs you next" className="relative overflow-hidden rounded-3xl text-white shadow-[0_24px_48px_-28px_rgba(2,102,94,0.9)]" style={{ backgroundColor: "#02665e" }}>
+                          <div className="grid md:grid-cols-[minmax(0,1fr)_14rem] lg:grid-cols-[minmax(0,1fr)_16rem]">
+                            <div className="min-w-0 p-5 sm:p-6">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="m-0 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-white/70">
+                                  {due ? (
+                                    <span className="relative flex h-2 w-2" aria-hidden>
+                                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-300/80" />
+                                      <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-300" />
+                                    </span>
+                                  ) : null}
+                                  {d != null && d < 0 ? "Pickup overdue" : d === 0 ? "Pickup today" : "Next pickup"}
+                                </p>
+                                {booking.bookingCode ? <span className="font-mono text-[11px] text-white/50">{booking.bookingCode}</span> : null}
+                              </div>
+                              <div className="mt-4 flex items-end gap-3 sm:gap-4">
+                                <span className="text-[40px] font-black leading-none tracking-[0.08em] text-white sm:text-[52px]">{placeCodeOf(booking)}</span>
+                                <div className="min-w-0 pb-1">
+                                  <h2 className="m-0 truncate text-[18px] font-bold leading-tight text-white">{booking.requester?.fullName || "Guest"}</h2>
+                                  <p className="m-0 mt-0.5 truncate text-[13px] text-white/70">
+                                    {[tour, destination, booking.requester?.nationality].filter(Boolean).join(" · ")}
+                                  </p>
+                                </div>
+                              </div>
+                              <dl className="m-0 mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+                                {[
+                                  { label: "Pickup", value: shortTripDate(booking.tripDate) },
+                                  { label: "Guests", value: String(booking.requester?.travelerCount ?? "-") },
+                                  { label: "Meet at", value: booking.airportDeparture || "Agreed point" },
+                                  { label: "Value", value: typeof booking.amountPaid === "number" ? `${booking.currency || "TZS"} ${booking.amountPaid.toLocaleString("en-US")}` : "-" },
+                                ].map((fact) => (
+                                  <div key={fact.label} className="min-w-0">
+                                    <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/55">{fact.label}</dt>
+                                    <dd className="m-0 mt-1 truncate text-[15px] font-bold tabular-nums text-white" title={fact.value}>{fact.value}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                              <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                                <StageRail checkpoints={checkpoints} onBrand />
+                                <span className="text-[11.5px] font-semibold text-white/80">
+                                  {completedSteps}/{checkpoints.length} · next: {nextPending?.title || "All stages completed"}
+                                </span>
+                              </div>
                             </div>
-                            <div className="inline-flex items-center gap-2">
-                              <BookingStatusBadge status={booking.status} />
-                              <button
-                                type="button"
-                                onClick={() => setExpandedRoadmapKey((prev) => (prev === bookingKey ? null : bookingKey))}
-                                className="inline-flex items-center rounded-full border border-[#02665e]/30 bg-white px-3 py-1 text-xs font-bold text-[#02665e] transition hover:bg-[#02665e]/10"
-                              >
-                                {isExpanded ? "Hide Preview" : "Preview Roadmap"}
-                              </button>
+                            <div className="relative flex items-center justify-between gap-4 border-0 border-t-2 border-dashed border-white/25 px-5 py-4 md:flex-col md:justify-center md:border-l-2 md:border-t-0 md:p-6 md:text-center">
+                              <span aria-hidden className="absolute -top-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-white md:block" />
+                              <span aria-hidden className="absolute -bottom-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-white md:block" />
+                              <div className="flex items-baseline gap-2 md:block">
+                                <div className={`text-[36px] font-black leading-none tabular-nums md:text-[50px] ${due ? "text-amber-300" : "text-white"}`}>{countdown.big}</div>
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70 md:mt-1.5 md:text-[12px]">{countdown.small}</div>
+                              </div>
                               <Link
-                                href={`/account/agent/tour-bookings/${encodeURIComponent(String(booking.id))}`}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
-                                aria-label={`View tour booking ${String(booking.id)}`}
-                                title="View details"
+                                href={`${detailHref}#pickup-validation`}
+                                className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-4 text-[13px] font-bold text-[#02665e] no-underline transition-colors hover:bg-white/90 md:w-full"
                               >
-                                <Eye className="h-4 w-4" />
+                                <UserCheck className="h-4 w-4" aria-hidden />
+                                {due ? "Validate pickup" : "Prepare pickup"}
                               </Link>
                             </div>
                           </div>
+                        </section>
+                      );
+                    })() : null}
 
-                          <div className="mt-3">
-                            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-500">
-                              <span>Workflow progress</span>
-                              <span>{progressWidth}%</span>
-                            </div>
-                            <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-                              <div className="h-full rounded-full bg-gradient-to-r from-[#02665e] via-teal-500 to-cyan-500 transition-all duration-500" style={{ width: `${progressWidth}%` }} />
-                            </div>
-                            <p className="mt-2 text-xs font-semibold text-slate-600">Next pending: <span className="text-slate-800">{nextPending}</span></p>
-                          </div>
+                    {confirmedOrdered.length === 0 ? (
+                      <div className="flex flex-col items-center rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+                        <span className="text-[40px] font-black leading-none tracking-[0.08em] text-slate-200">TRP</span>
+                        <p className="m-0 mt-3 text-[15px] font-bold text-slate-900">No matching bookings</p>
+                        <p className="m-0 mt-1 text-[13px] text-slate-500">Nothing matches &quot;{confirmedQuery.trim()}&quot;. Try a guest name or tour code.</p>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmedQuery("")}
+                          style={{ fontFamily: "inherit" }}
+                          className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e]"
+                        >
+                          Clear search
+                        </button>
+                      </div>
+                    ) : null}
 
-                          {isExpanded ? (
-                            <div className="relative mt-4">
-                              <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-gradient-to-r from-[#02665e]/15 via-[#02665e]/35 to-slate-200" />
-                              <div className="relative grid grid-cols-4 gap-2 sm:grid-cols-8">
-                                {checkpoints.map((checkpoint) => {
-                                  const theme = checkpointTheme(checkpoint.key as CheckpointKey);
-                                  return (
-                                    <div key={`rail-${checkpoint.key}`} className="flex flex-col items-center gap-1">
-                                      <span className={`z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border-2 shadow-sm ${checkpoint.done ? `${theme.dot} text-white` : "border-slate-300 bg-white text-slate-400"}`}>{checkpointIcon(checkpoint.key as CheckpointKey)}</span>
-                                      <span className="text-[10px] font-semibold text-slate-600 text-center leading-tight">{checkpointRailLabel(checkpoint.key as CheckpointKey)}</span>
+                    {confirmedPageItems.length > 0 ? (
+                      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                        {confirmedPageItems.map((booking) => {
+                          const bid = String(booking.id);
+                          const bookingKey = `tb-${bid}`;
+                          const isExpanded = expandedRoadmapKey === bookingKey;
+                          const { tour, destination } = tourParts(booking);
+                          const d = daysToTrip(booking);
+                          const chip = pickupChip(d);
+                          const { checkpoints, completedSteps, nextPending, paidAt } = buildCheckpoints(booking);
+                          const detailHref = `/account/agent/tour-bookings/${encodeURIComponent(bid)}`;
+                          const ratingLabel = typeof booking.rating === "number" ? `${booking.rating}/5` : "Pending";
+                          const payout = String(booking.payoutStatus || "").replace(/_/g, " ").toLowerCase();
+                          return (
+                            <article
+                              key={bookingKey}
+                              className={`flex min-w-0 flex-col rounded-3xl border border-solid bg-white transition-shadow hover:shadow-[0_16px_32px_-24px_rgba(15,23,42,0.45)] ${
+                                chip.urgent ? "border-amber-300" : "border-slate-200"
+                              }`}
+                            >
+                              <div className="flex-1 p-5">
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className="text-[32px] font-black leading-none tracking-[0.08em] text-[#02665e]">{placeCodeOf(booking)}</span>
+                                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${chip.cls}`}>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${chip.dot}`} aria-hidden />
+                                    {chip.label}
+                                  </span>
+                                </div>
+                                <h3 className="m-0 mt-3 truncate text-[15.5px] font-bold text-slate-900">{booking.requester?.fullName || "Guest"}</h3>
+                                <p className="m-0 mt-0.5 truncate text-[12.5px] text-slate-500">
+                                  {[booking.tripType || tour, destination, booking.requester?.nationality].filter(Boolean).join(" · ")}
+                                </p>
+                                <dl className="m-0 mt-4 grid grid-cols-3 gap-3">
+                                  {[
+                                    { label: "Pickup", value: shortTripDate(booking.tripDate) },
+                                    { label: "Guests", value: String(booking.requester?.travelerCount ?? "-") },
+                                    { label: "Meet at", value: booking.airportDeparture || "Agreed" },
+                                  ].map((fact) => (
+                                    <div key={fact.label} className="min-w-0">
+                                      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                                      <dd className="m-0 mt-0.5 truncate text-[14px] font-bold tabular-nums text-slate-900" title={fact.value}>{fact.value}</dd>
                                     </div>
-                                  );
-                                })}
+                                  ))}
+                                </dl>
+                                <div className="mt-4 space-y-1.5">
+                                  <StageRail checkpoints={checkpoints} />
+                                  <p className="m-0 truncate text-[11.5px] text-slate-500">
+                                    <span className="font-bold text-slate-700">{completedSteps}/{checkpoints.length}</span> stages · next: <span className="font-semibold text-slate-700">{nextPending?.title || "All stages completed"}</span>
+                                  </p>
+                                </div>
                               </div>
-                            </div>
-                          ) : null}
+
+                              <Perforation />
+
+                              <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-5 pt-4">
+                                <div className="min-w-0">
+                                  <div className="text-[17px] font-extrabold leading-tight tabular-nums text-slate-900">
+                                    {typeof booking.amountPaid === "number" ? booking.amountPaid.toLocaleString("en-US") : "-"}{" "}
+                                    <span className="text-[11.5px] font-semibold text-slate-400">{booking.currency || "TZS"}</span>
+                                  </div>
+                                  <div className="mt-0.5 truncate text-[11.5px] text-slate-400">
+                                    {payout ? `Payout ${payout}` : `Paid ${formatMilestoneTime(paidAt).split(",")[0]}`}
+                                    {booking.bookingCode ? <span className="font-mono text-slate-300"> · {booking.bookingCode}</span> : null}
+                                  </div>
+                                </div>
+                                <div className="flex flex-shrink-0 items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedRoadmapKey((prev) => (prev === bookingKey ? null : bookingKey))}
+                                    aria-expanded={isExpanded}
+                                    title={isExpanded ? "Hide journey board" : "Show journey board"}
+                                    aria-label={isExpanded ? "Hide journey board" : "Show journey board"}
+                                    className={`inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid transition-colors ${
+                                      isExpanded ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-200 bg-white text-slate-500 hover:border-[#02665e] hover:text-[#02665e]"
+                                    }`}
+                                  >
+                                    <Activity className="h-4 w-4" aria-hidden />
+                                  </button>
+                                  <Link
+                                    href={chip.urgent ? `${detailHref}#pickup-validation` : detailHref}
+                                    className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] font-bold no-underline transition-colors ${
+                                      chip.urgent
+                                        ? "bg-amber-500 text-white hover:bg-amber-600"
+                                        : "border-2 border-solid border-[#02665e] bg-white text-[#02665e] hover:bg-[#02665e] hover:text-white"
+                                    }`}
+                                  >
+                                    {chip.urgent ? <UserCheck className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+                                    {chip.urgent ? "Validate pickup" : "Open trip"}
+                                  </Link>
+                                </div>
+                              </div>
+
+                              {isExpanded ? (
+                                <ol className="m-0 list-none space-y-0 border-0 border-t border-solid border-slate-100 px-5 py-4">
+                                  {checkpoints.map((checkpoint, index) => {
+                                    const theme = checkpointTheme(checkpoint.key);
+                                    return (
+                                      <li key={checkpoint.key} className="relative flex gap-3 pb-3 last:pb-0">
+                                        {index < checkpoints.length - 1 ? (
+                                          <span aria-hidden className={`absolute bottom-0 left-[0.8125rem] top-7 w-px ${checkpoint.done ? "bg-slate-300" : "bg-slate-200"}`} />
+                                        ) : null}
+                                        <span className={`relative inline-flex h-[1.625rem] w-[1.625rem] flex-shrink-0 items-center justify-center rounded-full border-2 border-solid ${checkpoint.done ? `${theme.dot} text-white` : "border-slate-200 bg-white text-slate-400"}`}>
+                                          {checkpointIcon(checkpoint.key)}
+                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                                            <span className={`text-[13px] font-bold ${checkpoint.done ? "text-slate-900" : "text-slate-400"}`}>{checkpoint.title}</span>
+                                            <span className="text-[11px] font-semibold tabular-nums text-slate-400">
+                                              {checkpoint.key === "rated" ? ratingLabel : checkpoint.done ? formatMilestoneTime(checkpoint.at) : "Pending"}
+                                            </span>
+                                          </div>
+                                          <p className="m-0 text-[11.5px] leading-snug text-slate-500">{checkpoint.actor} · {checkpoint.details}</p>
+                                        </div>
+                                      </li>
+                                    );
+                                  })}
+                                </ol>
+                              ) : null}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    {confirmedGrid.length > PAGE_SIZE ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[12px] font-semibold text-slate-500">
+                          {(confirmedPage - 1) * PAGE_SIZE + 1} to {Math.min(confirmedPage * PAGE_SIZE, confirmedGrid.length)} of {confirmedGrid.length}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setCurrentPage(Math.max(1, confirmedPage - 1))}
+                            disabled={confirmedPage <= 1}
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                            aria-label="Previous page"
+                          >
+                            <ChevronLeft className="h-4 w-4" aria-hidden />
+                          </button>
+                          <span className="text-[12px] font-semibold text-slate-500">{confirmedPage} of {confirmedPages}</span>
+                          <button
+                            type="button"
+                            onClick={() => setCurrentPage(Math.min(confirmedPages, confirmedPage + 1))}
+                            disabled={confirmedPage >= confirmedPages}
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-solid border-slate-300 bg-white text-slate-600 transition hover:border-[#02665e] hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-45"
+                            aria-label="Next page"
+                          >
+                            <ChevronRight className="h-4 w-4" aria-hidden />
+                          </button>
                         </div>
-
-                        {isExpanded ? (
-                          <div className="px-4 py-4 sm:px-5 sm:py-5">
-                            <ol className="relative space-y-4 pl-9 before:absolute before:left-[10px] before:top-1 before:h-[calc(100%-8px)] before:w-[2px] before:bg-gradient-to-b before:from-cyan-200 before:via-emerald-200 before:to-amber-200">
-                              {checkpoints.map((checkpoint) => {
-                                const theme = checkpointTheme(checkpoint.key as CheckpointKey);
-                                return (
-                                  <li key={checkpoint.key} className="relative">
-                                    <span
-                                      className={`absolute -left-9 top-3 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 ${checkpoint.done ? `${theme.dot} text-white` : "border-slate-300 bg-white text-slate-400"}`}
-                                    >
-                                      <span className="text-[9px] font-extrabold">{checkpoint.done ? "OK" : ".."}</span>
-                                    </span>
-
-                                    <div className={`rounded-2xl border px-4 py-3 transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${checkpoint.done ? theme.card : "border-slate-200 bg-slate-50/80"}`}>
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide ${checkpoint.done ? theme.badge : "bg-slate-300 text-slate-700"}`}>
-                                          {checkpoint.title}
-                                        </span>
-                                        <span className="text-xs font-semibold text-slate-500">
-                                          {checkpoint.key === "rated" ? ratingLabel : formatMilestoneTime(checkpoint.at)}
-                                        </span>
-                                      </div>
-
-                                      <p className="mt-2 text-sm font-semibold text-slate-800">
-                                        {checkpoint.actor}
-                                      </p>
-                                      <p className="mt-1 text-sm text-slate-600">
-                                        {checkpoint.details}
-                                      </p>
-                                    </div>
-                                  </li>
-                                );
-                              })}
-                            </ol>
-                          </div>
-                        ) : null}
-                      </article>
-                    );
-                  })
+                      </div>
+                    ) : null}
+                  </>
                 )}
-                {paginationControls}
+                </div>
               </div>
             ) : (
               /* ── New tab: standard table ── */

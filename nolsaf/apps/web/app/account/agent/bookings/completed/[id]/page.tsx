@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
-import LogoSpinner from "@/components/LogoSpinner";
-import { ArrowLeft, Calendar, CheckCircle2, ClipboardList, User, Mail, Phone, Wallet2, Flag, Info, Star } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronRight, Loader2, Mail, Phone, Star } from "lucide-react";
 
 const api = apiClient;
 
@@ -18,6 +17,9 @@ type TourItem = {
   description?: string | null;
   status?: string;
   paymentStatus?: string;
+  payoutStatus?: string | null;
+  payoutPaidAt?: string | null;
+  operatorPayoutAmount?: number | null;
   createdAt?: string;
   tripDate?: string | null;
   endDate?: string | null;
@@ -55,26 +57,26 @@ const DEFAULT_RATING_FORM: RatingForm = {
   comment: "",
 };
 
+const RATING_ITEMS: Array<{ key: keyof Omit<RatingForm, "comment">; label: string; hint: string }> = [
+  { key: "taskQuality", label: "Task quality", hint: "Was every package service delivered well?" },
+  { key: "punctuality", label: "Punctuality", hint: "Pickups and activities on time" },
+  { key: "attentionToDetail", label: "Attention to detail", hint: "The small things guests notice" },
+  { key: "communication", label: "Communication", hint: "Briefings, updates and replies" },
+  { key: "professionalism", label: "Professionalism", hint: "Conduct of the team on the ground" },
+];
+
 function prettyDate(value?: string | null): string {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function prettyDateTime(value?: string | null): string {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+  return d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function ratingStepLabel(score: number): string {
@@ -84,20 +86,6 @@ function ratingStepLabel(score: number): string {
   if (score >= 2) return "Fair";
   if (score >= 1) return "Poor";
   return "Unmarked";
-}
-
-function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 text-[#02665e]">{icon}</div>
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">{label}</p>
-          <p className="mt-0.5 text-sm font-bold text-slate-900">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function CompletedBookingDetailPage() {
@@ -142,7 +130,7 @@ export default function CompletedBookingDetailPage() {
         setItem(null);
 
         if (!id) {
-          setError("Invalid completed record id.");
+          setError("This completed record link is not valid.");
           return;
         }
 
@@ -159,7 +147,7 @@ export default function CompletedBookingDetailPage() {
           return;
         }
 
-        if (alive) setError("Completed record not found for this id.");
+        if (alive) setError("We could not find this completed trip.");
       } catch (e: any) {
         if (!alive) return;
         if (Number(e?.response?.status || 0) === 401) {
@@ -177,22 +165,12 @@ export default function CompletedBookingDetailPage() {
     };
   }, [id]);
 
-  const title = useMemo(() => {
-    if (!item) return "Completed Record";
-    return item.title || `Completed #${String(item.id)}`;
-  }, [item]);
-
   const overallRating = useMemo(() => {
-    const scores = [
-      ratingForm.taskQuality,
-      ratingForm.punctuality,
-      ratingForm.attentionToDetail,
-      ratingForm.communication,
-      ratingForm.professionalism,
-    ].filter((n) => n > 0);
+    const scores = RATING_ITEMS.map((r) => ratingForm[r.key]).filter((n) => n > 0);
     if (scores.length === 0) return 0;
     return scores.reduce((a, b) => a + b, 0) / scores.length;
   }, [ratingForm]);
+  const markedCount = RATING_ITEMS.filter((r) => ratingForm[r.key] > 0).length;
 
   const completedAtValue = useMemo(() => {
     if (!item) return null;
@@ -277,15 +255,8 @@ export default function CompletedBookingDetailPage() {
       setRatingSaving(true);
       setRatingMessage(null);
 
-      const requiredScores = [
-        ratingForm.taskQuality,
-        ratingForm.punctuality,
-        ratingForm.attentionToDetail,
-        ratingForm.communication,
-        ratingForm.professionalism,
-      ];
-      if (requiredScores.some((score) => score < 1 || score > 5)) {
-        setRatingMessage("Please mark each rating item independently before saving.");
+      if (RATING_ITEMS.some((r) => ratingForm[r.key] < 1 || ratingForm[r.key] > 5)) {
+        setRatingMessage("Please mark each rating item before saving.");
         return;
       }
 
@@ -303,7 +274,7 @@ export default function CompletedBookingDetailPage() {
       }
 
       if (ratingStorageKey) {
-        localStorage.setItem(ratingStorageKey, JSON.stringify(payload));
+        try { localStorage.setItem(ratingStorageKey, JSON.stringify(payload)); } catch {}
       }
 
       setRatingMessage("Rating saved successfully.");
@@ -314,169 +285,302 @@ export default function CompletedBookingDetailPage() {
     }
   }
 
-  function RatingRow({ label, keyName }: { label: string; keyName: keyof Omit<RatingForm, "comment"> }) {
-    const value = ratingForm[keyName];
-    const isMarked = value > 0;
-    const level = ratingStepLabel(value);
-    return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-2 py-2 sm:rounded-xl sm:px-3 sm:py-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="min-w-0 text-sm font-semibold leading-5 text-slate-800">{label}</p>
-          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-bold ${isMarked ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-slate-100 text-slate-500"}`}>
-            {isMarked ? `${value}/5 • ${level}` : "Unmarked"}
-          </span>
-        </div>
-        <div className="mt-2 inline-flex flex-nowrap items-center gap-1 rounded-md border border-slate-200 bg-white/90 px-1 py-1 shadow-sm sm:mt-0 sm:rounded-lg sm:px-1.5">
-          {[1, 2, 3, 4, 5].map((score) => (
-            <button
-              key={`${String(keyName)}-${score}`}
-              type="button"
-              onClick={() => setRatingForm((prev) => ({ ...prev, [keyName]: prev[keyName] === score ? 0 : score }))}
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-md border transition sm:h-8 sm:w-8 ${score === value ? "border-emerald-500 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-300 hover:border-slate-400 hover:text-slate-400"}`}
-              aria-label={`Set ${label} to ${score}`}
-              title={`${score}/5`}
-            >
-              <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="currentColor" />
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  // ── Presentation model ────────────────────────────────────────────────
+  const [tourName, destination] = (() => {
+    const parts = String(item?.title || "Completed trip").split(" • ");
+    return [parts[0], parts[1] || null] as const;
+  })();
+  const placeCode = (String(destination || tourName).replace(/[^A-Za-z]/g, "").slice(0, 3) || "TRP").toUpperCase();
+  const guestName = item?.requester?.fullName || "Guest";
+  const travellers = Number(item?.requester?.travelerCount || 0);
+  const currency = item?.currency || "TZS";
+  const tripDays = (() => {
+    if (!item?.tripDate || !item?.endDate) return null;
+    const a = new Date(item.tripDate); a.setHours(0, 0, 0, 0);
+    const b = new Date(item.endDate); b.setHours(0, 0, 0, 0);
+    const d = Math.round((b.getTime() - a.getTime()) / 86_400_000) + 1;
+    return d > 0 ? d : null;
+  })();
+  const payoutTone = String(item?.payoutStatus || "").toUpperCase();
+  const guestPhone = item?.requester?.phone || null;
+  const guestEmail = item?.requester?.email || null;
 
   return (
-    <div className="w-full py-2 sm:py-4">
-      <div className="mb-5 rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 shadow-sm overflow-hidden">
-        <div className="p-5 sm:p-7">
-          <Link
-            href="/account/agent/bookings?tab=completed"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-[#02665e] transition-colors mb-4 no-underline"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Completed
-          </Link>
+    <div id="completed-booking-page" className="w-full min-w-0 space-y-5 py-2 sm:py-4">
+      <style>{"#completed-booking-page, #completed-booking-page * { box-sizing: border-box; }"}</style>
 
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="inline-flex items-center rounded-full bg-white/80 px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wide text-emerald-700 border border-emerald-200">
-                Completed Details
-              </p>
-              <h1 className="mt-2 text-2xl sm:text-3xl font-black text-slate-900">{title}</h1>
-              <p className="mt-1 text-sm text-slate-600">ID: {id}</p>
-            </div>
-            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-bold text-emerald-700">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Completed
-            </span>
-          </div>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href="/account/agent/bookings?stage=completed"
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-solid border-slate-300 bg-white px-3.5 text-[13px] font-semibold text-slate-700 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Completed trips
+        </Link>
+        {item?.bookingCode ? <span className="min-w-0 truncate font-mono text-[12px] text-slate-400">{item.bookingCode}</span> : null}
       </div>
 
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-16">
-          <LogoSpinner size="lg" className="mb-4" ariaLabel="Loading completed details" />
-          <p className="text-sm text-slate-600">Loading completed details...</p>
+        <div className="space-y-5" aria-busy="true">
+          <span role="status" className="sr-only">Loading completed trip</span>
+          <div className="h-56 animate-pulse rounded-3xl bg-slate-200" />
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div className="h-96 animate-pulse rounded-3xl border border-solid border-slate-200 bg-white" />
+            <div className="h-72 animate-pulse rounded-3xl border border-solid border-slate-200 bg-white" />
+          </div>
         </div>
       ) : authRequired ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-          <p className="text-sm font-bold text-slate-900">Sign in required</p>
-          <p className="mt-1 text-sm text-slate-600">Please sign in to view completed details.</p>
-          <div className="mt-4">
-            <Link
-              href="/account/login"
-              className="inline-flex items-center gap-2 rounded-xl bg-[#02665e] px-4 py-2 text-sm font-bold text-white no-underline"
-            >
-              Sign in
-            </Link>
-          </div>
+        <div className="rounded-3xl border border-solid border-slate-200 bg-white p-6">
+          <p className="m-0 text-sm font-bold text-slate-900">Sign in required</p>
+          <p className="m-0 mt-1 text-sm text-slate-600">Please sign in to view completed details.</p>
+          <Link href="/account/login" className="mt-4 inline-flex h-10 items-center rounded-full bg-[#02665e] px-5 text-[13px] font-bold text-white no-underline">Sign in</Link>
         </div>
       ) : error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6">
-          <p className="text-sm font-bold text-rose-900">Could not open completed details</p>
-          <p className="mt-1 text-sm text-rose-700">{error}</p>
+        <div role="alert" className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="font-bold">Could not open this trip</div>
+          <div className="mt-1">{error}</div>
         </div>
       ) : item ? (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
-            <InfoRow icon={<Flag className="h-4 w-4" />} label="Status" value={item.status || "COMPLETED"} />
-            <InfoRow icon={<Calendar className="h-4 w-4" />} label="Completed At" value={prettyDateTime(completedAtValue)} />
-            <InfoRow icon={<ClipboardList className="h-4 w-4" />} label="Created" value={prettyDate(item.createdAt)} />
-            {item.source === "tour" ? (
-              <InfoRow
-                icon={<Wallet2 className="h-4 w-4" />}
-                label="Amount Paid"
-                value={item.amountPaid != null ? `${item.currency || "USD"} ${Number(item.amountPaid).toLocaleString()}` : "-"}
-              />
-            ) : null}
-            <InfoRow icon={<User className="h-4 w-4" />} label="Guest" value={item.requester?.fullName || "-"} />
-            <InfoRow icon={<Mail className="h-4 w-4" />} label="Email" value={item.requester?.email || "-"} />
-            <InfoRow icon={<Phone className="h-4 w-4" />} label="Phone" value={item.requester?.phone || "-"} />
-            {item.source === "tour" ? (
-              <>
-                <InfoRow icon={<Info className="h-4 w-4" />} label="Trip Date" value={prettyDate(item.tripDate)} />
-                <InfoRow icon={<Info className="h-4 w-4" />} label="Trip End" value={prettyDateTime(tripEndValue)} />
-                <InfoRow icon={<Info className="h-4 w-4" />} label="Booking Code" value={item.bookingCode || "-"} />
-              </>
-            ) : null}
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm font-bold text-slate-900">Description / Notes</p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">{item.description || "No additional notes were provided for this completed record."}</p>
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/60 p-5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-extrabold uppercase tracking-wide text-amber-800">Rate This Task</p>
-                <p className="mt-1 text-sm text-slate-700">Score task quality, punctuality, attention to detail, communication, and professionalism.</p>
+        <>
+          {/* ── Trip pass, stamped completed ── */}
+          <section aria-label="Completed trip" className="relative overflow-hidden rounded-3xl bg-slate-900 text-white shadow-[0_24px_48px_-30px_rgba(15,23,42,0.9)]">
+            <div className="grid md:grid-cols-[minmax(0,1fr)_16rem] lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 p-5 sm:p-7">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11.5px] font-bold text-emerald-300">
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                  Trip completed
+                </span>
+                <div className="mt-4 flex items-end gap-3 sm:gap-4">
+                  <span className="text-[40px] font-black leading-none tracking-[0.08em] text-white/90 sm:text-[56px]">{placeCode}</span>
+                  <div className="min-w-0 pb-1">
+                    <h1 className="m-0 break-words text-[20px] font-bold leading-tight text-white sm:text-[24px]">{tourName}</h1>
+                    <p className="m-0 mt-0.5 truncate text-[13px] text-white/60">
+                      {[destination, item.tripType, `for ${guestName}`].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                </div>
+                <dl className="m-0 mt-6 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
+                  {[
+                    { label: "Started", value: prettyDate(item.tripDate) },
+                    { label: tripDays ? "Duration" : "Ended", value: tripDays ? `${tripDays} ${tripDays === 1 ? "day" : "days"}` : prettyDate(tripEndValue) },
+                    { label: "Travellers", value: travellers ? String(travellers) : "-" },
+                    { label: "Value", value: item.amountPaid != null ? `${currency} ${Number(item.amountPaid).toLocaleString("en-US")}` : "-" },
+                  ].map((fact) => (
+                    <div key={fact.label} className="min-w-0">
+                      <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/45">{fact.label}</dt>
+                      <dd className="m-0 mt-1 truncate text-[15px] font-bold tabular-nums text-white" title={fact.value}>{fact.value}</dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
-              <div className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-bold text-amber-800">
-                Overall: {overallRating > 0 ? `${overallRating.toFixed(1)}/5 • ${ratingStepLabel(overallRating)}` : "Unmarked"}
-              </div>
-            </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-2">
-              <RatingRow label="Task Quality" keyName="taskQuality" />
-              <RatingRow label="Punctuality" keyName="punctuality" />
-              <RatingRow label="Attention To Detail" keyName="attentionToDetail" />
-              <RatingRow label="Communication" keyName="communication" />
-              <div className="col-span-2 sm:col-span-1">
-                <RatingRow label="Professionalism" keyName="professionalism" />
+              <div className="relative flex items-center justify-between gap-4 border-0 border-t-2 border-dashed border-white/15 px-5 py-4 md:flex-col md:justify-center md:border-l-2 md:border-t-0 md:p-6 md:text-center">
+                <span aria-hidden className="absolute -top-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-neutral-50 md:block" />
+                <span aria-hidden className="absolute -bottom-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-neutral-50 md:block" />
+                <div className="flex items-baseline gap-2 md:block">
+                  <div className="text-[36px] font-black leading-none text-emerald-300 md:text-[48px]">{overallRating > 0 ? overallRating.toFixed(1) : "Done"}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60 md:mt-1.5 md:text-[12px]">
+                    {overallRating > 0 ? `self rating · ${ratingStepLabel(overallRating).toLowerCase()}` : `closed ${prettyDate(completedAtValue)}`}
+                  </div>
+                </div>
+                <div className="text-[12px] text-white/50 md:mt-2">{prettyDateTime(completedAtValue)}</div>
               </div>
             </div>
+          </section>
 
-            <div className="mt-4 mx-auto w-full max-w-5xl px-1 sm:px-0">
-              <label htmlFor="completed-rating-comment" className="block text-center text-xs font-bold uppercase tracking-wide text-slate-700">Additional Comment</label>
-              <textarea
-                id="completed-rating-comment"
-                value={ratingForm.comment}
-                onChange={(e) => setRatingForm((prev) => ({ ...prev, comment: e.target.value }))}
-                rows={4}
-                maxLength={1000}
-                placeholder="Share punctuality, attention, customer handling, and any improvements."
-                className="mx-auto mt-1 block min-h-[120px] w-[94%] max-w-full resize-y overflow-x-hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm text-slate-800 outline-none focus:border-amber-300 focus:ring-2 focus:ring-amber-100 sm:w-full"
-              />
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-              <button
-                type="button"
-                onClick={saveRating}
-                disabled={ratingSaving}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#02665e] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#01514b] disabled:cursor-not-allowed disabled:opacity-60"
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+            <div className="min-w-0 space-y-5">
+              {/* ── Rate this trip ── */}
+              <Panel
+                title="Rate how this trip went"
+                subtitle="Your honest review of the delivery. It builds your operator record."
+                action={
+                  <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold ${markedCount === RATING_ITEMS.length ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+                    {markedCount}/{RATING_ITEMS.length} marked
+                  </span>
+                }
               >
-                <CheckCircle2 className="h-4 w-4" />
-                {ratingSaving ? "Saving..." : "Save Rating"}
-              </button>
-              {ratingMessage ? (
-                <p className="text-xs font-semibold text-slate-700">{ratingMessage}</p>
+                <div className="divide-y divide-solid divide-slate-100 [&>*]:border-x-0">
+                  {RATING_ITEMS.map((row) => {
+                    const value = ratingForm[row.key];
+                    return (
+                      <div key={row.key} className="flex flex-col gap-2 py-3 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="text-[13.5px] font-bold text-slate-900">{row.label}</div>
+                          <div className="text-[12px] text-slate-500">{row.hint}</div>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2.5">
+                          <div className="flex items-center gap-0.5" role="radiogroup" aria-label={row.label}>
+                            {[1, 2, 3, 4, 5].map((score) => (
+                              <button
+                                key={score}
+                                type="button"
+                                role="radio"
+                                aria-checked={value === score}
+                                onClick={() => setRatingForm((prev) => ({ ...prev, [row.key]: prev[row.key] === score ? 0 : score }))}
+                                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent transition-colors ${score <= value ? "text-amber-400" : "text-slate-200 hover:text-amber-200"}`}
+                                aria-label={`${row.label}: ${score} of 5`}
+                                title={`${score}/5 · ${ratingStepLabel(score)}`}
+                              >
+                                <Star className="h-5 w-5" fill="currentColor" aria-hidden />
+                              </button>
+                            ))}
+                          </div>
+                          <span className={`w-16 text-right text-[12px] font-bold ${value ? "text-slate-700" : "text-slate-300"}`}>{ratingStepLabel(value)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <label htmlFor="completed-rating-comment" className="mt-4 block">
+                  <span className="mb-1.5 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">Notes for the record</span>
+                  <textarea
+                    id="completed-rating-comment"
+                    value={ratingForm.comment}
+                    onChange={(e) => setRatingForm((prev) => ({ ...prev, comment: e.target.value }))}
+                    rows={4}
+                    maxLength={1000}
+                    placeholder="What went well, what slowed you down, what you would change next time."
+                    className="block min-h-[110px] w-full resize-y rounded-2xl border border-solid border-slate-300 bg-white px-3.5 py-3 text-[13.5px] leading-relaxed text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)] placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-0 focus:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]"
+                    style={{ fontFamily: "inherit" }}
+                  />
+                  <span className="mt-1 block text-right text-[11px] text-slate-400">{ratingForm.comment.length}/1000</span>
+                </label>
+
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={saveRating}
+                    disabled={ratingSaving}
+                    style={{ fontFamily: "inherit" }}
+                    className="inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {ratingSaving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <CheckCircle2 className="h-4 w-4" aria-hidden />}
+                    {ratingSaving ? "Saving..." : "Save rating"}
+                  </button>
+                  {ratingMessage ? (
+                    <p className={`m-0 text-[12.5px] font-semibold ${ratingMessage.includes("success") ? "text-emerald-700" : "text-rose-700"}`}>{ratingMessage}</p>
+                  ) : null}
+                </div>
+              </Panel>
+
+              {item.description ? (
+                <Panel title="Booking notes">
+                  <p className="m-0 whitespace-pre-wrap text-[13.5px] leading-relaxed text-slate-700">{item.description}</p>
+                </Panel>
               ) : null}
             </div>
-          </div>
 
-        </div>
+            <aside className="min-w-0 space-y-5">
+              <Panel title="Guest">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-[16px] font-black text-white">
+                    {initials(guestName)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-[15px] font-bold text-slate-900">{guestName}</div>
+                    <div className="truncate text-[12.5px] text-slate-500">
+                      {[item.requester?.nationality, travellers ? `${travellers} ${travellers === 1 ? "traveller" : "travellers"}` : null].filter(Boolean).join(" · ") || "Lead traveller"}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 divide-y divide-solid divide-slate-200 overflow-hidden rounded-2xl border border-solid border-slate-200 [&>*]:border-x-0">
+                  <ContactRow href={guestPhone ? `tel:${guestPhone}` : undefined} icon={Phone} label="Phone" value={guestPhone} />
+                  <ContactRow href={guestEmail ? `mailto:${guestEmail}` : undefined} icon={Mail} label="Email" value={guestEmail} />
+                </div>
+              </Panel>
+
+              <Panel title="Record">
+                <dl className="m-0 divide-y divide-solid divide-slate-200 [&>*]:border-x-0">
+                  <SummaryRow label="Tour code" value={<span className="font-mono">{item.bookingCode || "-"}</span>} />
+                  <SummaryRow label="Booked on" value={prettyDate(item.createdAt)} />
+                  <SummaryRow label="Trip dates" value={tripEndValue && prettyDate(tripEndValue) !== prettyDate(item.tripDate) ? `${prettyDate(item.tripDate)} to ${prettyDate(tripEndValue)}` : prettyDate(item.tripDate)} />
+                  <SummaryRow label="Completed" value={prettyDateTime(completedAtValue)} />
+                  <SummaryRow label="Guest payment" value={<Chip tone="emerald">{String(item.paymentStatus || "-").replace(/_/g, " ").toLowerCase()}</Chip>} />
+                  <SummaryRow
+                    label="Your payout"
+                    value={
+                      <Chip tone={payoutTone === "PAID" ? "emerald" : payoutTone.includes("RECOVER") || payoutTone.includes("HOLD") ? "rose" : "amber"}>
+                        {payoutTone ? payoutTone.replace(/_/g, " ").toLowerCase() : "not started"}
+                      </Chip>
+                    }
+                  />
+                  {typeof item.operatorPayoutAmount === "number" ? (
+                    <SummaryRow label="Payout amount" value={<span className="font-bold text-slate-900">{currency} {item.operatorPayoutAmount.toLocaleString("en-US")}</span>} />
+                  ) : null}
+                </dl>
+                <Link
+                  href="/account/agent/revenues"
+                  className="group mt-4 flex items-center justify-between rounded-2xl bg-slate-50 px-3.5 py-3 text-[13px] font-semibold text-slate-700 no-underline transition-colors hover:bg-[#02665e]/5 hover:text-[#02665e]"
+                >
+                  View all revenues
+                  <ChevronRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-[#02665e]" aria-hidden />
+                </Link>
+              </Panel>
+            </aside>
+          </div>
+        </>
       ) : null}
     </div>
   );
+}
+
+// ── Presentation pieces ─────────────────────────────────────────────────
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || "G") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+function Panel({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="min-w-0 rounded-3xl border border-solid border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="m-0 text-[15.5px] font-bold text-slate-900">{title}</h2>
+          {subtitle ? <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">{subtitle}</p> : null}
+        </div>
+        {action ? <div className="flex-shrink-0">{action}</div> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Chip({ tone, children }: { tone: "emerald" | "amber" | "rose"; children: ReactNode }) {
+  const style = { emerald: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-800", rose: "bg-rose-50 text-rose-700" }[tone];
+  const dot = { emerald: "bg-emerald-500", amber: "bg-amber-500", rose: "bg-rose-500" }[tone];
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold capitalize ${style}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+      <dt className="flex-shrink-0 text-[12.5px] text-slate-500">{label}</dt>
+      <dd className="m-0 min-w-0 text-right text-[13px] font-semibold text-slate-800">{value}</dd>
+    </div>
+  );
+}
+
+function ContactRow({ href, icon: Icon, label, value }: { href?: string; icon: typeof Phone; label: string; value: string | null }) {
+  const body = (
+    <>
+      <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</span>
+        <span className={`block truncate text-[13.5px] font-semibold ${value ? "text-slate-900" : "text-slate-400"}`}>{value || "Not shared"}</span>
+      </span>
+      {href ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-[#02665e]" aria-hidden /> : null}
+    </>
+  );
+  const rowClass = "group flex w-full items-center gap-3 bg-white px-3.5 py-3";
+  return href ? <a href={href} className={`${rowClass} no-underline transition-colors hover:bg-slate-50`}>{body}</a> : <div className={rowClass}>{body}</div>;
 }

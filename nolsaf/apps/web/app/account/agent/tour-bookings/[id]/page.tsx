@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
-import { AlertTriangle, ArrowLeft, Calendar, CheckCircle2, CircleDollarSign, ClipboardList, CreditCard, ExternalLink, FileText, MapPin, Phone, Route, Send, User, Users, Handshake, ShieldCheck, Key } from "lucide-react";
-import LogoSpinner from "@/components/LogoSpinner";
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronRight, Handshake, Key, Loader2, Mail, MapPin, Minus, Phone, Plane, Route, ShieldCheck, Users } from "lucide-react";
 import TourCancellationWorkspace from "@/components/agent/TourCancellationWorkspace";
 
 const api = apiClient;
@@ -19,6 +18,7 @@ type TourBookingDetail = {
   status?: string;
   paymentStatus?: string;
   payoutStatus?: string | null;
+  payoutPaidAt?: string | null;
   operatorPayoutAmount?: number | null;
   createdAt?: string;
   updatedAt?: string;
@@ -54,47 +54,8 @@ type TourCase = {
   events: TourCaseEvent[];
 };
 
-function InfoRow({
-  icon,
-  label,
-  value,
-  accent = false,
-  slideDelayMs = 0,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  accent?: boolean;
-  slideDelayMs?: number;
-}) {
-  return (
-    <div className={`relative overflow-hidden rounded-2xl border p-3 shadow-sm transition-all duration-700 motion-reduce:transition-none ${accent ? "border-[#02665e]/25 bg-white/90" : "border-slate-300 bg-slate-100"}`}>
-      {accent ? (
-        <div
-          className="pointer-events-none absolute inset-0 transition-transform duration-700 ease-out motion-reduce:transition-none"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle, rgba(255,255,255,0.42) 1px, transparent 1.4px), linear-gradient(95deg, rgba(2,102,94,0.16) 0%, rgba(2,102,94,0.1) 52%, rgba(2,102,94,0.14) 100%)",
-            backgroundSize: "14px 14px, auto",
-            transform: "translateX(0)",
-            transitionDelay: `${slideDelayMs}ms`,
-          }}
-          aria-hidden
-        />
-      ) : null}
-
-      <div className="relative z-10 flex items-start gap-3">
-        <div className={`h-10 w-10 rounded-xl border flex items-center justify-center shadow-sm transition-colors duration-700 motion-reduce:transition-none ${accent ? "bg-white/90 border-[#02665e]/25 text-[#02665e]" : "bg-white border-teal-300 text-[#01564f]"}`}>
-          {icon}
-        </div>
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-700">{label}</div>
-          <div className="mt-1 text-sm font-extrabold text-slate-950">{value}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+/** Where this trip sits from the operator's side of the handover. */
+type TripStage = "UPCOMING" | "PICKUP_TODAY" | "PICKUP_OVERDUE" | "ON_TOUR" | "COMPLETED" | "CANCELLED" | "UNDATED";
 
 function listify(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v || "").trim()).filter(Boolean);
@@ -182,10 +143,6 @@ function MetricCard({ label, value, tone = "slate" }: { label: string; value: Re
       <div className="mt-1 text-sm font-extrabold">{value}</div>
     </div>
   );
-}
-
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-lg bg-slate-200 ${className}`} />;
 }
 
 export default function AgentTourBookingDetailPage() {
@@ -297,55 +254,7 @@ export default function AgentTourBookingDetailPage() {
   const status = item?.status || "Pending";
   const paymentStatus = item?.paymentStatus || "-";
   const bookingCode = item?.bookingCode || "-";
-  const statusLabel = String(status).replace(/_/g, " ");
-  const paymentLabel = String(paymentStatus).replace(/_/g, " ");
   const statusTone = String(status).toUpperCase();
-  const paymentTone = String(paymentStatus).toUpperCase();
-
-  const statusClass =
-    statusTone.includes("COMPLETE")
-      ? "border-emerald-300 bg-emerald-100 text-emerald-900"
-      : statusTone.includes("CONFIRM") || statusTone === "PAID"
-      ? "border-teal-300 bg-teal-100 text-teal-900"
-      : statusTone.includes("CANCEL") || statusTone.includes("REFUND")
-      ? "border-rose-300 bg-rose-100 text-rose-900"
-      : "border-amber-300 bg-amber-100 text-amber-900";
-
-  const paymentClass =
-    paymentTone === "PAID"
-      ? "border-emerald-300 bg-emerald-100 text-emerald-900"
-      : paymentTone.includes("REFUND")
-      ? "border-rose-300 bg-rose-100 text-rose-900"
-      : "border-blue-300 bg-blue-100 text-blue-900";
-
-  const tripDate = useMemo(
-    () =>
-      item?.tripDate
-        ? new Date(item.tripDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-        : "-",
-    [item?.tripDate]
-  );
-
-  const createdAt = useMemo(
-    () =>
-      item?.createdAt
-        ? new Date(item.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-        : "-",
-    [item?.createdAt]
-  );
-
-  const completedAt = useMemo(
-    () =>
-      item?.completedAt
-        ? new Date(item.completedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-        : "-",
-    [item?.completedAt]
-  );
-
-  const amountPaid =
-    typeof item?.amountPaid === "number"
-      ? `${item?.currency || "TZS"} ${item.amountPaid.toLocaleString()}`
-      : "-";
 
   const packageSnapshot = (item?.packageSnapshot as any) || null;
   const operatorSnapshot = (item?.operatorSnapshot as any) || null;
@@ -365,7 +274,6 @@ export default function AgentTourBookingDetailPage() {
         year: "numeric",
         hour: "2-digit",
         minute: "2-digit",
-        second: "2-digit",
         hour12: false,
       })
     : null;
@@ -433,7 +341,7 @@ export default function AgentTourBookingDetailPage() {
       {
         title: "Pickup & Briefing",
         detail: hasClientAirportPickup
-          ? `Client requested airport pickup at ${meetingPoint}. Agent must receive the guest there first, then run trip briefing before moving to itinerary tasks.`
+          ? `Client requested airport pickup at ${meetingPoint}. Receive the guest there first, then run the trip briefing before moving to itinerary tasks.`
           : `Pickup/meet guest at ${meetingPoint} and run trip briefing with the full activity plan.`,
       },
     ];
@@ -507,8 +415,85 @@ export default function AgentTourBookingDetailPage() {
     }
   }
 
+  // ── Presentation model ────────────────────────────────────────────────
+  const [tourName, destination] = (() => {
+    const parts = String(title).split(" • ");
+    return [parts[0] || title, parts[1] || null] as const;
+  })();
+  const placeCode = (() => {
+    const letters = String(destination || tourName || "").replace(/[^A-Za-z]/g, "");
+    return (letters.slice(0, 3) || "TRP").toUpperCase();
+  })();
+  const daysToTrip = item?.tripDate ? Math.round((dayStart(item.tripDate) - dayStart(Date.now())) / 86_400_000) : null;
+  const tripDays = (() => {
+    if (item?.tripDate && item?.endDate) {
+      const d = Math.round((dayStart(item.endDate) - dayStart(item.tripDate)) / 86_400_000) + 1;
+      if (d > 0) return d;
+    }
+    return packageSnapshot?.duration ? durationDays : null;
+  })();
+  const stage: TripStage = (() => {
+    if (statusTone.includes("CANCEL") || statusTone.includes("REFUND")) return "CANCELLED";
+    if (item?.completedAt || statusTone.includes("COMPLETE")) return "COMPLETED";
+    if (alreadyPickupValidated) return "ON_TOUR";
+    if (daysToTrip == null) return "UNDATED";
+    if (daysToTrip < 0) return "PICKUP_OVERDUE";
+    if (daysToTrip === 0) return "PICKUP_TODAY";
+    return "UPCOMING";
+  })();
+  const journeyReached = stage === "COMPLETED" ? 4 : stage === "ON_TOUR" ? 3 : 1;
+  const heroStatus = (() => {
+    switch (stage) {
+      case "CANCELLED": return "Booking cancelled";
+      case "COMPLETED": return "Trip completed";
+      case "ON_TOUR": return "Pickup validated · on tour";
+      case "PICKUP_TODAY": return "Pickup is today";
+      case "PICKUP_OVERDUE": return `Pickup overdue by ${Math.abs(daysToTrip || 0)} ${Math.abs(daysToTrip || 0) === 1 ? "day" : "days"}`;
+      case "UNDATED": return "Paid · date to be confirmed";
+      default: return daysToTrip === 1 ? "Paid · pickup tomorrow" : `Paid · pickup in ${daysToTrip} days`;
+    }
+  })();
+  const countdown = (() => {
+    switch (stage) {
+      case "CANCELLED": return { big: "Off", small: "booking cancelled" };
+      case "COMPLETED": return { big: "Done", small: "trip delivered" };
+      case "ON_TOUR": {
+        const day = daysToTrip != null ? Math.max(1, 1 - daysToTrip) : null;
+        return day && tripDays ? { big: String(Math.min(day, tripDays)), small: `day of ${tripDays}` } : { big: "Live", small: "on tour" };
+      }
+      case "PICKUP_TODAY": return { big: "Today", small: "pickup day" };
+      case "PICKUP_OVERDUE": return { big: String(Math.abs(daysToTrip || 0)), small: Math.abs(daysToTrip || 0) === 1 ? "day overdue" : "days overdue" };
+      case "UNDATED": return { big: "TBC", small: "date to confirm" };
+      default: return { big: String(daysToTrip), small: daysToTrip === 1 ? "day to pickup" : "days to pickup" };
+    }
+  })();
+  const needsPickup = stage === "UPCOMING" || stage === "PICKUP_TODAY" || stage === "PICKUP_OVERDUE" || stage === "UNDATED";
+  const guestName = item?.requester?.fullName || "Guest";
+  const guestPhone = item?.requester?.phone || null;
+  const guestEmail = item?.requester?.email || null;
+  const travellers = Number(item?.requester?.travelerCount || 0);
+  const currency = item?.currency || "TZS";
+  const bookingValue = typeof item?.amountPaid === "number" ? item.amountPaid.toLocaleString("en-US") : null;
+  const payoutValue = typeof item?.operatorPayoutAmount === "number" ? `${currency} ${item.operatorPayoutAmount.toLocaleString("en-US")}` : null;
+  const payoutTone = String(item?.payoutStatus || "").toUpperCase();
+  const fmtDate = (value?: string | null) =>
+    value ? new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
+  const tripDateLabel = fmtDate(item?.tripDate) || "To confirm";
+  const endDateLabel = fmtDate(item?.endDate);
+  const codeReady = !!(expectedCodeSuffix && pickupCodeInput.toUpperCase() === expectedCodeSuffix);
+  const stageChip: Record<TripStage, string> = {
+    UPCOMING: "bg-white/15 text-white",
+    PICKUP_TODAY: "bg-amber-300 text-amber-950",
+    PICKUP_OVERDUE: "bg-orange-400 text-orange-950",
+    ON_TOUR: "bg-white/15 text-white",
+    COMPLETED: "bg-white/15 text-white",
+    CANCELLED: "bg-rose-400 text-rose-950",
+    UNDATED: "bg-white/15 text-white",
+  };
+
   return (
-    <div className="w-full py-2 sm:py-4">
+    <div id="operator-booking-page" className="w-full min-w-0 space-y-5 py-2 sm:py-4">
+      <style>{DETAIL_BOX_SIZING}</style>
       {showCongratsPopup ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
           <div className="relative w-full max-w-lg animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-300 motion-reduce:animate-none">
@@ -531,455 +516,538 @@ export default function AgentTourBookingDetailPage() {
         </div>
       ) : null}
 
-      <div className="mb-6 rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/30 to-cyan-50/20 shadow-card overflow-hidden">
-        <div className="p-5 sm:p-7">
-          <Link
-            href="/account/agent/bookings"
-            className="mb-5 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-sm font-semibold text-slate-700 no-underline transition-colors hover:border-[#02665e]/30 hover:text-[#02665e] group"
-          >
-            <ArrowLeft className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-1" />
-            Back to My Bookings
-          </Link>
-
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
-              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <MetricCard label="Tour Code" value={bookingCode} tone="teal" />
-                <div className={`rounded-2xl border p-3 shadow-sm ${statusClass}`}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">Status</div>
-                  <div className="mt-1 text-sm font-bold uppercase">{statusLabel}</div>
-                </div>
-                <div className={`rounded-2xl border p-3 shadow-sm ${paymentClass}`}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">Disbursement Status</div>
-                  <div className="mt-1 text-sm font-bold uppercase">{paymentLabel}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href={`/account/agent/bookings${stage === "COMPLETED" ? "?stage=completed" : stage === "ON_TOUR" ? "?stage=progress" : stage === "CANCELLED" ? "" : "?stage=confirmed"}`}
+          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-solid border-slate-300 bg-white px-3.5 text-[13px] font-semibold text-slate-700 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-colors hover:border-[#02665e] hover:text-[#02665e]"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          My bookings
+        </Link>
+        {item?.bookingCode ? <span className="min-w-0 truncate font-mono text-[12px] text-slate-400">{item.bookingCode}</span> : null}
       </div>
 
       {loading ? (
-        <div className="space-y-5">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-            <div className="grid grid-cols-2 gap-4">
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
+        <div className="space-y-5" aria-busy="true">
+          <span role="status" className="sr-only">Loading booking</span>
+          <div className="h-64 animate-pulse rounded-3xl bg-[#02665e]/15" />
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <div className="space-y-5">
+              <div className="h-56 animate-pulse rounded-3xl border border-solid border-slate-200 bg-white" />
+              <div className="h-72 animate-pulse rounded-3xl border border-solid border-slate-200 bg-white" />
             </div>
-          </section>
-
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-              <Skeleton className="h-4 w-36" />
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
-              <Skeleton className="h-4 w-28" />
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-                <Skeleton className="h-16" />
-              </div>
-            </section>
-          </div>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-            <Skeleton className="h-4 w-52" />
-            <div className="mt-4 grid grid-cols-2 xl:grid-cols-5 gap-4">
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
+            <div className="space-y-5">
+              <div className="h-48 animate-pulse rounded-3xl border border-solid border-slate-200 bg-white" />
+              <div className="h-64 animate-pulse rounded-3xl border border-solid border-slate-200 bg-white" />
             </div>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-            <Skeleton className="h-4 w-56" />
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              <Skeleton className="h-40" />
-              <Skeleton className="h-40" />
-              <Skeleton className="h-40" />
-            </div>
-          </section>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-              <Skeleton className="h-4 w-44" />
-              <Skeleton className="mt-3 h-28" />
-              <Skeleton className="mt-3 h-28" />
-            </section>
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-              <Skeleton className="h-4 w-52" />
-              <Skeleton className="mt-3 h-20" />
-              <Skeleton className="mt-3 h-20" />
-              <Skeleton className="mt-3 h-20" />
-            </section>
-          </div>
-
-          <div className="flex flex-col items-center justify-center py-2">
-            <LogoSpinner size="sm" ariaLabel="Loading tour booking" />
-            <p className="mt-2 text-xs text-slate-500">Loading booking details...</p>
           </div>
         </div>
       ) : authRequired ? (
-        <div className="rounded-2xl border border-slate-200 bg-white/70 backdrop-blur p-6 shadow-card">
+        <div className="rounded-3xl border border-solid border-slate-200 bg-white p-6">
           <div className="text-sm font-bold text-slate-900">Sign in required</div>
-          <div className="text-sm text-slate-600 mt-1">Log in to view booking details.</div>
+          <div className="mt-1 text-sm text-slate-600">Log in to view booking details.</div>
           <div className="mt-4">
-            <Link
-              href="/account/login"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand text-white font-semibold no-underline hover:bg-brand-700 shadow-card transition-colors"
-            >
+            <Link href="/account/login" className={`${PRIMARY_BUTTON} no-underline`}>
               Sign in
-              <ArrowLeft className="w-4 h-4 rotate-180" aria-hidden />
+              <ArrowLeft className="h-4 w-4 rotate-180" aria-hidden />
             </Link>
           </div>
         </div>
       ) : error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-900">
+        <div role="alert" className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           <div className="font-bold">Could not load booking</div>
-          <div className="text-sm mt-1 text-rose-800">{error}</div>
+          <div className="mt-1">{error}</div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-slate-900">Trip Snapshot</h2>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Card Summary</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <InfoRow icon={<ClipboardList className="w-5 h-5" aria-hidden />} label="Status" value={status} />
-              <InfoRow icon={<CreditCard className="w-5 h-5" aria-hidden />} label="Disbursement Status" value={paymentStatus} />
-              <InfoRow icon={<Calendar className="w-5 h-5" aria-hidden />} label="Trip date" value={tripDate} />
-              <InfoRow icon={<CheckCircle2 className="w-5 h-5" aria-hidden />} label="Completed" value={completedAt} />
-              <InfoRow icon={<Calendar className="w-5 h-5" aria-hidden />} label="Booked on" value={createdAt} />
-              <InfoRow icon={<Users className="w-5 h-5" aria-hidden />} label="Travelers" value={item?.requester?.travelerCount ?? "-"} />
-            </div>
-          </section>
-
+        <>
+          {/* ── Trip pass ── */}
           <section
-            className={`relative overflow-hidden rounded-2xl p-5 sm:p-6 shadow-sm transition-all duration-700 motion-reduce:transition-none ${alreadyPickupValidated ? "border-emerald-200" : "border-teal-200"}`}
-            style={{
-              background: alreadyPickupValidated
-                ? "linear-gradient(135deg, #f3fdf8 0%, #e9faf3 48%, #e6f7f5 100%)"
-                : "linear-gradient(135deg, #f0fdf9 0%, #ecf9f7 50%, #e0f2f1 100%)",
-            }}
+            aria-label="Trip summary"
+            className="relative overflow-hidden rounded-3xl text-white shadow-[0_24px_48px_-30px_rgba(2,102,94,0.9)]"
+            style={{ backgroundColor: stage === "CANCELLED" ? "#475569" : BRAND }}
           >
-            <svg className="pointer-events-none absolute inset-0 w-full h-full opacity-40" viewBox="0 0 400 200" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <circle cx="80" cy="40" r="60" stroke="#02665e" strokeOpacity="0.05" strokeWidth="1" />
-              <circle cx="320" cy="160" r="80" stroke="#0d9488" strokeOpacity="0.04" strokeWidth="1" />
-              <circle cx="200" cy="100" r="40" stroke="#14b8a6" strokeOpacity="0.05" strokeWidth="1" />
-            </svg>
-            <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(circle, rgba(2,102,94,0.03) 1px, transparent 1px)", backgroundSize: "24px 24px" }} aria-hidden="true" />
-            <div className="relative z-10">
-              <div className="flex items-center justify-between gap-2 mb-4">
-                <h2 className="text-sm font-bold text-slate-900">Pickup Validation</h2>
-                <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition-all duration-500 motion-reduce:transition-none ${alreadyPickupValidated ? "border-emerald-200 bg-emerald-100 text-emerald-800 shadow-sm shadow-emerald-200/60" : "border-amber-200 bg-amber-100 text-amber-800"}`}>
-                  {alreadyPickupValidated ? "Validated" : "Pending"}
-                </span>
-              </div>
-
-            <div className="relative overflow-hidden space-y-3 rounded-xl bg-teal-50/40 p-4">
-              <div className="pointer-events-none absolute inset-0" aria-hidden>
-                <Handshake className={`absolute -left-4 top-2 h-20 w-20 transition-colors duration-700 ${alreadyPickupValidated ? "text-emerald-700/10" : "text-teal-700/10"}`} />
-                <ShieldCheck className={`absolute right-6 top-6 h-16 w-16 transition-colors duration-700 ${alreadyPickupValidated ? "text-emerald-700/10" : "text-teal-700/10"}`} />
-                <Key className={`absolute right-16 bottom-2 h-20 w-20 transition-colors duration-700 ${alreadyPickupValidated ? "text-emerald-700/10" : "text-teal-700/10"}`} />
-              </div>
-              <div className="relative z-10">
-                <p className="text-sm font-semibold text-slate-900">
-                  Validation Steps
-                </p>
-                <ol className="space-y-2 text-sm text-slate-700">
-                  <li className="flex items-start gap-2">
-                    <Handshake className="w-5 h-5 text-teal-600 mt-0.5 flex-shrink-0" aria-hidden />
-                    <span><strong>Meet the client</strong> in person for first pickup</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <ShieldCheck className="w-5 h-5 text-teal-600 mt-0.5 flex-shrink-0" aria-hidden />
-                    <span><strong>Verify identity</strong> confirm you met <strong>{item?.requester?.fullName || "the client"}</strong></span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Key className="w-5 h-5 text-teal-600 mt-0.5 flex-shrink-0" aria-hidden />
-                    <span>
-                      <strong>Enter code suffix</strong> last 6 characters of tour code
-                      {expectedCodeSuffix ? (
-                        <> (e.g., <strong className="text-slate-900">{expectedCodeSuffix}</strong>)</>
-                      ) : null}
-                    </span>
-                  </li>
-                </ol>
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 mt-3">
-                  <p className="text-xs font-bold text-rose-700 uppercase tracking-wide">⚠️ Terms of Service Violation</p>
-                  <p className="mt-2 text-xs text-rose-800">
-                    Validating without physically meeting the client will be considered a violation of our Terms of Service and may result in account suspension, cancellation of bookings, and legal action.
-                  </p>
+            <div className="grid md:grid-cols-[minmax(0,1fr)_16rem] lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 p-5 sm:p-7">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-bold ${stageChip[stage]}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${stage === "PICKUP_TODAY" || stage === "PICKUP_OVERDUE" || stage === "CANCELLED" ? "bg-current" : "bg-white"}`} aria-hidden />
+                    {heroStatus}
+                  </span>
+                  <p className="m-0 text-[11px] font-bold uppercase tracking-[0.16em] text-white/60">Operator booking</p>
                 </div>
-              </div>
-            </div>
 
-            <div className={`mt-3 overflow-hidden transition-all duration-500 motion-reduce:transition-none ${alreadyPickupValidated ? "max-h-24 opacity-100 translate-y-0" : "max-h-0 opacity-0 -translate-y-1"}`}>
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-700" aria-hidden />
-                  <span>Pickup already validated{pickupValidatedAt ? ` on ${pickupValidatedAt}` : ""}.</span>
-                </div>
-              </div>
-            </div>
-
-            {!alreadyPickupValidated ? (
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,220px)_auto] sm:items-center">
-                <input
-                  value={pickupCodeInput}
-                  onChange={(e) => setPickupCodeInput(e.target.value.toUpperCase())}
-                  placeholder="Enter last 6 (e.g. B47DA9)"
-                  className="h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold text-slate-900 outline-none ring-0 focus:border-[#02665e]"
-                  maxLength={12}
-                />
-                <button
-                  type="button"
-                  onClick={() => void validatePickupFirstMeet()}
-                  disabled={!!(pickupValidating || pickupCodeInput.length === 0 || (expectedCodeSuffix && pickupCodeInput.toUpperCase() !== expectedCodeSuffix))}
-                  className="inline-flex h-11 items-center justify-center rounded-xl bg-[#02665e] px-4 text-sm font-bold text-white transition hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {pickupValidating ? "Validating..." : "Validate First Meet"}
-                </button>
-              </div>
-            ) : null}
-
-            {pickupValidationErr ? (
-              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700">{pickupValidationErr}</div>
-            ) : null}
-            {pickupValidationMsg ? (
-              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">{pickupValidationMsg}</div>
-            ) : null}
-            </div>
-          </section>
-
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-              <div className="text-sm font-bold text-slate-900">Guest details</div>
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <InfoRow
-                  icon={<User className="w-5 h-5" aria-hidden />}
-                  label="Full name"
-                  value={item?.requester?.fullName || "-"}
-                  accent={alreadyPickupValidated}
-                  slideDelayMs={0}
-                />
-                <InfoRow
-                  icon={<Phone className="w-5 h-5" aria-hidden />}
-                  label="Phone"
-                  value={item?.requester?.phone || "-"}
-                  accent={alreadyPickupValidated}
-                  slideDelayMs={80}
-                />
-                <InfoRow
-                  icon={<User className="w-5 h-5" aria-hidden />}
-                  label="Email"
-                  value={item?.requester?.email || "-"}
-                  accent={alreadyPickupValidated}
-                  slideDelayMs={160}
-                />
-                <InfoRow
-                  icon={<User className="w-5 h-5" aria-hidden />}
-                  label="Nationality"
-                  value={item?.requester?.nationality || "-"}
-                  accent={alreadyPickupValidated}
-                  slideDelayMs={240}
-                />
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-1">
-              <div className="text-sm font-bold text-slate-900">Booking info</div>
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <InfoRow icon={<ClipboardList className="w-5 h-5" aria-hidden />} label="Tour code" value={bookingCode} />
-                <InfoRow icon={<ClipboardList className="w-5 h-5" aria-hidden />} label="Package type" value={item?.tripType || "-"} />
-                <InfoRow icon={<CreditCard className="w-5 h-5" aria-hidden />} label="Amount paid" value={amountPaid} />
-                <InfoRow icon={<Calendar className="w-5 h-5" aria-hidden />} label="End date" value={item?.endDate ? new Date(item.endDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "-"} />
-              </div>
-            </section>
-          </div>
-
-          <TourCancellationWorkspace
-            bookingId={bookingId}
-            bookingCode={bookingCode}
-            bookingStatus={String(item?.status || "")}
-            payoutStatus={item?.payoutStatus}
-            startDate={item?.tripDate}
-            currency={item?.currency}
-            operatorPayoutAmount={item?.operatorPayoutAmount}
-          />
-
-          <section className="hidden rounded-2xl border border-amber-200 bg-white p-5 sm:p-6 shadow-sm" aria-hidden="true">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-700" /><h2 className="text-sm font-bold text-slate-900">Traveler Cases & Refund Evidence</h2></div><p className="mt-1 text-xs text-slate-600">Respond to traveler cases and submit verifiable supplier costs. NoLSAF makes every cancellation and refund decision.</p></div>
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{tourCases.length} active record{tourCases.length === 1 ? "" : "s"}</span>
-            </div>
-            {caseNotice && <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">{caseNotice}</div>}
-            <div className="mt-4 space-y-4">
-              {tourCases.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-500">No traveler cases for this booking.</div> : tourCases.map((tourCase) => {
-                const eligibility = tourCase.events.find((event) => event.type === "ELIGIBILITY_CALCULATED")?.data;
-                const evidence = tourCase.events.filter((event) => event.type === "OPERATOR_COST_EVIDENCE").flatMap((event) => Array.isArray(event.data?.items) ? event.data.items : []);
-                const draft = evidenceDrafts[tourCase.id] || { kind: "NON_REFUNDABLE_COMPONENT" as const, description: "", amount: "", evidenceUrl: "", disclosedBeforePayment: false };
-                const financial = ["CANCELLATION", "REFUND"].includes(tourCase.type.toUpperCase());
-                const closed = ["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(tourCase.status.toUpperCase());
-                return <article key={tourCase.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex flex-wrap justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">{tourCase.type} · Case #{tourCase.id}</div><h3 className="mt-1 font-bold text-slate-900">{tourCase.title}</h3><p className="mt-1 text-sm text-slate-700">{tourCase.description}</p></div><span className="h-fit rounded-full border bg-white px-2.5 py-1 text-xs font-bold">{tourCase.status.replaceAll("_", " ")}</span></div>
-                  {eligibility && <div className="mt-3 grid gap-2 sm:grid-cols-3"><MetricCard label="Policy" value={eligibility.eligibilityCode} tone="amber" /><MetricCard label="Provisional" value={`${eligibility.refundPercent}%`} tone="teal" /><MetricCard label="Estimate" value={`${item?.currency || "TZS"} ${Number(eligibility.estimatedRefundAmount || 0).toLocaleString()}`} tone="emerald" /></div>}
-                  {evidence.length > 0 && <div className="mt-3 rounded-xl border bg-white p-3"><div className="text-xs font-bold">Evidence submitted</div>{evidence.map((entry: any, index: number) => <a key={index} href={entry.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 flex justify-between text-xs text-teal-700 underline"><span>{entry.description}</span><strong>{Number(entry.amount).toLocaleString()} {item?.currency}</strong></a>)}</div>}
-                  {!closed && <><textarea value={caseMessages[tourCase.id] || ""} onChange={(e) => setCaseMessages((old) => ({ ...old, [tourCase.id]: e.target.value }))} rows={2} placeholder="Response to traveler or NoLSAF…" className="mt-3 w-full rounded-xl border p-3 text-sm" />
-                    {financial && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="text-xs font-bold text-amber-900">Add documented tour cost</div><div className="mt-2 grid gap-2 md:grid-cols-2"><select value={draft.kind} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, kind: e.target.value as any } }))} className="rounded-lg border px-3 py-2 text-xs"><option value="NON_REFUNDABLE_COMPONENT">Non-refundable component</option><option value="CONSUMED_SERVICE">Consumed service</option><option value="RECOVERY_COST">Recovery cost</option></select><input value={draft.description} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, description: e.target.value } }))} placeholder="Description" className="rounded-lg border px-3 py-2 text-xs" /><input value={draft.amount} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, amount: e.target.value } }))} placeholder="Amount" inputMode="decimal" className="rounded-lg border px-3 py-2 text-xs" /><input value={draft.evidenceUrl} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, evidenceUrl: e.target.value } }))} placeholder="Evidence URL" className="rounded-lg border px-3 py-2 text-xs" /></div><label className="mt-2 flex gap-2 text-xs"><input type="checkbox" checked={draft.disclosedBeforePayment} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, disclosedBeforePayment: e.target.checked } }))} />Disclosed before payment</label><button onClick={() => void submitCostEvidence(tourCase)} disabled={caseWorking === tourCase.id} className="mt-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white">Submit evidence</button></div>}
-                    <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void caseAction(tourCase, "ACKNOWLEDGE")} disabled={caseWorking === tourCase.id} className="rounded-lg border bg-white px-3 py-2 text-xs font-bold">Acknowledge</button><button onClick={() => void caseAction(tourCase, "ESCALATE")} disabled={caseWorking === tourCase.id} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white">Escalate</button>{!financial && <button onClick={() => void caseAction(tourCase, "RESOLVE")} disabled={caseWorking === tourCase.id} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Resolve</button>}</div></>}
-                  <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-slate-600">Audit timeline ({tourCase.events.length})</summary><div className="mt-2 space-y-2 border-l pl-3">{tourCase.events.map((event) => <div key={event.id} className="text-xs text-slate-600"><strong>{event.type.replaceAll("_", " ")}</strong> · {new Date(event.createdAt).toLocaleString()}<div>{event.message}</div></div>)}</div></details>
-                </article>;
-              })}
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-slate-900">Booked Package Blueprint</h2>
-              <span className="rounded-full border border-teal-200 bg-teal-100 px-2.5 py-1 text-[11px] font-bold text-teal-800">Connected to package</span>
-            </div>
-            <div className="grid grid-cols-2 xl:grid-cols-5 gap-4">
-              <InfoRow icon={<ClipboardList className="w-5 h-5" aria-hidden />} label="Package" value={packageName} />
-              <InfoRow icon={<Calendar className="w-5 h-5" aria-hidden />} label="Duration" value={packageDuration} />
-              <InfoRow icon={<MapPin className="w-5 h-5" aria-hidden />} label="Pickup Point" value={meetingPoint} />
-              <InfoRow
-                icon={<MapPin className="w-5 h-5" aria-hidden />}
-                label="Client Pickup Request"
-                value={hasClientAirportPickup ? `Yes - ${departureAirportLabel}` : "No airport pickup selected"}
-              />
-              <InfoRow icon={<Users className="w-5 h-5" aria-hidden />} label="Pax Range" value={`${packageSnapshot?.minPax || "-"} - ${packageSnapshot?.maxPax || "-"}`} />
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <h2 className="text-sm font-bold text-slate-900">Package Services by Day</h2>
-              <span className="rounded-full border border-emerald-200 bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
-                {servicesByDay.length} day plan
-              </span>
-            </div>
-
-            {packageServices.length > 0 ? (
-              <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-                <div className="text-xs font-bold uppercase tracking-wide text-emerald-800">All Services In This Package</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {packageServices.map((svc, idx) => (
-                    <span key={`${svc}-${idx}`} className="rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-900">
-                      {svc}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {servicesByDay.map((day) => (
-                <div key={`day-${day.day}`} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Day {day.day}</p>
-                    <span className="rounded-full border border-teal-200 bg-teal-100 px-2 py-0.5 text-[10px] font-bold text-teal-800">{day.items.length} services</span>
+                <div className="mt-4 flex items-end gap-3 sm:gap-4">
+                  <span className="text-[40px] font-black leading-none tracking-[0.08em] text-white sm:text-[56px]">{placeCode}</span>
+                  <div className="min-w-0 pb-1">
+                    <h1 className="m-0 break-words text-[20px] font-bold leading-tight text-white sm:text-[24px]">{tourName}</h1>
+                    <p className="m-0 mt-0.5 truncate text-[13px] text-white/70">
+                      {[destination, item?.tripType, `for ${guestName}`].filter(Boolean).join(" · ")}
+                    </p>
                   </div>
-                  <h3 className="mt-1 text-sm font-bold text-slate-900">{day.title}</h3>
-                  <ul className="mt-3 space-y-2">
-                    {day.items.map((svc, idx) => (
-                      <li key={`${day.day}-${idx}-${svc}`} className="flex items-start gap-2 text-sm text-slate-800">
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-teal-700" />
-                        <span>{svc}</span>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
-              ))}
+
+                <dl className="m-0 mt-6 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">
+                  {[
+                    { label: "Pickup", value: tripDateLabel },
+                    { label: tripDays ? "Duration" : "Return", value: tripDays ? `${tripDays} ${tripDays === 1 ? "day" : "days"}` : endDateLabel || "To confirm" },
+                    { label: "Travellers", value: travellers ? String(travellers) : "-" },
+                    { label: "Meet at", value: meetingPoint },
+                  ].map((fact) => (
+                    <div key={fact.label} className="min-w-0">
+                      <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/55">{fact.label}</dt>
+                      <dd className="m-0 mt-1 truncate text-[15px] font-bold text-white" title={fact.value}>{fact.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+
+                <div className="mt-6">
+                  <JourneySteps reached={journeyReached} blocked={stage === "CANCELLED"} />
+                </div>
+              </div>
+
+              {/* Stub: countdown to the handover and the one action that matters now */}
+              <div className="relative flex flex-wrap items-center justify-between gap-4 border-0 border-t-2 border-dashed border-white/25 px-5 py-4 md:flex-col md:flex-nowrap md:justify-center md:border-l-2 md:border-t-0 md:p-6 md:text-center">
+                <span aria-hidden className="absolute -top-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-neutral-50 md:block" />
+                <span aria-hidden className="absolute -bottom-[11px] left-[-11px] hidden h-5 w-5 rounded-full bg-neutral-50 md:block" />
+                <div className="flex items-baseline gap-2 md:block">
+                  <div className="text-[36px] font-black leading-none tabular-nums text-white md:text-[52px]">{countdown.big}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70 md:mt-1.5 md:text-[12px]">{countdown.small}</div>
+                </div>
+                {needsPickup ? (
+                  <a
+                    href="#pickup-validation"
+                    className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-5 text-[13px] font-bold text-[#02665e] no-underline transition-colors hover:bg-white/90 md:w-full"
+                  >
+                    <Key className="h-4 w-4" aria-hidden />
+                    Validate pickup
+                  </a>
+                ) : guestPhone && stage !== "CANCELLED" ? (
+                  <a
+                    href={`tel:${guestPhone}`}
+                    className="inline-flex h-10 flex-shrink-0 items-center justify-center gap-1.5 rounded-full bg-white px-5 text-[13px] font-bold text-[#02665e] no-underline transition-colors hover:bg-white/90 md:w-full"
+                  >
+                    <Phone className="h-4 w-4" aria-hidden />
+                    Call guest
+                  </a>
+                ) : null}
+              </div>
             </div>
           </section>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-              <h2 className="text-sm font-bold text-slate-900">What Agent Will Deliver</h2>
-              <div className="mt-4 space-y-3">
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-emerald-800">Included in Package</div>
-                  {includedItems.length > 0 ? (
-                    <ul className="mt-2 space-y-2">
-                      {includedItems.map((v, idx) => (
-                        <li key={`${v}-${idx}`} className="flex items-start gap-2 text-sm text-emerald-900">
-                          <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" />
-                          <span>{v}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2 text-sm text-emerald-900">No explicit inclusions were captured in this package snapshot.</p>
-                  )}
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+            <div className="min-w-0 space-y-5">
+              {/* ── Pickup validation ── */}
+              <section
+                id="pickup-validation"
+                className={`min-w-0 scroll-mt-24 rounded-3xl border border-solid bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6 ${
+                  alreadyPickupValidated ? "border-emerald-200" : stage === "PICKUP_TODAY" || stage === "PICKUP_OVERDUE" ? "border-amber-300" : "border-slate-200"
+                }`}
+              >
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="m-0 text-[15.5px] font-bold text-slate-900">Pickup validation</h2>
+                    <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
+                      {alreadyPickupValidated
+                        ? "The handover is on record. The live itinerary is open for this trip."
+                        : "Record the first meet in person. This moves the trip to In progress and opens the guest's live itinerary."}
+                    </p>
+                  </div>
+                  <StatusChip tone={alreadyPickupValidated ? "emerald" : stage === "PICKUP_OVERDUE" ? "rose" : "amber"}>
+                    {alreadyPickupValidated ? "Validated" : stage === "PICKUP_OVERDUE" ? "Overdue" : "Pending"}
+                  </StatusChip>
                 </div>
 
-                <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
-                  <div className="text-xs font-bold uppercase tracking-wide text-rose-800">Not Included</div>
-                  {excludedItems.length > 0 ? (
-                    <ul className="mt-2 space-y-2">
-                      {excludedItems.map((v, idx) => (
-                        <li key={`${v}-${idx}`} className="flex items-start gap-2 text-sm text-rose-900">
-                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-rose-500" />
-                          <span>{v}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-2 text-sm text-rose-900">No exclusion list was captured for this booking.</p>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-              <h2 className="text-sm font-bold text-slate-900">Connected Task Handling Flow</h2>
-              <p className="mt-1 text-xs font-semibold text-slate-600">
-                {hasClientAirportPickup
-                  ? `Pickup instruction from booking: Airport pickup requested at ${departureAirportLabel}.`
-                  : "Pickup instruction from booking: No airport pickup requested by client."}
-              </p>
-              <div className="mt-4 space-y-3">
-                {connectedFlow.map((step, idx) => (
-                  <div key={`${step.title}-${idx}`} className="relative rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                    {idx < connectedFlow.length - 1 ? (
-                      <span className="pointer-events-none absolute -bottom-4 left-7 h-4 w-px bg-slate-300" aria-hidden />
-                    ) : null}
-                    <div className="flex items-start gap-3">
-                      <div className="mt-0.5 inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-teal-300 bg-teal-100 text-xs font-bold text-teal-900">
-                        {idx + 1}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
-                          <Route className="h-4 w-4 text-teal-700" />
-                          {step.title}
-                        </div>
-                        <p className="mt-1 text-sm text-slate-700">{step.detail}</p>
-                      </div>
+                {alreadyPickupValidated ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3.5">
+                    <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e] text-white">
+                      <ShieldCheck className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[14px] font-bold text-emerald-950">You met {guestName}</div>
+                      <div className="text-[12.5px] text-emerald-800/80">{pickupValidatedAt ? `Validated on ${pickupValidatedAt}` : "Validated"}</div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
+                ) : (
+                  <>
+                    <ol className="m-0 grid list-none gap-2.5 p-0 sm:grid-cols-3">
+                      {[
+                        { icon: Handshake, title: "Meet the guest", text: `In person at ${meetingPoint}` },
+                        { icon: ShieldCheck, title: "Verify identity", text: `Confirm you are with ${guestName}` },
+                        { icon: Key, title: "Enter the code", text: "Last 6 characters of the tour code on their voucher" },
+                      ].map((step, index) => (
+                        <li key={step.title} className="flex min-w-0 items-start gap-3 rounded-2xl border border-solid border-slate-200 bg-slate-50/70 p-3.5">
+                          <span className="relative inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                            <step.icon className="h-4 w-4" aria-hidden />
+                            <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#02665e] text-[9.5px] font-bold text-white">{index + 1}</span>
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-[13.5px] font-bold text-slate-900">{step.title}</span>
+                            <span className="block text-[12px] leading-snug text-slate-500">{step.text}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+
+                    <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-solid border-slate-200 p-3.5 sm:flex-row sm:items-center">
+                      <label className="min-w-0 flex-1">
+                        <span className="mb-1.5 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">Code suffix</span>
+                        <input
+                          value={pickupCodeInput}
+                          onChange={(e) => setPickupCodeInput(e.target.value.toUpperCase())}
+                          placeholder={expectedCodeSuffix ? `e.g. ${expectedCodeSuffix}` : "e.g. B47DA9"}
+                          className="block h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-white px-3 font-mono text-[16px] font-bold uppercase tracking-[0.3em] text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition-[border-color,box-shadow] placeholder:font-sans placeholder:text-[13px] placeholder:font-medium placeholder:tracking-normal placeholder:text-slate-400 hover:border-slate-400 focus:border-[#02665e] focus:outline-none focus:ring-0 focus:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]"
+                          maxLength={12}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => void validatePickupFirstMeet()}
+                        disabled={!!(pickupValidating || pickupCodeInput.length === 0 || (expectedCodeSuffix && !codeReady))}
+                        className={`${PRIMARY_BUTTON} h-11 sm:mt-5`}
+                        style={{ fontFamily: "inherit" }}
+                      >
+                        {pickupValidating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : codeReady ? <Check className="h-4 w-4" aria-hidden /> : <Key className="h-4 w-4" aria-hidden />}
+                        {pickupValidating ? "Validating..." : "Validate first meet"}
+                      </button>
+                    </div>
+
+                    <p className="m-0 mt-3 flex items-start gap-2 rounded-2xl border border-solid border-rose-200 bg-rose-50/70 px-3.5 py-3 text-[12px] leading-relaxed text-rose-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-600" aria-hidden />
+                      <span>
+                        <strong className="font-bold">Only validate after meeting the guest.</strong> Validating without physically meeting the client is a Terms of Service violation and may lead to account suspension, cancelled bookings and legal action.
+                      </span>
+                    </p>
+                  </>
+                )}
+
+                {pickupValidationErr ? (
+                  <div role="alert" className="mt-3 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-semibold text-rose-700">{pickupValidationErr}</div>
+                ) : null}
+                {pickupValidationMsg ? (
+                  <div className="mt-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] font-semibold text-emerald-800">{pickupValidationMsg}</div>
+                ) : null}
+              </section>
+
+              <TourCancellationWorkspace
+                bookingId={bookingId}
+                bookingCode={bookingCode}
+                bookingStatus={String(item?.status || "")}
+                payoutStatus={item?.payoutStatus}
+                startDate={item?.tripDate}
+                currency={item?.currency}
+                operatorPayoutAmount={item?.operatorPayoutAmount}
+              />
+
+              <section className="hidden rounded-2xl border border-amber-200 bg-white p-5 sm:p-6 shadow-sm" aria-hidden="true">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-700" /><h2 className="text-sm font-bold text-slate-900">Traveler Cases & Refund Evidence</h2></div><p className="mt-1 text-xs text-slate-600">Respond to traveler cases and submit verifiable supplier costs. NoLSAF makes every cancellation and refund decision.</p></div>
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">{tourCases.length} active record{tourCases.length === 1 ? "" : "s"}</span>
+                </div>
+                {caseNotice && <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">{caseNotice}</div>}
+                <div className="mt-4 space-y-4">
+                  {tourCases.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-500">No traveler cases for this booking.</div> : tourCases.map((tourCase) => {
+                    const eligibility = tourCase.events.find((event) => event.type === "ELIGIBILITY_CALCULATED")?.data;
+                    const evidence = tourCase.events.filter((event) => event.type === "OPERATOR_COST_EVIDENCE").flatMap((event) => Array.isArray(event.data?.items) ? event.data.items : []);
+                    const draft = evidenceDrafts[tourCase.id] || { kind: "NON_REFUNDABLE_COMPONENT" as const, description: "", amount: "", evidenceUrl: "", disclosedBeforePayment: false };
+                    const financial = ["CANCELLATION", "REFUND"].includes(tourCase.type.toUpperCase());
+                    const closed = ["WITHDRAWN", "CLOSED", "RESOLVED", "REJECTED"].includes(tourCase.status.toUpperCase());
+                    return <article key={tourCase.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                      <div className="flex flex-wrap justify-between gap-3"><div><div className="text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">{tourCase.type} · Case #{tourCase.id}</div><h3 className="mt-1 font-bold text-slate-900">{tourCase.title}</h3><p className="mt-1 text-sm text-slate-700">{tourCase.description}</p></div><span className="h-fit rounded-full border bg-white px-2.5 py-1 text-xs font-bold">{tourCase.status.replaceAll("_", " ")}</span></div>
+                      {eligibility && <div className="mt-3 grid gap-2 sm:grid-cols-3"><MetricCard label="Policy" value={eligibility.eligibilityCode} tone="amber" /><MetricCard label="Provisional" value={`${eligibility.refundPercent}%`} tone="teal" /><MetricCard label="Estimate" value={`${item?.currency || "TZS"} ${Number(eligibility.estimatedRefundAmount || 0).toLocaleString()}`} tone="emerald" /></div>}
+                      {evidence.length > 0 && <div className="mt-3 rounded-xl border bg-white p-3"><div className="text-xs font-bold">Evidence submitted</div>{evidence.map((entry: any, index: number) => <a key={index} href={entry.evidenceUrl} target="_blank" rel="noreferrer" className="mt-1 flex justify-between text-xs text-teal-700 underline"><span>{entry.description}</span><strong>{Number(entry.amount).toLocaleString()} {item?.currency}</strong></a>)}</div>}
+                      {!closed && <><textarea value={caseMessages[tourCase.id] || ""} onChange={(e) => setCaseMessages((old) => ({ ...old, [tourCase.id]: e.target.value }))} rows={2} placeholder="Response to traveler or NoLSAF…" className="mt-3 w-full rounded-xl border p-3 text-sm" />
+                        {financial && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="text-xs font-bold text-amber-900">Add documented tour cost</div><div className="mt-2 grid gap-2 md:grid-cols-2"><select value={draft.kind} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, kind: e.target.value as any } }))} className="rounded-lg border px-3 py-2 text-xs"><option value="NON_REFUNDABLE_COMPONENT">Non-refundable component</option><option value="CONSUMED_SERVICE">Consumed service</option><option value="RECOVERY_COST">Recovery cost</option></select><input value={draft.description} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, description: e.target.value } }))} placeholder="Description" className="rounded-lg border px-3 py-2 text-xs" /><input value={draft.amount} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, amount: e.target.value } }))} placeholder="Amount" inputMode="decimal" className="rounded-lg border px-3 py-2 text-xs" /><input value={draft.evidenceUrl} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, evidenceUrl: e.target.value } }))} placeholder="Evidence URL" className="rounded-lg border px-3 py-2 text-xs" /></div><label className="mt-2 flex gap-2 text-xs"><input type="checkbox" checked={draft.disclosedBeforePayment} onChange={(e) => setEvidenceDrafts((old) => ({ ...old, [tourCase.id]: { ...draft, disclosedBeforePayment: e.target.checked } }))} />Disclosed before payment</label><button onClick={() => void submitCostEvidence(tourCase)} disabled={caseWorking === tourCase.id} className="mt-2 rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white">Submit evidence</button></div>}
+                        <div className="mt-3 flex flex-wrap gap-2"><button onClick={() => void caseAction(tourCase, "ACKNOWLEDGE")} disabled={caseWorking === tourCase.id} className="rounded-lg border bg-white px-3 py-2 text-xs font-bold">Acknowledge</button><button onClick={() => void caseAction(tourCase, "ESCALATE")} disabled={caseWorking === tourCase.id} className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-bold text-white">Escalate</button>{!financial && <button onClick={() => void caseAction(tourCase, "RESOLVE")} disabled={caseWorking === tourCase.id} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Resolve</button>}</div></>}
+                      <details className="mt-3"><summary className="cursor-pointer text-xs font-bold text-slate-600">Audit timeline ({tourCase.events.length})</summary><div className="mt-2 space-y-2 border-l pl-3">{tourCase.events.map((event) => <div key={event.id} className="text-xs text-slate-600"><strong>{event.type.replaceAll("_", " ")}</strong> · {new Date(event.createdAt).toLocaleString()}<div>{event.message}</div></div>)}</div></details>
+                    </article>;
+                  })}
+                </div>
+              </section>
+
+              {/* ── Package delivered ── */}
+              <Panel
+                title="What you deliver"
+                subtitle={`${packageName}${packageDuration !== "-" ? ` · ${packageDuration}` : ""}`}
+                action={<StatusChip tone="emerald">From package</StatusChip>}
+              >
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="min-w-0">
+                    <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">Included</div>
+                    {includedItems.length ? (
+                      <ul className="m-0 list-none space-y-2 p-0">
+                        {includedItems.map((inc, idx) => (
+                          <li key={`${inc}-${idx}`} className="flex items-start gap-2 text-[13.5px] leading-5 text-slate-800">
+                            <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e] text-white"><Check className="h-3 w-3" aria-hidden /></span>
+                            <span className="min-w-0 break-words">{inc}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="m-0 text-[13px] text-slate-400">No inclusions captured in this package snapshot</p>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">Not included</div>
+                    {excludedItems.length ? (
+                      <ul className="m-0 list-none space-y-2 p-0">
+                        {excludedItems.map((exc, idx) => (
+                          <li key={`${exc}-${idx}`} className="flex items-start gap-2 text-[13.5px] leading-5 text-slate-600">
+                            <span className="mt-0.5 inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-600"><Minus className="h-3 w-3" aria-hidden /></span>
+                            <span className="min-w-0 break-words">{exc}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="m-0 text-[13px] text-slate-400">Nothing listed</p>
+                    )}
+                  </div>
+                </div>
+                <dl className="m-0 mt-5 grid gap-3 border-0 border-t border-solid border-slate-100 pt-4 sm:grid-cols-3">
+                  {[
+                    { icon: MapPin, label: "Pickup point", value: meetingPoint },
+                    { icon: Plane, label: "Airport pickup", value: hasClientAirportPickup ? `Requested · ${departureAirportLabel}` : "Not requested" },
+                    { icon: Users, label: "Group size", value: `${packageSnapshot?.minPax || "-"} to ${packageSnapshot?.maxPax || "-"} pax` },
+                  ].map((fact) => (
+                    <div key={fact.label} className="flex min-w-0 items-start gap-2.5">
+                      <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]"><fact.icon className="h-4 w-4" aria-hidden /></span>
+                      <div className="min-w-0">
+                        <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">{fact.label}</dt>
+                        <dd className="m-0 mt-0.5 break-words text-[13.5px] font-semibold text-slate-900">{fact.value}</dd>
+                      </div>
+                    </div>
+                  ))}
+                </dl>
+              </Panel>
+
+              {/* ── Day by day ── */}
+              <Panel
+                title="Day-by-day plan"
+                subtitle="Services to run on each day of the trip."
+                action={<StatusChip tone="slate">{servicesByDay.length} {servicesByDay.length === 1 ? "day" : "days"}</StatusChip>}
+              >
+                <ol className="m-0 list-none space-y-0 p-0">
+                  {servicesByDay.map((day, index) => (
+                    <li key={`day-${day.day}`} className="relative grid grid-cols-[2.75rem_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
+                      {index < servicesByDay.length - 1 ? <span aria-hidden className="absolute bottom-0 left-[1.375rem] top-11 w-px bg-slate-200" /> : null}
+                      <span className="relative flex h-11 w-11 flex-col items-center justify-center rounded-2xl bg-[#02665e] text-white">
+                        <span className="text-[8.5px] font-bold uppercase tracking-[0.12em] text-white/70">Day</span>
+                        <span className="text-[16px] font-black leading-none">{day.day}</span>
+                      </span>
+                      <div className="min-w-0 pt-0.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="m-0 text-[14px] font-bold text-slate-900">{day.title}</h3>
+                          <span className="text-[11.5px] font-semibold text-slate-400">{day.items.length} {day.items.length === 1 ? "service" : "services"}</span>
+                        </div>
+                        <ul className="m-0 mt-2 grid list-none gap-1.5 p-0 sm:grid-cols-2">
+                          {day.items.map((svc, idx) => (
+                            <li key={`${day.day}-${idx}-${svc}`} className="flex min-w-0 items-start gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[13px] leading-5 text-slate-700">
+                              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+                              <span className="min-w-0 break-words">{svc}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                {packageServices.length > 0 ? (
+                  <div className="mt-5 border-0 border-t border-solid border-slate-100 pt-4">
+                    <div className="mb-2 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">All services in this package</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {packageServices.map((svc, idx) => (
+                        <span key={`${svc}-${idx}`} className="rounded-full bg-[#02665e]/10 px-2.5 py-1 text-[12px] font-semibold text-[#02665e]">{svc}</span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </Panel>
+            </div>
+
+            {/* ── Side rail ── */}
+            <aside className="min-w-0 space-y-5">
+              <Panel title="Guest">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-[#02665e] text-[16px] font-black text-white">
+                    {initials(guestName)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-[15px] font-bold text-slate-900">{guestName}</div>
+                    <div className="truncate text-[12.5px] text-slate-500">
+                      {[item?.requester?.nationality, travellers ? `${travellers} ${travellers === 1 ? "traveller" : "travellers"}` : null].filter(Boolean).join(" · ") || "Lead traveller"}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 divide-y divide-solid divide-slate-200 overflow-hidden rounded-2xl border border-solid border-slate-200 [&>*]:border-x-0">
+                  <ContactRow href={guestPhone ? `tel:${guestPhone}` : undefined} icon={Phone} label="Phone" value={guestPhone} />
+                  <ContactRow href={guestEmail ? `mailto:${guestEmail}` : undefined} icon={Mail} label="Email" value={guestEmail} />
+                </div>
+                <p className="m-0 mt-3 text-[11.5px] leading-relaxed text-slate-400">Contact details are for trip coordination only.</p>
+              </Panel>
+
+              <Panel title="Booking">
+                <dl className="m-0 divide-y divide-solid divide-slate-200 [&>*]:border-x-0">
+                  <SummaryRow label="Tour code" value={<span className="font-mono">{bookingCode}</span>} />
+                  <SummaryRow label="Status" value={<StatusChip tone={stage === "CANCELLED" ? "rose" : stage === "COMPLETED" ? "slate" : "emerald"}>{String(status).replace(/_/g, " ").toLowerCase()}</StatusChip>} />
+                  <SummaryRow label="Guest payment" value={<StatusChip tone={String(paymentStatus).toUpperCase().includes("REFUND") ? "rose" : "emerald"}>{String(paymentStatus).replace(/_/g, " ").toLowerCase()}</StatusChip>} />
+                  <SummaryRow label="Booking value" value={bookingValue ? <span className="font-bold text-slate-900">{currency} {bookingValue}</span> : "-"} />
+                  <SummaryRow label="Package type" value={item?.tripType || "-"} />
+                  <SummaryRow label="Trip dates" value={endDateLabel && endDateLabel !== tripDateLabel ? `${tripDateLabel} to ${endDateLabel}` : tripDateLabel} />
+                  <SummaryRow label="Booked on" value={fmtDate(item?.createdAt) || "-"} />
+                  {item?.completedAt ? <SummaryRow label="Completed" value={fmtDate(item.completedAt) || "-"} /> : null}
+                </dl>
+              </Panel>
+
+              <Panel title="Your payout">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[22px] font-extrabold leading-none tabular-nums text-slate-900">{payoutValue || "Pending"}</div>
+                    <div className="mt-1 text-[12px] text-slate-500">
+                      {payoutTone === "PAID" && item?.payoutPaidAt ? `Paid on ${fmtDate(item.payoutPaidAt)}` : payoutValue ? "Net after NoLSAF commission" : "Calculated when the booking settles"}
+                    </div>
+                  </div>
+                  <StatusChip tone={payoutTone === "PAID" ? "emerald" : payoutTone.includes("RECOVER") || payoutTone.includes("HOLD") ? "rose" : "amber"}>
+                    {payoutTone ? payoutTone.replace(/_/g, " ").toLowerCase() : "not started"}
+                  </StatusChip>
+                </div>
+                <Link
+                  href="/account/agent/revenues"
+                  className="group mt-4 flex items-center justify-between rounded-2xl bg-slate-50 px-3.5 py-3 text-[13px] font-semibold text-slate-700 no-underline transition-colors hover:bg-[#02665e]/5 hover:text-[#02665e]"
+                >
+                  View all revenues
+                  <ChevronRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-[#02665e]" aria-hidden />
+                </Link>
+              </Panel>
+
+              <Panel
+                title="Handling flow"
+                subtitle={hasClientAirportPickup ? `Airport pickup requested at ${departureAirportLabel}.` : "No airport pickup requested."}
+              >
+                <ol className="m-0 list-none p-0">
+                  {connectedFlow.map((step, idx) => {
+                    const done = idx === 0 || (idx === 1 && alreadyPickupValidated) || stage === "COMPLETED";
+                    return (
+                      <li key={`${step.title}-${idx}`} className="relative flex gap-3 pb-4 last:pb-0">
+                        {idx < connectedFlow.length - 1 ? <span aria-hidden className={`absolute bottom-0 left-[0.6875rem] top-6 w-px ${done ? "bg-[#02665e]/40" : "bg-slate-200"}`} /> : null}
+                        <span className={`relative inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-full text-[10.5px] font-bold ${done ? "bg-[#02665e] text-white" : "border border-solid border-slate-300 bg-white text-slate-500"}`}>
+                          {done ? <Check className="h-3 w-3" aria-hidden /> : idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
+                            {step.title}
+                          </div>
+                          <p className="m-0 mt-0.5 text-[12px] leading-relaxed text-slate-500">{step.detail}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <div className="mt-4 flex items-center gap-2 rounded-2xl bg-slate-50 px-3.5 py-2.5 text-[12px] text-slate-500">
+                  <Route className="h-4 w-4 flex-shrink-0 text-[#02665e]" aria-hidden />
+                  Day tasks are ticked from My bookings once the trip is in progress.
+                </div>
+              </Panel>
+            </aside>
           </div>
-        </div>
+        </>
       )}
     </div>
+  );
+}
+
+// ── Presentation pieces ─────────────────────────────────────────────────
+
+const BRAND = "#02665e";
+// Preflight is off in this app, so nothing sets border-box globally: a w-full
+// field with padding would overflow its column on phones. Scoped to this page.
+const DETAIL_BOX_SIZING = "#operator-booking-page, #operator-booking-page * { box-sizing: border-box; }";
+const PRIMARY_BUTTON = "inline-flex h-10 cursor-pointer items-center justify-center gap-1.5 rounded-full border-0 bg-[#02665e] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50";
+const JOURNEY_STEPS = ["Booked", "Paid", "Pickup", "On tour", "Completed"] as const;
+
+function dayStart(value: string | number | Date): number {
+  const d = new Date(value);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] || "G") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+function Panel({ title, subtitle, action, children }: { title: string; subtitle?: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="min-w-0 rounded-3xl border border-solid border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-6">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="m-0 text-[15.5px] font-bold text-slate-900">{title}</h2>
+          {subtitle ? <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">{subtitle}</p> : null}
+        </div>
+        {action ? <div className="flex-shrink-0">{action}</div> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function StatusChip({ tone, children }: { tone: "emerald" | "amber" | "rose" | "slate"; children: ReactNode }) {
+  const style = {
+    emerald: "bg-emerald-50 text-emerald-700",
+    amber: "bg-amber-50 text-amber-800",
+    rose: "bg-rose-50 text-rose-700",
+    slate: "bg-slate-100 text-slate-600",
+  }[tone];
+  const dot = { emerald: "bg-emerald-500", amber: "bg-amber-500", rose: "bg-rose-500", slate: "bg-slate-400" }[tone];
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-bold capitalize ${style}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+      <dt className="flex-shrink-0 text-[12.5px] text-slate-500">{label}</dt>
+      <dd className="m-0 min-w-0 text-right text-[13px] font-semibold text-slate-800">{value}</dd>
+    </div>
+  );
+}
+
+function ContactRow({ href, icon: Icon, label, value }: { href?: string; icon: typeof Phone; label: string; value: string | null }) {
+  const body = (
+    <>
+      <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</span>
+        <span className={`block truncate text-[13.5px] font-semibold ${value ? "text-slate-900" : "text-slate-400"}`}>{value || "Not shared"}</span>
+      </span>
+      {href ? <ChevronRight className="h-4 w-4 flex-shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-[#02665e]" aria-hidden /> : null}
+    </>
+  );
+  const rowClass = "group flex w-full items-center gap-3 bg-white px-3.5 py-3";
+  return href ? <a href={href} className={`${rowClass} no-underline transition-colors hover:bg-slate-50`}>{body}</a> : <div className={rowClass}>{body}</div>;
+}
+
+/** Five named steps on a line, on the brand pass; filled up to where this trip is. */
+function JourneySteps({ reached, blocked }: { reached: number; blocked?: boolean }) {
+  return (
+    <ol className="m-0 grid list-none grid-cols-5 p-0" aria-label={`Journey: ${JOURNEY_STEPS[reached]}, step ${reached + 1} of ${JOURNEY_STEPS.length}`}>
+      {JOURNEY_STEPS.map((step, index) => {
+        const done = index <= reached && !blocked;
+        const current = index === reached;
+        const lineDone = index + 1 <= reached && !blocked;
+        const label = current ? "text-white" : done ? "text-white/75" : "text-white/45";
+        return (
+          <li key={step} className="relative flex flex-col items-center gap-1.5 text-center">
+            {index < JOURNEY_STEPS.length - 1 ? <span aria-hidden className={`absolute left-1/2 top-[5px] h-px w-full ${lineDone ? "bg-white/70" : "bg-white/20"}`} /> : null}
+            <span className={`relative h-2.5 w-2.5 rounded-full ${done ? "bg-white" : "bg-white/25"} ${current && !blocked ? "ring-4 ring-white/20" : ""}`} />
+            <span className={`text-[10.5px] font-semibold leading-tight sm:text-[11.5px] ${label}`}>{step}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
