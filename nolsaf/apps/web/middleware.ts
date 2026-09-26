@@ -52,7 +52,9 @@ function buildContentSecurityPolicy(nonce: string): string {
     "media-src 'self' blob: data: https:",
     `connect-src ${connectSrc.join(" ")}`,
     "frame-ancestors 'self'",
-    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    // blob: lets a page show a PDF it generated in memory (e.g. the travel
+    // itinerary viewer); only this origin's nonce-checked scripts can mint one.
+    "frame-src 'self' blob: https://js.stripe.com https://hooks.stripe.com",
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",

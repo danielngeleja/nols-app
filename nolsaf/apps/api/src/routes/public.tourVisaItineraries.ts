@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { parseTourVisaVerificationToken } from "../lib/tourVisaVerification.js";
+import { buildVisaItineraryModel } from "../lib/tourVisaItinerary.js";
 
 const router = Router();
 
@@ -23,6 +24,8 @@ router.get("/:token", async (req, res) => {
         status: true,
         paymentStatus: true,
         operatorSnapshot: true,
+        packageSnapshot: true,
+        metadata: true,
         // Names and nationalities only; travel document numbers never leave the printed copy.
         travelers: { where: { status: "ACTIVE" }, select: { fullName: true, nationality: true }, orderBy: { createdAt: "asc" } },
         _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"] } } } } },
@@ -57,6 +60,23 @@ router.get("/:token", async (req, res) => {
       nationality: booking.nationality,
       operatorName: String(operator.companyName || operator.name || "NoLSAF tour operator"),
       travellers: booking.travelers.map((t) => ({ name: t.fullName, nationality: t.nationality || null })),
+      // The same resolved dates the printed PDF shows, so they can be compared.
+      ...(() => {
+        const model = buildVisaItineraryModel({
+          bookingCode: String(booking.bookingCode || ""),
+          title: booking.title || "",
+          startDate: booking.startDate,
+          endDate: booking.endDate,
+          travelerCount: booking.travelerCount,
+          guestName: booking.guestName,
+          nationality: booking.nationality,
+          travellers: booking.travelers,
+          packageSnapshot: booking.packageSnapshot,
+          metadata: booking.metadata,
+        });
+        return { arrival: model.arrival, departure: model.departure, departurePlanned: model.departureDerived, duration: model.duration, documentTitle: model.documentTitle };
+      })(),
+      checkedAt: new Date().toISOString(),
     });
   } catch (error) {
     console.error("GET /public/tour-visa-itineraries/:token error:", error);

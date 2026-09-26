@@ -17,6 +17,12 @@ export default function TourVisaItineraryPage() {
   const [pdfUrl, setPdfUrl] = useState("");
   const [fileName, setFileName] = useState("Visa Itinerary.pdf");
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  // Phones (Android Chrome and others) cannot show a PDF inside a page.
+  const [inlineViewer, setInlineViewer] = useState(true);
+  useEffect(() => {
+    const flag = (navigator as Navigator & { pdfViewerEnabled?: boolean }).pdfViewerEnabled;
+    if (flag === false) setInlineViewer(false);
+  }, []);
 
   const backHref = useMemo(() => `/account/tour-packages/${encodeURIComponent(tourReference)}`, [tourReference]);
 
@@ -140,7 +146,19 @@ export default function TourVisaItineraryPage() {
         </div>
       </header>
       <main className="relative min-h-0 flex-1 bg-[#dfe5e4]">
-        <iframe ref={frameRef} title="Travel itinerary PDF" src={`${pdfUrl}#view=FitH&toolbar=0`} className="block h-full w-full border-0" />
+        {inlineViewer ? (
+          <iframe ref={frameRef} title="Travel itinerary PDF" src={`${pdfUrl}#view=FitH`} className="block h-full w-full border-0" />
+        ) : (
+          <div className="flex h-full items-center justify-center p-5">
+            <div className="w-full max-w-sm rounded-3xl border border-solid border-slate-200 bg-white p-6 text-center">
+              <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><FileCheck2 className="h-6 w-6" aria-hidden /></span>
+              <h2 className="m-0 mt-4 text-[16px] font-bold text-slate-900">Your itinerary is ready</h2>
+              <p className="m-0 mt-1 text-[13px] text-slate-500">This browser opens PDFs in its own viewer. Download it, or open it to view and share.</p>
+              <a href={pdfUrl} download={fileName} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#02665e] text-sm font-bold text-white no-underline"><Download className="h-4 w-4" aria-hidden />Download PDF</a>
+              <a href={pdfUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex h-11 w-full items-center justify-center rounded-full border border-solid border-slate-300 text-sm font-semibold text-slate-700 no-underline">Open PDF</a>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
