@@ -129,7 +129,7 @@ export function generateNrmsRandomCode(): string {
 }
 
 // Code 128 symbol tables live in code128.ts, shared with the HTML documents.
-function drawCode128Barcode(
+export function drawCode128Barcode(
   doc: PDFKit.PDFDocument,
   value: string,
   x: number,
@@ -158,9 +158,9 @@ function drawCode128Barcode(
   doc.restore();
 }
 
-type NrmsFonts = { regular: string; bold: string };
+export type NrmsFonts = { regular: string; bold: string };
 
-function registerNrmsFonts(doc: PDFKit.PDFDocument): NrmsFonts {
+export function registerNrmsFonts(doc: PDFKit.PDFDocument): NrmsFonts {
   const regularCandidates = [
     process.env.TREBUCHET_MS_REGULAR_PATH,
     "C:\\Windows\\Fonts\\trebuc.ttf",

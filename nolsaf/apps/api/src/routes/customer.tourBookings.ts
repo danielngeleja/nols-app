@@ -11,7 +11,8 @@ import { notifyAdmins } from "../lib/notifications.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 import { mapTourLifecycle } from "../lib/serviceLifecycle.js";
-import { assessVisaItineraryReadiness, buildTourVisaItineraryHtml } from "../lib/tourVisaItinerary.js";
+import { assessVisaItineraryReadiness, buildVisaItineraryModel } from "../lib/tourVisaItinerary.js";
+import { generateTourVisaItineraryPdf } from "../lib/tourVisaItineraryPdf.js";
 import { tourVisaVerificationToken } from "../lib/tourVisaVerification.js";
 import {
   customerRecordReference,
@@ -2252,7 +2253,7 @@ router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
     if (!html) return res.status(500).json({ error: "Failed to generate receipt" });
 
     const filename = `Tour Receipt - ${receiptNumber}.pdf`.replace(/"/g, '\\"');
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
     res.setHeader("X-NoLSAF-Filename", filename);
     res.setHeader("Cache-Control", "private, no-store");
@@ -2264,12 +2265,12 @@ router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
 }) as RequestHandler);
 
 /**
- * GET /api/customer/tour-bookings/:id/visa-itinerary.html
- * A print-ready A4 itinerary for visa/travel applications. Only the booking
+ * GET /api/customer/tour-bookings/:id/visa-itinerary.pdf
+ * An A4 PDF itinerary for visa/travel applications, in the NRMS document style. Only the booking
  * owner can open it, and only after payment is confirmed so drafts cannot be
  * represented as confirmed travel.
  */
-router.get("/:id/visa-itinerary.html", (async (req: AuthedRequest, res) => {
+router.get("/:id/visa-itinerary.pdf", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
     const idNum = Number(req.params.id);
@@ -2348,12 +2349,12 @@ router.get("/:id/visa-itinerary.html", (async (req: AuthedRequest, res) => {
 
     const verificationToken = tourVisaVerificationToken(idNum);
     const verificationUrl = `${resolveWebOrigin(req)}/verify/tour-itinerary/${encodeURIComponent(verificationToken)}`;
-    const verificationQrDataUrl = await QRCode.toDataURL(verificationUrl, {
+    const qrPng = await QRCode.toBuffer(verificationUrl, {
       errorCorrectionLevel: "M",
       margin: 1,
-      width: 220,
+      width: 320,
     }).catch(() => null);
-    const rendered = buildTourVisaItineraryHtml({
+    const model = buildVisaItineraryModel({
       bookingCode: String(booking.bookingCode || ""),
       title: booking.title || "Tour itinerary",
       destination: booking.destination,
@@ -2381,19 +2382,17 @@ router.get("/:id/visa-itinerary.html", (async (req: AuthedRequest, res) => {
         phone: profileText(profile.companyPhone, profile.contactPhone, snapshot.contactPhone),
         website: profileText(profile.companyWebsite),
       },
-      verificationUrl,
-      verificationQrDataUrl,
-      logoUrl: `${resolveWebOrigin(req)}/assets/NoLS2025-04.png`,
     });
+    const pdf = await generateTourVisaItineraryPdf({ model, verificationUrl, qrPng });
 
     const filename = `Visa Itinerary - ${String(booking.bookingCode || "NoLSAF")}.pdf`.replace(/"/g, "");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
     res.setHeader("X-NoLSAF-Filename", filename);
     res.setHeader("Cache-Control", "private, no-store");
-    return res.send(rendered);
+    return res.send(pdf);
   } catch (error) {
-    console.error("GET /customer/tour-bookings/:id/visa-itinerary.html error:", error);
+    console.error("GET /customer/tour-bookings/:id/visa-itinerary.pdf error:", error);
     return res.status(500).json({ error: "Failed to generate visa-support itinerary" });
   }
 }) as RequestHandler);

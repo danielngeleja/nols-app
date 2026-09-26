@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assessVisaItineraryReadiness,
-  buildTourVisaItineraryHtml,
+  buildVisaItineraryModel,
   maskDocumentNumber,
   normalizeVisaItineraryDays,
   type TourVisaItineraryInput,
@@ -43,62 +43,59 @@ describe("tour visa itinerary document", () => {
     }]);
   });
 
-  it("renders a paid booking as an escaped A4 itinerary in the document font", () => {
-    const rendered = buildTourVisaItineraryHtml(base());
-    expect(rendered).toContain("Visa-support travel itinerary");
-    expect(rendered).toContain("Confirmed and paid");
-    expect(rendered).toContain("01 October 2026");
-    expect(rendered).toContain("03 October 2026");
-    expect(rendered).toContain("3 days");
-    expect(rendered).toContain("Savannah Lodge");
-    expect(rendered).toContain("<b>Overnight</b> Savannah Lodge");
-    expect(rendered).toContain("Airport pickup");
-    expect(rendered).toContain("Safari &lt;Escape&gt;");
-    expect(rendered).toContain("Asha &amp; Musa");
-    expect(rendered).toContain("Travelling party");
-    expect(rendered).toContain("Neema Musa");
-    expect(rendered).toContain("Trebuchet MS");
-    expect(rendered).toContain("EAT");
-    expect(rendered).not.toContain("Safari <Escape>");
-    expect(rendered).not.toContain("—");
-  });
-
-  it("carries the document number as a Code 128 barcode", () => {
-    const rendered = buildTourVisaItineraryHtml(base());
-    expect(rendered).toContain("Code 128 barcode NLSAF-VI-20260926-ABC123");
-    expect(rendered).toContain("CODE 128 · ISO/IEC 15417");
+  it("resolves a paid booking into the itinerary model", () => {
+    const model = buildVisaItineraryModel(base());
+    expect(model.documentTitle).toBe("Visa-support travel itinerary");
+    expect(model.status).toEqual({ label: "Confirmed and paid", tone: "confirmed" });
+    expect(model.arrival).toBe("01 October 2026");
+    expect(model.departure).toBe("03 October 2026");
+    expect(model.duration).toBe("3 days");
+    expect(model.arrangements).toContain("Accommodation: Savannah Lodge");
+    expect(model.days[0]).toMatchObject({ day: 1, overnight: "Savannah Lodge", date: "01 October 2026", timeline: [{ time: "14:00", text: "Airport pickup" }] });
+    expect(model.travellers.map((t) => t.name)).toEqual(["Asha & Musa", "Neema Musa"]);
+    expect(model.issuedLabel).toMatch(/EAT$/);
+    expect(JSON.stringify(model)).not.toContain("—");
   });
 
   it("names every traveller from the traveller records with masked document numbers", () => {
-    const rendered = buildTourVisaItineraryHtml(base({
+    const model = buildVisaItineraryModel(base({
       guestName: "Asha Musa",
       travellers: [
-        { fullName: "Asha Musa", nationality: "Kenyan", documentType: "PASSPORT", documentNumber: "AB1234567" },
         { fullName: "John Smith", nationality: "British", documentType: "PASSPORT", documentNumber: "987654321" },
+        { fullName: "Asha Musa", nationality: "Kenyan", documentType: "PASSPORT", documentNumber: "AB1234567" },
       ],
     }));
-    expect(rendered).toContain("John Smith");
-    expect(rendered).toContain("Passport ••••4567");
-    expect(rendered).not.toContain("AB1234567");
+    expect(model.travellers[0]).toEqual({ name: "Asha Musa", nationality: "Kenyan", document: "Passport ••••4567", lead: true });
+    expect(model.travellers[1].document).toBe("Passport ••••4321");
+    expect(JSON.stringify(model)).not.toContain("AB1234567");
     expect(maskDocumentNumber("X12")).toBe("X12");
   });
 
   it("shows the operator's licensing and address", () => {
-    const rendered = buildTourVisaItineraryHtml(base({
+    const model = buildVisaItineraryModel(base({
       operator: { name: "Trusted Tours Ltd", tourismLicence: "TALA-0042", registrationNumber: "BRELA-778", address: "Plot 5, Arusha" },
     }));
-    expect(rendered).toContain("TALA-0042");
-    expect(rendered).toContain("BRELA-778");
-    expect(rendered).toContain("Plot 5, Arusha");
+    expect(model.operatorFacts).toEqual(expect.arrayContaining([["Tourism licence", "TALA-0042"], ["Business registration", "BRELA-778"], ["Registered address", "Plot 5, Arusha"]]));
   });
 
   it("marks the booking provisional while a case is open", () => {
-    expect(buildTourVisaItineraryHtml(base({ openCaseCount: 1 }))).toContain("Provisional: booking under review");
+    expect(buildVisaItineraryModel(base({ openCaseCount: 1 })).status.tone).toBe("review");
   });
 
   it("uses a plain travel itinerary title when every traveller is Tanzanian", () => {
-    const rendered = buildTourVisaItineraryHtml(base({ metadata: {}, travellers: [{ fullName: "Asha & Musa", nationality: "Tanzanian" }] }));
-    expect(rendered).toContain("<div class=\"kind\">Travel itinerary</div>");
+    const model = buildVisaItineraryModel(base({ metadata: {}, travellers: [{ fullName: "Asha & Musa", nationality: "Tanzanian" }] }));
+    expect(model.documentTitle).toBe("Travel itinerary");
+  });
+
+  it("renders a multi-page A4 PDF with the barcode and page numbers", async () => {
+    const { generateTourVisaItineraryPdf } = await import("./tourVisaItineraryPdf.js");
+    const days = Array.from({ length: 12 }, (_, i) => ({ day: i + 1, title: `Day ${i + 1} safari`, overnight: "Camp", timeline: [{ time: "07:00-09:00", label: "Game drive" }, { time: "13:00-15:00", label: "Lunch and rest" }] }));
+    const model = buildVisaItineraryModel(base({ packageSnapshot: { itinerary: days } }));
+    const pdf = await generateTourVisaItineraryPdf({ model, verificationUrl: "https://nolsaf.com/verify/tour-itinerary/1.x", qrPng: null });
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    // Page objects stay uncompressed; "/Type /Pages" (the tree root) is excluded.
+    const pageCount = (pdf.toString("latin1").match(new RegExp("/Type /Page(?!s)", "g")) || []).length;
+    expect(pageCount).toBeGreaterThan(1);
   });
 });
 

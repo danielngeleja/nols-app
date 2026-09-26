@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Check, Clock, FileCheck2, Printer } from "lucide-react";
+import { ArrowLeft, Check, Clock, Download, FileCheck2, Printer } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 
 export default function TourVisaItineraryPage() {
@@ -14,48 +14,14 @@ export default function TourVisaItineraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
   const [checks, setChecks] = useState<Array<{ key: string; label: string; ok: boolean; detail: string }>>([]);
-  const [documentHtml, setDocumentHtml] = useState("");
+  const [pdfUrl, setPdfUrl] = useState("");
+  const [fileName, setFileName] = useState("Visa Itinerary.pdf");
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
 
   const backHref = useMemo(() => `/account/tour-packages/${encodeURIComponent(tourReference)}`, [tourReference]);
 
-  const fitDocument = useCallback(() => {
-    const frame = frameRef.current;
-    const stage = stageRef.current;
-    const doc = frame?.contentDocument;
-    const sheet = doc?.querySelector(".sheet") as HTMLElement | null;
-    if (!frame || !stage || !doc?.body || !sheet) return;
-
-    sheet.style.position = "absolute";
-    sheet.style.left = "0";
-    sheet.style.top = "0";
-    sheet.style.margin = "0";
-    sheet.style.transform = "scale(1)";
-    sheet.style.transformOrigin = "top left";
-
-    const width = sheet.offsetWidth;
-    const height = sheet.scrollHeight;
-    if (!width || !height) return;
-    const availableWidth = Math.max(280, stage.clientWidth - 32);
-    const scale = Math.min(availableWidth / width, 1);
-
-    Object.assign(doc.documentElement.style, { width: `${width}px`, minHeight: `${height}px`, overflow: "hidden" });
-    Object.assign(doc.body.style, { width: `${width}px`, minHeight: `${height}px`, margin: "0", overflow: "hidden", background: "#fff" });
-    sheet.style.transform = `scale(${scale})`;
-    frame.style.width = `${Math.ceil(width * scale)}px`;
-    frame.style.height = `${Math.ceil(height * scale)}px`;
-  }, []);
-
-  useEffect(() => {
-    const observer = stageRef.current ? new ResizeObserver(fitDocument) : null;
-    if (stageRef.current) observer?.observe(stageRef.current);
-    window.addEventListener("resize", fitDocument);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", fitDocument);
-    };
-  }, [fitDocument]);
+  // Release the in-memory PDF when leaving the page.
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
 
   useEffect(() => {
     let alive = true;
@@ -66,7 +32,7 @@ export default function TourVisaItineraryPage() {
         return;
       }
       try {
-        const response = await fetch(`/api/customer/tour-bookings/${encodeURIComponent(tourReference)}/visa-itinerary.html`, {
+        const response = await fetch(`/api/customer/tour-bookings/${encodeURIComponent(tourReference)}/visa-itinerary.pdf`, {
           credentials: "include",
           cache: "no-store",
         });
@@ -77,8 +43,12 @@ export default function TourVisaItineraryPage() {
           throw new Error(payload?.message || "This visa-support itinerary is not currently available.");
         }
         if (!response.ok) throw new Error(`We could not generate this itinerary (${response.status}).`);
-        const rendered = await response.text();
-        if (alive) setDocumentHtml(rendered);
+        const blob = await response.blob();
+        const name = response.headers.get("X-NoLSAF-Filename");
+        if (alive) {
+          if (name) setFileName(name);
+          setPdfUrl(URL.createObjectURL(new Blob([blob], { type: "application/pdf" })));
+        }
       } catch (err: any) {
         if (alive) setError(err?.message || "We could not generate this itinerary.");
       } finally {
@@ -92,7 +62,7 @@ export default function TourVisaItineraryPage() {
     return <div className="flex min-h-[60vh] items-center justify-center"><div className="text-center"><LogoSpinner size="md" className="mx-auto mb-3" ariaLabel="Preparing visa itinerary" /><div className="text-sm text-gray-600">Preparing visa itinerary…</div></div></div>;
   }
 
-  if (error || !documentHtml) {
+  if (error || !pdfUrl) {
     if (missing.length > 0) {
       const done = checks.filter((c) => c.ok).length;
       const closed = checks.some((c) => c.key === "upcoming" && !c.ok);
@@ -161,12 +131,17 @@ export default function TourVisaItineraryPage() {
       <header className="flex h-16 flex-shrink-0 items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 bg-white px-3 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <Link href={backHref} aria-label="Back to trip" title="Back to trip" className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 no-underline hover:bg-slate-50"><ArrowLeft className="h-4 w-4" aria-hidden /></Link>
-          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700"><FileCheck2 className="h-5 w-5" aria-hidden /></span>
-          <div className="min-w-0"><h1 className="m-0 truncate text-[15px] font-bold text-slate-900 sm:text-[16px]">Visa-support itinerary</h1><p className="m-0 truncate text-[11.5px] text-slate-500">Confirmed travel plan for applications</p></div>
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]"><FileCheck2 className="h-5 w-5" aria-hidden /></span>
+          <div className="min-w-0"><h1 className="m-0 truncate text-[15px] font-bold text-slate-900 sm:text-[16px]">Travel itinerary</h1><p className="m-0 truncate text-[11.5px] text-slate-500">A4 PDF for visa and travel applications</p></div>
         </div>
-        <button type="button" onClick={() => { frameRef.current?.contentWindow?.focus(); frameRef.current?.contentWindow?.print(); }} className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border-0 bg-[#02665e] px-3.5 text-sm font-semibold text-white hover:bg-[#014e47]"><Printer className="h-4 w-4" aria-hidden /><span className="hidden sm:inline">Print or save PDF</span></button>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <button type="button" onClick={() => { frameRef.current?.contentWindow?.focus(); frameRef.current?.contentWindow?.print(); }} className="hidden h-10 cursor-pointer items-center gap-2 rounded-lg border border-solid border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-700 hover:border-[#02665e] hover:text-[#02665e] sm:inline-flex"><Printer className="h-4 w-4" aria-hidden />Print</button>
+          <a href={pdfUrl} download={fileName} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#02665e] px-3.5 text-sm font-semibold text-white no-underline hover:bg-[#014e47]"><Download className="h-4 w-4" aria-hidden /><span className="hidden min-[380px]:inline">Download PDF</span></a>
+        </div>
       </header>
-      <main className="relative min-h-0 flex-1 overflow-auto bg-[#dfe5e4]"><div ref={stageRef} className="flex min-h-full w-full items-start justify-center px-3 py-5 sm:px-6 sm:py-7"><iframe ref={frameRef} title="Visa-support tour itinerary" srcDoc={documentHtml} onLoad={fitDocument} className="block shrink-0 border-0 bg-white shadow-[0_12px_35px_rgba(15,46,43,0.16)]" /></div></main>
+      <main className="relative min-h-0 flex-1 bg-[#dfe5e4]">
+        <iframe ref={frameRef} title="Travel itinerary PDF" src={`${pdfUrl}#view=FitH&toolbar=0`} className="block h-full w-full border-0" />
+      </main>
     </div>
   );
 }
