@@ -43,7 +43,7 @@ type RosterPayload = {
   travellers: RosterTraveller[];
   requiredGuests: number;
 };
-type Invoice = { id: number; number: string; revision: number; status: string; paymentStatus: string; currency: string; quotedTotal: number; paidNow: number; liveBalance: number; dueAt: string; sentAt: string | null; payerMarkedPaidAt: string | null; payerPaymentReference: string | null; payerPaymentMethod: string | null; payerPaymentAccountName: string | null };
+type Invoice = { id: number; number: string; revision: number; status: string; paymentStatus: string; currency: string; quotedTotal: number; paidNow: number; liveBalance: number; dueAt: string; sentAt: string | null; publicUrl?: string; payerMarkedPaidAt: string | null; payerPaymentReference: string | null; payerPaymentMethod: string | null; payerPaymentAccountName: string | null };
 type Payload = {
   booking: { id: number; status: string; property: { title: string } | null; checkIn: string; checkOut: string; adults: number; children: number; rooms: number; receiptNumber: string | null; payment: null };
   commercial: { status: string; settled: boolean; received: number; invoice: Invoice | null; invoices: Invoice[]; payments: Array<{ id: number; amount: number; method: string; reference: string | null; receiptNumber: string; createdAt: string }> };
@@ -84,6 +84,7 @@ export default function AgentGuestManifestPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [markingPaid, setMarkingPaid] = useState(false);
   const [declaring, setDeclaring] = useState(false);
+  const [startingOnlinePayment, setStartingOnlinePayment] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -196,6 +197,43 @@ export default function AgentGuestManifestPage() {
     finally { setMarkingPaid(false); }
   };
 
+  // Start the same NRMS master-folio checkout used by the Pro Forma page. The
+  // API derives the payable amount from the live folio and reuses a valid link,
+  // so this button cannot choose an amount or create competing checkouts.
+  const payOnline = async () => {
+    const publicUrl = data?.commercial.invoice?.publicUrl;
+    if (!publicUrl || startingOnlinePayment) return;
+    setStartingOnlinePayment(true); setError(null); setNotice(null);
+    try {
+      const path = new URL(publicUrl, window.location.origin).pathname.replace(/\/+$/, "");
+      const token = path.match(/\/nrms\/agency\/pro-forma\/([A-Za-z0-9_-]{32,96})$/)?.[1];
+      if (!token) throw new Error("invalid Pro Forma payment link");
+      const response = await apiClient.post(`/api/public/nrms/pro-formas/${encodeURIComponent(token)}/pay-online`);
+      const checkoutUrl = response.data?.paymentLink?.url;
+      if (!checkoutUrl) throw new Error("missing checkout url");
+      window.location.assign(checkoutUrl);
+    } catch (cause: any) {
+      if (cause?.response?.data?.code === "UNAVAILABLE") {
+        try {
+          const path = new URL(publicUrl, window.location.origin).pathname.replace(/\/+$/, "");
+          const token = path.match(/\/nrms\/agency\/pro-forma\/([A-Za-z0-9_-]{32,96})$/)?.[1];
+          if (!token) throw new Error("invalid Pro Forma payment link");
+          const preview = await apiClient.post(`/api/public/nrms/pro-formas/${encodeURIComponent(token)}/pay-online?preview=true`);
+          const previewUrl = preview.data?.paymentLink?.url;
+          if (!previewUrl) throw new Error("missing preview url");
+          window.location.assign(previewUrl);
+          return;
+        } catch (previewError: any) {
+          setError(previewError?.response?.data?.error || "The checkout preview could not be opened.");
+          setStartingOnlinePayment(false);
+          return;
+        }
+      }
+      setError(cause?.response?.data?.error || "The online payment could not be started. No charge was made.");
+      setStartingOnlinePayment(false);
+    }
+  };
+
   if (!data && !error) return <div className="flex w-full items-center gap-2 rounded-2xl border border-solid border-neutral-200 bg-white p-8 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading booking workspace…</div>;
   if (!data) return <div className="w-full rounded-xl border border-solid border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   const locked = !data.editable;
@@ -204,45 +242,111 @@ export default function AgentGuestManifestPage() {
   const dueInDays = invoice ? daysFromToday(invoice.dueAt) : 0;
   const dueLabel = dueInDays === 0 ? "Falls due today" : dueInDays > 0 ? `${dueInDays} day${dueInDays === 1 ? "" : "s"} from today` : `Overdue by ${Math.abs(dueInDays)} day${Math.abs(dueInDays) === 1 ? "" : "s"}`;
 
+  const nights = nightsBetween(data.booking.checkIn, data.booking.checkOut);
+  const travellers = data.booking.adults + data.booking.children;
+  const settled = data.commercial.settled;
+  const declared = Boolean(invoice?.payerMarkedPaidAt) && !settled;
+  const owing = invoice ? (invoice.liveBalance > 0 ? invoice.liveBalance : invoice.quotedTotal) : 0;
+  const manifestWords: Record<string, string> = { NOT_STARTED: "Travellers not started", IN_PROGRESS: "Travellers in progress", SUBMITTED: "Travellers with the hotel", CHANGES_REQUESTED: "Corrections requested", VERIFIED: "Travellers verified" };
+  const steps: Array<{ label: string; state: "done" | "current" | "waiting"; detail: string }> = [
+    { label: "Hotel approval", state: data.booking.status === "CONFIRMED" ? "done" : "current", detail: data.booking.status === "CONFIRMED" ? "Approved" : "Waiting" },
+    { label: "Invoice", state: invoice ? "done" : data.booking.status === "CONFIRMED" ? "current" : "waiting", detail: invoice ? invoice.number : "Not issued" },
+    // Declaring is not receiving: a pending claim must never read as paid.
+    { label: "Payment", state: settled ? "done" : invoice ? "current" : "waiting", detail: settled ? "Received" : declared ? "Hotel confirming" : invoice ? `Due ${fmt(invoice.dueAt)}` : "After invoice" },
+    { label: "Travellers", state: data.manifest.status === "VERIFIED" ? "done" : settled ? "current" : "waiting", detail: settled ? `${data.manifest.guestsAdded} of ${data.manifest.requiredGuests} added` : "Opens after payment" },
+  ];
+
   // pb-24 keeps the last card clear of the sticky action bar it scrolls under.
-  return <div className="flex w-full min-w-0 flex-col gap-3 pb-24">
+  return <div className="flex w-full min-w-0 flex-col gap-4 pb-24">
     <Link href="/agent-portal/bookings" className="inline-flex w-fit items-center gap-1.5 text-xs font-bold text-neutral-500 no-underline hover:text-neutral-900"><ArrowLeft className="h-4 w-4" /> My bookings</Link>
-    <div className="grid min-w-0 items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,.75fr)]">
-      <section className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
-          <div className="flex min-w-0 items-start gap-3"><span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Users className="h-5 w-5" /></span><div className="min-w-0"><p className="m-0 text-[9px] font-extrabold uppercase tracking-[0.14em] text-emerald-700">Agent booking workspace</p><h1 className="m-0 mt-1 break-words text-base font-extrabold tracking-tight text-neutral-950 sm:text-lg">{data.booking.property?.title ?? "Hotel booking"}</h1>{data.booking.receiptNumber ? <p className="m-0 mt-1 text-xs text-neutral-500">{data.booking.receiptNumber}</p> : null}</div></div>
-          <div className="flex flex-wrap gap-1.5"><span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${data.commercial.settled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{data.commercial.settled ? "PAYMENT CONFIRMED" : data.commercial.status.replace(/_/g, " ")}</span><span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${manifestTone}`}>{data.manifest.status.replace(/_/g, " ")}</span></div>
+
+    <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      {/* The booking in one line */}
+      <div className="flex flex-col gap-3 px-5 pb-4 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+        <div className="min-w-0">
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700">Agent booking</p>
+          <h1 className="m-0 mt-0.5 break-words text-2xl font-bold tracking-tight text-neutral-950">{data.booking.property?.title ?? "Hotel booking"}</h1>
+          <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-600">
+            <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-neutral-400" />{fmt(data.booking.checkIn)} to {fmt(data.booking.checkOut)}</span>
+            <span className="text-neutral-300">·</span><span>{nights} night{nights === 1 ? "" : "s"}</span>
+            <span className="text-neutral-300">·</span><span className="inline-flex items-center gap-1.5"><BedDouble className="h-4 w-4 text-neutral-400" />{data.booking.rooms} room{data.booking.rooms === 1 ? "" : "s"}</span>
+            <span className="text-neutral-300">·</span><span className="inline-flex items-center gap-1.5"><UserRound className="h-4 w-4 text-neutral-400" />{travellers} traveller{travellers === 1 ? "" : "s"}</span>
+            <span className="text-neutral-300">·</span><span className="inline-flex items-center gap-1.5"><ReceiptText className="h-4 w-4 text-neutral-400" />Extras: {data.manifest.incidentalCover?.headline ?? "not declared"}</span>
+          </p>
+          {data.booking.receiptNumber ? <p className="m-0 mt-1 font-mono text-xs text-neutral-400">{data.booking.receiptNumber}</p> : null}
         </div>
-        <div className="mt-auto grid grid-cols-2 border-0 border-t border-solid border-neutral-200 bg-neutral-50/70 sm:grid-cols-4">
-          <BookingStat icon={<CalendarDays />} label="Stay" value={`${fmt(data.booking.checkIn)} to ${fmt(data.booking.checkOut)}`} />
-          <BookingStat icon={<BedDouble />} label="Rooms" value={`${data.booking.rooms} room${data.booking.rooms === 1 ? "" : "s"}`} />
-          <BookingStat icon={<UserRound />} label="Travellers" value={`${data.booking.adults} adult${data.booking.adults === 1 ? "" : "s"}${data.booking.children ? ` · ${data.booking.children} child${data.booking.children === 1 ? "" : "ren"}` : ""}`} />
-          <BookingStat icon={<ReceiptText />} label="Hotel extras" value={data.manifest.incidentalCover?.headline ?? "Not declared"} />
+        <div className="flex flex-none flex-wrap gap-1.5">
+          <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ${settled ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : declared ? "bg-blue-50 text-blue-700 ring-blue-200" : invoice && daysFromToday(invoice.dueAt) < 0 ? "bg-red-50 text-red-700 ring-red-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
+            {settled ? "Paid" : declared ? "Payment being confirmed" : invoice ? (daysFromToday(invoice.dueAt) < 0 ? "Payment overdue" : "Awaiting payment") : data.booking.status === "PENDING" ? "Awaiting approval" : "Invoice coming"}
+          </span>
+          {settled && <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${manifestTone}`}>{manifestWords[data.manifest.status] ?? data.manifest.status.toLowerCase()}</span>}
         </div>
-      </section>
-      <section className="min-w-0 rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><span className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-neutral-100 text-neutral-700"><FileText className="h-5 w-5" /></span><div className="min-w-0"><p className="m-0 text-[9px] font-extrabold uppercase tracking-[0.14em] text-neutral-400">Property invoice</p><h2 className="m-0 mt-1 truncate text-base font-extrabold text-neutral-950">{invoice?.number || (data.booking.status === "PENDING" ? "Hotel review pending" : "Invoice not issued yet")}</h2></div></div>{invoice ? <a href={`/api/agent-portal/bookings/${bookingId}/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer" aria-label="Open invoice PDF" className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-solid border-neutral-200 text-neutral-600 no-underline hover:bg-neutral-50"><Download className="h-4 w-4" /></a> : null}</div>
-        {invoice ? <div className="mt-4 grid grid-cols-2 gap-2"><SmallMetric label="Invoice total" value={`${invoice.currency} ${money(invoice.quotedTotal)}`} /><SmallMetric label="Due" value={fmt(invoice.dueAt)} detail={dueLabel} tone={dueInDays < 0 ? "danger" : dueInDays <= 3 ? "warn" : "muted"} />{invoice.paidNow > 0 ? <><SmallMetric label="Paid so far" value={`${invoice.currency} ${money(invoice.paidNow)}`} tone="ok" /><SmallMetric label="Still owing" value={`${invoice.currency} ${money(invoice.liveBalance)}`} tone={invoice.liveBalance > 0 ? "warn" : "ok"} /></> : null}</div> : <p className="m-0 mt-4 text-xs leading-5 text-neutral-500">The hotel reviews the booking first, then issues the property-direct invoice here. No payment is collected by NoLSAF or AzamPay.</p>}
-        {invoice?.status === "SENT" && !invoice.payerMarkedPaidAt && !data.commercial.settled ? <button onClick={() => setDeclaring(true)} className="box-border mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-neutral-950 px-3 text-xs font-bold text-white shadow-sm transition hover:bg-neutral-800"><ReceiptText className="h-4 w-4" /> Paid by</button> : null}
-        {invoice?.payerMarkedPaidAt && !data.commercial.settled ? <div className="mt-4 overflow-hidden rounded-xl border border-solid border-amber-200">
-          <div className="flex items-start gap-2.5 bg-amber-50 p-3">
-            <span className="grid h-7 w-7 flex-none place-items-center rounded-lg bg-amber-100 text-amber-700"><Clock3 className="h-4 w-4" /></span>
+      </div>
+
+      {/* Where the booking stands */}
+      <ol className="m-0 grid list-none grid-cols-2 gap-px border-0 border-t border-solid border-neutral-200 bg-neutral-200 p-0 sm:grid-cols-4">
+        {steps.map((step, index) => (
+          <li key={step.label} className={`flex min-w-0 items-center gap-2.5 px-4 py-3 ${step.state === "current" ? "bg-emerald-50/50" : "bg-white"}`}>
+            <span className={`grid h-6 w-6 flex-none place-items-center rounded-full text-[11px] font-bold ${step.state === "done" ? "bg-emerald-600 text-white" : step.state === "current" ? "bg-white text-emerald-700 ring-2 ring-emerald-500" : "bg-neutral-100 text-neutral-400"}`}>{step.state === "done" ? <Check className="h-3.5 w-3.5" /> : index + 1}</span>
+            <span className="min-w-0">
+              <span className={`block text-sm font-bold ${step.state === "waiting" ? "text-neutral-400" : "text-neutral-900"}`}>{step.label}</span>
+              <span className={`block truncate text-xs ${step.state === "current" ? "font-semibold text-emerald-700" : "text-neutral-500"}`}>{step.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+
+      {/* Your next step: the one thing that matters on this page */}
+      <div className="p-4 sm:p-5">
+        {data.booking.status === "PENDING" ? (
+          <NextStep tone="wait" icon={<Clock3 className="h-5 w-5" />} title="Waiting for the hotel to approve" detail="The hotel reviews your request first. Once approved, your invoice appears here." />
+        ) : !invoice ? (
+          <NextStep tone="wait" icon={<FileText className="h-5 w-5" />} title="The hotel is preparing your invoice" detail="You can pay as soon as it arrives. It will show here with the amount and due date." />
+        ) : settled ? (
+          <NextStep
+            tone="done"
+            icon={<ShieldCheck className="h-5 w-5" />}
+            title={data.manifest.status === "VERIFIED" ? "All set for arrival" : "Payment confirmed. Add your travellers"}
+            detail={data.manifest.status === "VERIFIED" ? "Every traveller is verified. Share the voucher with your guests." : `The hotel received your payment. Add all ${data.manifest.requiredGuests} travellers below and submit them for checking.`}
+            actions={<>
+              <a href={`/api/agent-portal/bookings/${bookingId}/voucher`} target="_blank" rel="noreferrer" className={primaryAction}><Download className="h-4 w-4" /> Booking voucher</a>
+              <a href={`/api/agent-portal/bookings/${bookingId}/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer" className={secondaryAction}><FileText className="h-4 w-4" /> Invoice</a>
+            </>}
+          />
+        ) : declared ? (
+          <NextStep
+            tone="info"
+            icon={<Clock3 className="h-5 w-5" />}
+            title="The hotel is confirming your payment"
+            detail={`You declared payment on ${fmt(invoice.payerMarkedPaidAt!)}. The hotel checks its own account, then releases your voucher. This is not a confirmation yet.`}
+            facts={[
+              { label: "Paid by", value: methodLabel(invoice.payerPaymentMethod) },
+              ...(invoice.payerPaymentAccountName ? [{ label: "From account", value: invoice.payerPaymentAccountName }] : []),
+              ...(invoice.payerPaymentReference ? [{ label: "Reference", value: invoice.payerPaymentReference, mono: true }] : []),
+            ]}
+            actions={<a href={`/api/agent-portal/bookings/${bookingId}/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer" className={secondaryAction}><Download className="h-4 w-4" /> Invoice</a>}
+          />
+        ) : (
+          <div className={`flex flex-col gap-4 rounded-xl border border-solid p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between ${dueInDays < 0 ? "border-red-200 bg-red-50/60" : "border-amber-200 bg-amber-50/60"}`}>
             <div className="min-w-0">
-              <p className="m-0 text-xs font-extrabold leading-4 text-amber-900">Waiting for the hotel to confirm</p>
-              <p className="m-0 mt-1 text-[11px] leading-4 text-amber-800">Declared on {fmt(invoice.payerMarkedPaidAt)}. The hotel checks its own account first, so this is not a confirmation yet.</p>
+              <p className={`m-0 text-[11px] font-bold uppercase tracking-[0.1em] ${dueInDays < 0 ? "text-red-700" : "text-amber-800"}`}>Your next step</p>
+              <p className="m-0 mt-1 text-base font-bold text-neutral-950">Pay invoice <span className="font-mono">{invoice.number}</span></p>
+              <p className="m-0 mt-1 text-3xl font-bold tracking-tight tabular-nums text-neutral-950">{invoice.currency} {money(owing)}</p>
+              <p className={`m-0 mt-1 text-sm font-semibold ${dueInDays < 0 ? "text-red-700" : dueInDays <= 3 ? "text-amber-800" : "text-neutral-600"}`}>Due {fmt(invoice.dueAt)} · {dueLabel.toLowerCase()}</p>
+              {invoice.paidNow > 0 && <p className="m-0 mt-1 text-xs text-neutral-500">{invoice.currency} {money(invoice.paidNow)} already received of {invoice.currency} {money(invoice.quotedTotal)}.</p>}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row lg:flex-col lg:items-stretch xl:flex-row">
+              {invoice.publicUrl && <button type="button" onClick={() => void payOnline()} disabled={startingOnlinePayment} className={primaryAction}>{startingOnlinePayment ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />} {startingOnlinePayment ? "Opening secure checkout…" : "Pay online"}</button>}
+              {invoice.publicUrl && <a href={invoice.publicUrl} target="_blank" rel="noreferrer" className={secondaryAction}><FileText className="h-4 w-4" /> View invoice</a>}
+              <a href={`/api/agent-portal/bookings/${bookingId}/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer" className={secondaryAction}><Download className="h-4 w-4" /> Download invoice</a>
+              {invoice.status === "SENT" && <button type="button" onClick={() => setDeclaring(true)} className={secondaryAction}><ReceiptText className="h-4 w-4" /> I have already paid</button>}
             </div>
           </div>
-          <dl className="m-0 grid grid-cols-1 gap-px border-0 border-t border-solid border-amber-200 bg-amber-200 sm:grid-cols-2">
-            <Declared label="Paid by" value={methodLabel(invoice.payerPaymentMethod)} />
-            {invoice.payerPaymentAccountName ? <Declared label="From account" value={invoice.payerPaymentAccountName} /> : null}
-            {invoice.payerPaymentReference ? <Declared label="Reference" value={invoice.payerPaymentReference} mono /> : null}
-          </dl>
-        </div> : null}
-        {data.commercial.settled ? <a href={`/api/agent-portal/bookings/${bookingId}/voucher`} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white no-underline"><Download className="h-4 w-4" /> Open booking voucher</a> : null}
-      </section>
-    </div>
+        )}
+      </div>
+    </section>
+
     {declaring && invoice ? <PaymentDeclarationModal invoiceNumber={invoice.number} currency={invoice.currency} amount={money(invoice.liveBalance > 0 ? invoice.liveBalance : invoice.quotedTotal)} dueLabel={`Due ${fmt(invoice.dueAt)}`} busy={markingPaid} onClose={() => setDeclaring(false)} onSubmit={(declaration) => void markInvoicePaid(declaration)} /> : null}
-    <WorkflowProgress bookingStatus={data.booking.status} invoice={invoice} settled={data.commercial.settled} manifestStatus={data.manifest.status} />
     {data.manifest.reviewNote ? <Alert tone="amber"><b>Hotel review:</b> {data.manifest.reviewNote}</Alert> : null}
     {notice ? <Alert tone="emerald">{notice}</Alert> : null}
     {error ? <Alert tone="red">{error}</Alert> : null}
@@ -459,16 +563,30 @@ function GuestCard({ guest, index, locked, checkIn, checkOut, uploading, update,
   </section>;
 }
 
-function WorkflowProgress({ bookingStatus, invoice, settled, manifestStatus }: { bookingStatus: string; invoice: Invoice | null; settled: boolean; manifestStatus: string }) {
-  const stages = [
-    { label: "Hotel review", done: bookingStatus === "CONFIRMED", active: bookingStatus === "PENDING" },
-    { label: "Invoice issued", done: Boolean(invoice), active: bookingStatus === "CONFIRMED" && !invoice },
-    // Declaring is not receiving. The label has to keep those apart or the
-    // agent reads a pending claim as a settled payment.
-    { label: settled ? "Payment received" : invoice?.payerMarkedPaidAt ? "Hotel verifying payment" : "Payment received", done: settled, active: Boolean(invoice) && !settled },
-    { label: "Travellers", done: manifestStatus === "VERIFIED", active: settled && manifestStatus !== "VERIFIED" },
-  ];
-  return <section className="rounded-2xl border border-solid border-neutral-200 bg-white px-3 py-3 shadow-sm sm:px-4"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{stages.map((stage, index) => <div key={stage.label} className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ring-1 ring-inset ${stage.active ? "bg-neutral-900 text-white ring-neutral-900" : stage.done ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-neutral-50 text-neutral-400 ring-neutral-200"}`}><span className={`grid h-6 w-6 flex-none place-items-center rounded-full text-[10px] font-extrabold ${stage.done ? "bg-emerald-600 text-white" : stage.active ? "bg-white text-neutral-950" : "bg-white text-neutral-400 ring-1 ring-neutral-200"}`}>{stage.done ? <Check className="h-3.5 w-3.5" /> : index + 1}</span><span className="truncate text-[10px] font-bold sm:text-[11px]">{stage.label}</span></div>)}</div></section>;
+const primaryAction = "box-border inline-flex h-11 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 bg-emerald-700 px-5 text-sm font-bold text-white no-underline shadow-sm transition hover:bg-emerald-800 disabled:cursor-wait disabled:bg-emerald-600 disabled:opacity-80";
+const secondaryAction = "box-border inline-flex h-11 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-solid border-neutral-300 bg-white px-4 text-sm font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50";
+
+const NEXT_STEP_TONES = {
+  wait: { box: "border-neutral-200 bg-neutral-50", icon: "bg-white text-neutral-500 ring-1 ring-neutral-200", label: "text-neutral-500" },
+  info: { box: "border-blue-200 bg-blue-50/60", icon: "bg-blue-100 text-blue-700", label: "text-blue-700" },
+  done: { box: "border-emerald-200 bg-emerald-50/60", icon: "bg-emerald-100 text-emerald-700", label: "text-emerald-700" },
+} as const;
+
+/** The booking's one current step, with its explanation and actions. */
+function NextStep({ tone, icon, title, detail, facts, actions }: { tone: keyof typeof NEXT_STEP_TONES; icon: ReactNode; title: string; detail: string; facts?: Array<{ label: string; value: string; mono?: boolean }>; actions?: ReactNode }) {
+  const style = NEXT_STEP_TONES[tone];
+  return <div className={`flex flex-col gap-4 rounded-xl border border-solid p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between ${style.box}`}>
+    <div className="flex min-w-0 items-start gap-3">
+      <span className={`grid h-10 w-10 flex-none place-items-center rounded-xl ${style.icon}`}>{icon}</span>
+      <div className="min-w-0">
+        <p className={`m-0 text-[11px] font-bold uppercase tracking-[0.1em] ${style.label}`}>{tone === "wait" ? "Nothing to do yet" : "Your next step"}</p>
+        <p className="m-0 mt-0.5 text-base font-bold text-neutral-950">{title}</p>
+        <p className="m-0 mt-1 max-w-2xl text-sm leading-6 text-neutral-600">{detail}</p>
+        {facts && facts.length > 0 && <dl className="m-0 mt-3 flex flex-wrap gap-x-6 gap-y-2">{facts.map((fact) => <div key={fact.label}><dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-400">{fact.label}</dt><dd className={`m-0 mt-0.5 text-sm font-semibold text-neutral-900 ${fact.mono ? "font-mono" : ""}`}>{fact.value}</dd></div>)}</dl>}
+      </div>
+    </div>
+    {actions ? <div className="flex flex-none flex-wrap gap-2">{actions}</div> : null}
+  </div>;
 }
 
 // Uses the shared DatePickerField popover calendar. The locked manifest has no
@@ -497,11 +615,5 @@ function FieldGroup({ title, divided, children }: { title: string; divided?: boo
 // leaving a 58px box with the text floating above centre.
 const CONTROL_CLASS = "[&>input]:box-border [&>select]:box-border [&>input]:h-10 [&>input]:w-full [&>input]:rounded-lg [&>input]:border [&>input]:border-solid [&>input]:border-neutral-300 [&>input]:bg-white [&>input]:px-3 [&>input]:text-xs [&>input]:font-medium [&>input]:normal-case [&>input]:tracking-normal [&>input]:text-neutral-800 [&>input]:shadow-none [&>input]:outline-none [&>input]:placeholder:text-neutral-400 [&>input]:focus:border-neutral-600 [&>input]:focus:ring-0 [&>input:disabled]:border-neutral-200 [&>input:disabled]:bg-neutral-50 [&>select]:h-10 [&>select]:w-full [&>select]:rounded-lg [&>select]:border [&>select]:border-solid [&>select]:border-neutral-300 [&>select]:bg-white [&>select]:px-3 [&>select]:text-xs [&>select]:font-medium [&>select]:normal-case [&>select]:tracking-normal [&>select]:text-neutral-800 [&>select]:shadow-none [&>select]:outline-none [&>select]:focus:border-neutral-600 [&>select]:focus:ring-0 [&>select:disabled]:border-neutral-200 [&>select:disabled]:bg-neutral-50";
 function Field({ label, className, children }: { label: string; className?: string; children: ReactNode }) { return <label className={`flex min-w-0 flex-col gap-1.5 text-[9px] font-extrabold uppercase tracking-[0.08em] text-neutral-500 ${className ?? ""}`}>{label}<span className={CONTROL_CLASS}>{children}</span></label>; }
-function BookingStat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) { return <div className="flex min-w-0 items-start gap-2 border-0 border-b border-r border-solid border-neutral-200 p-3.5 even:border-r-0 sm:border-b-0 sm:even:border-r sm:last:border-r-0"><span className="mt-0.5 text-neutral-400 [&>svg]:h-4 [&>svg]:w-4">{icon}</span><div className="min-w-0"><span className="block text-[8px] font-extrabold uppercase tracking-[0.1em] text-neutral-400">{label}</span><b className="mt-1 block break-words text-[11px] text-neutral-800">{value}</b></div></div>; }
-function Declared({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return <div className="min-w-0 bg-amber-50/60 px-3 py-2"><dt className="text-[8px] font-extrabold uppercase tracking-[0.1em] text-amber-700">{label}</dt><dd className={`m-0 mt-0.5 break-words text-[11px] font-bold text-amber-950 ${mono ? "font-mono" : ""}`}>{value}</dd></div>;
-}
 
-const metricTones = { muted: "text-neutral-500", ok: "text-emerald-700", warn: "text-amber-700", danger: "text-rose-700" } as const;
-function SmallMetric({ label, value, detail, tone = "muted" }: { label: string; value: string; detail?: string; tone?: keyof typeof metricTones }) { return <div className="min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-2.5"><span className="block text-[8px] font-extrabold uppercase tracking-[0.1em] text-neutral-400">{label}</span><b className="mt-1 block break-words text-xs font-extrabold tabular-nums text-neutral-900">{value}</b>{detail ? <span className={`mt-0.5 block text-[10px] font-semibold leading-4 ${metricTones[tone]}`}>{detail}</span> : null}</div>; }
 function Alert({ tone, children }: { tone: "amber" | "emerald" | "red"; children: ReactNode }) { const styles = tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-800" : tone === "emerald" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"; return <div className={`rounded-xl border border-solid p-3 text-sm ${styles}`}>{children}</div>; }

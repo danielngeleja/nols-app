@@ -94,7 +94,12 @@ router.post("/:token/pay-online", (async (req, res: Response) => {
     const record = await byToken(req.params.token);
     if (!record) return unavailable(res);
     const state = await onlinePaymentState(record);
-    if (!state.available) return res.status(409).json({ error: state.message, code: state.reason });
+    // An agent may explicitly request a no-money checkout preview while the
+    // property's provider setup is incomplete. Business blockers (cancelled,
+    // superseded, settled, expired) still apply exactly as they do in live use.
+    const preview = req.query.preview === "true" && state.reason === "UNAVAILABLE";
+    if (!state.available && !preview) return res.status(409).json({ error: state.message, code: state.reason });
+    const amount = state.available ? state.amount! : (await getMasterFolioPayableBalance(prisma, record.masterFolioId)).payableBalance;
 
     const now = new Date();
     // A live link for the current amount is handed back as is: reuse is free
@@ -104,12 +109,15 @@ router.post("/:token/pay-online", (async (req, res: Response) => {
         masterFolioId: record.masterFolioId,
         status: { in: MASTER_FOLIO_PAYMENT_LINK_LIVE_STATUSES },
         expiresAt: { gt: now },
-        amount: state.amount,
+        amount,
         currency: record.currency,
       },
       orderBy: { createdAt: "desc" },
     });
-    if (reusable) return res.status(200).json({ paymentLink: serializeMasterFolioPaymentLink(reusable) });
+    if (reusable) {
+      const paymentLink = serializeMasterFolioPaymentLink(reusable)!;
+      return res.status(200).json({ paymentLink: preview ? { ...paymentLink, url: `${paymentLink.url}?preview=1`, testMode: true } : paymentLink });
+    }
 
     const minted = await prisma.nrmsMasterFolioPaymentLink.count({
       where: { masterFolioId: record.masterFolioId, createdById: null, createdAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
@@ -120,7 +128,8 @@ router.post("/:token/pay-online", (async (req, res: Response) => {
     const link = await prisma.$transaction((tx: any) =>
       issueMasterFolioPaymentLink(tx, record.masterFolioId, null, { reuseMatching: true, now }),
     );
-    res.status(201).json({ paymentLink: serializeMasterFolioPaymentLink(link) });
+    const paymentLink = serializeMasterFolioPaymentLink(link)!;
+    res.status(201).json({ paymentLink: preview ? { ...paymentLink, url: `${paymentLink.url}?preview=1`, testMode: true } : paymentLink });
   } catch (err) {
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IN_FLIGHT") {
       return res.status(409).json({ error: "A payment is already awaiting confirmation. Check your phone or wait a few minutes.", code: "PAYMENT_IN_FLIGHT" });

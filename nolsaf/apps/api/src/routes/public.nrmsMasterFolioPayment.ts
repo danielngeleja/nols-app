@@ -104,7 +104,11 @@ router.get("/:token", limitPublicNrmsGuestCapability as RequestHandler, (async (
       orderBy: { createdAt: "desc" },
       include: { attempts: { orderBy: { startedAt: "desc" }, take: 1, select: { channel: true, normalizedStatus: true } } },
     });
-    const checkout = checked.settled ? { available: false, channels: [], provider: null, message: null } : await paymentOptions(checked.link);
+    const liveCheckout = checked.settled ? { available: false, channels: [] as Array<"MNO" | "BANK">, provider: null, message: null } : await paymentOptions(checked.link);
+    const testMode = req.query.preview === "1" && !checked.settled && !liveCheckout.available;
+    const checkout = testMode
+      ? { available: true, channels: ["MNO", "BANK"], provider: "TEST", message: "Checkout preview only. No money will be requested or recorded.", testMode: true }
+      : { ...liveCheckout, testMode: false };
     res.json({
       paymentLink: {
         amount: Number(checked.link.amount),
@@ -139,6 +143,13 @@ router.post("/:token/checkout", limitPublicNrmsGuestCapability as RequestHandler
     if (!checked) return;
     if (checked.settled) return res.status(409).json({ error: "This account is already settled", code: "PAYMENT_SETTLED" });
     const checkout = await paymentOptions(checked.link);
+    const testMode = req.query.preview === "1" && !checkout.available;
+    if (testMode) {
+      return res.status(202).json({
+        payment: { reference: `TEST-${checked.link.id}`, status: "PROCESSING", attemptStatus: "PROCESSING", channel: parsed.data.channel, checkoutUrl: null, testMode: true },
+        message: "Test submitted. Simulating provider confirmation; no payment request was sent.",
+      });
+    }
     if (!checkout.available || !checkout.channels.includes(parsed.data.channel)) return res.status(503).json({ error: checkout.message || "This payment method is not available", code: "ONLINE_PAYMENT_UNAVAILABLE" });
 
     const inFlight = await prisma.paymentIntent.findFirst({

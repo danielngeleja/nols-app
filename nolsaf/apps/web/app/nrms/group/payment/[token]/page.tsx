@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Clock3, Landmark, Loader2, LockKeyhole, ShieldCheck, Smartphone, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import {
@@ -30,6 +31,9 @@ const money = (amount: number, currency: string) =>
 
 export default function MasterFolioPaymentPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
+  const searchParams = useSearchParams();
+  const preview = searchParams.get("preview") === "1";
+  const previewQuery = preview ? "?preview=1" : "";
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   // Why a link cannot be used, and the agency's own Pro Forma to start over from.
@@ -46,11 +50,12 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
   const [otp, setOtp] = useState("");
   const [clientRequestId, setClientRequestId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [testStage, setTestStage] = useState<"IDLE" | "PROCESSING" | "SUCCEEDED">("IDLE");
   const [now, setNow] = useState(Date.now());
 
   const load = useCallback(async () => {
     try {
-      const response = await apiClient.get("/api/public/nrms/master-folio-payments/" + encodeURIComponent(token));
+      const response = await apiClient.get("/api/public/nrms/master-folio-payments/" + encodeURIComponent(token) + previewQuery);
       setData(response.data.paymentLink);
       setError(null);
       setDead(null);
@@ -59,7 +64,7 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
       setError(body?.error || "This payment link is unavailable.");
       setDead({ code: body?.code ?? null, proFormaUrl: body?.proFormaUrl ?? null });
     }
-  }, [token]);
+  }, [previewQuery, token]);
 
   useEffect(() => { setClientRequestId(crypto.randomUUID()); void load(); }, [load]);
   useEffect(() => {
@@ -80,8 +85,9 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
 
   const remaining = useMemo(() => Math.max(0, new Date(data?.expiresAt || 0).getTime() - now), [data?.expiresAt, now]);
   const remainingLabel = `${Math.floor(remaining / 3_600_000)}:${String(Math.floor((remaining % 3_600_000) / 60_000)).padStart(2, "0")}:${String(Math.floor((remaining % 60_000) / 1000)).padStart(2, "0")}`;
-  const settled = data?.status === "PAID" || data?.payment?.status === "SUCCEEDED";
-  const processing = data?.status === "PROCESSING"
+  const testMode = Boolean(data?.checkout?.testMode);
+  const settled = testStage === "SUCCEEDED" || data?.status === "PAID" || data?.payment?.status === "SUCCEEDED";
+  const processing = testStage === "PROCESSING" || data?.status === "PROCESSING"
     || ["PROCESSING", "STATUS_UNKNOWN", "INITIATION_PENDING"].includes(data?.payment?.status);
   const offered: Channel[] = data?.checkout?.channels || [];
   const checkoutAvailable = Boolean(data?.checkout?.available && offered.length && remaining > 0);
@@ -117,8 +123,13 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
       const payload = channel === "MNO"
         ? { channel, clientRequestId, phoneNumber, mnoProvider }
         : { channel, clientRequestId, phoneNumber: bankMobile, bankCode, accountNumber: accountNumber.trim(), otp: otp.trim() };
-      const response = await apiClient.post("/api/public/nrms/master-folio-payments/" + encodeURIComponent(token) + "/checkout", payload);
+      const response = await apiClient.post("/api/public/nrms/master-folio-payments/" + encodeURIComponent(token) + "/checkout" + previewQuery, payload);
       setNotice(response.data.message || "Payment submitted. Awaiting confirmation.");
+      if (response.data?.payment?.testMode) {
+        setTestStage("PROCESSING");
+        window.setTimeout(() => { setTestStage("SUCCEEDED"); setNotice(null); }, 1400);
+        return;
+      }
       await load();
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || "The payment could not be started. No charge has been confirmed.");
@@ -141,7 +152,7 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><LockKeyhole className="h-4 w-4" /></span>
               <div><p className="m-0 text-[9px] font-bold uppercase tracking-[0.19em] text-emerald-700">NRMS</p><p className="m-0 text-sm font-bold text-slate-950">Secure group checkout</p></div>
             </div>
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-500"><ShieldCheck className="h-3.5 w-3.5 text-emerald-700" /> Protected</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold ${testMode ? "bg-amber-100 text-amber-800" : "text-slate-500"}`}><ShieldCheck className={`h-3.5 w-3.5 ${testMode ? "text-amber-700" : "text-emerald-700"}`} /> {testMode ? "TEST MODE" : "Protected"}</span>
           </header>
 
           {error && !data ? (
@@ -162,6 +173,7 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
             </div>
           ) : data && (
             <div className="p-5 sm:p-7">
+              {testMode && <div className="mb-4 rounded-xl border border-solid border-amber-300 bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900"><b>Checkout preview:</b> use test details to verify every step. No prompt will be sent, no money will move, and NRMS will not mark this invoice paid.</div>}
               <div className="rounded-2xl bg-[linear-gradient(115deg,#064e3b_0%,#047857_100%)] p-5 text-white">
                 <p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-200">Agency master folio</p>
                 <h1 className="mb-0 mt-2 text-xl font-bold">{data.group}</h1>
@@ -173,7 +185,7 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
               {settled ? (
                 <div className="mt-5 flex items-start gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-4">
                   <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-700" />
-                  <div><p className="m-0 text-sm font-bold text-emerald-950">Payment confirmed</p><p className="m-0 mt-1 text-xs text-emerald-800">AzamPay confirmed the payment and NRMS recorded it on the agency account.</p></div>
+                  <div><p className="m-0 text-sm font-bold text-emerald-950">{testMode ? "Test checkout completed" : "Payment confirmed"}</p><p className="m-0 mt-1 text-xs text-emerald-800">{testMode ? "The complete checkout journey works. This was a simulation: no payment was sent or recorded." : "AzamPay confirmed the payment and NRMS recorded it on the agency account."}</p></div>
                 </div>
               ) : (
                 <>
@@ -196,7 +208,7 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
                   {processing ? (
                     <div className="mt-4 flex items-center gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50 p-4">
                       <Loader2 className="h-5 w-5 animate-spin text-amber-700" />
-                      <div><p className="m-0 text-sm font-bold text-amber-950">Waiting for confirmation</p><p className="m-0 mt-1 text-xs text-amber-800">Keep this page open. It will update automatically.</p></div>
+                      <div><p className="m-0 text-sm font-bold text-amber-950">{testMode ? "Simulating confirmation" : "Waiting for confirmation"}</p><p className="m-0 mt-1 text-xs text-amber-800">{testMode ? "Testing the provider-pending step. No external request was sent." : "Keep this page open. It will update automatically."}</p></div>
                     </div>
                   ) : (
                     <div className="mt-4 space-y-4 rounded-xl border border-solid border-slate-200 bg-[#f8faf9] p-4">
@@ -305,13 +317,13 @@ export default function MasterFolioPaymentPage({ params }: { params: Promise<{ t
 
                   {notice && <p className="m-0 mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">{notice}</p>}
                   {error && <p className="m-0 mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{error}</p>}
-                  {!processing && <button type="button" disabled={!canSubmit || submitting} onClick={() => void startPayment()} className="mt-5 inline-flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-5 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{submitting && <Loader2 className="h-4 w-4 animate-spin" />}Pay securely</button>}
+                  {!processing && !settled && <button type="button" disabled={!canSubmit || submitting} onClick={() => void startPayment()} className="mt-5 inline-flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-5 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{submitting && <Loader2 className="h-4 w-4 animate-spin" />}{testMode ? "Run payment test" : "Pay securely"}</button>}
                 </>
               )}
             </div>
           )}
         </section>
-        <p className="m-0 mt-4 text-center text-[11px] leading-5 text-slate-500">This private link only authorizes the displayed amount and expires after three hours. NoLSAF never asks for your mobile-money PIN.</p>
+        <p className="m-0 mt-4 text-center text-[11px] leading-5 text-slate-500">{testMode ? "Test mode never contacts a bank or mobile-money provider and never records a payment." : "This private link only authorizes the displayed amount and expires after three hours. NoLSAF never asks for your mobile-money PIN."}</p>
       </div>
     </main>
   );
