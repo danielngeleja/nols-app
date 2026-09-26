@@ -107,7 +107,7 @@ describe("visa itinerary readiness", () => {
   const plan = { itinerary: [{ day: 1, title: "Arrival" }] };
 
   it("is ready for an upcoming trip with both dates and a daily plan", () => {
-    expect(assessVisaItineraryReadiness({ startDate: "2026-10-01", endDate: "2026-10-03", bookingStatus: "CONFIRMED", packageSnapshot: plan }, now)).toEqual({ ready: true, missing: [] });
+    expect(assessVisaItineraryReadiness({ startDate: "2026-10-01", endDate: "2026-10-03", bookingStatus: "CONFIRMED", packageSnapshot: plan }, now)).toMatchObject({ ready: true, missing: [] });
   });
 
   it("refuses a trip that has already started or finished", () => {
@@ -119,5 +119,21 @@ describe("visa itinerary readiness", () => {
     const result = assessVisaItineraryReadiness({ startDate: "2026-10-01", endDate: null, bookingStatus: "CONFIRMED", packageSnapshot: {} }, now);
     expect(result.ready).toBe(false);
     expect(result.missing).toEqual(["The trip end date is not set yet.", "Your operator has not added the day-by-day schedule yet."]);
+  });
+});
+
+describe("trip end date", () => {
+  it("works out the end from the day-by-day plan when the booking has no end date", async () => {
+    const { resolveTripEndDate, assessVisaItineraryReadiness: assess } = await import("./tourVisaItinerary.js");
+    const plan = { itinerary: [{ day: 1, title: "Arrival" }, { day: 2, title: "Serengeti" }, { day: 3, title: "Return" }] };
+    const end = resolveTripEndDate({ startDate: "2026-10-12T00:00:00.000Z", endDate: null, packageSnapshot: plan });
+    expect(end).toEqual({ date: new Date("2026-10-14T00:00:00.000Z"), derived: true });
+    expect(assess({ startDate: "2026-10-12", endDate: null, bookingStatus: "CONFIRMED", packageSnapshot: plan }, new Date("2026-09-26T09:00:00Z")).ready).toBe(true);
+  });
+
+  it("falls back to the package duration, and keeps a stored end date as is", async () => {
+    const { resolveTripEndDate } = await import("./tourVisaItinerary.js");
+    expect(resolveTripEndDate({ startDate: "2026-10-12T00:00:00.000Z", packageSnapshot: { duration: "4 days" } }).date).toEqual(new Date("2026-10-15T00:00:00.000Z"));
+    expect(resolveTripEndDate({ startDate: "2026-10-12", endDate: "2026-10-20", packageSnapshot: { duration: "4 days" } }).derived).toBe(false);
   });
 });

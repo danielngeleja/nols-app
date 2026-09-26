@@ -2332,6 +2332,7 @@ router.get("/:id/visa-itinerary.html", (async (req: AuthedRequest, res) => {
         error: "visa_itinerary_not_ready",
         message: readiness.missing.join(" "),
         missing: readiness.missing,
+        checks: readiness.checks,
       });
     }
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, FileCheck2, Printer } from "lucide-react";
+import { ArrowLeft, Check, Clock, FileCheck2, Printer } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 
 export default function TourVisaItineraryPage() {
@@ -13,6 +13,7 @@ export default function TourVisaItineraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  const [checks, setChecks] = useState<Array<{ key: string; label: string; ok: boolean; detail: string }>>([]);
   const [documentHtml, setDocumentHtml] = useState("");
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +73,7 @@ export default function TourVisaItineraryPage() {
         if (response.status === 409) {
           const payload = await response.json().catch(() => null);
           if (alive && Array.isArray(payload?.missing)) setMissing(payload.missing.map(String));
+          if (alive && Array.isArray(payload?.checks)) setChecks(payload.checks);
           throw new Error(payload?.message || "This visa-support itinerary is not currently available.");
         }
         if (!response.ok) throw new Error(`We could not generate this itinerary (${response.status}).`);
@@ -92,23 +94,62 @@ export default function TourVisaItineraryPage() {
 
   if (error || !documentHtml) {
     if (missing.length > 0) {
+      const done = checks.filter((c) => c.ok).length;
+      const closed = checks.some((c) => c.key === "upcoming" && !c.ok);
       return (
-        <div className="mx-auto max-w-2xl px-4 py-8">
-          <div className="rounded-3xl border border-solid border-slate-200 bg-white p-6 sm:p-7">
-            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-700"><FileCheck2 className="h-5 w-5" aria-hidden /></span>
-            <h1 className="m-0 mt-4 text-[18px] font-bold text-slate-900">Your itinerary is not ready yet</h1>
-            <p className="m-0 mt-1 text-[13px] leading-relaxed text-slate-500">A consulate checks your travel dates against a day-by-day plan, so we issue this document once the trip details are complete.</p>
-            <ul className="m-0 mt-4 list-none space-y-2 p-0">
-              {missing.map((item) => (
-                <li key={item} className="flex items-start gap-2.5 rounded-2xl bg-amber-50/70 px-3.5 py-2.5 text-[13px] font-medium text-amber-900">
-                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" aria-hidden />
-                  {item}
-                </li>
-              ))}
-            </ul>
-            <p className="m-0 mt-4 text-[12.5px] text-slate-500">You can message your operator from the trip page to ask for the missing details.</p>
-            <Link href={backHref} className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-full bg-[#02665e] px-5 text-[13px] font-bold text-white no-underline hover:bg-[#014e47]"><ArrowLeft className="h-4 w-4" aria-hidden />Back to trip</Link>
-          </div>
+        <div id="visa-not-ready" className="w-full py-2 sm:py-4">
+          <style>{"#visa-not-ready, #visa-not-ready * { box-sizing: border-box; }"}</style>
+          <Link href={backHref} className="inline-flex h-9 items-center gap-1.5 rounded-full border border-solid border-slate-300 bg-white px-3.5 text-[13px] font-semibold text-slate-700 no-underline transition-colors hover:border-[#02665e] hover:text-[#02665e]">
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Back to trip
+          </Link>
+          <section className="mt-4 overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
+            <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className={`inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl ${closed ? "bg-slate-100 text-slate-500" : "bg-[#02665e]/10 text-[#02665e]"}`}>
+                  <FileCheck2 className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <h1 className="m-0 text-[17px] font-bold text-slate-900">{closed ? "Itinerary no longer available" : "Your itinerary is almost ready"}</h1>
+                  <p className="m-0 mt-1 text-[13px] leading-relaxed text-slate-500">
+                    {closed
+                      ? missing[0]
+                      : "Consulates check your travel dates against a day-by-day plan, so the document is issued once every item below is in place."}
+                  </p>
+                </div>
+              </div>
+              {checks.length > 0 && !closed ? (
+                <div className="flex-shrink-0 text-left sm:text-right">
+                  <div className="text-[22px] font-black leading-none tabular-nums text-slate-900">{done}<span className="text-[14px] font-bold text-slate-300">/{checks.length}</span></div>
+                  <div className="mt-1 text-[11px] font-semibold text-slate-400">requirements met</div>
+                </div>
+              ) : null}
+            </div>
+
+            {checks.length > 0 ? (
+              <ul className="m-0 list-none divide-y divide-solid divide-slate-100 border-0 border-t border-solid border-slate-100 p-0 [&>*]:border-x-0">
+                {checks.map((check) => (
+                  <li key={check.key} className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
+                    <span className={`inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full ${check.ok ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>
+                      {check.ok ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Clock className="h-3.5 w-3.5" aria-hidden />}
+                    </span>
+                    <span className="min-w-0 flex-1 text-[13.5px] font-semibold text-slate-800">{check.label}</span>
+                    <span className={`flex-shrink-0 text-right text-[12.5px] ${check.ok ? "text-slate-500" : "font-semibold text-amber-700"}`}>{check.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <ul className="m-0 list-none space-y-2 border-0 border-t border-solid border-slate-100 p-5 sm:px-6">
+                {missing.map((item) => <li key={item} className="text-[13px] text-slate-700">{item}</li>)}
+              </ul>
+            )}
+
+            {!closed ? (
+              <p className="m-0 border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-5 py-3.5 text-[12.5px] text-slate-500 sm:px-6">
+                Missing details come from your tour operator. Ask them from the trip page, then come back here to download.
+              </p>
+            ) : null}
+          </section>
         </div>
       );
     }

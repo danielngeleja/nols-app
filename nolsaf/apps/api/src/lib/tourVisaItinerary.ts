@@ -167,10 +167,42 @@ export function normalizeVisaItineraryDays(packageSnapshot: unknown, metadata: u
     .sort((a, b) => a.day - b.day);
 }
 
+/**
+ * The trip's last day. Checkout leaves endDate optional, so many bookings only
+ * carry a start date; the operator's day-by-day plan (or the package duration)
+ * still fixes the length, so the end is start + days - 1.
+ */
+export function resolveTripEndDate(
+  input: Pick<TourVisaItineraryInput, "startDate" | "endDate" | "packageSnapshot" | "metadata">
+): { date: Date | null; derived: boolean } {
+  const stored = date(input.endDate);
+  if (stored) return { date: stored, derived: false };
+  const start = date(input.startDate);
+  if (!start) return { date: null, derived: false };
+  const days = normalizeVisaItineraryDays(input.packageSnapshot, input.metadata);
+  const planDays = days.length ? Math.max(...days.map((d) => d.day)) : 0;
+  const pkg = object(input.packageSnapshot);
+  const durationMatch = String(pkg.durationDays ?? pkg.duration ?? pkg.days ?? "").match(/(\d{1,3})/);
+  const packageDays = durationMatch ? Number(durationMatch[1]) : 0;
+  const total = planDays || packageDays;
+  if (!total || total < 1) return { date: null, derived: false };
+  return { date: new Date(start.getTime() + (total - 1) * 86_400_000), derived: true };
+}
+
+export type VisaReadinessCheck = {
+  key: "start" | "end" | "plan" | "upcoming";
+  label: string;
+  ok: boolean;
+  /** The value when present, or what is missing. */
+  detail: string;
+};
+
 export type VisaItineraryReadiness = {
   ready: boolean;
   /** Short reasons, written for the traveller. */
   missing: string[];
+  /** Every requirement with its state, so the page can show what is already in place. */
+  checks: VisaReadinessCheck[];
 };
 
 /**
@@ -182,24 +214,37 @@ export function assessVisaItineraryReadiness(
   input: Pick<TourVisaItineraryInput, "startDate" | "endDate" | "bookingStatus" | "packageSnapshot" | "metadata">,
   now: Date = new Date()
 ): VisaItineraryReadiness {
-  const missing: string[] = [];
   const status = text(input.bookingStatus).toUpperCase();
   const start = date(input.startDate);
-  const end = date(input.endDate);
+  const tripEnd = resolveTripEndDate(input);
+  const end = tripEnd.date;
+  const planDays = normalizeVisaItineraryDays(input.packageSnapshot, input.metadata).length;
+  const finished = ["COMPLETED", "OPERATOR_COMPLETED"].includes(status);
+  const passed = Boolean(start && eatDay(start) < eatDay(now));
+  const endBeforeStart = Boolean(start && end && eatDay(end) < eatDay(start));
 
-  if (["COMPLETED", "OPERATOR_COMPLETED"].includes(status)) {
-    return { ready: false, missing: ["This trip has already taken place, so a visa-support itinerary can no longer be issued."] };
+  const checks: VisaReadinessCheck[] = [
+    { key: "start", label: "Trip start date", ok: Boolean(start), detail: start ? displayDate(start) : "Not set yet" },
+    {
+      key: "end",
+      label: "Trip end date",
+      ok: Boolean(end) && !endBeforeStart,
+      detail: endBeforeStart ? "Before the start date" : end ? `${displayDate(end)}${tripEnd.derived ? " (from the plan)" : ""}` : "Not set yet",
+    },
+    { key: "plan", label: "Day-by-day plan", ok: planDays > 0, detail: planDays > 0 ? `${planDays} ${planDays === 1 ? "day" : "days"} planned` : "Not added by your operator yet" },
+    { key: "upcoming", label: "Trip still ahead", ok: !finished && !passed, detail: finished ? "Trip already completed" : passed ? "Start date has passed" : "Yes" },
+  ];
+
+  const missing: string[] = [];
+  if (finished) missing.push("This trip has already taken place, so a visa-support itinerary can no longer be issued.");
+  else if (passed) missing.push("This trip's start date has passed, so a visa-support itinerary can no longer be issued.");
+  else {
+    if (!start) missing.push("The trip start date is not set yet.");
+    if (!end) missing.push("The trip end date is not set yet.");
+    if (endBeforeStart) missing.push("The trip end date is before its start date.");
+    if (planDays === 0) missing.push("Your operator has not added the day-by-day schedule yet.");
   }
-  if (!start) missing.push("The trip start date is not set yet.");
-  if (!end) missing.push("The trip end date is not set yet.");
-  if (start && end && eatDay(end) < eatDay(start)) missing.push("The trip end date is before its start date.");
-  if (start && eatDay(start) < eatDay(now)) {
-    return { ready: false, missing: ["This trip's start date has passed, so a visa-support itinerary can no longer be issued."] };
-  }
-  if (normalizeVisaItineraryDays(input.packageSnapshot, input.metadata).length === 0) {
-    missing.push("Your operator has not added the day-by-day schedule yet.");
-  }
-  return { ready: missing.length === 0, missing };
+  return { ready: missing.length === 0, missing, checks };
 }
 
 function flightSummary(metadata: unknown): string[] {
@@ -272,7 +317,8 @@ export function buildTourVisaItineraryHtml(input: TourVisaItineraryInput): strin
   const op = input.operator || {};
   const days = normalizeVisaItineraryDays(input.packageSnapshot, input.metadata);
   const issuedAt = date(input.issuedAt || new Date()) || new Date();
-  const duration = durationDays(input.startDate, input.endDate);
+  const tripEnd = resolveTripEndDate(input);
+  const duration = durationDays(input.startDate, tripEnd.date);
   const accommodation = text(pkg.accommodation || pkg.lodging || pkg.hotel);
   const meetingPoint = text(pkg.meetingPoint || pkg.departurePoint);
   const inclusions = list(pkg.inclusions || pkg.included || pkg.includes);
@@ -344,7 +390,7 @@ export function buildTourVisaItineraryHtml(input: TourVisaItineraryInput): strin
     .join("");
   const summary: Array<[string, string]> = [
     ["Arrival", displayDate(input.startDate)],
-    ["Departure", displayDate(input.endDate)],
+    ["Departure", displayDate(tripEnd.date)],
     ["Duration", duration ? `${duration} day${duration === 1 ? "" : "s"}` : "To be confirmed"],
     ["Travellers", String(Math.max(1, Number(input.travelerCount || 1)))],
   ];
