@@ -22,14 +22,19 @@ ARG RENDER_GIT_REPO_SLUG
 # Copy the monorepo (Render will build from the repo root you select)
 COPY . .
 
-# Install + build from the monorepo root.
-# This Dockerfile may be used with either build context:
+# Resolve the monorepo root once. This Dockerfile may be used with either:
 # - context = nolsaf/ (recommended) => lockfile at /app/package-lock.json
 # - context = repo root            => lockfile at /app/nolsaf/package-lock.json
 RUN set -eu; \
 	if [ -f /app/package-lock.json ]; then ROOT=/app; \
 	elif [ -f /app/nolsaf/package-lock.json ]; then ROOT=/app/nolsaf; \
 	else echo "package-lock.json not found in /app or /app/nolsaf"; ls -la /app; exit 1; fi; \
+	printf '%s\n' "$ROOT" > /tmp/nolsaf-root
+
+# Keep dependency installation in its own layer. A transient registry failure can
+# retry without hiding failures from the later TypeScript build commands.
+RUN set -eu; \
+	ROOT="$(cat /tmp/nolsaf-root)"; \
 	cd "$ROOT"; \
 	npm config set fetch-retries 5; \
 	npm config set fetch-retry-factor 2; \
@@ -42,13 +47,24 @@ RUN set -eu; \
 		echo "npm ci failed (attempt $install_attempt/3); retrying in 10 seconds..."; \
 		install_attempt=$((install_attempt + 1)); \
 		sleep 10; \
-	done; \
-	npm run prisma:generate; \
-	npm run --workspace=@nolsaf/shared build; \
-	npm run --workspace=@nolsaf/prisma build; \
-	npm run --workspace=@nolsaf/api build; \
-	test -f "$ROOT/apps/api/dist/src/index.js"; \
-	test -f "$ROOT/apps/api/certs/redis_ca.pem"
+	done
+
+# Build each dependency separately so Render reports the exact failing stage.
+# `npm ci` runs the root postinstall (including Prisma generation), and the API
+# prebuild regenerates Prisma immediately before compiling the API.
+RUN set -eu; ROOT="$(cat /tmp/nolsaf-root)"; cd "$ROOT"; \
+	npm run --workspace=@nolsaf/shared build
+RUN set -eu; ROOT="$(cat /tmp/nolsaf-root)"; cd "$ROOT"; \
+	npm run --workspace=@nolsaf/prisma build
+RUN set -eu; ROOT="$(cat /tmp/nolsaf-root)"; cd "$ROOT"; \
+	npm run --workspace=@nolsaf/api build
+
+# Fail with a useful message if a required runtime artifact is absent.
+RUN set -eu; ROOT="$(cat /tmp/nolsaf-root)"; \
+	test -f "$ROOT/apps/api/dist/src/index.js" \
+		|| { echo "API entrypoint was not generated" >&2; exit 1; }; \
+	test -f "$ROOT/apps/api/certs/redis_ca.pem" \
+		|| { echo "Redis CA certificate is missing" >&2; exit 1; }
 
 ENV NODE_ENV=production
 

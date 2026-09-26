@@ -344,9 +344,9 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
       expectedChallenge: loaded.challenge.authenticationChallenge,
       expectedOrigin: expectedOrigins,
       expectedRPID: rpID,
-      authenticator: {
-        credentialID: base64UrlToBuffer(stored.credentialId),
-        credentialPublicKey: base64UrlToBuffer(stored.publicKey),
+      credential: {
+        id: stored.credentialId,
+        publicKey: Uint8Array.from(base64UrlToBuffer(stored.publicKey)),
         counter: stored.signCount,
       },
       requireUserVerification: true,
@@ -460,7 +460,8 @@ adminMfaRouter.post("/admin-mfa/passkey/register/options", async (req, res) => {
   const options = await generateRegistrationOptions({
     rpName: process.env.APP_NAME || "NoLSAF",
     rpID,
-    userID: String(user.id),
+    // SimpleWebAuthn v14 requires raw user-handle bytes, not a string.
+    userID: new TextEncoder().encode(String(user.id)),
     userName: user.email || `admin-${user.id}`,
     userDisplayName: user.name || user.email || `Admin ${user.id}`,
     timeout: 60_000,
@@ -487,16 +488,17 @@ adminMfaRouter.post("/admin-mfa/passkey/register/verify", async (req, res) => {
       expectedRPID: rpID,
       requireUserVerification: true,
     } as any);
-    const info = verification.registrationInfo;
-    if (!verification.verified || !info?.credentialID || !info.credentialPublicKey) throw new Error("not verified");
-    const credentialId = bufferToBase64Url(Buffer.from(info.credentialID));
-    const publicKey = bufferToBase64Url(Buffer.from(info.credentialPublicKey));
+    const info = verification.registrationInfo as any;
+    const registeredCredential = info?.credential;
+    if (!verification.verified || !registeredCredential?.id || !registeredCredential.publicKey) throw new Error("not verified");
+    const credentialId = registeredCredential.id;
+    const publicKey = bufferToBase64Url(Buffer.from(registeredCredential.publicKey));
     await prisma.passkey.create({
       data: {
         userId: loaded.challenge.userId,
         credentialId,
         publicKey,
-        signCount: typeof info.counter === "number" ? info.counter : 0,
+        signCount: typeof registeredCredential.counter === "number" ? registeredCredential.counter : 0,
         transports: Array.isArray(req.body?.response?.response?.transports) ? req.body.response.response.transports : undefined,
       },
     });

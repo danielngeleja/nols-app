@@ -2287,7 +2287,8 @@ const postAccountPasskeysCreate: RequestHandler = async (req, res) => {
     const options = await generateRegistrationOptions({
       rpName: process.env.APP_NAME || "nolsaf",
       rpID,
-      userID: String(userId),
+      // SimpleWebAuthn v14 requires raw user-handle bytes, not a string.
+      userID: new TextEncoder().encode(String(userId)) as any,
       userName,
       timeout: 60000,
       attestationType: "direct",
@@ -2358,13 +2359,14 @@ const postAccountPasskeysVerify: RequestHandler = async (req, res) => {
     }
 
     const regInfo = verification.registrationInfo;
-    if (!regInfo?.credentialID || !regInfo.credentialPublicKey) {
+    const registeredCredential = regInfo?.credential;
+    if (!registeredCredential?.id || !registeredCredential.publicKey) {
       return res.status(500).json({ error: "missing registration info" });
     }
 
-    const credentialId = toBase64Url(regInfo.credentialID);
-    const publicKey = toBase64Url(regInfo.credentialPublicKey);
-    const signCount = typeof regInfo.counter === "number" ? regInfo.counter : 0;
+    const credentialId = registeredCredential.id;
+    const publicKey = toBase64Url(registeredCredential.publicKey);
+    const signCount = typeof registeredCredential.counter === "number" ? registeredCredential.counter : 0;
 
     if ((prisma as any).passkey) {
       try {
@@ -2497,9 +2499,9 @@ const postAccountPasskeysAuthenticateVerify: RequestHandler = async (req, res) =
         expectedChallenge: storedChallenge,
         expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
-        authenticator: {
-          credentialID: fromBase64Url(stored.credentialId || stored.credentialID || stored.id || credId),
-          credentialPublicKey: fromBase64Url(publicKey),
+        credential: {
+          id: stored.credentialId || stored.credentialID || stored.id || credId,
+          publicKey: Uint8Array.from(fromBase64Url(publicKey)),
           counter: signCount,
         },
         requireUserVerification: false,
