@@ -13,6 +13,7 @@ import GlobalAlertGuard from "../components/GlobalAlertGuard";
 import ClientErrorReporter from "../components/ClientErrorReporter";
 import PerformanceMeasureGuard from "../components/PerformanceMeasureGuard";
 import RouteChromeShell from "../components/RouteChromeShell";
+import RouteProgress from "../components/RouteProgress";
 import { SITE_URL, buildRootJsonLd, seoKeywords } from "@/lib/seo";
 import { serializeJsonLd } from "@/lib/safeJsonLd";
 
@@ -98,6 +99,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <GlobalAlertGuard />
         <ClientErrorReporter />
         <PerformanceMeasureGuard />
+        <Suspense fallback={null}>
+          <RouteProgress />
+        </Suspense>
         <RouteChromeShell>
           <Suspense fallback={null}>{children}</Suspense>
         </RouteChromeShell>
