@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Wallet, Calendar, Eye, DollarSign, Building2, Receipt, FileText, Download, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Printer, Filter, X, CheckCircle2, ArrowUp, ArrowDown, HandCoins, CreditCard, Info } from "lucide-react";
+import { Wallet, Calendar, Eye, Building2, Receipt, Download, ChevronLeft, ChevronRight, ArrowUpDown, CheckSquare, Square, Printer, Filter, X, CheckCircle2, ArrowUp, ArrowDown, HandCoins, CreditCard, RefreshCw, Search, Send, Clock, ArrowRight, Info } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import TableRow from "@/components/TableRow";
 import apiClient from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
 
 type InvoiceRow = {
   id: number;
+  invoiceReference: string;
   invoiceNumber: string | null;
   receiptNumber: string | null;
   status: string;
@@ -62,6 +64,14 @@ function bulkCompletionNoun(invoices: InvoiceRow[]) {
     return "paid";
   }
   return "completed";
+}
+
+function isInteractiveRowTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest("a, button, input, select, textarea, [role='button']"));
+}
+
+function invoiceDetailsHref(inv: Pick<InvoiceRow, "invoiceReference">) {
+  return `/admin/revenue/${encodeURIComponent(inv.invoiceReference)}`;
 }
 
 function isDraftStatus(statusRaw: string) {
@@ -201,6 +211,7 @@ function collapseMirrorInvoices(rows: InvoiceRow[]) {
 }
 
 export default function AdminRevenue() {
+  const router = useRouter();
   const [status, setStatus] = useState<string>("");
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
@@ -666,447 +677,350 @@ export default function AdminRevenue() {
     );
   }
 
+  async function exportApprovedCsv() {
+    try {
+      const params = new URLSearchParams();
+      params.set("status", "APPROVED");
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      if (q) params.set("q", q);
+
+      const response = await fetch(`/api/admin/revenue/invoices/export.csv?${params.toString()}`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        console.error("CSV export failed:", response.status, errorText);
+        throw new Error(`Export failed: ${response.status} ${errorText}`);
+      }
+
+      const blob = await response.blob();
+
+      // Check if blob is actually CSV (not an error response)
+      if (blob.type && !blob.type.includes("csv") && !blob.type.includes("text")) {
+        const text = await blob.text();
+        console.error("CSV export returned non-CSV:", text);
+        throw new Error("Server returned an error instead of CSV");
+      }
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `approved_invoices_payout_${new Date().toISOString().split("T")[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Failed to export CSV:", err);
+      alert(`Failed to export CSV: ${err.message || "Please try again."}`);
+    }
+  }
+
+  const STATUS_TABS: Array<{ value: string; label: string; hint: string; dot: string }> = [
+    { value: "", label: "All", hint: "Every invoice", dot: "bg-neutral-400" },
+    { value: "REQUESTED", label: "New", hint: "Waiting for review", dot: "bg-sky-500" },
+    { value: "VERIFIED", label: "Verified", hint: "Checked, needs approval", dot: "bg-amber-500" },
+    { value: "APPROVED", label: "Approved", hint: "Ready to disburse", dot: "bg-emerald-500" },
+    { value: "PAID", label: "Paid / disbursed", hint: "Money moved", dot: "bg-teal-600" },
+    { value: "REJECTED", label: "Rejected", hint: "Declined claims", dot: "bg-red-500" },
+  ];
+  const fmtShortDate = (iso: string) =>
+    iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const dateLabel = from && to ? (from === to ? fmtShortDate(from) : `${fmtShortDate(from)} to ${fmtShortDate(to)}`) : from ? `From ${fmtShortDate(from)}` : "";
+  const ownerName = ownerFilter ? (owners.find((o) => String(o.id) === ownerFilter)?.name || owners.find((o) => String(o.id) === ownerFilter)?.email || `Owner #${ownerFilter}`) : "";
+  const propertyName = propertyFilter ? (properties.find((p) => String(p.id) === propertyFilter)?.title || `Property #${propertyFilter}`) : "";
+  const filterChips = [
+    dateLabel ? { key: "date", label: dateLabel, clear: () => { setDate(""); setFrom(""); setTo(""); } } : null,
+    ownerName ? { key: "owner", label: `Owner: ${ownerName}`, clear: () => setOwnerFilter("") } : null,
+    propertyName ? { key: "property", label: `Property: ${propertyName}`, clear: () => setPropertyFilter("") } : null,
+    amountMin ? { key: "min", label: `From ${Number(amountMin).toLocaleString()} TZS`, clear: () => setAmountMin("") } : null,
+    amountMax ? { key: "max", label: `Up to ${Number(amountMax).toLocaleString()} TZS`, clear: () => setAmountMax("") } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>;
+  const advancedCount = [ownerFilter, propertyFilter, amountMin, amountMax].filter(Boolean).length;
+  const readyToDisburse = counts["APPROVED"] ?? 0;
+  const waitingReview = counts["REQUESTED"] ?? 0;
+  const FIELD = "block h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+  const TOOL = "inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid px-3 text-xs font-bold transition";
+
   return (
     <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
-      {/* Header */}
-      <div
-        className="relative rounded-2xl overflow-hidden shadow-2xl"
-        style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)" }}
-      >
-        {/* Decorative sparkline viz */}
-        <svg
-          aria-hidden
-          className="absolute inset-0 w-full h-full pointer-events-none select-none"
-          preserveAspectRatio="xMidYMid slice"
-          viewBox="0 0 900 220"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle cx="860" cy="45"  r="200" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none" />
-          <circle cx="860" cy="45"  r="155" stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-          <circle cx="820" cy="15"  r="115" stroke="white" strokeOpacity="0.045" strokeWidth="1" fill="none" />
-          <circle cx="28"  cy="208" r="130" stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-          {[44, 88, 132, 176].map((y) => (
-            <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="rgba(255,255,255,0.030)" strokeWidth="1" />
-          ))}
-          <polyline
-            points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78"
-            fill="none" stroke="white" strokeOpacity="0.16" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-          />
-          <polygon
-            points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78 900,220 0,220"
-            fill="white" fillOpacity="0.026"
-          />
-          <polyline
-            points="0,200 100,186 200,194 300,172 400,180 500,160 600,168 700,148 800,156 900,136"
-            fill="none" stroke="white" strokeOpacity="0.07" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-          />
-          {([[720,90],[560,108],[880,78],[240,145]] as [number,number][]).map(([px,py]) => (
-            <circle key={`${px}-${py}`} cx={px} cy={py} r="3" fill="white" fillOpacity="0.22" />
-          ))}
-          <radialGradient id="revHeaderGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(10,92,130,0.45)" />
-            <stop offset="100%" stopColor="rgba(10,92,130,0)" />
-          </radialGradient>
-          <ellipse cx="450" cy="110" rx="300" ry="140" fill="url(#revHeaderGlow)" />
-        </svg>
+      <div id="revenue-top" className="min-w-0 space-y-4">
+      {/* Preflight is disabled in this project; scope border-box so w-full pieces don't overflow */}
+      <style>{`#revenue-top, #revenue-top * { box-sizing: border-box; }`}</style>
 
-        {/* Content */}
-        <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 sm:py-14">
-          {/* Icon orb */}
-          <div
-            className="mb-5 inline-flex items-center justify-center rounded-full"
-            style={{
-              width: 64, height: 64,
-              background: "rgba(255,255,255,0.10)",
-              border: "1.5px solid rgba(255,255,255,0.18)",
-              boxShadow: "0 0 0 8px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35)",
-            }}
-          >
-            <Wallet className="h-7 w-7" style={{ color: "rgba(255,255,255,0.92)" }} aria-hidden />
-          </div>
-
-          <h1
-            className="text-2xl sm:text-3xl font-bold tracking-tight"
-            style={{ color: "#ffffff", textShadow: "0 2px 12px rgba(0,0,0,0.4)" }}
-          >
-            Revenue (Invoices &amp; Payouts)
-          </h1>
-          <p className="mt-2 text-sm sm:text-base" style={{ color: "rgba(255,255,255,0.55)" }}>
-            Invoices, payouts and exports
-          </p>
-
-          {/* Info tooltip */}
-          <div className="mt-4 relative group/tooltip inline-flex">
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150 focus:outline-none"
-              style={{
-                background: "rgba(255,255,255,0.10)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.70)",
-              }}
-              aria-label="Invoice type info"
-              onClick={(e) => {
-                e.preventDefault();
-                try { (e.currentTarget as HTMLButtonElement).focus(); } catch { /* ignore */ }
-              }}
-            >
-              <Info className="h-3.5 w-3.5" aria-hidden />
-              <span>Invoice types</span>
-            </button>
-            <div
-              role="tooltip"
-              className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 z-50 mb-2 w-72 max-w-[calc(100vw-1rem)] whitespace-normal break-words rounded-xl px-3 py-2.5 text-left text-xs opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
-              style={{ background: "#0b2a38", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(255,255,255,0.85)" }}
-            >
-              <div className="font-semibold mb-1" style={{ color: "#fff" }}>Invoice types</div>
-              <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.60)" }}>
-                <span className="font-semibold" style={{ color: "#6ee7b7" }}>INV-</span>: Customer payment record (booking paid)
-              </div>
-              <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.60)" }}>
-                <span className="font-semibold" style={{ color: "#93c5fd" }}>OINV-</span>: Owner payout claim (approval flow)
+      {/* Workspace header */}
+      <section className="relative overflow-hidden rounded-2xl border border-solid border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-solid border-white/[0.06]" aria-hidden="true" />
+        <div className="relative flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-solid border-emerald-100 bg-white text-emerald-700 shadow-sm">
+                <Wallet className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Finance</p>
+                <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Revenue</h1>
+                <p className="m-0 mt-1 text-xs leading-5 text-emerald-100/80 sm:text-sm">
+                  <span className="font-bold text-white">INV</span> is what a guest paid.{" "}
+                  <span className="font-bold text-white">OINV</span> is the owner&apos;s payout claim on it.
+                </p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => { void load(); void fetchCounts(); }}
+              disabled={loading}
+              suppressHydrationWarning
+              title="Refresh"
+              aria-label="Refresh revenue"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-solid border-white/20 bg-white/10 text-white transition hover:bg-white/20 disabled:cursor-wait"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
+            </button>
           </div>
+          <nav aria-label="Related workspaces" className="flex flex-wrap gap-2 border-0 border-t border-solid border-white/15 pt-4">
+            {[
+              { href: "/admin/disbursements", label: "Disbursements", Icon: Send },
+              { href: "/admin/finance", label: "Finance overview", Icon: HandCoins },
+            ].map(({ href, label, Icon }) => (
+              <Link key={href} href={href} className="inline-flex items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 py-2 text-xs font-bold text-emerald-50 no-underline transition hover:bg-white/15">
+                <Icon className="h-4 w-4" aria-hidden /> {label}
+              </Link>
+            ))}
+          </nav>
         </div>
-      </div>
+      </section>
 
-      {/* Filters */}
-      <div className="rounded-xl overflow-hidden" style={{ background: "linear-gradient(135deg, #0a1a19 0%, #0d2320 60%, #0a1f2e 100%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)" }}>
-        <div className="px-4 pt-4 pb-4 sm:px-5 sm:pt-5 sm:pb-5 lg:px-6 lg:pt-6 lg:pb-6">
-        <div className="flex flex-col gap-3 sm:gap-4">
-          {/* Search */}
-          <div className="w-full min-w-0 max-w-full">
-            <div className="relative w-full min-w-0 max-w-full">
-                <input
-                  ref={searchRef}
-                className="w-full min-w-0 max-w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 rounded-lg outline-none text-xs sm:text-sm transition-all box-border"
-                  placeholder="Search # / receipt / property"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); load(); } }}
-                  aria-label="Search invoices"
-                style={{ boxSizing: 'border-box', maxWidth: '100%', background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.13)', color: 'rgba(255,255,255,0.90)' }}
-                />
-              <FileText className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0 pointer-events-none" style={{ color: 'rgba(255,255,255,0.40)' }} />
-        </div>
-      </div>
+      {/* Status strip: every count is also the filter for it */}
+      <section
+        aria-label="Filter by status"
+        className="grid min-w-0 grid-cols-2 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] sm:grid-cols-3 xl:grid-cols-6 [&>*]:border-0 [&>*]:border-b [&>*]:border-r [&>*]:border-solid [&>*]:border-neutral-100"
+      >
+        {STATUS_TABS.map((tab) => {
+          const on = status === tab.value;
+          return (
+            <button
+              key={tab.value || "all"}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setStatus(tab.value)}
+              className={`relative flex min-w-0 cursor-pointer flex-col items-start gap-1 bg-transparent p-3.5 text-left transition sm:p-4 ${on ? "bg-emerald-50/70" : "hover:bg-neutral-50"}`}
+            >
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
+                <span className={`h-2 w-2 rounded-full ${tab.dot}`} aria-hidden /> {tab.label}
+              </span>
+              <span className={`text-xl font-black leading-none tabular-nums ${on ? "text-emerald-800" : "text-neutral-950"}`}>{counts[tab.value] ?? 0}</span>
+              <span className="text-[11px] leading-snug text-neutral-500">{tab.hint}</span>
+              {on ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-emerald-700" aria-hidden /> : null}
+            </button>
+          );
+        })}
+      </section>
 
-          {/* Status Filters */}
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
-          {[
-            ["", "All"],
-            ["REQUESTED", "New"],
-            ["VERIFIED", "Verified"],
-            ["APPROVED", "Approved"],
-            ["PAID", "Paid / Disbursed"],
-            ["REJECTED", "Rejected"],
-          ].map(([val, label]) => {
-            const v = val as string;
-            const isActive = status === v || (v === "" && status === "");
-            type PillColors = { activeBg: string; activeBorder: string; activeText: string; inactiveBg: string; inactiveBorder: string; badgeBg: string; badgeText: string };
-            const colorMap: Record<string, PillColors> = {
-              '':         { activeBg: 'rgba(255,255,255,0.18)', activeBorder: 'rgba(255,255,255,0.38)', activeText: '#ffffff',   inactiveBg: 'rgba(255,255,255,0.06)', inactiveBorder: 'rgba(255,255,255,0.12)', badgeBg: 'rgba(255,255,255,0.15)', badgeText: '#e2e8f0' },
-              REQUESTED:  { activeBg: 'rgba(59,130,246,0.25)',  activeBorder: 'rgba(59,130,246,0.55)',  activeText: '#93c5fd',   inactiveBg: 'rgba(59,130,246,0.08)',  inactiveBorder: 'rgba(59,130,246,0.20)',  badgeBg: 'rgba(59,130,246,0.20)',  badgeText: '#93c5fd'  },
-              VERIFIED:   { activeBg: 'rgba(245,158,11,0.25)',  activeBorder: 'rgba(245,158,11,0.55)',  activeText: '#fcd34d',   inactiveBg: 'rgba(245,158,11,0.08)',  inactiveBorder: 'rgba(245,158,11,0.20)',  badgeBg: 'rgba(245,158,11,0.20)',  badgeText: '#fcd34d'  },
-              APPROVED:   { activeBg: 'rgba(16,185,129,0.25)',  activeBorder: 'rgba(16,185,129,0.55)',  activeText: '#6ee7b7',   inactiveBg: 'rgba(16,185,129,0.08)',  inactiveBorder: 'rgba(16,185,129,0.20)',  badgeBg: 'rgba(16,185,129,0.20)',  badgeText: '#6ee7b7'  },
-              PAID:       { activeBg: 'rgba(20,184,166,0.25)',  activeBorder: 'rgba(20,184,166,0.55)',  activeText: '#5eead4',   inactiveBg: 'rgba(20,184,166,0.08)',  inactiveBorder: 'rgba(20,184,166,0.20)',  badgeBg: 'rgba(20,184,166,0.20)',  badgeText: '#5eead4'  },
-              REJECTED:   { activeBg: 'rgba(239,68,68,0.25)',   activeBorder: 'rgba(239,68,68,0.55)',   activeText: '#fca5a5',   inactiveBg: 'rgba(239,68,68,0.08)',   inactiveBorder: 'rgba(239,68,68,0.20)',   badgeBg: 'rgba(239,68,68,0.20)',   badgeText: '#fca5a5'  },
-            };
-            const col = colorMap[v] ?? colorMap[''];
-            const btnStyle = isActive
-              ? { background: col.activeBg, border: `1.5px solid ${col.activeBorder}`, color: col.activeText }
-              : { background: col.inactiveBg, border: `1.5px solid ${col.inactiveBorder}`, color: 'rgba(255,255,255,0.65)' };
-            const badgeStyle = { background: col.badgeBg, color: col.badgeText };
-
-            return (
-              <button
-                key={String(val) || "all"}
-                type="button"
-                onClick={() => { setStatus(v); setTimeout(() => load(), 0); }}
-                className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full text-xs flex items-center gap-1 sm:gap-1.5 transition-all duration-200 flex-shrink-0 whitespace-nowrap"
-                style={btnStyle}
-              >
-                  <span className="whitespace-nowrap">{String(label)}</span>
-                <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full flex-shrink-0" style={badgeStyle}>{counts[v || ''] ?? 0}</span>
-              </button>
-            );
-          })}
-
-            {/* Date Picker */}
-            <div className="relative flex-shrink-0">
-          <button
-            type="button"
-            aria-label="Open date picker"
-            title="Pick date range"
-            onClick={() => {
-              setPickerAnim(true);
-              window.setTimeout(() => setPickerAnim(false), 350);
-              setPickerOpen((v) => !v);
-            }}
-                className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full text-xs flex items-center justify-center transition-all flex-shrink-0"
-                style={{ background: pickerAnim ? 'rgba(2,102,94,0.30)' : 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.75)' }}
-          >
-                <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          </button>
-          {pickerOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
-              <div className="fixed z-50 top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                <DatePicker
-                  selected={date || undefined}
-                  onSelectAction={(s) => {
-                    setDate(s as string | string[]);
-                  }}
-                  onCloseAction={() => setPickerOpen(false)}
-                />
+      {/* Work waiting on an admin */}
+      {(readyToDisburse > 0 && status !== "APPROVED") || (waitingReview > 0 && status !== "REQUESTED") ? (
+        <div className="grid min-w-0 gap-3 md:grid-cols-2">
+          {readyToDisburse > 0 && status !== "APPROVED" ? (
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3">
+              <p className="m-0 flex min-w-0 items-center gap-2.5 text-[13px] text-emerald-950">
+                <Send className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden />
+                <span><span className="font-bold">{readyToDisburse} approved {readyToDisburse === 1 ? "invoice is" : "invoices are"}</span> ready to disburse.</span>
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <button type="button" onClick={() => setStatus("APPROVED")} className="cursor-pointer rounded-lg border border-solid border-emerald-300 bg-white px-2.5 py-1.5 text-[12px] font-bold text-emerald-800 transition hover:bg-emerald-100">Show them</button>
+                <Link href="/admin/disbursements" className="inline-flex items-center gap-1 rounded-lg bg-[#02665e] px-2.5 py-1.5 text-[12px] font-bold text-white no-underline transition hover:bg-[#014d47]">
+                  Disburse <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
               </div>
-            </>
-          )}
+            </div>
+          ) : null}
+          {waitingReview > 0 && status !== "REQUESTED" ? (
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-solid border-sky-200 bg-sky-50/70 px-4 py-3">
+              <p className="m-0 flex min-w-0 items-center gap-2.5 text-[13px] text-sky-950">
+                <Clock className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
+                <span><span className="font-bold">{waitingReview} {waitingReview === 1 ? "claim waits" : "claims wait"}</span> for review.</span>
+              </p>
+              <button type="button" onClick={() => setStatus("REQUESTED")} className="shrink-0 cursor-pointer rounded-lg border border-solid border-sky-300 bg-white px-2.5 py-1.5 text-[12px] font-bold text-sky-800 transition hover:bg-sky-100">Review now</button>
+            </div>
+          ) : null}
         </div>
+      ) : null}
 
-            {/* Advanced Filters Toggle */}
+      {/* Toolbar */}
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+        <div className="flex flex-col gap-2.5 px-4 py-3 sm:px-5 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
+            <input
+              ref={searchRef}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); load(); } }}
+              placeholder="Search invoice number, receipt or property"
+              aria-label="Search invoices"
+              className={`${FIELD} pl-9 pr-9`}
+            />
+            {q ? (
+              <button type="button" onClick={() => setQ("")} aria-label="Clear search" className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700">
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                title="Pick a date range"
+                onClick={() => {
+                  setPickerAnim(true);
+                  window.setTimeout(() => setPickerAnim(false), 350);
+                  setPickerOpen((v) => !v);
+                }}
+                className={`${TOOL} ${dateLabel || pickerAnim ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}
+              >
+                <Calendar className="h-3.5 w-3.5" aria-hidden /> {dateLabel || "Any date"}
+              </button>
+              {pickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
+                  <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2">
+                    <DatePicker
+                      selected={date || undefined}
+                      onSelectAction={(s) => {
+                        setDate(s as string | string[]);
+                      }}
+                      onCloseAction={() => setPickerOpen(false)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full text-xs flex items-center gap-1.5 justify-center transition-all flex-shrink-0 whitespace-nowrap"
-              style={showAdvancedFilters ? { background: 'rgba(2,102,94,0.30)', border: '1.5px solid rgba(2,102,94,0.65)', color: '#5eead4' } : { background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.75)' }}
+              aria-expanded={showAdvancedFilters}
+              className={`${TOOL} ${showAdvancedFilters || advancedCount ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}
             >
-              <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Filters</span>
+              <Filter className="h-3.5 w-3.5" aria-hidden /> Filters{advancedCount ? ` (${advancedCount})` : ""}
             </button>
+            <button type="button" onClick={handlePrint} title="Print invoices" className={`${TOOL} border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300`}>
+              <Printer className="h-3.5 w-3.5" aria-hidden /> Print
+            </button>
+          </div>
+        </div>
 
-            {/* Print Button */}
+        {showAdvancedFilters ? (
+          <div className="grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-4 py-3 sm:grid-cols-2 sm:px-5 lg:grid-cols-4">
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Owner</span>
+              <select value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)} className={FIELD}>
+                <option value="">All owners</option>
+                {owners.map((owner) => (
+                  <option key={owner.id} value={owner.id}>{owner.name || owner.email} ({owner.id})</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Property</span>
+              <select value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)} className={FIELD}>
+                <option value="">All properties</option>
+                {properties.map((prop) => (
+                  <option key={prop.id} value={prop.id}>{prop.title} ({prop.id})</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Min amount (TZS)</span>
+              <input type="number" value={amountMin} onChange={(e) => setAmountMin(e.target.value)} placeholder="0" className={FIELD} />
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Max amount (TZS)</span>
+              <input type="number" value={amountMax} onChange={(e) => setAmountMax(e.target.value)} placeholder="No limit" className={FIELD} />
+            </label>
+          </div>
+        ) : null}
+
+        {filterChips.length ? (
+          <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-neutral-100 px-4 py-2.5 sm:px-5">
+            {filterChips.map((chip) => (
+              <span key={chip.key} className="inline-flex items-center gap-1 rounded-full border border-solid border-emerald-200 bg-emerald-50 py-0.5 pl-2.5 pr-1 text-[11px] font-bold text-emerald-800">
+                {chip.label}
+                <button type="button" onClick={chip.clear} aria-label={`Remove ${chip.label}`} className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-emerald-700 hover:bg-emerald-100">
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))}
             <button
               type="button"
-              onClick={handlePrint}
-              className="px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-full text-xs flex items-center gap-1.5 justify-center transition-all flex-shrink-0 whitespace-nowrap"
-              style={{ background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.75)' }}
-              title="Print invoices"
+              onClick={() => { setDate(""); setFrom(""); setTo(""); setOwnerFilter(""); setPropertyFilter(""); setAmountMin(""); setAmountMax(""); }}
+              className="cursor-pointer border-0 bg-transparent p-0 text-[11px] font-bold text-neutral-500 hover:text-neutral-900 hover:underline"
             >
-              <Printer className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Print</span>
+              Clear all
             </button>
-      </div>
-
-          <div className="text-[11px] sm:text-xs" style={{ color: 'rgba(255,255,255,0.38)' }}>
-            {q?.trim()
-              ? "Search shows all invoice records (INV and OINV)."
-              : "List shows one row per booking when both INV and OINV exist. Use search to view both."}
           </div>
+        ) : null}
 
-          {/* Advanced Filters Panel */}
-          {showAdvancedFilters && (
-            <div className="pt-3 sm:pt-4 space-y-3 sm:space-y-4" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.85)' }}>Advanced Filters</h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOwnerFilter("");
-                    setPropertyFilter("");
-                    setAmountMin("");
-                    setAmountMax("");
-                    setShowAdvancedFilters(false);
-                  }}
-                  className="text-xs flex items-center gap-1 px-2 py-1 rounded-md transition-colors duration-200"
-                  style={{ color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.06)' }}
-                >
-                  <X className="h-3 w-3" />
-                  Clear
-                </button>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                {/* Owner Filter */}
-                <div className="min-w-0">
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Owner</label>
-                  <select
-                    value={ownerFilter}
-                    onChange={(e) => setOwnerFilter(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg outline-none text-xs sm:text-sm transition-all box-border"
-                    style={{ background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.13)', color: 'rgba(255,255,255,0.85)' }}
-                  >
-                    <option value="" style={{ background: '#0d2320' }}>All Owners</option>
-                    {owners.map(owner => (
-                      <option key={owner.id} value={owner.id} style={{ background: '#0d2320' }}>
-                        {owner.name || owner.email} ({owner.id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Property Filter */}
-                <div className="min-w-0">
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Property</label>
-                  <select
-                    value={propertyFilter}
-                    onChange={(e) => setPropertyFilter(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg outline-none text-xs sm:text-sm transition-all box-border"
-                    style={{ background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.13)', color: 'rgba(255,255,255,0.85)' }}
-                  >
-                    <option value="" style={{ background: '#0d2320' }}>All Properties</option>
-                    {properties.map(prop => (
-                      <option key={prop.id} value={prop.id} style={{ background: '#0d2320' }}>
-                        {prop.title} ({prop.id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Amount Min */}
-                <div className="min-w-0">
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Min Amount (TZS)</label>
-                  <input
-                    type="number"
-                    value={amountMin}
-                    onChange={(e) => setAmountMin(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-2 rounded-lg outline-none text-xs sm:text-sm transition-all box-border"
-                    style={{ background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.13)', color: 'rgba(255,255,255,0.85)' }}
-                  />
-                </div>
-
-                {/* Amount Max */}
-                <div className="min-w-0">
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Max Amount (TZS)</label>
-                  <input
-                    type="number"
-                    value={amountMax}
-                    onChange={(e) => setAmountMax(e.target.value)}
-                    placeholder="No limit"
-                    className="w-full px-3 py-2 rounded-lg outline-none text-xs sm:text-sm transition-all box-border"
-                    style={{ background: 'rgba(255,255,255,0.07)', border: '1.5px solid rgba(255,255,255,0.13)', color: 'rgba(255,255,255,0.85)' }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Bulk Actions Bar */}
-          {selectedIds.size > 0 && (
-            <div className="pt-3 sm:pt-4 flex flex-wrap items-center gap-2 sm:gap-3" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>
-              <div className="text-xs sm:text-sm font-medium" style={{ color: 'rgba(255,255,255,0.80)' }}>
-                {selectedIds.size} invoice{selectedIds.size !== 1 ? 's' : ''} selected
-              </div>
-              <button
-                onClick={clearSelection}
-                className="text-xs flex items-center gap-1"
-                style={{ color: 'rgba(255,255,255,0.45)' }}
-              >
-                <X className="h-3 w-3" />
-                Clear
-              </button>
-              <div className="flex-1"></div>
-              <button
-                onClick={bulkApprove}
-                disabled={bulkActionLoading || !Array.from(selectedIds).some(id => {
-                  const inv = items.find(i => i.id === id);
-                  return inv && (inv.status === "VERIFIED" || inv.status === "REQUESTED");
-                })}
-                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all text-xs sm:text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-              >
-                {bulkActionLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Approve Selected
-                  </>
-                )}
-              </button>
-              <button
-                onClick={bulkMarkPaid}
-                disabled={bulkActionLoading || !Array.from(selectedIds).some(id => {
-                  const inv = items.find(i => i.id === id);
-                  return inv && inv.status === "APPROVED";
-                })}
-                className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all text-xs sm:text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-              >
-                {bulkActionLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Receipt className="h-3.5 w-3.5" />
-                    {bulkMarkActionLabel}
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
-        </div>
-      </div>
-
-      {/* Total Summary & Export */}
-      <div className="bg-gradient-to-r from-[#02665e]/10 to-emerald-50 rounded-xl border border-[#02665e]/20 p-4 sm:p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#02665e]/20 flex items-center justify-center">
-              <DollarSign className="h-5 w-5 text-[#02665e]" />
-            </div>
-            <div>
-              <div className="text-xs sm:text-sm font-medium text-gray-600">Total Net (shown)</div>
-              <div className="text-xl sm:text-2xl font-bold text-[#02665e]">
-                {new Intl.NumberFormat('en-US').format(sumNet)} TZS
-              </div>
-            </div>
+        {/* What is on screen, and the export for approved invoices */}
+        <div className="flex flex-col gap-2.5 border-0 border-t border-solid border-neutral-100 bg-neutral-50/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="min-w-0">
+            <p className="m-0 text-[11px] font-semibold text-neutral-500">Net payable, this page</p>
+            <p className="m-0 mt-0.5 text-lg font-black tabular-nums tracking-tight text-emerald-700">
+              {new Intl.NumberFormat("en-US").format(sumNet)} <span className="text-xs font-bold text-neutral-400">TZS</span>
+            </p>
+            <p className="m-0 mt-0.5 text-[11px] text-neutral-400">
+              {q?.trim() ? "Search shows every INV and OINV record." : "One row per booking when both INV and OINV exist. Search to see both."}
+            </p>
           </div>
-          {/* Export Button - Only show for APPROVED invoices */}
-          {status === "APPROVED" && items.length > 0 && (
+          {status === "APPROVED" && items.length > 0 ? (
             <button
-              onClick={async () => {
-                try {
-                  const params = new URLSearchParams();
-                  params.set("status", "APPROVED");
-                  if (from) params.set("from", from);
-                  if (to) params.set("to", to);
-                  if (q) params.set("q", q);
-
-                  const response = await fetch(`/api/admin/revenue/invoices/export.csv?${params.toString()}`, {
-                    credentials: "include",
-                  });
-
-                  if (!response.ok) {
-                    const errorText = await response.text().catch(() => "Unknown error");
-                    console.error("CSV export failed:", response.status, errorText);
-                    throw new Error(`Export failed: ${response.status} ${errorText}`);
-                  }
-
-                  const blob = await response.blob();
-
-                  // Check if blob is actually CSV (not an error response)
-                  if (blob.type && !blob.type.includes('csv') && !blob.type.includes('text')) {
-                    const text = await blob.text();
-                    console.error("CSV export returned non-CSV:", text);
-                    throw new Error("Server returned an error instead of CSV");
-                  }
-
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `approved_invoices_payout_${new Date().toISOString().split('T')[0]}.csv`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  URL.revokeObjectURL(url);
-                } catch (err: any) {
-                  console.error("Failed to export CSV:", err);
-                  alert(`Failed to export CSV: ${err.message || "Please try again."}`);
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#02665e] text-white rounded-lg hover:bg-[#02665e]/90 transition-all duration-200 shadow-sm hover:shadow-md font-medium text-sm sm:text-base whitespace-nowrap"
+              type="button"
+              onClick={() => void exportApprovedCsv()}
+              className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-[13px] font-bold text-white transition hover:bg-[#014d47]"
             >
-              <Download className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
-              <span>Export Approved for Payout</span>
+              <Download className="h-4 w-4" aria-hidden /> Export approved for payout
             </button>
-          )}
+          ) : null}
         </div>
+      </section>
+
+      {/* Bulk actions */}
+      {selectedIds.size > 0 && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/70 px-4 py-3 sm:gap-3">
+          <p className="m-0 text-[13px] font-bold text-emerald-950">
+            {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+          </p>
+          <button type="button" onClick={clearSelection} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-bold text-emerald-800/70 hover:text-emerald-900">
+            <X className="h-3 w-3" aria-hidden /> Clear
+          </button>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={bulkApprove}
+            suppressHydrationWarning
+            disabled={bulkActionLoading || !Array.from(selectedIds).some((id) => {
+              const inv = items.find((i) => i.id === id);
+              return inv && (inv.status === "VERIFIED" || inv.status === "REQUESTED");
+            })}
+            className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3 text-[12.5px] font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> {bulkActionLoading ? "Working…" : "Approve selected"}
+          </button>
+          <button
+            type="button"
+            onClick={bulkMarkPaid}
+            suppressHydrationWarning
+            disabled={bulkActionLoading || !Array.from(selectedIds).some((id) => {
+              const inv = items.find((i) => i.id === id);
+              return inv && inv.status === "APPROVED";
+            })}
+            className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3 text-[12.5px] font-bold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Receipt className="h-3.5 w-3.5" aria-hidden /> {bulkActionLoading ? "Working…" : bulkMarkActionLabel}
+          </button>
+        </div>
+      )}
       </div>
 
       {/* Mobile Card Layout */}
@@ -1127,7 +1041,19 @@ export default function AdminRevenue() {
             {items.map((inv) => (
               <div
                 key={inv.id}
-                className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow"
+                role="link"
+                tabIndex={0}
+                aria-label={`Open invoice ${inv.invoiceNumber ?? `#${inv.id}`}`}
+                onClick={(event) => {
+                  if (isInteractiveRowTarget(event.target)) return;
+                  router.push(invoiceDetailsHref(inv));
+                }}
+                onKeyDown={(event) => {
+                  if (isInteractiveRowTarget(event.target) || (event.key !== "Enter" && event.key !== " ")) return;
+                  event.preventDefault();
+                  router.push(invoiceDetailsHref(inv));
+                }}
+                className="cursor-pointer bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-start gap-2 flex-1 min-w-0">
@@ -1157,7 +1083,7 @@ export default function AdminRevenue() {
                     </div>
                   </div>
                   <Link
-                href={`/admin/revenue/${inv.id}`}
+                href={invoiceDetailsHref(inv)}
                     className="p-2 rounded-lg text-[#02665e] hover:bg-[#02665e]/10 transition-all flex-shrink-0"
                     title="View invoice details"
                   >
@@ -1280,7 +1206,23 @@ export default function AdminRevenue() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {items.map((inv) => (
-                    <TableRow key={inv.id}>
+                    <TableRow
+                      key={inv.id}
+                      role="link"
+                      tabIndex={0}
+                      aria-label={`Open invoice ${inv.invoiceNumber ?? `#${inv.id}`}`}
+                      title="Open invoice details"
+                      onClick={(event) => {
+                        if (isInteractiveRowTarget(event.target)) return;
+                        router.push(invoiceDetailsHref(inv));
+                      }}
+                      onKeyDown={(event) => {
+                        if (isInteractiveRowTarget(event.target) || (event.key !== "Enter" && event.key !== " ")) return;
+                        event.preventDefault();
+                        router.push(invoiceDetailsHref(inv));
+                      }}
+                      className="cursor-pointer focus:outline-none focus-visible:bg-sky-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#02665e]/40"
+                    >
                       <td className="px-2 py-3 whitespace-nowrap text-center border-r border-gray-100">
                         <button
                           onClick={() => toggleSelect(inv.id)}
@@ -1349,7 +1291,7 @@ export default function AdminRevenue() {
                       </td>
                       <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-center">
                         <Link
-                          href={`/admin/revenue/${inv.id}`}
+                          href={invoiceDetailsHref(inv)}
                           className="inline-flex items-center justify-center p-2 rounded-lg text-[#02665e] hover:bg-[#02665e]/10 transition-all duration-200"
                           title="View invoice details"
                         >

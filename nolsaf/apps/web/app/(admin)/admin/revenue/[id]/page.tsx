@@ -2,14 +2,14 @@
 import { useCallback, useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, FileText, Building2, Calendar, CheckCircle2, Clock, Receipt, AlertCircle, ShieldCheck, Send } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
 
 type Inv = {
-  id:number; invoiceNumber:string|null; receiptNumber:string|null; status:string; bookingCode?: string | null;
+  id:number; invoiceReference:string; invoiceNumber:string|null; receiptNumber:string|null; status:string; bookingCode?: string | null;
   issuedAt:string; total:number; commissionPercent:number; commissionAmount:number; taxPercent:number; netPayable:number;
   booking: { id:number; property: { id:number; title:string } };
   ownerValidation?: {
@@ -23,7 +23,7 @@ type Inv = {
       usedAt: string | null;
     } | null;
   } | null;
-  relatedInvoices?: Array<{ id: number; invoiceNumber: string | null; status: string; receiptNumber?: string | null; paymentRef?: string | null; paidAt?: string | null }>;
+  relatedInvoices?: Array<{ id: number; invoiceReference: string; invoiceNumber: string | null; status: string; revenueVisible: boolean; receiptNumber?: string | null; paymentRef?: string | null; paidAt?: string | null }>;
   effectiveCommissionPercent?: number;
   financialPreview?: {
     grossTotal: number;
@@ -50,6 +50,22 @@ type Inv = {
   } | null;
 };
 
+const invoiceLoadCache = new Map<string, { promise: Promise<Inv>; expiresAt: number }>();
+
+function fetchInvoiceOnce(endpoint: string): Promise<Inv> {
+  const now = Date.now();
+  const cached = invoiceLoadCache.get(endpoint);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = api.get<Inv>(endpoint).then((response) => response.data);
+  const entry = { promise, expiresAt: now + 1_000 };
+  invoiceLoadCache.set(endpoint, entry);
+  void promise.catch(() => {
+    if (invoiceLoadCache.get(endpoint) === entry) invoiceLoadCache.delete(endpoint);
+  });
+  return promise;
+}
+
 function isOwnerClaimInvoice(inv?: Pick<Inv, "invoiceNumber"> | null) {
   const n = String(inv?.invoiceNumber ?? "");
   return n.toUpperCase().startsWith("OINV-");
@@ -64,9 +80,13 @@ function completionLabel(inv?: Pick<Inv, "invoiceNumber"> | null) {
 }
 
 export default function Page(){
+  const router = useRouter();
   const routeParams = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const id = Number(idParam);
+  const invoiceReference = String(Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id || "").trim();
+  const isNumericReference = /^\d+$/.test(invoiceReference);
+  const detailEndpoint = isNumericReference
+    ? `/api/admin/revenue/invoices/${invoiceReference}`
+    : `/api/admin/revenue/invoices/by-reference/${encodeURIComponent(invoiceReference)}`;
   const [inv, setInv] = useState<Inv| null>(null);
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState("");
@@ -77,18 +97,21 @@ export default function Page(){
   
   const defaultVerificationMessage = "Invoice verified and approved for processing.";
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
     try {
-      const r = await api.get<Inv>(`/api/admin/revenue/invoices/${id}`);
-      setInv(r.data);
+      const data = fresh ? (await api.get<Inv>(detailEndpoint)).data : await fetchInvoiceOnce(detailEndpoint);
+      setInv(data);
+      if (isNumericReference && data.invoiceReference) {
+        router.replace(`/admin/revenue/${encodeURIComponent(data.invoiceReference)}`, { scroll: false });
+      }
       setActionMessage(null);
     } catch (err: any) {
       console.error("Failed to load invoice:", err);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [detailEndpoint, isNumericReference, router]);
 
   useEffect(() => {
     void load();
@@ -102,8 +125,8 @@ export default function Page(){
     setActionLoading(true);
     try {
       const verificationNotes = notes.trim() || defaultVerificationMessage;
-      await api.post(`/api/admin/revenue/invoices/${id}/verify`, { notes: verificationNotes });
-      await load();
+      await api.post(`/api/admin/revenue/invoices/${inv.id}/verify`, { notes: verificationNotes });
+      await load(true);
       setNotes("");
       setOpenAction(null);
       setActionMessage({ type: "success", text: "Invoice verified successfully." });
@@ -121,10 +144,10 @@ export default function Page(){
     }
     setActionLoading(true);
     try {
-      await api.post(`/api/admin/revenue/invoices/${id}/approve`, {
+      await api.post(`/api/admin/revenue/invoices/${inv.id}/approve`, {
         taxPercent: overrideTax===""? undefined : Number(overrideTax),
       });
-      await load();
+      await load(true);
       setOverrideTax("");
       setOpenAction(null);
       setActionMessage({ type: "success", text: "Invoice approved successfully." });
@@ -201,11 +224,13 @@ export default function Page(){
   const isPaidOut = isSuccessfulCompletion;
 
   const STATUS_LOOK: Record<string, { label: string; cls: string; Icon: typeof CheckCircle2 }> = {
+    DRAFT: { label: "Draft", cls: "border-neutral-200 bg-neutral-50 text-neutral-700", Icon: FileText },
     REQUESTED: { label: "Requested", cls: "border-amber-200 bg-amber-50 text-amber-800", Icon: Clock },
     VERIFIED: { label: "Verified", cls: "border-sky-200 bg-sky-50 text-sky-800", Icon: ShieldCheck },
     APPROVED: { label: "Approved", cls: "border-emerald-200 bg-emerald-50 text-emerald-800", Icon: CheckCircle2 },
     PAID: { label: paidStatusLabel(inv), cls: "border-emerald-300 bg-emerald-100 text-emerald-900", Icon: CheckCircle2 },
     DISBURSED: { label: "Disbursed", cls: "border-emerald-300 bg-emerald-100 text-emerald-900", Icon: CheckCircle2 },
+    REJECTED: { label: "Rejected", cls: "border-rose-200 bg-rose-50 text-rose-800", Icon: FileText },
   };
   const look = STATUS_LOOK[normalizedStatus] ?? {
     label: normalizedStatus ? normalizedStatus.charAt(0) + normalizedStatus.slice(1).toLowerCase().replace(/_/g, " ") : "Unknown",
@@ -263,6 +288,31 @@ export default function Page(){
   const CARD = "min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]";
   const payout = inv.ownerPayout;
   const hasPayoutDetails = Boolean(payout?.payoutPreferred || payout?.bankAccountNumber || payout?.mobileMoneyNumber);
+  const showDisbursementStamp = isOwnerClaim && isSuccessfulCompletion;
+  const disbursementRecipient = payout?.bankAccountName || inv.booking.property.title;
+  const recordedPaymentMethod = String(inv.paymentMethod || "").trim();
+  const normalizedPaymentMethod = recordedPaymentMethod.toUpperCase().replace(/[\s-]+/g, "_");
+  const recordedChannel = normalizedPaymentMethod === "BANK"
+    ? "Bank transfer"
+    : normalizedPaymentMethod === "MOBILE_MONEY"
+      ? "Mobile money"
+      : recordedPaymentMethod;
+  // A completed payout must describe the transaction that actually happened.
+  // Owner payout settings are a current preference and may have changed afterwards.
+  const disbursementChannel = recordedChannel || (payout?.payoutPreferred === "MOBILE_MONEY"
+    ? [payout.mobileMoneyProvider, "Mobile money preference"].filter(Boolean).join(" · ")
+    : payout?.payoutPreferred === "BANK"
+      ? [payout.bankName, "Bank preference"].filter(Boolean).join(" · ")
+      : "Recorded payout");
+  const disbursementDestination = inv.accountNumber
+    ? maskAccountNumber(inv.accountNumber)
+    : recordedPaymentMethod
+      ? "Not recorded"
+      : payout?.payoutPreferred === "MOBILE_MONEY"
+        ? maskAccountNumber(payout.mobileMoneyNumber)
+        : payout?.payoutPreferred === "BANK"
+          ? maskAccountNumber(payout.bankAccountNumber)
+          : "";
 
   const history: Array<{ key: string; title: string; at: string; Icon: typeof CheckCircle2; by?: string | null; lines?: string[] }> = [
     { key: "created", title: isOwnerClaim ? "Claim created" : "Invoice issued", at: inv.issuedAt, Icon: FileText },
@@ -292,17 +342,19 @@ export default function Page(){
       <style>{`#revenue-invoice, #revenue-invoice * { box-sizing: border-box; }`}</style>
 
       {/* Hero */}
-      <section className={CARD}>
-        <div className="grid min-w-0 gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center">
+      <section className={`${CARD} ${showDisbursementStamp ? "!overflow-visible" : ""}`}>
+        <div className={`grid min-w-0 gap-5 p-4 sm:p-5 ${showDisbursementStamp ? "lg:grid-cols-[minmax(0,1fr)_236px] lg:items-center" : "lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center"}`}>
           <div className="min-w-0">
             <Link href="/admin/revenue" className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-400 no-underline transition hover:text-emerald-700">
               <ArrowLeft className="h-3 w-3" aria-hidden /> Revenue
             </Link>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <h1 className="m-0 break-all font-mono text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{inv.invoiceNumber ?? `Invoice #${inv.id}`}</h1>
-              <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-[11px] font-bold ${look.cls}`}>
-                <look.Icon className="h-3.5 w-3.5" aria-hidden /> {look.label}
-              </span>
+              {!showDisbursementStamp ? (
+                <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-[11px] font-bold ${look.cls}`}>
+                  <look.Icon className="h-3.5 w-3.5" aria-hidden /> {look.label}
+                </span>
+              ) : null}
             </div>
             <p className="m-0 mt-1 text-sm text-neutral-600" title={invoiceTypeHint}>
               <span className="font-semibold text-neutral-800">{isOwnerClaim ? "Owner payout claim" : invoiceTypeLabel}</span>
@@ -315,34 +367,129 @@ export default function Page(){
                   <Building2 className="h-3.5 w-3.5 text-neutral-400" aria-hidden /> {tourCode}
                 </span>
               ) : null}
-              {related ? (
+              {related?.revenueVisible ? (
                 <Link
-                  href={`/admin/revenue/${related.id}`}
+                  href={`/admin/revenue/${encodeURIComponent(related.invoiceReference)}`}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50/60 px-2 py-1 font-semibold text-emerald-800 no-underline transition hover:bg-emerald-50"
                 >
                   <Receipt className="h-3.5 w-3.5" aria-hidden />
                   {isOwnerClaim ? "Customer payment" : "Owner claim"} {related.invoiceNumber ?? `#${related.id}`}
                   <span className="text-emerald-700/70">· {String(related.status || "").toLowerCase() || "unknown"}</span>
                 </Link>
+              ) : related ? (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-2 py-1 font-semibold text-neutral-600"
+                  title="This related customer record is not available in Revenue until it is paid"
+                >
+                  <Receipt className="h-3.5 w-3.5" aria-hidden />
+                  {isOwnerClaim ? "Customer payment" : "Owner claim"} {related.invoiceNumber || "record"}
+                  <span className="text-neutral-400">· {String(related.status || "").toLowerCase() || "not available"}</span>
+                </span>
               ) : null}
               <span className="inline-flex items-center gap-1 text-neutral-500"><Calendar className="h-3.5 w-3.5" aria-hidden /> Issued {longDate(inv.issuedAt)}</span>
             </div>
-          </div>
 
-          <div className={`min-w-0 rounded-xl border border-solid p-3.5 ${nextTone.box}`}>
-            <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${nextTone.eyebrow}`}>{nextStep.tone === "green" ? "Outcome" : "Next step"}</p>
-            <p className={`m-0 mt-1 text-[14px] font-bold leading-snug ${nextTone.title}`}>{nextStep.title}</p>
-            <p className={`m-0 mt-0.5 break-words text-[12px] leading-snug ${nextTone.text}`}>{nextStep.text}</p>
-            {nextStep.cta?.href ? (
-              <Link href={nextStep.cta.href} className={`mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold no-underline transition ${nextTone.button}`}>
-                {nextStep.cta.label} <Send className="h-3.5 w-3.5" aria-hidden />
-              </Link>
-            ) : nextStep.cta?.run ? (
-              <button type="button" onClick={nextStep.cta.run} className={`mt-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold transition ${nextTone.button}`}>
-                {nextStep.cta.label}
-              </button>
+            {/* Payout record: what the seal certifies, in readable print */}
+            {showDisbursementStamp ? (
+              <div className="mt-4 flex min-w-0 flex-col gap-3 rounded-xl border border-solid border-emerald-100 bg-emerald-50/40 p-3 sm:flex-row sm:items-center">
+                {inv.receiptQrDataUrl ? (
+                  <span className="shrink-0 self-start rounded-lg border border-solid border-emerald-200 bg-white p-1 sm:self-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={inv.receiptQrDataUrl} alt="Receipt QR" className="h-[72px] w-[72px] object-contain [image-rendering:pixelated]" />
+                  </span>
+                ) : null}
+                <dl className="m-0 grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2 text-[12px] leading-snug xl:grid-cols-3">
+                  <div className="min-w-0"><dt className="text-[11px] text-neutral-500">Paid out</dt><dd className="m-0 font-black tabular-nums text-emerald-700">{fmt(baseAmount)}</dd></div>
+                  <div className="min-w-0"><dt className="text-[11px] text-neutral-500">Channel</dt><dd className="m-0 truncate font-semibold text-neutral-900">{disbursementChannel}</dd></div>
+                  <div className="min-w-0"><dt className="text-[11px] text-neutral-500">Sent to</dt><dd className="m-0 truncate font-mono font-semibold text-neutral-900">{disbursementDestination || "Recorded"}</dd></div>
+                  {inv.receiptNumber ? <div className="min-w-0"><dt className="text-[11px] text-neutral-500">Receipt</dt><dd className="m-0 truncate font-mono font-semibold text-neutral-900">{inv.receiptNumber}</dd></div> : null}
+                  <div className="min-w-0"><dt className="text-[11px] text-neutral-500">Recorded</dt><dd className="m-0 truncate font-semibold text-neutral-900">{longDate(inv.paidAt)}, {timeOf(inv.paidAt)} · {inv.paidByUser?.name || "NoLSAF Finance"}</dd></div>
+                  {inv.paymentRef ? <div className="min-w-0"><dt className="text-[11px] text-neutral-500">Reference</dt><dd className="m-0 break-all font-mono text-[11px] font-semibold text-neutral-900">{inv.paymentRef}</dd></div> : null}
+                </dl>
+              </div>
             ) : null}
           </div>
+
+          {showDisbursementStamp ? (
+            <div className="flex min-w-0 justify-center lg:justify-end">
+              {/* The seal: a few bold facts only, drawn as one SVG so nothing collides */}
+              <svg
+                viewBox="0 0 320 320"
+                role="img"
+                aria-label={`Disbursed ${fmt(baseAmount)} to ${disbursementRecipient} on ${longDate(inv.paidAt)}`}
+                className="h-auto w-full max-w-[224px] text-emerald-800 opacity-90 mix-blend-multiply lg:-my-3"
+              >
+                <defs>
+                  {/* Worn ink: fractal noise punches small gaps into the print */}
+                  <filter id={`seal-ink-${inv.id}`} x="-5%" y="-5%" width="110%" height="110%">
+                    <feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="1" seed="11" result="noise" />
+                    <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  -9 0 0 0 7.2" result="speckle" />
+                    <feComposite in="SourceGraphic" in2="speckle" operator="in" />
+                  </filter>
+                  <path id={`seal-top-${inv.id}`} d="M 42 160 A 118 118 0 0 1 278 160" />
+                  <path id={`seal-bottom-${inv.id}`} d="M 25 160 A 135 135 0 0 0 295 160" />
+                </defs>
+                <g transform="rotate(-6 160 160)" filter={`url(#seal-ink-${inv.id})`} fill="currentColor" stroke="currentColor">
+                  {/* Rings */}
+                  <circle cx="160" cy="160" r="152" fill="none" strokeWidth="5" />
+                  <circle cx="160" cy="160" r="144" fill="none" strokeWidth="1.4" />
+                  <circle cx="160" cy="160" r="108" fill="none" strokeWidth="1.8" />
+
+                  {/* Ring text */}
+                  <text stroke="none" fontSize="11.5" fontWeight="900" letterSpacing="1.5" fontFamily="inherit">
+                    <textPath href={`#seal-top-${inv.id}`} startOffset="50%" textAnchor="middle">NOLSAF FINANCE • OFFICIAL PAYOUT</textPath>
+                  </text>
+                  <text stroke="none" fontSize="11" fontWeight="800" letterSpacing="2" fontFamily="inherit">
+                    <textPath href={`#seal-bottom-${inv.id}`} startOffset="50%" textAnchor="middle">
+                      {`TANZANIA • ${(longDate(inv.paidAt) || "").toUpperCase()}`}
+                    </textPath>
+                  </text>
+                  <circle cx="34" cy="160" r="3.2" stroke="none" />
+                  <circle cx="286" cy="160" r="3.2" stroke="none" />
+
+                  {/* Seal mark */}
+                  <circle cx="160" cy="82" r="12" fill="none" strokeWidth="2" />
+                  <path d="M 154 82 L 158.5 86.5 L 166.5 77.5" fill="none" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+                  <text x="160" y="113" stroke="none" fontSize="9" fontWeight="800" letterSpacing="3" textAnchor="middle" fontFamily="inherit">SEALED · RECORDED</text>
+
+                  {/* Banner across the seal */}
+                  <rect x="22" y="124" width="276" height="50" rx="3" fill="#ffffff" strokeWidth="3" />
+                  <rect x="28" y="130" width="264" height="38" rx="2" fill="none" strokeWidth="1" />
+                  <text x="160" y="160" stroke="none" fontSize="29" fontWeight="900" letterSpacing="5" textAnchor="middle" fontFamily="inherit">DISBURSED</text>
+
+                  {/* Amount, claim and recipient */}
+                  <text x="160" y="203" stroke="none" fontSize="21" fontWeight="900" textAnchor="middle" fontFamily="inherit">
+                    {`TSh ${Math.round(baseAmount).toLocaleString("en-US")}`}
+                  </text>
+                  <text x="160" y="223" stroke="none" fontSize="9.5" fontWeight="700" letterSpacing="0.6" textAnchor="middle" fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace">
+                    {inv.invoiceNumber || `CLAIM-${inv.id}`}
+                  </text>
+                  <text x="160" y="241" stroke="none" fontSize="9" fontWeight="800" letterSpacing="1.4" textAnchor="middle" fontFamily="inherit">
+                    {(() => {
+                      const who = String(disbursementRecipient || "").toUpperCase();
+                      return `TO ${who.length > 24 ? `${who.slice(0, 23)}…` : who}`;
+                    })()}
+                  </text>
+                </g>
+              </svg>
+
+            </div>
+          ) : (
+            <div className={`min-w-0 rounded-xl border border-solid p-3.5 ${nextTone.box}`}>
+              <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${nextTone.eyebrow}`}>{nextStep.tone === "green" ? "Outcome" : "Next step"}</p>
+              <p className={`m-0 mt-1 text-[14px] font-bold leading-snug ${nextTone.title}`}>{nextStep.title}</p>
+              <p className={`m-0 mt-0.5 break-words text-[12px] leading-snug ${nextTone.text}`}>{nextStep.text}</p>
+              {nextStep.cta?.href ? (
+                <Link href={nextStep.cta.href} className={`mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold no-underline transition ${nextTone.button}`}>
+                  {nextStep.cta.label} <Send className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              ) : nextStep.cta?.run ? (
+                <button type="button" onClick={nextStep.cta.run} className={`mt-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold transition ${nextTone.button}`}>
+                  {nextStep.cta.label}
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* Pipeline */}

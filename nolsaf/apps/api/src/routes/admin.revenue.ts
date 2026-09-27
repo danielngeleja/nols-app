@@ -13,6 +13,11 @@ import { sendMail } from "../lib/mailer.js";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
+import {
+  isOwnerInvoiceReference,
+  matchesOwnerInvoiceReference,
+  ownerInvoiceReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as express.RequestHandler, requireRole("ADMIN") as express.RequestHandler);
@@ -35,6 +40,19 @@ function applyRevenueVisibility(where: any) {
   const currentAnd = Array.isArray(where?.AND) ? where.AND : [];
   where.AND = [...currentAnd, revenueVisibilityClause()];
   return where;
+}
+
+async function resolveAdminRevenueInvoiceId(identifier: unknown): Promise<number | null> {
+  const raw = String(identifier ?? "").trim();
+  const numericId = Number(raw);
+  if (/^\d+$/.test(raw) && Number.isSafeInteger(numericId) && numericId > 0) return numericId;
+  if (!isOwnerInvoiceReference(raw)) return null;
+
+  const candidates = await prisma.invoice.findMany({
+    where: revenueVisibilityClause(),
+    select: { id: true },
+  });
+  return candidates.find((candidate) => matchesOwnerInvoiceReference(raw, candidate.id))?.id ?? null;
 }
 
 async function createAdminAuditSafe(data: { adminId: number; targetUserId?: number | null; action: string; details?: any }) {
@@ -364,6 +382,7 @@ router.get("/invoices", async (req, res) => {
 
       return {
         ...inv,
+        invoiceReference: ownerInvoiceReference(inv.id),
         effectiveCommissionPercent,
         financialPreview: {
           grossTotal: breakdown.grossTotal,
@@ -392,13 +411,14 @@ router.get("/invoices", async (req, res) => {
   }
 });
 
-/** GET /admin/invoices/:id */
-router.get("/invoices/:id(\\d+)", async (req, res) => {
+/** GET an admin revenue invoice by its opaque iv_ reference (numeric IDs remain legacy-compatible). */
+async function getAdminRevenueInvoice(req: express.Request, res: express.Response) {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
+    const reference = String(req.params.reference || "").trim();
+    const id = await resolveAdminRevenueInvoiceId(reference);
+    if (!id) {
       res.setHeader('Content-Type', 'application/json');
-      return res.status(400).json({ error: "Invalid invoice ID" });
+      return res.status(404).json({ error: "Invoice not found" });
     }
     const inv = await prisma.invoice.findFirst({
       where: applyRevenueVisibility({ id }),
@@ -465,6 +485,7 @@ router.get("/invoices/:id(\\d+)", async (req, res) => {
     
     // Add accountNumber to response
     const response: any = { ...inv };
+    response.invoiceReference = ownerInvoiceReference(inv.id);
     response.accountNumber = accountNumber;
     response.ownerValidation = {
       required: true,
@@ -476,11 +497,19 @@ router.get("/invoices/:id(\\d+)", async (req, res) => {
     // Mirror invoices: for the same booking we may have both a public payment invoice (INV-...)
     // and an owner-claim invoice (OINV-...). Expose them so Admin can navigate without losing records.
     try {
-      response.relatedInvoices = await prisma.invoice.findMany({
+      const relatedInvoices = await prisma.invoice.findMany({
         where: { bookingId: (inv as any).bookingId, id: { not: (inv as any).id } },
         select: { id: true, invoiceNumber: true, status: true, receiptNumber: true, paymentRef: true, paidAt: true },
         orderBy: { id: "asc" },
       });
+      response.relatedInvoices = relatedInvoices.map((relatedInvoice) => ({
+        ...relatedInvoice,
+        invoiceReference: ownerInvoiceReference(relatedInvoice.id),
+        revenueVisible:
+          String(relatedInvoice.invoiceNumber || "").toUpperCase().startsWith("OINV-") ||
+          (String(relatedInvoice.invoiceNumber || "").toUpperCase().startsWith("INV-") &&
+            String(relatedInvoice.status || "").toUpperCase() === "PAID"),
+      }));
     } catch {
       response.relatedInvoices = [];
     }
@@ -534,11 +563,14 @@ router.get("/invoices/:id(\\d+)", async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json(response);
   } catch (err: any) {
-    console.error("Error in GET /admin/invoices/:id", err);
+    console.error("Error in GET /admin/invoices/:reference", err);
     res.setHeader('Content-Type', 'application/json');
     res.status(500).json({ error: "Internal server error", message: err?.message || "Unknown error" });
   }
-});
+}
+
+router.get("/invoices/by-reference/:reference", getAdminRevenueInvoice);
+router.get("/invoices/:reference(\\d+)", getAdminRevenueInvoice);
 
 /**
  * GET /admin/revenue/invoices/:id/receipt.html
