@@ -5,7 +5,193 @@ import DatePicker from '@/components/ui/DatePicker';
 import { REGIONS as TZ_REGIONS } from '@/lib/tzRegions';
 import { REGIONS_FULL_DATA } from '@/lib/tzRegionsFull';
 import Link from 'next/link';
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight, Check, Truck, Bus, Coffee, Users, Wrench, Download, ArrowLeft, CheckCircle, CheckCircle2, ArrowRight, Trash2, Lock, DoorOpen, Megaphone, MapPin, ShieldCheck, Gavel, Info } from 'lucide-react';
+import { Calendar, ChevronDown, Check, Truck, Bus, Coffee, Users, Wrench, Download, ArrowLeft, ArrowDown, CheckCircle, CheckCircle2, ArrowRight, Trash2, Lock,Megaphone, Gavel, House, Briefcase, PartyPopper, GraduationCap, Trophy, Binoculars, Shapes, TriangleAlert, Hotel, TreePine, TreePalm, Building, BedSingle, HeartHandshake, Sun, TentTree, HousePlus, Building2, BedDouble, Minus, Plus, Star, Sparkles } from 'lucide-react';
+
+const BRAND = '#02665e';
+
+const STEPS = [
+  { label: 'Your group', title: 'Who is travelling, and where to?', sub: 'Only owners in your destination area will see this request.' },
+  { label: 'The stay', title: 'Shape the stay', sub: 'Accommodation, people, rooms and dates, plus any extras.' },
+  { label: 'Passenger list', title: 'Add your passenger list', sub: 'Optional. You can send the request without it.' },
+  { label: 'Review and send', title: 'Review and send', sub: 'Check the brief, then send it to owners.' },
+] as const;
+
+const GROUP_TYPES = [
+  { value: 'family', label: 'Family', Icon: House },
+  { value: 'workers', label: 'Workers', Icon: Briefcase },
+  { value: 'event', label: 'Event', Icon: PartyPopper },
+  { value: 'students', label: 'Students', Icon: GraduationCap },
+  { value: 'team', label: 'Team', Icon: Trophy },
+  { value: 'safari_stay', label: 'Safari stay', Icon: Binoculars },
+  { value: 'other', label: 'Other', Icon: Shapes },
+] as const;
+
+// Owners bid on the request, so the hero explains the three moves of a bid.
+const BID_FLOW = [
+  { Icon: Megaphone, title: 'Post your brief', text: 'Group, place and dates. Free to send.' },
+  { Icon: Gavel, title: 'Owners bid', text: 'Only owners in that area, screened by NoLSAF.' },
+  { Icon: CheckCircle2, title: 'You choose', text: 'A small deposit confirms it. The rest at check-in.' },
+] as const;
+
+// Every select and text field in the builder gets the same tall, rounded field look.
+const BUILDER_CSS = `
+#group-stay-builder, #group-stay-builder * { box-sizing: border-box; }
+#group-stay-builder .groupstays-select {
+  height: 3rem; min-height: 3rem; margin-top: 0.375rem; padding-left: 0.875rem;
+  border: 1px solid #e2e8f0 !important; border-radius: 0.75rem !important; background: #fff !important;
+  font-size: 0.875rem; color: #0f172a; box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+#group-stay-builder .groupstays-select:hover:not(:disabled) { border-color: rgba(2,102,94,0.45) !important; }
+#group-stay-builder .groupstays-select:focus { outline: none; border-color: ${BRAND} !important; box-shadow: 0 0 0 3px rgba(2,102,94,0.15); }
+#group-stay-builder .groupstays-select:disabled { background: #f8fafc !important; color: #94a3b8; cursor: not-allowed; }
+#group-stay-builder .groupstays-chevron { right: 0.875rem; margin-top: 0.1875rem; }
+`;
+
+/** Vertical step rail: finished steps show what was filled in, so the brief builds up as you go. */
+function BriefRail({ current, summaries, onJump }: { current: number; summaries: string[][]; onJump: (step: number) => void }) {
+  return (
+    <ol className="m-0 list-none p-0">
+      {STEPS.map(({ label }, i) => {
+        const step = i + 1;
+        const done = step < current;
+        const active = step === current;
+        const lines = summaries[i] ?? [];
+        return (
+          <li key={label} className="relative pb-6 last:pb-0">
+            {i < STEPS.length - 1 ? (
+              <span className={`absolute bottom-0 left-[15px] top-9 w-0.5 rounded-full ${done ? 'bg-[#02665e]' : 'bg-slate-200'}`} aria-hidden />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => onJump(step)}
+              aria-current={active ? 'step' : undefined}
+              className="group flex w-full cursor-pointer items-start gap-3 border-0 bg-transparent p-0 text-left"
+            >
+              <span
+                className={[
+                  'relative z-10 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold transition',
+                  done ? 'bg-[#02665e] text-white' : active ? 'bg-[#02665e] text-white ring-4 ring-[#02665e]/15' : 'border-2 border-solid border-slate-200 bg-white text-slate-400 group-hover:border-slate-300',
+                ].join(' ')}
+              >
+                {done ? <Check className="h-4 w-4" strokeWidth={3} aria-hidden /> : step}
+              </span>
+              <span className="min-w-0 flex-1 pt-1">
+                <span className={`block text-[14px] font-bold leading-tight ${active || done ? 'text-slate-900' : 'text-slate-400'}`}>{label}</span>
+                {done && lines.length ? (
+                  lines.map((line) => (
+                    <span key={line} className="mt-1 block truncate text-[12.5px] text-slate-500">{line}</span>
+                  ))
+                ) : (
+                  <span className={`mt-1 block text-[12px] font-semibold ${active ? 'text-[#02665e]' : 'text-slate-400'}`}>
+                    {active ? 'Filling in now' : done ? 'Done' : 'Up next'}
+                  </span>
+                )}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// The six most requested styles get a card that says what staying there is like.
+const FEATURED_STAYS = [
+  { value: 'hotel', label: 'Hotel', text: 'Reception, daily service, en-suite rooms', Icon: Hotel },
+  { value: 'lodge', label: 'Lodge', text: 'Nature and safari settings, meals on site', Icon: TreePine },
+  { value: 'guest_house', label: 'Guest house', text: 'Small, local and easy on the budget', Icon: House },
+  { value: 'apartment', label: 'Apartment', text: 'Kitchens and living space, good for families', Icon: Building },
+  { value: 'villa', label: 'Villa', text: 'A private house for the whole group', Icon: TreePalm },
+  { value: 'hostel', label: 'Hostel', text: 'Shared dorms at the lowest price', Icon: BedSingle },
+] as const;
+
+// The less common styles: compact tiles in the same family as the featured cards.
+const MORE_STAYS = [
+  { value: 'homestay', label: 'Homestay', Icon: HeartHandshake },
+  { value: 'bungalow', label: 'Bungalow', Icon: Sun },
+  { value: 'cabin', label: 'Cabin', Icon: TentTree },
+  { value: 'condo', label: 'Condo', Icon: Building2 },
+  { value: 'townhouse', label: 'Townhouse', Icon: HousePlus },
+  { value: 'house', label: 'House', Icon: House },
+  { value: 'other', label: 'Other', Icon: Shapes },
+] as const;
+
+// Same values the API already stores; shown as a quality scale instead of a dropdown.
+const HOTEL_TIERS = [
+  { value: 'basic', label: 'Basic', stars: 1, text: 'Clean, simple rooms. Shared bathrooms are possible.' },
+  { value: 'simple', label: 'Simple', stars: 2, text: 'Affordable private rooms with the basics covered.' },
+  { value: 'moderate', label: 'Moderate', stars: 3, text: 'Comfortable en-suite rooms and reliable service.' },
+  { value: 'high', label: 'High-end', stars: 4, text: 'Upscale rooms, good dining and extra amenities.' },
+  { value: 'luxury', label: 'Luxury', stars: 5, text: 'Top-tier comfort, service and facilities.' },
+] as const;
+
+function SectionHeader({ Icon, title, hint, aside }: { Icon: typeof Users; title: string; hint?: string; aside?: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e]/[0.08] text-[#02665e]">
+          <Icon className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+        <div className="min-w-0 pt-0.5">
+          <p className="m-0 text-[15px] font-bold leading-tight text-slate-900">{title}</p>
+          {hint ? <p className="m-0 mt-1 text-[12.5px] leading-snug text-slate-500">{hint}</p> : null}
+        </div>
+      </div>
+      {aside}
+    </div>
+  );
+}
+
+function CountStepper({ id, label, hint, value, min = 0, max = 999, dot, onChange }: {
+  id: string; label: string; hint?: string; value: number; min?: number; max?: number; dot?: string; onChange: (n: number) => void;
+}) {
+  const set = (n: number) => onChange(Math.min(max, Math.max(min, n)));
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-solid border-slate-200 bg-white px-3.5 py-2.5 transition focus-within:border-[#02665e]/50">
+      <div className="min-w-0 leading-tight">
+        <label htmlFor={id} className="flex items-center gap-2 text-[13.5px] font-semibold text-slate-800">
+          {dot ? <span className={`h-2 w-2 flex-shrink-0 rounded-full ${dot}`} aria-hidden /> : null}
+          {label}
+        </label>
+        {hint ? <span className="mt-0.5 block text-[11.5px] text-slate-400">{hint}</span> : null}
+      </div>
+      <div className="inline-flex flex-shrink-0 items-center rounded-full bg-slate-50 p-0.5 ring-1 ring-slate-200">
+        <button
+          type="button"
+          onClick={() => set(value - 1)}
+          suppressHydrationWarning disabled={value <= min}
+          aria-label={`Fewer: ${label}`}
+          className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-white text-slate-700 shadow-sm transition hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 disabled:shadow-none"
+        >
+          <Minus className="h-4 w-4" aria-hidden />
+        </button>
+        <input
+          id={id}
+          type="text"
+          inputMode="numeric"
+          value={value}
+          onChange={(e) => {
+            const n = parseInt(e.target.value.replace(/\D/g, ''), 10);
+            set(Number.isFinite(n) ? n : min);
+          }}
+          className="h-8 w-10 border-0 bg-transparent p-0 text-center text-[15px] font-bold tabular-nums text-slate-900 focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => set(value + 1)}
+          suppressHydrationWarning disabled={value >= max}
+          aria-label={`More: ${label}`}
+          className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-white text-slate-700 shadow-sm transition hover:text-[#02665e] disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 disabled:shadow-none"
+        >
+          <Plus className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const titleCase = (v: string) => v.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 import Spinner from './Spinner';
 import ComingSoonGate from './ComingSoonGate';
 
@@ -32,9 +218,6 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
   const [errors, setErrors] = useState<string[]>([]);
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
   const [draftNotice, setDraftNotice] = useState<string>('');
-  // Bid-model explainer (parity with the mobile app's "How it works" panel).
-  // Collapsed by default — opens only when the chip is tapped.
-  const [showHowItWorks, setShowHowItWorks] = useState<boolean>(false);
 
   // Coming-soon gate — only the open/close state lives here now
   const [showComingSoon, setShowComingSoon] = useState(false);
@@ -153,6 +336,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
   const [checkOutPickerOpen, setCheckOutPickerOpen] = useState(false);
   const [useDates, setUseDates] = useState<boolean>(true);
   const [currentStep, setCurrentStep] = useState<number>(1);
+  const [showMoreStays, setShowMoreStays] = useState<boolean>(false);
   const [needsPrivateRoom, setNeedsPrivateRoom] = useState<boolean>(false);
   const [privateRoomCount, setPrivateRoomCount] = useState<number>(0);
   // Arrangements (Step 2)
@@ -267,7 +451,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
       setHasSavedDraft(true);
       // "Book again" from the account page seeds this draft from the lapsed request
-      setDraftNotice(parsed.rebook ? 'Filled from your earlier request. Pick new dates to continue.' : 'Draft restored (Steps 1–2).');
+      setDraftNotice(parsed.rebook ? 'Filled from your earlier request. Pick new dates to continue.' : 'Your saved draft was restored.');
       window.setTimeout(() => setDraftNotice(''), parsed.rebook ? 6000 : 3000);
     } catch {
       // If draft is corrupted, ignore it
@@ -655,7 +839,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
     if (!checkInIso && !checkOutIso) return 'Select dates';
     const from = checkInIso ? new Date(checkInIso) : null;
     const to = checkOutIso ? new Date(checkOutIso) : null;
-    const formatDateShort = (d?: Date | null) => d ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d) : '—';
+    const formatDateShort = (d?: Date | null) => d ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(d) : '';
     const f = formatDateShort(from);
     const t = to ? formatDateShort(to) : 'Any';
     if (from && to) {
@@ -665,6 +849,60 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
     }
     return `${f} to ${t}`;
   };
+
+  const pickStay = (value: string) => {
+    setAccommodationType(value);
+    if (value !== 'hotel') setMinHotelStarLabel('');
+  };
+  // A restored draft with a less common style opens the "more types" row.
+  useEffect(() => {
+    if (accommodationType && !FEATURED_STAYS.some((f) => f.value === accommodationType)) setShowMoreStays(true);
+  }, [accommodationType]);
+
+  // Steps differ in height, so after a step change bring the new step's heading
+  // into view; otherwise the page stays at the old scroll position (often the footer).
+  // Only user navigation scrolls: restoring a draft on load must not move the page.
+  const stepHeadingRef = useRef<HTMLDivElement | null>(null);
+  const scrollOnStepChange = useRef(false);
+  useEffect(() => {
+    if (!scrollOnStepChange.current) return;
+    scrollOnStepChange.current = false;
+    const el = stepHeadingRef.current;
+    if (!el) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }, [currentStep]);
+
+  const goToStep = (step: number) => {
+    setErrors([]);
+    scrollOnStepChange.current = true;
+    setCurrentStep(step);
+  };
+
+  // Going back is always allowed; going forward validates the steps in between.
+  const jumpTo = (step: number) => {
+    if (step === currentStep) return;
+    if (step < currentStep || validateUpToStep(step - 1)) goToStep(step);
+  };
+
+  const groupTypeLabel = GROUP_TYPES.find((g) => g.value === groupType)?.label ?? '';
+  const countryLabel = COUNTRIES.find((c) => c.value === fromCountry)?.label ?? '';
+  const hotelLabel = HOTEL_STAR_OPTIONS.find((o) => o.value === minHotelStarLabel && o.value)?.label ?? '';
+  // One or two short lines per finished step, shown under it in the rail.
+  const accommodationLabel = accommodationType ? `${titleCase(accommodationType)}${hotelLabel ? `, ${hotelLabel.toLowerCase()}` : ''}` : '';
+  const railSummaries: string[][] = [
+    [
+      groupTypeLabel ? `${groupTypeLabel}${countryLabel ? ` from ${countryLabel}` : ''}` : '',
+      toRegion ? [toDistrict, getRegionName(toRegion)].filter(Boolean).join(', ') : '',
+    ].filter(Boolean),
+    [
+      accommodationLabel,
+      `${calculatedHeadcount} ${calculatedHeadcount === 1 ? 'person' : 'people'}, about ${roomsNeeded} room${roomsNeeded === 1 ? '' : 's'}`,
+      useDates ? (checkInIso && checkOutIso ? formatDateSummary() : '') : 'Flexible dates',
+    ].filter(Boolean),
+    [roster.length ? `${roster.length} passenger${roster.length === 1 ? '' : 's'}` : 'Skipped, optional'],
+    [],
+  ];
 
   // Show success screen if booking was created successfully
   if (showSuccess) {
@@ -749,227 +987,126 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
           launchDate={GATE_LAUNCH_DATE}
         />
 
-        {/* Premium Hero Header */}
-        <div className="relative overflow-hidden rounded-2xl mb-6 shadow-[0_4px_32px_rgba(2,102,94,0.18)]"
-          style={{ background: "linear-gradient(135deg, #02665e 0%, #034d47 60%, #023a35 100%)" }}>
-          {/* Decorative background blobs */}
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-10 -right-10 h-48 w-48 rounded-full opacity-10"
-              style={{ background: "radial-gradient(circle, #ffffff, transparent 70%)" }} />
-            <div className="absolute -bottom-8 -left-8 h-40 w-40 rounded-full opacity-10"
-              style={{ background: "radial-gradient(circle, #ffffff, transparent 70%)" }} />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-64 w-64 rounded-full opacity-5"
-              style={{ background: "radial-gradient(circle, #7fffd4, transparent 70%)" }} />
+        {/* Hero: a light brief header; the three moves of a bid carry the explanation */}
+        <div className="overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white">
+          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-3 sm:px-8">
+            <span className="inline-flex items-center gap-2 text-[12.5px] font-bold text-[#02665e]">
+              <Users className="h-4 w-4" aria-hidden />
+              Group Stays
+            </span>
+            <Link
+              href="/public"
+              onClick={() => { if (onCloseAction) onCloseAction(); }}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 no-underline transition hover:bg-slate-50 hover:text-slate-900"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
+              Public site
+            </Link>
           </div>
 
-          <div className="relative px-6 py-8 sm:py-10 sm:px-10">
-            {/* Return to public site — top right */}
-            <div className="absolute top-4 right-4 sm:top-5 sm:right-6">
-              <Link
-                href="/public"
-                onClick={() => { if (onCloseAction) onCloseAction(); }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white/70 hover:text-white hover:bg-white/10 transition-all duration-200 no-underline group"
+          <div className="grid gap-8 px-5 py-8 sm:px-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:items-center">
+            <div>
+              <h1 id="group-stays-heading" className="m-0 text-[30px] font-extrabold leading-[1.1] tracking-tight text-slate-950 sm:text-[40px]">
+                Request a group stay
+              </h1>
+              <p className="m-0 mt-3 max-w-md text-[15px] leading-7 text-slate-600">
+                Describe your group once. Owners in your destination send you offers, and you choose the one that fits.
+              </p>
+              <a
+                href="#group-stay-builder"
+                className="mt-6 inline-flex h-11 items-center gap-2 rounded-full bg-[#02665e] px-5 text-[14px] font-bold text-white no-underline transition hover:bg-[#014d47]"
               >
-                <ArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform" />
-                <span>Return to public site</span>
-              </Link>
+                Start your brief
+                <ArrowDown className="h-4 w-4" aria-hidden />
+              </a>
             </div>
 
-            {/* Icon + Title */}
-            <div className="flex flex-col items-center text-center gap-4">
-              {/* Glowing icon */}
-              <div className="relative">
-                <div className="absolute inset-0 rounded-2xl blur-lg scale-125 opacity-40"
-                  style={{ background: "rgba(255,255,255,0.3)" }} />
-                <div className="relative h-16 w-16 rounded-2xl flex items-center justify-center shadow-xl border border-white/20"
-                  style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}>
-                  <Users className="w-8 h-8 text-white drop-shadow-md" aria-hidden />
-                </div>
-              </div>
-
-              <div>
-                <h3 id="group-stays-heading"
-                  className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight drop-shadow-md">
-                  Request a group stay
-                </h3>
-                <p className="mt-2 text-sm sm:text-base text-white/70 font-medium max-w-md mx-auto leading-relaxed">
-                  Share your group&apos;s details and let property owners bid for your stay with their best price. You pick the offer that excites you most.
-                </p>
-              </div>
-
-              {/* Decorative divider */}
-              <div className="flex items-center gap-2 mt-1">
-                <div className="h-px w-10 rounded-full bg-white/30" />
-                <div className="h-1.5 w-1.5 rounded-full bg-white/50" />
-                <div className="h-px w-10 rounded-full bg-white/30" />
-              </div>
-            </div>
+            <ol className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-3 sm:gap-0">
+              {BID_FLOW.map(({ Icon, title, text }, i) => (
+                <li key={title} className="relative flex gap-3 rounded-2xl bg-[#f3f7f6] p-4 sm:flex-col sm:bg-transparent sm:p-0 sm:px-3 sm:text-center">
+                  {i < BID_FLOW.length - 1 ? (
+                    <span className="absolute left-[calc(50%+28px)] right-[calc(-50%+28px)] top-[22px] hidden border-0 border-t-2 border-dashed border-[#02665e]/25 sm:block" aria-hidden />
+                  ) : null}
+                  <span className="relative inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#02665e]/[0.08] text-[#02665e] sm:mx-auto">
+                    <Icon className="h-5 w-5" aria-hidden />
+                    <span className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#02665e] text-[10.5px] font-bold text-white ring-2 ring-white">{i + 1}</span>
+                  </span>
+                  <span className="min-w-0 sm:mt-3">
+                    <span className="block text-[14px] font-bold text-slate-900">{title}</span>
+                    <span className="mt-0.5 block text-[12.5px] leading-snug text-slate-500">{text}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
 
-        <article className="rounded-xl border bg-gradient-to-b from-white via-slate-50 to-white p-6 shadow-lg">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-              </div>
+        {/* Builder: step rail on the left, the current step on the right */}
+        <div id="group-stay-builder" ref={stepHeadingRef} className="scroll-mt-20 pb-16 pt-8">
+          <style>{BUILDER_CSS}</style>
+
+          {/* Phones: compact progress instead of the rail */}
+          <div className="mb-5 lg:hidden">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[12px] font-bold text-[#02665e]">Step {currentStep} of 4</span>
+              <span className="text-[12px] font-semibold text-slate-500">{STEPS[currentStep - 1].label}</span>
             </div>
-            <div className="ml-4">
+            <div className="mt-2 grid grid-cols-4 gap-1.5" aria-hidden>
+              {STEPS.map((step, i) => (
+                <span key={step.label} className={`h-1.5 rounded-full ${i < currentStep ? 'bg-[#02665e]' : 'bg-slate-200'}`} />
+              ))}
             </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Stepper header */}
-            <div className="sm:col-span-2">
-              <div className="mb-3">
-                <nav className="flex items-center justify-center gap-0">
-                  {[1,2,3,4].map((s, i) => {
-                    const done   = currentStep > s;
-                    const active = currentStep === s;
-                    return (
-                      <div key={s} className="flex items-center">
-                        {/* Step node */}
-                        <div className="flex flex-col items-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (s <= currentStep) { setErrors([]); setCurrentStep(s); return; }
-                              const ok = validateUpToStep(s - 1);
-                              if (ok) { setErrors([]); setCurrentStep(s); }
-                            }}
-                            aria-current={active ? 'step' : undefined}
-                            aria-label={`Step ${s}`}
-                            className={[
-                              "flex items-center justify-center w-9 h-9 sm:w-11 sm:h-11 rounded-full text-xs sm:text-sm font-bold transition-all duration-300 focus:outline-none",
-                              active
-                                ? "bg-[#02665e] text-white shadow-[0_0_0_4px_rgba(2,102,94,0.18)] scale-110 border-2 border-[#02665e]"
-                                : done
-                                  ? "bg-white text-[#02665e] border-2 border-[#02665e]"
-                                  : "bg-white text-slate-400 border-2 border-slate-200 hover:border-[#02665e]/40 hover:text-[#02665e]/60",
-                            ].join(" ")}
-                          >
-                            {s}
-                          </button>
-                          <span className={[
-                            "hidden sm:block mt-1.5 text-xs font-medium tracking-wide transition-colors duration-200",
-                            active ? "text-[#02665e]" : done ? "text-[#02665e]/60" : "text-slate-400",
-                          ].join(" ")}>
-                            {s === 1 ? 'Details' : s === 2 ? 'Accommodation' : s === 3 ? 'Roster' : 'Review'}
-                          </span>
-                        </div>
-                        {/* Connector */}
-                        {i < 3 && (
-                          <div className="relative mb-4 mx-1.5 sm:mx-2.5 h-0.5 w-8 sm:w-14 rounded-full bg-slate-200 overflow-hidden">
-                            <div
-                              className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
-                              style={{ width: done ? '100%' : '0%', background: 'linear-gradient(90deg,#02665e,#059669)' }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </nav>
-                <div className="mt-2 mx-auto max-w-xs h-1 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: currentStep === 1 ? '0%' : currentStep === 2 ? '33%' : currentStep === 3 ? '66%' : '100%',
-                      background: 'linear-gradient(90deg,#02665e,#059669)',
-                    }}
-                  />
-                </div>
+          <div className="grid gap-8 lg:grid-cols-[250px_minmax(0,1fr)]">
+            <nav aria-label="Request steps" className="hidden lg:block">
+              <div className="sticky top-24 rounded-2xl border border-solid border-slate-200 bg-white p-5">
+                <p className="m-0 mb-5 text-[12px] font-bold text-slate-500">Your brief</p>
+                <BriefRail current={currentStep} summaries={railSummaries} onJump={jumpTo} />
               </div>
-            </div>
+            </nav>
 
-            {/* Step content */}
-            <div className="sm:col-span-2">
+            <div className="min-w-0">
+              <header className="mb-5">
+                <h2 className="m-0 text-[22px] font-bold leading-tight tracking-tight text-slate-950 sm:text-[26px]">{STEPS[currentStep - 1].title}</h2>
+                <p className="m-0 mt-1 text-[14px] text-slate-500">{STEPS[currentStep - 1].sub}</p>
+              </header>
+
+              {draftNotice ? (
+                <div className="mb-5 flex items-center gap-2 rounded-xl border border-solid border-[#02665e]/20 bg-white px-3.5 py-2.5 text-[13px] font-medium text-[#02665e]">
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" aria-hidden />
+                  {draftNotice}
+                </div>
+              ) : null}
               <div key={currentStep} className="stepContentTransition">
               {currentStep === 1 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* How it works — bid-model explainer (parity with the app).
-                      Compact chip; the panel opens only when tapped. */}
-                  <div className="sm:col-span-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowHowItWorks((v) => !v)}
-                      aria-expanded={showHowItWorks}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-100"
-                    >
-                      <Info className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
-                      How it works
-                      <ChevronDown
-                        className={`h-3.5 w-3.5 text-emerald-600 transition-transform ${showHowItWorks ? 'rotate-180' : ''}`}
-                        aria-hidden
-                      />
-                    </button>
-
-                    <div
-                      className={`grid transition-all duration-300 ease-in-out ${showHowItWorks ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'}`}
-                    >
-                      <div className="overflow-hidden">
-                        <div className="rounded-2xl border border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white p-4 shadow-sm space-y-3.5">
-                          {[
-                            { Icon: Megaphone, text: "You post your group's trip details. No payment is needed to submit a request." },
-                            { Icon: MapPin, text: "Only property owners in your chosen destination area see your request and can bid." },
-                            { Icon: ShieldCheck, text: "NoLSAF screens every interested owner and shortlists only the best, most reliable offers for you." },
-                            { Icon: Gavel, text: "Owners compete with their best price. You compare offers and pick the one that excites you most." },
-                            { Icon: CheckCircle2, text: "To confirm your pick, pay a small non-refundable deposit. The remaining balance is settled on check-in day." },
-                          ].map(({ Icon, text }, i) => (
-                            <div key={i} className="flex items-start gap-3">
-                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100/70">
-                                <Icon className="h-4 w-4 text-emerald-600" aria-hidden />
-                              </span>
-                              <p className="text-xs text-slate-600 leading-relaxed pt-1">{text}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between gap-3 text-xs">
-                      <div className="text-slate-500">
-                        {draftNotice ? (
-                          <span className="text-emerald-700">{draftNotice}</span>
-                        ) : (
-                          <span>Saved automatically (Steps 1–2)</span>
-                        )}
-                      </div>
-                      {hasSavedDraft ? (
-                        <button
-                          type="button"
-                          onClick={clearSavedDraft}
-                          aria-label="Clear saved draft"
-                          title="Clear saved draft"
-                          className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm transform transition hover:-translate-y-0.5 hover:shadow-lg">
-                    <label htmlFor="group-type" className="block text-sm font-medium text-slate-700">Group type <span className="text-red-500">*</span></label>
-                    <p className="text-xs text-slate-500 mt-1">Select the group type. Students option added for school groups.</p>
-                    <div className="mt-3">
-                      <div className="relative">
-                        <select id="group-type" name="groupType" value={groupType} onChange={(e) => setGroupType(e.target.value)} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9">
-                          <option value="">Select</option>
-                          <option value="family">Family</option>
-                          <option value="workers">Workers</option>
-                          <option value="event">Event</option>
-                          <option value="students">Students</option>
-                          <option value="team">Team</option>
-                          <option value="safari_stay">Safari Stay</option>
-                          <option value="other">Other</option>
-                        </select>
-                        <ChevronDown className="groupstays-chevron pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden />
-                      </div>
+                <div className="flex flex-col gap-5">
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
+                    <p id="group-type-label" className="m-0 text-[14px] font-bold text-slate-900">What kind of group? <span className="text-rose-500">*</span></p>
+                    <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">Owners tailor their offers to your group type.</p>
+                    <div role="group" aria-labelledby="group-type-label" className="mt-3 flex flex-wrap gap-2">
+                      {GROUP_TYPES.map(({ value, label, Icon }) => {
+                        const on = groupType === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => setGroupType(value)}
+                            className={`inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-solid pl-1.5 pr-4 transition ${on ? 'border-[#02665e] bg-[#02665e] text-white' : 'border-slate-200 bg-white text-slate-700 hover:border-[#02665e]/40'}`}
+                          >
+                            <span className={`inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ${on ? 'bg-white/20 text-white' : 'bg-[#02665e]/[0.08] text-[#02665e]'}`}>
+                              <Icon className="h-4 w-4" aria-hidden />
+                            </span>
+                            <span className="text-[13px] font-semibold">{label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    <div className="mt-3">
+                    <div className="mt-5 border-0 border-t border-solid border-slate-100 pt-5">
                       <div>
-                        <label htmlFor="from-country" className="block text-xs text-slate-600 mb-1">Country <span className="text-red-500">*</span></label>
+                        <label htmlFor="from-country" className="block text-[12.5px] font-semibold text-slate-600">Travelling from <span className="text-rose-500">*</span></label>
                         <div className="relative">
                           <select 
                             id="from-country" 
@@ -1000,8 +1137,8 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     {isTanzaniaSelected && (
                       <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor="from-region" className="block text-xs text-slate-600">
-                            Region <span className="text-red-500">*</span>
+                          <label htmlFor="from-region" className="block text-[12.5px] font-semibold text-slate-600">
+                            Region <span className="text-rose-500">*</span>
                           </label>
                           <div className="relative">
                             <select id="from-region" value={fromRegion} onChange={(e) => { setFromRegion(e.target.value); setFromDistrict(''); setFromWard(''); setFromLocation(''); }} required className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9">
@@ -1013,9 +1150,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                         </div>
 
                         <div>
-                          <label htmlFor="from-district" className="block text-xs text-slate-600">District</label>
+                          <label htmlFor="from-district" className="block text-[12.5px] font-semibold text-slate-600">District</label>
                           <div className="relative">
-                            <select id="from-district" value={fromDistrict} onChange={(e) => { setFromDistrict(e.target.value); setFromWard(''); setFromLocation(''); }} disabled={!fromRegion} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
+                            <select id="from-district" value={fromDistrict} onChange={(e) => { setFromDistrict(e.target.value); setFromWard(''); setFromLocation(''); }} suppressHydrationWarning disabled={!fromRegion} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
                               <option value="">Select district</option>
                               {getDistrictsFor(fromRegion).map((d) => <option key={d} value={d}>{d}</option>)}
                             </select>
@@ -1024,9 +1161,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                         </div>
 
                         <div>
-                          <label htmlFor="from-ward" className="block text-xs text-slate-600">Ward</label>
+                          <label htmlFor="from-ward" className="block text-[12.5px] font-semibold text-slate-600">Ward</label>
                           <div className="relative">
-                            <select id="from-ward" value={fromWard} onChange={(e) => { setFromWard(e.target.value); setFromLocation(''); }} disabled={!fromDistrict} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
+                            <select id="from-ward" value={fromWard} onChange={(e) => { setFromWard(e.target.value); setFromLocation(''); }} suppressHydrationWarning disabled={!fromDistrict} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
                               <option value="">Select ward</option>
                               {getWardsFor(fromRegion, fromDistrict).map((ward) => (
                                 <option key={ward.name} value={ward.name}>{ward.name}</option>
@@ -1037,7 +1174,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                         </div>
 
                         <div>
-                          <label htmlFor="from-location" className="block text-xs text-slate-600">Street</label>
+                          <label htmlFor="from-location" className="block text-[12.5px] font-semibold text-slate-600">Street</label>
                           <div className="relative">
                             {getStreetsFor(fromRegion, fromDistrict, fromWard).length === 0 && fromWard ? (
                               <input
@@ -1050,7 +1187,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                               />
                             ) : (
                               <>
-                                <select id="from-location" value={fromLocation} onChange={(e) => setFromLocation(e.target.value)} disabled={!fromWard} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
+                                <select id="from-location" value={fromLocation} onChange={(e) => setFromLocation(e.target.value)} suppressHydrationWarning disabled={!fromWard} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
                                   <option value="">Select street</option>
                                   {getStreetsFor(fromRegion, fromDistrict, fromWard).map((street) => (
                                     <option key={street} value={street}>{street}</option>
@@ -1065,15 +1202,15 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     )}
                   </div>
 
-                  <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm transform transition hover:-translate-y-0.5 hover:shadow-lg">
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
                     <div>
-                      <label htmlFor="to-region" className="block text-sm font-medium text-slate-700">Where are you going? <span className="text-red-500">*</span></label>
-                      <p className="text-xs text-slate-500 mt-1">Region, district, ward and exact location</p>
+                      <p className="m-0 text-[14px] font-bold text-slate-900">Where are you going? <span className="text-rose-500">*</span></p>
+                      <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">Region and district are required. Ward and street help owners nearby find you.</p>
                     </div>
 
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label htmlFor="to-region" className="block text-xs text-slate-600">Region <span className="text-red-500">*</span></label>
+                        <label htmlFor="to-region" className="block text-[12.5px] font-semibold text-slate-600">Region <span className="text-rose-500">*</span></label>
                         <div className="relative">
                           <select id="to-region" value={toRegion} onChange={(e) => { setToRegion(e.target.value); setToDistrict(''); setToWard(''); setToLocation(''); }} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9">
                             <option value="">Select region</option>
@@ -1084,9 +1221,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       </div>
 
                       <div>
-                        <label htmlFor="to-district" className="block text-xs text-slate-600">District <span className="text-red-500">*</span></label>
+                        <label htmlFor="to-district" className="block text-[12.5px] font-semibold text-slate-600">District <span className="text-rose-500">*</span></label>
                         <div className="relative">
-                          <select id="to-district" value={toDistrict} onChange={(e) => { setToDistrict(e.target.value); setToWard(''); setToLocation(''); }} disabled={!toRegion} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
+                          <select id="to-district" value={toDistrict} onChange={(e) => { setToDistrict(e.target.value); setToWard(''); setToLocation(''); }} suppressHydrationWarning disabled={!toRegion} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
                             <option value="">Select district</option>
                             {getDistrictsFor(toRegion).map((d) => <option key={d} value={d}>{d}</option>)}
                           </select>
@@ -1095,9 +1232,9 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       </div>
 
                       <div>
-                        <label htmlFor="to-ward" className="block text-xs text-slate-600">Ward</label>
+                        <label htmlFor="to-ward" className="block text-[12.5px] font-semibold text-slate-600">Ward</label>
                         <div className="relative">
-                          <select id="to-ward" value={toWard} onChange={(e) => { setToWard(e.target.value); setToLocation(''); }} disabled={!toDistrict} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
+                          <select id="to-ward" value={toWard} onChange={(e) => { setToWard(e.target.value); setToLocation(''); }} suppressHydrationWarning disabled={!toDistrict} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
                             <option value="">Select ward</option>
                             {getWardsFor(toRegion, toDistrict).map((ward) => (
                               <option key={ward.name} value={ward.name}>{ward.name}</option>
@@ -1108,7 +1245,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       </div>
 
                       <div>
-                        <label htmlFor="to-location" className="block text-xs text-slate-600">Street</label>
+                        <label htmlFor="to-location" className="block text-[12.5px] font-semibold text-slate-600">Street</label>
                         <div className="relative">
                           {getStreetsFor(toRegion, toDistrict, toWard).length === 0 && toWard ? (
                             <input
@@ -1121,7 +1258,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                             />
                           ) : (
                             <>
-                              <select id="to-location" value={toLocation} onChange={(e) => setToLocation(e.target.value)} disabled={!toWard} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
+                              <select id="to-location" value={toLocation} onChange={(e) => setToLocation(e.target.value)} suppressHydrationWarning disabled={!toWard} className="groupstays-select mt-1 w-full rounded-md px-3 py-2 border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 pr-9 disabled:bg-slate-50 disabled:text-slate-400">
                                 <option value="">Select street</option>
                                 {getStreetsFor(toRegion, toDistrict, toWard).map((street) => (
                                   <option key={street} value={street}>{street}</option>
@@ -1141,279 +1278,252 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
               {currentStep === 2 && (
                 <div>
-                  <div className="mb-4 flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[#02665e]/5 border border-[#02665e]/10">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 rounded-full bg-[#02665e] animate-pulse flex-shrink-0" />
-                      <span className="text-xs font-medium text-[#02665e]">
-                        {draftNotice ? draftNotice : 'Saved automatically (Steps 1–2)'}
-                      </span>
-                    </div>
-                    {hasSavedDraft ? (
-                      <button
-                        type="button"
-                        onClick={clearSavedDraft}
-                        aria-label="Clear saved draft"
-                        title="Clear saved draft"
-                        className="inline-flex items-center justify-center h-7 w-7 rounded-md border border-[#02665e]/20 bg-white text-slate-400 hover:text-red-500 hover:border-red-200 transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    ) : null}
-                  </div>
-                  {/* Accommodation, headcount and private-room controls moved to top of Step 2 */}
-                  <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 mb-4 shadow-sm">
-                    <div className="flex items-center gap-3 mb-3 pb-2.5 border-b border-[#02665e]/10">
-                      <div className="h-2 w-2 rounded-full bg-[#02665e] ring-[3px] ring-[#02665e]/15 flex-shrink-0" aria-hidden />
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">Accommodation</div>
-                        <div className="text-xs text-slate-500">Choose style so we can recommend room sizes</div>
-                      </div>
-                    </div>
-                    <div className="relative">
-                      <label htmlFor="accommodation-type" className="sr-only">Accommodation type</label>
-                        <select
-                          id="accommodation-type"
-                          value={accommodationType}
-                          onChange={(e) => {
-                            const next = e.target.value;
-                            setAccommodationType(next);
-                            if (next !== 'hotel') setMinHotelStarLabel('');
-                          }}
-                          className="groupstays-select mt-1 w-full rounded px-2 py-1 border appearance-none pr-9"
-                        >
-                        <option value="">Select</option>
-                        <option value="villa">Villa</option>
-                        <option value="apartment">Apartment</option>
-                        <option value="hotel">Hotel</option>
-                        <option value="hostel">Hostel</option>
-                        <option value="lodge">Lodge</option>
-                        <option value="condo">Condo</option>
-                        <option value="guest_house">Guest House</option>
-                        <option value="bungalow">Bungalow</option>
-                        <option value="cabin">Cabin</option>
-                        <option value="homestay">Homestay</option>
-                        <option value="townhouse">Townhouse</option>
-                        <option value="house">House</option>
-                        <option value="other">Other</option>
-                      </select>
-                      <ChevronDown className="groupstays-chevron pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden />
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">Choose the accommodation style so we can recommend room sizes.</p>
+                  {/* Accommodation */}
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                    <SectionHeader Icon={Building2} title="Where would you like to stay?" hint="Owners of this kind of place will send you offers." />
 
-                    {accommodationType === 'hotel' ? (
-                      <div className="mt-3">
-                        <label htmlFor="hotel-rating" className="block text-xs text-slate-600 mb-1">Hotel rating</label>
-                        <div className="relative">
-                          <select
-                            id="hotel-rating"
-                            value={minHotelStarLabel}
-                            onChange={(e) => setMinHotelStarLabel(e.target.value)}
-                            className="groupstays-select mt-1 w-full rounded px-2 py-1 border appearance-none pr-9"
+                    <div role="radiogroup" aria-label="Accommodation type" className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {FEATURED_STAYS.map(({ value, label, text, Icon }) => {
+                        const on = accommodationType === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={on}
+                            onClick={() => pickStay(value)}
+                            className={`group relative flex cursor-pointer items-start gap-3 rounded-2xl border border-solid p-3.5 text-left transition duration-200 ${on ? 'border-[#02665e] bg-[#02665e]/[0.04] shadow-[0_10px_24px_-16px_rgba(2,102,94,0.6)]' : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_10px_24px_-18px_rgba(15,23,42,0.35)]'}`}
                           >
-                            {HOTEL_STAR_OPTIONS.map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </select>
-                          <ChevronDown className="groupstays-chevron pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden />
-                        </div>
-                        <p className="mt-2 text-xs text-slate-500">Required when you select Hotel.</p>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 mb-4 shadow-sm">
-                    <div className="flex items-center gap-3 mb-3 pb-2.5 border-b border-[#02665e]/10">
-                      <div className="h-2 w-2 rounded-full bg-[#02665e] ring-[3px] ring-[#02665e]/15 flex-shrink-0" aria-hidden />
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">Headcount</div>
-                        <div className="text-xs text-slate-500">Number of people in your group (separated by gender)</div>
-                      </div>
-                    </div>
-                    {/* Gender-based headcount breakdown */}
-                    <div className="mt-3 space-y-3">
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="rounded-lg bg-sky-50/60 border border-sky-100 p-2.5 text-center">
-                          <label htmlFor="male-count" className="block text-xs font-semibold text-sky-700 mb-1.5">Male</label>
-                          <input 
-                            id="male-count" 
-                            name="maleCount" 
-                            value={maleCount} 
-                            onChange={(e) => setMaleCount(Math.max(0, Number(e.target.value || 0)))} 
-                            type="number" 
-                            min={0} 
-                            aria-label="Number of males" 
-                            placeholder="0" 
-                            className="w-full rounded-md px-2 py-1.5 border border-sky-200 text-sm text-center font-bold text-sky-800 bg-white focus:outline-none focus:ring-2 focus:ring-sky-200" 
-                          />
-                        </div>
-                        <div className="rounded-lg bg-pink-50/60 border border-pink-100 p-2.5 text-center">
-                          <label htmlFor="female-count" className="block text-xs font-semibold text-pink-700 mb-1.5">Female</label>
-                          <input 
-                            id="female-count" 
-                            name="femaleCount" 
-                            value={femaleCount} 
-                            onChange={(e) => setFemaleCount(Math.max(0, Number(e.target.value || 0)))} 
-                            type="number" 
-                            min={0} 
-                            aria-label="Number of females" 
-                            placeholder="0" 
-                            className="w-full rounded-md px-2 py-1.5 border border-pink-200 text-sm text-center font-bold text-pink-800 bg-white focus:outline-none focus:ring-2 focus:ring-pink-200" 
-                          />
-                        </div>
-                        <div className="rounded-lg bg-slate-50/80 border border-slate-200 p-2.5 text-center">
-                          <label htmlFor="other-count" className="block text-xs font-semibold text-slate-600 mb-1.5">Other</label>
-                          <input 
-                            id="other-count" 
-                            name="otherCount" 
-                            value={otherCount} 
-                            onChange={(e) => setOtherCount(Math.max(0, Number(e.target.value || 0)))} 
-                            type="number" 
-                            min={0} 
-                            aria-label="Number of other" 
-                            placeholder="0" 
-                            className="w-full rounded-md px-2 py-1.5 border border-slate-200 text-sm text-center font-bold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-slate-200" 
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                        <span className="text-xs font-medium text-slate-700">Total Headcount:</span>
-                        <span className="text-sm font-bold text-emerald-600">{calculatedHeadcount} {calculatedHeadcount === 1 ? 'person' : 'people'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 mb-4 shadow-sm">
-                    {/* Header */}
-                    <div className="flex items-start gap-3 pb-3 mb-4 border-b border-[#02665e]/10">
-                      <div className="h-2 w-2 rounded-full bg-[#02665e] ring-[3px] ring-[#02665e]/15 flex-shrink-0 mt-1.5" aria-hidden />
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">Private rooms</div>
-                        <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                          Some guests prefer their own room. If any members of your group need privacy, tell us how many private rooms to reserve.
-                        </p>
-                      </div>
+                            <span className={`inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition ${on ? 'bg-[#02665e] text-white' : 'bg-slate-50 text-slate-500 ring-1 ring-slate-200 group-hover:text-[#02665e]'}`}>
+                              <Icon className="h-5 w-5" aria-hidden />
+                            </span>
+                            <span className="min-w-0 flex-1 pr-5">
+                              <span className={`block text-[14px] font-bold ${on ? 'text-[#02665e]' : 'text-slate-900'}`}>{label}</span>
+                              <span className="mt-0.5 block text-[12px] leading-snug text-slate-500">{text}</span>
+                            </span>
+                            <span className={`absolute right-3 top-3 inline-flex h-5 w-5 items-center justify-center rounded-full transition ${on ? 'bg-[#02665e] text-white' : 'border-2 border-solid border-slate-200 bg-white'}`} aria-hidden>
+                              {on ? <Check className="h-3 w-3" strokeWidth={3.5} /> : null}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
 
-                    {/* Two option cards side by side */}
-                    <div role="group" aria-label="Private room options" className="grid grid-cols-2 gap-3">
-                      {/* Yes card */}
-                      <button
-                        type="button"
-                        onClick={() => setNeedsPrivateRoom(true)}
-                        aria-pressed={needsPrivateRoom}
-                        className={[
-                          "relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all duration-200 focus:outline-none overflow-hidden",
-                          needsPrivateRoom
-                            ? "border-[#02665e] bg-[#02665e] shadow-lg shadow-[#02665e]/20"
-                            : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:shadow-md",
-                        ].join(" ")}
-                      >
-                        {needsPrivateRoom && (
-                          <div className="absolute top-2 right-2">
-                            <div className="h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
-                              <Check className="w-3 h-3 text-white stroke-[3]" />
+                    {/* The less common styles stay one tap away */}
+                    <div className="mt-3">
+                      {showMoreStays ? (
+                        <div className="rounded-2xl border border-dashed border-slate-200 p-3 sm:p-3.5">
+                          <div className="mb-2.5 flex items-center justify-between gap-3 px-0.5">
+                            <span className="text-[12.5px] font-bold text-slate-700">More stay types</span>
+                            {MORE_STAYS.some((t) => t.value === accommodationType) ? null : (
+                              <button
+                                type="button"
+                                onClick={() => setShowMoreStays(false)}
+                                className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-slate-500 hover:text-slate-900"
+                              >
+                                Show fewer
+                                <ChevronDown className="h-3.5 w-3.5 rotate-180" aria-hidden />
+                              </button>
+                            )}
+                          </div>
+                          <div role="radiogroup" aria-label="More stay types" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            {MORE_STAYS.map(({ value, label, Icon }) => {
+                              const on = accommodationType === value;
+                              return (
+                                <button
+                                  key={value}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={on}
+                                  onClick={() => pickStay(value)}
+                                  className={`group flex cursor-pointer items-center gap-2.5 rounded-xl border border-solid px-2.5 py-2 text-left transition ${on ? 'border-[#02665e] bg-[#02665e]/[0.04]' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                                >
+                                  <span className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition ${on ? 'bg-[#02665e] text-white' : 'bg-slate-50 text-slate-500 ring-1 ring-slate-200 group-hover:text-[#02665e]'}`}>
+                                    <Icon className="h-4 w-4" aria-hidden />
+                                  </span>
+                                  <span className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${on ? 'text-[#02665e]' : 'text-slate-700'}`}>{label}</span>
+                                  {on ? <Check className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" strokeWidth={3.5} aria-hidden /> : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowMoreStays(true)}
+                          className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[13px] font-semibold text-[#02665e] hover:underline"
+                        >
+                          More types: homestay, bungalow, cabin and others
+                          <ChevronDown className="h-4 w-4" aria-hidden />
+                        </button>
+                      )}
+                    </div>
+
+                    {accommodationType === 'hotel' ? (() => {
+                      const idx = HOTEL_TIERS.findIndex((t) => t.value === minHotelStarLabel);
+                      const tier = idx >= 0 ? HOTEL_TIERS[idx] : null;
+                      return (
+                        <div className="mt-5 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 sm:p-5">
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <p id="hotel-rating-label" className="m-0 text-[13.5px] font-bold text-slate-900">
+                              Lowest hotel standard you&apos;d accept <span className="text-rose-500">*</span>
+                            </p>
+                            {tier ? <span className="text-[12px] font-semibold text-[#02665e]">{tier.label} or better</span> : null}
+                          </div>
+
+                          {/* A scale: the track fills up to the chosen level */}
+                          <div role="radiogroup" aria-labelledby="hotel-rating-label" className="relative mt-5">
+                            <span className="absolute left-[10%] right-[10%] top-[13px] h-1 rounded-full bg-slate-200" aria-hidden />
+                            <span
+                              className="absolute left-[10%] top-[13px] h-1 rounded-full bg-[#02665e] transition-all duration-300"
+                              style={{ width: `${Math.max(0, idx) * 20}%` }}
+                              aria-hidden
+                            />
+                            <div className="relative grid grid-cols-5">
+                              {HOTEL_TIERS.map((t, i) => {
+                                const reached = idx >= 0 && i <= idx;
+                                const on = i === idx;
+                                return (
+                                  <button
+                                    key={t.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={on}
+                                    onClick={() => setMinHotelStarLabel(t.value)}
+                                    className="group flex cursor-pointer flex-col items-center gap-2 border-0 bg-transparent p-0"
+                                  >
+                                    <span
+                                      className={[
+                                        'inline-flex h-[30px] w-[30px] items-center justify-center rounded-full transition',
+                                        on ? 'bg-[#02665e] text-white ring-4 ring-[#02665e]/15' : reached ? 'bg-[#02665e] text-white' : 'border-2 border-solid border-slate-300 bg-white text-slate-400 group-hover:border-[#02665e]/50',
+                                      ].join(' ')}
+                                    >
+                                      <span className="text-[11px] font-bold tabular-nums">{t.stars}</span>
+                                    </span>
+                                    <span className={`text-[11.5px] font-bold sm:text-[12.5px] ${on ? 'text-[#02665e]' : 'text-slate-500'}`}>{t.label}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
-                        )}
-                        <div className={["h-9 w-9 rounded-lg flex items-center justify-center", needsPrivateRoom ? "bg-white/20" : "bg-[#02665e]/10"].join(" ")}>
-                          <Lock className={["w-4 h-4", needsPrivateRoom ? "text-white" : "text-[#02665e]"].join(" ")} />
-                        </div>
-                        <div>
-                          <p className={["text-sm font-bold", needsPrivateRoom ? "text-white" : "text-slate-800"].join(" ")}>Yes</p>
-                          <p className={["text-xs mt-0.5 leading-tight", needsPrivateRoom ? "text-white/75" : "text-slate-500"].join(" ")}>Reserve private rooms for some guests</p>
-                        </div>
-                      </button>
 
-                      {/* No card */}
-                      <button
-                        type="button"
-                        onClick={() => { setNeedsPrivateRoom(false); setPrivateRoomCount(0); }}
-                        aria-pressed={!needsPrivateRoom}
-                        className={[
-                          "relative flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all duration-200 focus:outline-none overflow-hidden",
-                          !needsPrivateRoom
-                            ? "border-[#02665e] bg-[#02665e] shadow-lg shadow-[#02665e]/20"
-                            : "border-slate-200 bg-white hover:border-[#02665e]/40 hover:shadow-md",
-                        ].join(" ")}
-                      >
-                        {!needsPrivateRoom && (
-                          <div className="absolute top-2 right-2">
-                            <div className="h-5 w-5 rounded-full bg-white/20 flex items-center justify-center">
-                              <Check className="w-3 h-3 text-white stroke-[3]" />
-                            </div>
+                          <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-white px-3.5 py-3 ring-1 ring-slate-200">
+                            <span className="flex flex-shrink-0 gap-px pt-0.5" aria-hidden>
+                              {Array.from({ length: 5 }).map((_, i) => (
+                                <Star key={i} className={`h-3.5 w-3.5 ${tier && i < tier.stars ? 'fill-amber-400 text-amber-400' : 'fill-slate-200 text-slate-200'}`} />
+                              ))}
+                            </span>
+                            <p className="m-0 text-[12.5px] leading-snug text-slate-600">
+                              {tier ? tier.text : 'Pick a level. Hotels at that standard or above can bid.'}
+                            </p>
                           </div>
-                        )}
-                        <div className={["h-9 w-9 rounded-lg flex items-center justify-center", !needsPrivateRoom ? "bg-white/20" : "bg-slate-100"].join(" ")}>
-                          <DoorOpen className={["w-4 h-4", !needsPrivateRoom ? "text-white" : "text-slate-500"].join(" ")} />
                         </div>
-                        <div>
-                          <p className={["text-sm font-bold", !needsPrivateRoom ? "text-white" : "text-slate-800"].join(" ")}>No</p>
-                          <p className={["text-xs mt-0.5 leading-tight", !needsPrivateRoom ? "text-white/75" : "text-slate-500"].join(" ")}>Shared rooms are fine for everyone</p>
-                        </div>
-                      </button>
+                      );
+                    })() : null}
+                  </div>
+
+                  {/* Headcount */}
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                    <SectionHeader
+                      Icon={Users}
+                      title="How many people?"
+                      hint="Owners use the mix to plan shared rooms."
+                      aside={
+                        <span className="flex-shrink-0 rounded-full bg-[#02665e]/[0.08] px-3 py-1 text-[13px] font-bold tabular-nums text-[#02665e]">
+                          {calculatedHeadcount} {calculatedHeadcount === 1 ? 'person' : 'people'}
+                        </span>
+                      }
+                    />
+                    <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                      <CountStepper id="male-count" label="Male" dot="bg-sky-500" value={maleCount} onChange={setMaleCount} />
+                      <CountStepper id="female-count" label="Female" dot="bg-rose-400" value={femaleCount} onChange={setFemaleCount} />
+                      <CountStepper id="other-count" label="Other" dot="bg-slate-400" value={otherCount} onChange={setOtherCount} />
                     </div>
-
-                    {/* How many counter — shown only when Yes */}
-                    {needsPrivateRoom && (
-                      <div className="mt-4 pt-4 border-t border-[#02665e]/10">
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">How many private rooms?</p>
-                            <p className="text-xs text-slate-500 mt-0.5">We'll guarantee this number in your quote.</p>
-                          </div>
-                          <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-xl p-1">
-                            <button
-                              type="button"
-                              onClick={() => setPrivateRoomCount((c) => Math.max(1, c - 1))}
-                              className="h-8 w-8 rounded-lg bg-white border border-slate-200 text-slate-600 text-base font-bold hover:border-[#02665e]/40 hover:text-[#02665e] transition-colors flex items-center justify-center focus:outline-none shadow-sm"
-                              aria-label="Decrease private room count"
-                            >-</button>
-                            <span className="w-10 text-center text-base font-extrabold text-[#02665e]">{privateRoomCount || 1}</span>
-                            <button
-                              type="button"
-                              onClick={() => setPrivateRoomCount((c) => (c || 0) + 1)}
-                              className="h-8 w-8 rounded-lg bg-white border border-slate-200 text-slate-600 text-base font-bold hover:border-[#02665e]/40 hover:text-[#02665e] transition-colors flex items-center justify-center focus:outline-none shadow-sm"
-                              aria-label="Increase private room count"
-                            >+</button>
-                          </div>
-                        </div>
+                    {calculatedHeadcount > 0 ? (
+                      <div className="mt-4 flex h-1.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+                        <span className="bg-sky-500 transition-all duration-300" style={{ width: `${(maleCount / calculatedHeadcount) * 100}%` }} />
+                        <span className="bg-rose-400 transition-all duration-300" style={{ width: `${calculatedHeadcount ? (femaleCount / calculatedHeadcount) * 100 : 0}%` }} />
+                        <span className="bg-slate-400 transition-all duration-300" style={{ width: `${(otherCount / calculatedHeadcount) * 100}%` }} />
                       </div>
+                    ) : (
+                      <p className="m-0 mt-3 text-[12.5px] font-medium text-rose-600">Add at least one person to continue.</p>
                     )}
                   </div>
 
-                  <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 mb-4 shadow-sm">
-                    <div className="flex items-center gap-3 mb-3 pb-2.5 border-b border-[#02665e]/10">
-                      <div className="h-2 w-2 rounded-full bg-[#02665e] ring-[3px] ring-[#02665e]/15 flex-shrink-0" aria-hidden />
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">Room configuration</div>
-                        <div className="text-xs text-slate-500">Persons per room and estimated rooms needed</div>
+                  {/* Private rooms */}
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                    <SectionHeader
+                      Icon={Lock}
+                      title="Private rooms"
+                      hint="Turn on if some guests need a room to themselves."
+                      aside={
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={needsPrivateRoom}
+                          aria-label="Some guests need a private room"
+                          onClick={() => {
+                            const next = !needsPrivateRoom;
+                            setNeedsPrivateRoom(next);
+                            setPrivateRoomCount(next ? Math.max(1, privateRoomCount) : 0);
+                          }}
+                          className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer items-center rounded-full border-0 p-0 transition-colors ${needsPrivateRoom ? 'bg-[#02665e]' : 'bg-slate-300'}`}
+                        >
+                          <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${needsPrivateRoom ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                      }
+                    />
+                    {needsPrivateRoom ? (
+                      <div className="mt-4">
+                        <CountStepper
+                          id="private-room-count"
+                          label="How many private rooms?"
+                          hint="Offers must include at least this many."
+                          min={1}
+                          max={Math.max(1, calculatedHeadcount)}
+                          value={privateRoomCount || 1}
+                          onChange={setPrivateRoomCount}
+                        />
                       </div>
-                    </div>
-                    <div>
-                      <label htmlFor="room-size" className="block text-xs text-slate-600">Room size (persons per room)</label>
-                      <div className="relative">
-                        <select id="room-size" value={roomSize} onChange={(e) => setRoomSize(Number(e.target.value))} className="groupstays-select mt-1 w-full rounded px-2 py-1 border appearance-none pr-9">
-                          <option value={1}>1</option>
-                          <option value={2}>2</option>
-                          <option value={3}>3</option>
-                          <option value={4}>4</option>
-                        </select>
-                        <ChevronDown className="groupstays-chevron pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden />
-                      </div>
-                      <div className="mt-2 text-sm text-slate-600">Estimated rooms needed: <span className="font-medium">{roomsNeeded}</span></div>
-                      <div className="mt-1 text-xs text-slate-500">Suggested room size: <span className="font-medium">{recommendRoomSize(groupType, headcount)}</span></div>
+                    ) : null}
+                  </div>
+
+                  {/* Room sharing */}
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                    <SectionHeader
+                      Icon={BedDouble}
+                      title="How many share a room?"
+                      hint={`Suggested for this group: ${recommendRoomSize(groupType, headcount)} per room.`}
+                      aside={
+                        <span className="flex-shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[13px] font-bold tabular-nums text-slate-700">
+                          About {roomsNeeded} room{roomsNeeded === 1 ? '' : 's'}
+                        </span>
+                      }
+                    />
+                    <div role="radiogroup" aria-label="People per room" className="mt-4 grid grid-cols-4 gap-1.5 rounded-2xl bg-slate-50 p-1.5 ring-1 ring-slate-200">
+                      {[1, 2, 3, 4].map((n) => {
+                        const on = roomSize === n;
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            role="radio"
+                            aria-checked={on}
+                            onClick={() => setRoomSize(n)}
+                            className={`flex cursor-pointer flex-col items-center rounded-xl border-0 py-2.5 transition ${on ? 'bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/30' : 'bg-transparent text-slate-500 hover:bg-white/70'}`}
+                          >
+                            <span className="text-[17px] font-bold tabular-nums leading-none">{n}</span>
+                            <span className="mt-1 text-[11px] font-semibold">{n === 1 ? 'person' : 'people'}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 mb-4 shadow-sm">
-                    <div className="flex items-center gap-3 mb-3 pb-2.5 border-b border-[#02665e]/10">
-                      <div className="h-2 w-2 rounded-full bg-[#02665e] ring-[3px] ring-[#02665e]/15 flex-shrink-0" aria-hidden />
-                      <div>
-                        <div className="text-sm font-semibold text-slate-800">Dates</div>
-                        <div className="text-xs text-slate-500">Select check-in and check-out (nights shown when both set)</div>
-                      </div>
-                    </div>
-                    <div className="mt-2">
+                  <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                    <SectionHeader Icon={Calendar} title="When are you staying?" hint="Nights are counted once both dates are set." />
+                    <div className="mt-4">
                       {!useDates ? (
                         <div className="flex flex-col items-center gap-3 py-3">
                           <div className="flex items-center justify-center h-11 w-11 rounded-full bg-[#02665e]/10">
@@ -1443,7 +1553,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                               >
                                 <div className="text-[10px] font-semibold uppercase tracking-widest text-[#02665e]/70 mb-0.5">Check-in</div>
                                 <div className={["text-base font-bold", checkInIso ? "text-slate-800" : "text-slate-400"].join(" ")}>
-                                  {checkInIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(checkInIso)) : '—'}
+                                  {checkInIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(checkInIso)) : 'Add date'}
                                 </div>
                               </button>
                               {checkInPickerOpen && (
@@ -1473,7 +1583,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                               <button
                                 type="button"
                                 onClick={() => setCheckOutPickerOpen(true)}
-                                disabled={!checkInIso}
+                                suppressHydrationWarning disabled={!checkInIso}
                                 className={[
                                   "w-full text-left rounded-xl px-4 py-3 border-2 bg-white transition-all duration-200",
                                   checkOutIso ? "border-[#02665e]/30 shadow-sm" : "border-slate-200 hover:border-[#02665e]/40",
@@ -1482,7 +1592,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                               >
                                 <div className="text-[10px] font-semibold uppercase tracking-widest text-[#02665e]/70 mb-0.5">Check-out</div>
                                 <div className={["text-base font-bold", checkOutIso ? "text-slate-800" : "text-slate-400"].join(" ")}>
-                                  {checkOutIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(checkOutIso)) : '—'}
+                                  {checkOutIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(checkOutIso)) : 'Add date'}
                                 </div>
                               </button>
                               {checkOutPickerOpen && (
@@ -1536,18 +1646,10 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   </div>
 
                     {/* Arrangements: group-level options for Step 2 */}
-                    <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 mb-4 shadow-sm">
-                      {/* Header with explanation */}
-                      <div className="flex items-start gap-3 pb-3 mb-3 border-b border-[#02665e]/10">
-                        <div className="h-2 w-2 rounded-full bg-[#02665e] ring-[3px] ring-[#02665e]/15 flex-shrink-0 mt-1.5" aria-hidden />
-                        <div>
-                          <div className="text-sm font-semibold text-slate-800">Add-on Arrangements</div>
-                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                            These are <span className="font-medium text-slate-700">optional extras</span> we can coordinate for your group, such as airport transfers, meals, a local guide, or equipment hire. Select everything you need so we can include it in your quote.
-                          </p>
-                        </div>
+                    <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 mb-4">
+                      <div className="mb-4">
+                        <SectionHeader Icon={Sparkles} title="Extras" hint="Optional. Pick anything you want owners to include in their offer." />
                       </div>
-
                       {/* Selected count pill */}
                       {[arrPickup, arrTransport, arrMeals, arrGuide, arrEquipment].filter(Boolean).length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mb-3">
@@ -1619,31 +1721,6 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
               {currentStep === 3 && (
                 <div className="space-y-4">
-                  {/* Hero header */}
-                  <div className="relative overflow-hidden rounded-2xl p-5 sm:p-6"
-                    style={{ background: "linear-gradient(135deg, #02665e 0%, #034d47 100%)" }}>
-                    <div className="pointer-events-none absolute -top-6 -right-6 h-32 w-32 rounded-full opacity-10"
-                      style={{ background: "radial-gradient(circle, #fff, transparent 70%)" }} />
-                    <div className="pointer-events-none absolute -bottom-4 -left-4 h-24 w-24 rounded-full opacity-10"
-                      style={{ background: "radial-gradient(circle, #fff, transparent 70%)" }} />
-                    <div className="relative flex items-start gap-4">
-                      <div className="h-11 w-11 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center flex-shrink-0">
-                        <Users className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/60 mb-0.5">Step 3</p>
-                        <h4 className="text-base sm:text-lg font-bold text-white leading-snug">Passenger Roster</h4>
-                        <p className="mt-1.5 text-xs sm:text-sm text-white/70 leading-relaxed max-w-lg">
-                          Upload your group passenger list so we can plan rooms and logistics. Download the template, fill it in Excel or Google Sheets, then upload the CSV.
-                        </p>
-                        <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/50">
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          Optional — you can continue without it
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* 3-step mini guide */}
                   <div className="grid grid-cols-3 gap-2 sm:gap-3">
                     {[
@@ -1651,7 +1728,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       { n: '2', title: 'Fill in Excel',     desc: "One passenger per row. Don't rename columns" },
                       { n: '3', title: 'Upload CSV',        desc: 'Export as CSV then upload below' },
                     ].map(({ n, title, desc }) => (
-                      <div key={n} className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-3 shadow-sm">
+                      <div key={n} className="rounded-xl border border-solid border-slate-200 bg-white p-3 shadow-sm">
                         <div className="flex items-center gap-2 mb-1.5">
                           <div className="h-6 w-6 rounded-full bg-[#02665e] flex items-center justify-center text-xs font-bold text-white flex-shrink-0">{n}</div>
                           <p className="text-xs font-semibold text-slate-800 leading-tight">{title}</p>
@@ -1664,7 +1741,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                   {/* Template + Upload side by side */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {/* Template card */}
-                    <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 shadow-sm">
+                    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
                       <div className="flex items-start justify-between gap-3 mb-3 pb-3 border-b border-[#02665e]/10">
                         <div>
                           <p className="text-sm font-semibold text-slate-800">CSV Template</p>
@@ -1691,7 +1768,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                     </div>
 
                     {/* Upload card */}
-                    <div className="rounded-xl border border-[#02665e]/10 bg-gradient-to-br from-white to-emerald-50/30 p-4 shadow-sm">
+                    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
                       <p className="text-sm font-semibold text-slate-800 mb-0.5">Upload Roster</p>
                       <p className="text-xs text-slate-500 mb-3">Select your filled-in CSV file</p>
 
@@ -1737,7 +1814,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
                   {/* Imported roster preview */}
                   {roster.length ? (
-                    <div className="rounded-xl border border-[#02665e]/15 bg-gradient-to-br from-white to-emerald-50/20 p-4 shadow-sm">
+                    <div className="rounded-xl border border-solid border-slate-200 bg-white p-4 shadow-sm">
                       <div className="flex items-center justify-between gap-3 mb-3 pb-2.5 border-b border-[#02665e]/10">
                         <div className="flex items-center gap-2">
                           <div className="h-6 w-6 rounded-full bg-[#02665e] flex items-center justify-center">
@@ -1770,7 +1847,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                               <tr key={i} className="hover:bg-slate-50 transition-colors">
                                 {templateColumns.map((col, ci) => {
                                   const key = col.replace(/\s+/g, '').toLowerCase();
-                                  return <td key={ci} className="px-3 py-2 text-slate-700 whitespace-nowrap">{r[key] ?? '—'}</td>;
+                                  return <td key={ci} className="px-3 py-2 text-slate-700 whitespace-nowrap">{r[key] ?? ''}</td>;
                                 })}
                               </tr>
                             ))}
@@ -1784,15 +1861,6 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
 
               {currentStep === 4 && (
                 <div className="space-y-4">
-                  {/* Header */}
-                  <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg p-4 border border-emerald-100">
-                    <h4 className="text-lg font-semibold text-emerald-900 flex items-center gap-2">
-                      <Check className="w-5 h-5 text-emerald-600" />
-                      Review Your Booking
-                    </h4>
-                    <p className="text-xs text-emerald-700 mt-1">Please verify all details before creating your block booking</p>
-                  </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Group Details */}
                     <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm hover:shadow-md transition-shadow">
@@ -1803,7 +1871,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       <div className="space-y-2">
                         <div className="flex justify-between items-center py-1">
                           <span className="text-xs text-slate-500">Type</span>
-                          <span className="text-sm font-medium text-slate-900">{groupType || '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{groupType || 'Not set'}</span>
                         </div>
                         <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                           <span className="text-xs text-slate-500">Headcount</span>
@@ -1811,12 +1879,12 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                         </div>
                         <div className="flex justify-between items-center py-1">
                           <span className="text-xs text-slate-500">Accommodation</span>
-                          <span className="text-sm font-medium text-slate-900">{accommodationType || '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{accommodationType || 'Not set'}</span>
                         </div>
                         {accommodationType === 'hotel' ? (
                           <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                             <span className="text-xs text-slate-500">Hotel rating</span>
-                            <span className="text-sm font-medium text-slate-900">{minHotelStarLabel || '—'}</span>
+                            <span className="text-sm font-medium text-slate-900">{minHotelStarLabel || 'Not set'}</span>
                           </div>
                         ) : null}
                       </div>
@@ -1829,26 +1897,26 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                         <div className="flex justify-between items-center py-1">
                           <span className="text-xs text-slate-500">Country</span>
                           <span className="text-sm font-medium text-slate-900">
-                            {fromCountry ? COUNTRIES.find(c => c.value === fromCountry)?.label || fromCountry : '—'}
+                            {fromCountry ? COUNTRIES.find(c => c.value === fromCountry)?.label || fromCountry : 'Not set'}
                           </span>
                         </div>
                         {isTanzaniaSelected && (
                           <>
                             <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                               <span className="text-xs text-slate-500">Region</span>
-                              <span className="text-sm font-medium text-slate-900">{fromRegion ? getRegionName(fromRegion) : '—'}</span>
+                              <span className="text-sm font-medium text-slate-900">{fromRegion ? getRegionName(fromRegion) : 'Not set'}</span>
                             </div>
                             <div className="flex justify-between items-center py-1">
                               <span className="text-xs text-slate-500">District</span>
-                              <span className="text-sm font-medium text-slate-900">{fromDistrict || '—'}</span>
+                              <span className="text-sm font-medium text-slate-900">{fromDistrict || 'Not set'}</span>
                             </div>
                             <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                               <span className="text-xs text-slate-500">Ward</span>
-                              <span className="text-sm font-medium text-slate-900">{fromWard || '—'}</span>
+                              <span className="text-sm font-medium text-slate-900">{fromWard || 'Not set'}</span>
                             </div>
                             <div className="flex justify-between items-center py-1">
                               <span className="text-xs text-slate-500">Location</span>
-                              <span className="text-sm font-medium text-slate-900">{fromLocation || '—'}</span>
+                              <span className="text-sm font-medium text-slate-900">{fromLocation || 'Not set'}</span>
                             </div>
                           </>
                         )}
@@ -1861,19 +1929,19 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       <div className="space-y-2">
                         <div className="flex justify-between items-center py-1">
                           <span className="text-xs text-slate-500">Region</span>
-                          <span className="text-sm font-medium text-slate-900">{toRegion ? getRegionName(toRegion) : '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{toRegion ? getRegionName(toRegion) : 'Not set'}</span>
                         </div>
                         <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                           <span className="text-xs text-slate-500">District</span>
-                          <span className="text-sm font-medium text-slate-900">{toDistrict || '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{toDistrict || 'Not set'}</span>
                         </div>
                         <div className="flex justify-between items-center py-1">
                           <span className="text-xs text-slate-500">Ward</span>
-                          <span className="text-sm font-medium text-slate-900">{toWard || '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{toWard || 'Not set'}</span>
                         </div>
                         <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                           <span className="text-xs text-slate-500">Location</span>
-                          <span className="text-sm font-medium text-slate-900">{toLocation || '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{toLocation || 'Not set'}</span>
                         </div>
                       </div>
                     </div>
@@ -1887,11 +1955,11 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                       <div className="space-y-2">
                         <div className="flex justify-between items-center py-1">
                           <span className="text-xs text-slate-500">Check-in</span>
-                          <span className="text-sm font-medium text-slate-900">{checkInIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkInIso)) : '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{checkInIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkInIso)) : 'Not set'}</span>
                         </div>
                         <div className="flex justify-between items-center py-1 bg-slate-50 px-2 rounded">
                           <span className="text-xs text-slate-500">Check-out</span>
-                          <span className="text-sm font-medium text-slate-900">{checkOutIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkOutIso)) : '—'}</span>
+                          <span className="text-sm font-medium text-slate-900">{checkOutIso ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(checkOutIso)) : 'Not set'}</span>
                         </div>
                         {checkInIso && checkOutIso && (
                           <div className="flex justify-between items-center py-1">
@@ -2065,69 +2133,78 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
                 </div>
               )}
               </div>
-            </div>
-          </div>
 
-          
-          <div className="mt-4 flex items-center justify-end gap-2">
-            {currentStep > 1 ? (
-              <button type="button" onClick={() => setCurrentStep((s) => s - 1)} className="px-3 py-2 bg-white border rounded-lg shadow-sm transition transform hover:-translate-y-0.5 active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-emerald-200 inline-flex items-center gap-2">
-                <ChevronLeft className="w-4 h-4 text-slate-700" aria-hidden />
-                <span className="text-sm text-slate-700">Back</span>
-              </button>
-            ) : null}
+              {errors.length ? (
+                <div role="alert" aria-live="assertive" className="mt-5 flex items-start gap-2.5 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-700">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden />
+                  <div className="space-y-0.5">
+                    {errors.map((er, i) => <div key={i}>{er}</div>)}
+                  </div>
+                </div>
+              ) : null}
 
-            {currentStep < 4 ? (
-              <button
-                type="button"
-                onClick={() => {
-                  const ok = validateUpToStep(currentStep);
-                  if (!ok) return;
-                  setErrors([]);
-                  setCurrentStep((s) => s + 1);
-                }}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg shadow transition transform hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-emerald-300 inline-flex items-center gap-2"
-              >
-                <span className="text-sm">Next</span>
-                <ChevronRight className="w-4 h-4" aria-hidden />
-              </button>
-            ) : (
-              <>
-                <button type="button" onClick={() => { /* save draft local */ }} disabled={isCreating || !isFormComplete()} className="px-3 py-2 bg-slate-50 border rounded-lg transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed">Save draft</button>
-                <button 
-                  type="button" 
-                  onClick={() => { if (GATE_ENABLED) { setShowComingSoon(true); } else { _handleCreate(); } }}
-                  disabled={isCreating || !isFormComplete()}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg shadow transition transform hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-emerald-300 inline-flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
-                  title={!isFormComplete() ? 'Please fill all required fields' : ''}
+              {/* Action bar */}
+              <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 sm:px-5">
+                <button
+                  type="button"
+                  onClick={() => goToStep(Math.max(1, currentStep - 1))}
+                  suppressHydrationWarning disabled={currentStep === 1}
+                  className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-transparent px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  {isCreating ? (
-                    <>
-                      <Spinner size="sm" ariaLabel="Creating block booking" />
-                      <span className="text-sm">Creating...</span>
-                    </>
-                  ) : showSuccess ? (
-                    <>
-                      <Check className="w-4 h-4" aria-hidden />
-                      <span className="text-sm">Created!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" aria-hidden />
-                      <span className="text-sm">Create Block</span>
-                    </>
-                  )}
+                  <ArrowLeft className="h-4 w-4" aria-hidden /> Back
                 </button>
-              </>
-            )}
-          </div>
 
-          
-          {errors.length ? (
-            <div role="alert" aria-live="assertive" className="mt-3 text-sm text-rose-600">
-              {errors.map((er,i) => <div key={i}>{er}</div>)}
+                {hasSavedDraft ? (
+                  <span className="hidden items-center gap-2 text-[12px] text-slate-400 sm:inline-flex">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" aria-hidden />
+                    Draft saved on this device
+                    <button
+                      type="button"
+                      onClick={clearSavedDraft}
+                      aria-label="Clear saved draft"
+                      title="Clear saved draft"
+                      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </span>
+                ) : null}
+
+                {currentStep < 4 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!validateUpToStep(currentStep)) return;
+                      goToStep(currentStep + 1);
+                    }}
+                    className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47]"
+                  >
+                    {currentStep === 3 && roster.length === 0 ? 'Skip for now' : 'Continue'}
+                    <ArrowRight className="h-4 w-4" aria-hidden />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { if (GATE_ENABLED) { setShowComingSoon(true); } else { _handleCreate(); } }}
+                    suppressHydrationWarning disabled={isCreating || !isFormComplete()}
+                    title={!isFormComplete() ? 'Fill in all required fields first' : ''}
+                    className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-full border-0 bg-[#02665e] px-6 text-sm font-bold text-white transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {isCreating ? (
+                      <>
+                        <Spinner size="sm" ariaLabel="Sending your request" />
+                        Sending…
+                      </>
+                    ) : (
+                      <>
+                        <Megaphone className="h-4 w-4" aria-hidden /> Send to owners
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
-          ) : null}
+          </div>
 
           <style jsx>{`
             .stepContentTransition {
@@ -2150,7 +2227,7 @@ export default function GroupStaysCard({ onCloseAction }: { onCloseAction?: () =
               }
             }
           `}</style>
-        </article>
+        </div>
       </div>
     </section>
   );

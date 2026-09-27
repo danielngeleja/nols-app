@@ -90,6 +90,7 @@ const EXPERIENCE_LEVELS = ["ENTRY", "MID", "SENIOR", "LEAD"];
 
 export default function CareersManagement() {
   const searchParams = useSearchParams();
+  const requestedApplicationId = Number(searchParams?.get("applicationId") || 0);
   const apiBase = typeof window === 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000")
     : '';
@@ -133,9 +134,9 @@ export default function CareersManagement() {
 
   useEffect(() => {
     const tab = String(searchParams?.get("tab") || "").toLowerCase();
-    if (tab === "applications") setActiveTab("applications");
+    if (tab === "applications" || (Number.isInteger(requestedApplicationId) && requestedApplicationId > 0)) setActiveTab("applications");
     if (tab === "jobs") setActiveTab("jobs");
-  }, [searchParams]);
+  }, [searchParams, requestedApplicationId]);
 
   const [formData, setFormData] = useState<JobFormData>({
     title: "",
@@ -188,6 +189,29 @@ export default function CareersManagement() {
       setApplicationsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!Number.isInteger(requestedApplicationId) || requestedApplicationId <= 0) return;
+
+    const controller = new AbortController();
+    const loadRequestedApplication = async () => {
+      try {
+        const url = `${apiBase.replace(/\/$/, '')}/api/admin/careers/applications/${requestedApplicationId}`;
+        const response = await fetch(url, { credentials: 'include', signal: controller.signal });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.error || `Failed to load application: ${response.status}`);
+        }
+        setViewingApplication(data);
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
+        setError(error?.message || 'Failed to load application');
+      }
+    };
+
+    void loadRequestedApplication();
+    return () => controller.abort();
+  }, [apiBase, requestedApplicationId]);
 
   const loadContractWorkflow = useCallback(async (applicationId: number) => {
     setContractWorkflowLoading(true);
