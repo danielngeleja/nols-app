@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, FileText, DollarSign, Building2, Calendar, CheckCircle2, Clock, Receipt, CreditCard, AlertCircle, ShieldCheck, Send } from "lucide-react";
+import { ArrowLeft, FileText, Building2, Calendar, CheckCircle2, Clock, Receipt, AlertCircle, ShieldCheck, Send } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
@@ -73,6 +73,7 @@ export default function Page(){
   const [overrideTax, setOverrideTax] = useState<string>("");
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const [openAction, setOpenAction] = useState<"verify" | "approve" | null>(null);
   
   const defaultVerificationMessage = "Invoice verified and approved for processing.";
 
@@ -104,6 +105,7 @@ export default function Page(){
       await api.post(`/api/admin/revenue/invoices/${id}/verify`, { notes: verificationNotes });
       await load();
       setNotes("");
+      setOpenAction(null);
       setActionMessage({ type: "success", text: "Invoice verified successfully." });
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
@@ -124,6 +126,7 @@ export default function Page(){
       });
       await load();
       setOverrideTax("");
+      setOpenAction(null);
       setActionMessage({ type: "success", text: "Invoice approved successfully." });
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
@@ -131,46 +134,6 @@ export default function Page(){
     } finally {
       setActionLoading(false);
     }
-  }
-  function getStatusBadge(status: string, invoice?: Inv | null) {
-    const statusLower = status.toLowerCase();
-    if (statusLower === 'paid') {
-      return (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-100 text-green-800 text-sm font-medium">
-          <CheckCircle2 className="h-4 w-4" />
-          {paidStatusLabel(invoice)}
-        </span>
-      );
-    }
-    if (statusLower === 'approved') {
-      return (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-sm font-medium">
-          <CheckCircle2 className="h-4 w-4" />
-          {status}
-        </span>
-      );
-    }
-    if (statusLower === 'verified') {
-      return (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 text-blue-800 text-sm font-medium">
-          <CheckCircle2 className="h-4 w-4" />
-          {status}
-        </span>
-      );
-    }
-    if (statusLower === 'requested') {
-      return (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-yellow-100 text-yellow-800 text-sm font-medium">
-          <Clock className="h-4 w-4" />
-          {status}
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 text-gray-800 text-sm font-medium">
-        {status}
-      </span>
-    );
   }
 
   if (loading) {
@@ -231,554 +194,423 @@ export default function Page(){
   const linkedReceiptDisplay = String(related?.receiptNumber || related?.paymentRef || "").trim();
   const receiptDisplay = String(inv.receiptNumber || inv.paymentRef || linkedReceiptDisplay || "").trim();
 
+  const longDate = (iso?: string | null) =>
+    iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const timeOf = (iso?: string | null) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+  const validationRequired = inv.ownerValidation?.required !== false;
+  const isPaidOut = isSuccessfulCompletion;
+
+  const STATUS_LOOK: Record<string, { label: string; cls: string; Icon: typeof CheckCircle2 }> = {
+    REQUESTED: { label: "Requested", cls: "border-amber-200 bg-amber-50 text-amber-800", Icon: Clock },
+    VERIFIED: { label: "Verified", cls: "border-sky-200 bg-sky-50 text-sky-800", Icon: ShieldCheck },
+    APPROVED: { label: "Approved", cls: "border-emerald-200 bg-emerald-50 text-emerald-800", Icon: CheckCircle2 },
+    PAID: { label: paidStatusLabel(inv), cls: "border-emerald-300 bg-emerald-100 text-emerald-900", Icon: CheckCircle2 },
+    DISBURSED: { label: "Disbursed", cls: "border-emerald-300 bg-emerald-100 text-emerald-900", Icon: CheckCircle2 },
+  };
+  const look = STATUS_LOOK[normalizedStatus] ?? {
+    label: normalizedStatus ? normalizedStatus.charAt(0) + normalizedStatus.slice(1).toLowerCase().replace(/_/g, " ") : "Unknown",
+    cls: "border-neutral-200 bg-neutral-50 text-neutral-700",
+    Icon: FileText,
+  };
+
+  // Owner payout claims walk five stages; customer payment invoices only two
+  const pipeline = isOwnerClaim
+    ? [
+        { key: "validated", label: "Owner validated", at: ownerValidatedAt, done: ownerValidated || !validationRequired },
+        { key: "requested", label: "Requested", at: inv.issuedAt, done: true },
+        { key: "verified", label: "Verified", at: inv.verifiedAt ?? null, done: Boolean(inv.verifiedAt) || ["VERIFIED", "APPROVED", "PAID", "DISBURSED"].includes(normalizedStatus) },
+        { key: "approved", label: "Approved", at: inv.approvedAt ?? null, done: Boolean(inv.approvedAt) || ["APPROVED", "PAID", "DISBURSED"].includes(normalizedStatus) },
+        { key: "paid", label: paidStatusLabel(inv), at: inv.paidAt ?? null, done: isPaidOut },
+      ]
+    : [
+        { key: "issued", label: "Issued", at: inv.issuedAt, done: true },
+        { key: "paid", label: "Paid", at: inv.paidAt ?? null, done: isPaidOut },
+      ];
+  const firstOpen = pipeline.findIndex((s) => !s.done);
+  let leadingDone = 0;
+  while (leadingDone < pipeline.length && pipeline[leadingDone].done) leadingDone += 1;
+
+  const scrollToActions = (which: "verify" | "approve") => {
+    setOpenAction(which);
+    window.setTimeout(() => document.getElementById("invoice-actions")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
+
+  const nextStep: { tone: "slate" | "amber" | "teal" | "green"; title: string; text: string; cta?: { label: string; run?: () => void; href?: string } } =
+    isPaidOut
+      ? { tone: "green", title: isOwnerClaim ? "Paid out to the owner" : "Paid by the customer", text: receiptDisplay ? `Receipt ${receiptDisplay}.` : "Nothing left to do." }
+      : isOwnerClaim && validationRequired && !ownerValidated
+        ? { tone: "amber", title: "Waiting for the owner", text: "The owner must validate the booking code before you can verify or approve this claim." }
+        : normalizedStatus === "REQUESTED"
+          ? { tone: "amber", title: "Verify this claim", text: "Owner validated. Check the booking and the amounts.", cta: { label: "Verify now", run: () => scrollToActions("verify") } }
+          : normalizedStatus === "VERIFIED"
+            ? { tone: "amber", title: "Approve the payout", text: "Verified and waiting for your approval.", cta: { label: "Approve now", run: () => scrollToActions("approve") } }
+            : normalizedStatus === "APPROVED"
+              ? { tone: "teal", title: "Send the payout", text: "Approved. Pay the owner through the AzamPay disbursement queue.", cta: { label: "Go to disbursements", href: `/admin/disbursements?sourceType=OWNER_INVOICE&sourceId=${inv.id}` } }
+              : { tone: "slate", title: look.label, text: "No action is needed on this invoice right now." };
+  const NEXT_TONES = {
+    slate: { box: "border-neutral-200 bg-neutral-50", eyebrow: "text-neutral-500", title: "text-neutral-900", text: "text-neutral-600", button: "border-neutral-300 text-neutral-800 hover:bg-white" },
+    amber: { box: "border-amber-200 bg-amber-50", eyebrow: "text-amber-700", title: "text-amber-950", text: "text-amber-800", button: "border-amber-300 text-amber-900 hover:bg-amber-100" },
+    teal: { box: "border-emerald-200 bg-emerald-50", eyebrow: "text-emerald-700", title: "text-emerald-950", text: "text-emerald-800", button: "border-emerald-300 text-emerald-900 hover:bg-emerald-100" },
+    green: { box: "border-emerald-200 bg-emerald-50", eyebrow: "text-emerald-700", title: "text-emerald-950", text: "text-emerald-800", button: "border-emerald-300 text-emerald-900 hover:bg-emerald-100" },
+  } as const;
+  const nextTone = NEXT_TONES[nextStep.tone];
+
+  const ownerShare = grossTotal > 0 ? Math.min(100, Math.round((baseAmount / grossTotal) * 100)) : 0;
+  const commissionShare = grossTotal > 0 ? Math.min(100 - ownerShare, Math.round((commissionAmount / grossTotal) * 100)) : 0;
+  const canVerify = normalizedStatus === "REQUESTED";
+  const canApprove = normalizedStatus === "VERIFIED" || normalizedStatus === "REQUESTED";
+  const blocked = isOwnerClaim && validationRequired && !ownerValidated;
+  const CARD = "min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]";
+  const payout = inv.ownerPayout;
+  const hasPayoutDetails = Boolean(payout?.payoutPreferred || payout?.bankAccountNumber || payout?.mobileMoneyNumber);
+
+  const history: Array<{ key: string; title: string; at: string; Icon: typeof CheckCircle2; by?: string | null; lines?: string[] }> = [
+    { key: "created", title: isOwnerClaim ? "Claim created" : "Invoice issued", at: inv.issuedAt, Icon: FileText },
+    ...(ownerValidatedAt ? [{ key: "validated", title: "Owner validated the booking", at: ownerValidatedAt, Icon: ShieldCheck, lines: inv.ownerValidation?.code?.status ? [`Code status: ${inv.ownerValidation.code.status.toLowerCase()}`] : [] }] : []),
+    ...(inv.verifiedAt ? [{ key: "verified", title: "Verified", at: inv.verifiedAt, Icon: CheckCircle2, by: inv.verifiedByUser ? inv.verifiedByUser.name || `User #${inv.verifiedByUser.id}` : null, lines: inv.notes ? [inv.notes] : [] }] : []),
+    ...(inv.approvedAt ? [{ key: "approved", title: "Approved", at: inv.approvedAt, Icon: CheckCircle2, by: inv.approvedByUser ? inv.approvedByUser.name || `User #${inv.approvedByUser.id}` : null }] : []),
+    ...(inv.paidAt
+      ? [{
+          key: "paid",
+          title: paidStatusLabel(inv),
+          at: inv.paidAt,
+          Icon: Receipt,
+          by: inv.paidByUser ? inv.paidByUser.name || `User #${inv.paidByUser.id}` : null,
+          lines: [
+            inv.paymentMethod ? `${completionLabel(inv)} method: ${inv.paymentMethod}` : "",
+            inv.accountNumber ? `Account: ${maskAccountNumber(inv.accountNumber)}` : "",
+            inv.paymentRef ? `Reference: ${inv.paymentRef}` : "",
+            inv.receiptNumber ? `Receipt: ${inv.receiptNumber}` : "",
+          ].filter(Boolean),
+        }]
+      : []),
+  ];
+
   return (
-    <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
-      {/* Header */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm overflow-hidden">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-            <Link
-              href="/admin/revenue"
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
-              title="Back to revenue"
-            >
-              <ArrowLeft className="h-5 w-5 text-gray-600" />
+    <div id="revenue-invoice" className="space-y-4 min-w-0 w-full">
+      {/* Preflight is disabled in this project; scope border-box so w-full pieces don't overflow */}
+      <style>{`#revenue-invoice, #revenue-invoice * { box-sizing: border-box; }`}</style>
+
+      {/* Hero */}
+      <section className={CARD}>
+        <div className="grid min-w-0 gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center">
+          <div className="min-w-0">
+            <Link href="/admin/revenue" className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-400 no-underline transition hover:text-emerald-700">
+              <ArrowLeft className="h-3 w-3" aria-hidden /> Revenue
             </Link>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
-                  <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-[#02665e]" />
-                </div>
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
-                  {inv.invoiceNumber ?? `Invoice #${inv.id}`}
-                </h1>
-              </div>
-              <div className="mt-2">
-                {getStatusBadge(inv.status, inv)}
-              </div>
-              <div className="mt-2 text-xs sm:text-sm text-gray-600">
-                Type: <span className="font-medium text-gray-800" title={invoiceTypeHint}>{invoiceTypeLabel}</span>
-              </div>
-              {tourCode && (
-                <div className="mt-2 inline-flex min-w-0 flex-col rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  <span className={`text-base sm:text-lg font-black tracking-wide break-words ${isSuccessfulCompletion ? "text-[#02665e]" : "text-gray-900"}`}>
-                    {tourCode}
-                  </span>
-                  {receiptDisplay ? (
-                    <span className="mt-0.5 text-sm font-semibold text-[#02665e] break-words">
-                      Receipt: {receiptDisplay}
-                    </span>
-                  ) : null}
-                </div>
-              )}
-              {related && (
-                <div className="mt-2 text-xs sm:text-sm text-gray-600">
-                  {isOwnerClaim ? "Customer payment invoice" : "Owner claim invoice"}:{" "}
-                  <Link href={`/admin/revenue/${related.id}`} className="text-[#02665e] hover:underline">
-                    {related.invoiceNumber ?? `Invoice #${related.id}`}
-                  </Link>{" "}
-                  <span className="text-gray-500">({String(related.status || "").toUpperCase() || "—"})</span>
-                </div>
-              )}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h1 className="m-0 break-all font-mono text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{inv.invoiceNumber ?? `Invoice #${inv.id}`}</h1>
+              <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-[11px] font-bold ${look.cls}`}>
+                <look.Icon className="h-3.5 w-3.5" aria-hidden /> {look.label}
+              </span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content - Invoice Details */}
-        <div className="lg:col-span-2 space-y-6 min-w-0">
-          {/* Invoice Information Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-            <div className="flex items-start gap-3 mb-4 sm:mb-6">
-              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <Receipt className="h-5 w-5 text-blue-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Invoice Information</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Property</div>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Building2 className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                      <span className="font-semibold text-sm text-gray-900 truncate">{inv.booking.property.title}</span>
-                    </div>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Issued Date</div>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                      <span className="font-semibold text-sm text-gray-900">
-                        {new Date(inv.issuedAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 ml-6 mt-0.5">
-                      {new Date(inv.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </div>
-                  </div>
-                  {tourCode ? (
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Tour Code</div>
-                      <div className={`text-lg font-black tracking-wide break-words ${isSuccessfulCompletion ? "text-[#02665e]" : "text-gray-900"}`}>
-                        {tourCode}
-                      </div>
-                      {receiptDisplay ? (
-                        <div className="mt-1 text-sm font-semibold text-[#02665e] break-words">
-                          Receipt: {receiptDisplay}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : receiptDisplay ? (
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Receipt Number</div>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Receipt className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                        <span className="font-semibold text-sm text-gray-900 truncate">{receiptDisplay}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="min-w-0"></div>
-                  )}
-                  {inv.paidAt ? (
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{paidStatusLabel(inv)} Date</div>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Calendar className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                        <span className="font-semibold text-sm text-gray-900">
-                          {new Date(inv.paidAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-500 ml-6 mt-0.5">
-                        {new Date(inv.paidAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="min-w-0"></div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Financial Details Card */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-            <div className="flex items-start gap-3 mb-4 sm:mb-6">
-              <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
-                <DollarSign className="h-5 w-5 text-amber-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Financial Details</h2>
-                <div className="space-y-3 sm:space-y-4">
-                  <div className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg min-w-0">
-                    <span className="text-xs sm:text-sm font-medium text-gray-700 truncate pr-2">Gross Amount</span>
-                    <span className="text-base sm:text-lg font-bold text-gray-900 flex-shrink-0">{fmt(baseAmount)}</span>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 sm:p-4 bg-blue-50 rounded-lg min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Commission</div>
-                      <div className="text-xs sm:text-sm font-semibold text-blue-900">{commissionPercent}%</div>
-                      <div className="text-base sm:text-lg font-bold text-blue-900 mt-1 break-words">{fmt(commissionAmount)}</div>
-                    </div>
-                    
-                    <div className="p-3 sm:p-4 bg-purple-50 rounded-lg min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Tax (on commission)</div>
-                      <div className="text-xs sm:text-sm font-semibold text-purple-900">{taxPercent}%</div>
-                      <div className="text-base sm:text-lg font-bold text-purple-900 mt-1 break-words">{fmt(taxAmount)}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 sm:p-4 bg-emerald-50 rounded-lg border-2 border-emerald-200 min-w-0">
-                    <span className="text-sm sm:text-base font-semibold text-emerald-900 truncate pr-2">
-                      {isOwnerClaimInvoice(inv) ? "Customer Paid Total" : "Total Paid"}
-                    </span>
-                    <span className="text-xl sm:text-2xl font-bold text-emerald-900 flex-shrink-0 break-words">{fmt(grossTotal)}</span>
-                  </div>
-
-                  {(inv.paymentMethod || inv.receiptNumber) && (
-                    <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 sm:gap-4">
-                      {inv.paymentMethod && (
-                        <div className="p-3 sm:p-4 bg-gray-50 rounded-lg min-w-0">
-                          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-                            {completionLabel(inv)} Method
-                          </div>
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CreditCard className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                            <span className="font-semibold text-xs sm:text-sm text-gray-900 truncate">{inv.paymentMethod}</span>
-                          </div>
-                          {inv.accountNumber && (
-                            <div className="mt-2 min-w-0">
-                              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Account</div>
-                              <span className="font-semibold text-xs sm:text-sm text-gray-900 font-mono break-words">
-                                {maskAccountNumber(inv.accountNumber)}
-                              </span>
-                            </div>
-                          )}
-                          {inv.paymentRef && (
-                            <div className="mt-2 min-w-0">
-                              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-                                {completionLabel(inv)} Reference
-                              </div>
-                              <span className="font-semibold text-xs sm:text-sm text-gray-900 break-words">{inv.paymentRef}</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {inv.receiptNumber && (
-                        <div className="p-3 sm:p-4 bg-gray-50 rounded-lg overflow-hidden">
-                          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Receipt QR</div>
-                          <div className="flex items-center justify-center min-h-[160px] bg-white">
-                            {inv.receiptQrDataUrl ? (
-                              /* eslint-disable-next-line @next/next/no-img-element */
-                              <img
-                                src={inv.receiptQrDataUrl}
-                                alt=""
-                                className="w-full max-w-[160px] sm:max-w-[192px] aspect-square object-contain [image-rendering:pixelated]"
-                              />
-                            ) : (
-                              <div className="text-center text-sm text-gray-500 px-4">
-                                Receipt QR unavailable
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Sidebar - Actions */}
-        <div className="space-y-4 sm:space-y-6 min-w-0">
-          <div className={`rounded-xl border p-4 sm:p-5 overflow-hidden ${ownerValidated ? 'border-emerald-200 bg-emerald-50/70' : 'border-amber-200 bg-amber-50/80'}`}>
-            <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${ownerValidated ? 'bg-emerald-100' : 'bg-amber-100'}`}>
-                {ownerValidated ? <ShieldCheck className="h-5 w-5 text-emerald-700" /> : <AlertCircle className="h-5 w-5 text-amber-700" />}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="text-base font-semibold text-gray-900">Owner validation</h3>
-                {ownerValidated ? (
-                  <>
-                    <p className="mt-1 text-sm text-emerald-900 font-medium">Validated</p>
-                    {ownerValidatedAt && (
-                      <p className="mt-1 text-xs text-emerald-800">
-                        {new Date(ownerValidatedAt).toLocaleDateString()} at {new Date(ownerValidatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-1 text-sm text-amber-900 font-medium">Owner validation required</p>
-                    <p className="mt-1 text-xs text-amber-800">Admin cannot verify or approve this invoice until the owner validates the booking code.</p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {actionMessage && (
-            <div className={`rounded-xl border p-4 overflow-hidden ${actionMessage.type === 'error' ? 'border-rose-200 bg-rose-50' : 'border-emerald-200 bg-emerald-50'}`}>
-              <div className="flex items-start gap-3">
-                <div className={`mt-0.5 ${actionMessage.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {actionMessage.type === 'error' ? <AlertCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                </div>
-                <p className={`text-sm ${actionMessage.type === 'error' ? 'text-rose-900' : 'text-emerald-900'}`}>{actionMessage.text}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Saved payout details */}
-          {(inv.ownerPayout?.payoutPreferred || inv.ownerPayout?.bankAccountNumber || inv.ownerPayout?.mobileMoneyNumber) && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900">Saved payout details</h3>
-                  {inv.ownerPayout?.payoutPreferred && (
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      Preferred: {inv.ownerPayout.payoutPreferred === 'MOBILE_MONEY' ? 'Mobile Money' : 'Bank'}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-                <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Bank</div>
-                  <div className="mt-0.5 font-semibold text-gray-900 break-words">{inv.ownerPayout?.bankName || 'Not provided'}</div>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Account number</div>
-                  <div className="mt-0.5 font-mono font-semibold text-gray-900 break-all">{inv.ownerPayout?.bankAccountNumber ? maskAccountNumber(inv.ownerPayout.bankAccountNumber) : 'Not provided'}</div>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                    Mobile money{inv.ownerPayout?.mobileMoneyProvider ? ` (${inv.ownerPayout.mobileMoneyProvider})` : ''}
-                  </div>
-                  <div className="mt-0.5 font-mono font-semibold text-gray-900 break-all">{inv.ownerPayout?.mobileMoneyNumber ? maskAccountNumber(inv.ownerPayout.mobileMoneyNumber) : 'Not provided'}</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Verify Action */}
-          {inv.status==="REQUESTED" && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="h-4 w-4 text-blue-600" />
-                </div>
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900">Verify</h3>
-              </div>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                    Verification Notes <span className="text-gray-400 font-normal">(optional)</span>
-                  </label>
-                  <textarea
-                    className="w-full min-h-[100px] px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none text-sm sm:text-base box-border cursor-pointer"
-                    placeholder="Click to auto-fill default verification message..."
-                    value={notes}
-                    onChange={e=>setNotes(e.target.value)}
-                    onClick={() => {
-                      if (!notes.trim()) {
-                        setNotes(defaultVerificationMessage);
-                      }
-                    }}
-                  />
-                </div>
-                <button
-                  className="w-full px-4 py-2.5 sm:py-3 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  onClick={verify}
-                  disabled={actionLoading || !ownerValidated}
+            <p className="m-0 mt-1 text-sm text-neutral-600" title={invoiceTypeHint}>
+              <span className="font-semibold text-neutral-800">{isOwnerClaim ? "Owner payout claim" : invoiceTypeLabel}</span>
+              {" for "}
+              <span className="font-semibold text-neutral-800">{inv.booking.property.title}</span>
+            </p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[12px]">
+              {tourCode ? (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-2 py-1 font-mono font-bold text-neutral-800">
+                  <Building2 className="h-3.5 w-3.5 text-neutral-400" aria-hidden /> {tourCode}
+                </span>
+              ) : null}
+              {related ? (
+                <Link
+                  href={`/admin/revenue/${related.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50/60 px-2 py-1 font-semibold text-emerald-800 no-underline transition hover:bg-emerald-50"
                 >
-                  {actionLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      Verifying...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Mark VERIFIED
-                    </>
-                  )}
-                </button>
-              </div>
+                  <Receipt className="h-3.5 w-3.5" aria-hidden />
+                  {isOwnerClaim ? "Customer payment" : "Owner claim"} {related.invoiceNumber ?? `#${related.id}`}
+                  <span className="text-emerald-700/70">· {String(related.status || "").toLowerCase() || "unknown"}</span>
+                </Link>
+              ) : null}
+              <span className="inline-flex items-center gap-1 text-neutral-500"><Calendar className="h-3.5 w-3.5" aria-hidden /> Issued {longDate(inv.issuedAt)}</span>
             </div>
-          )}
+          </div>
 
-          {/* Approve Action */}
-          {(inv.status==="VERIFIED" || inv.status==="REQUESTED") && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                </div>
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900">
-                  Approve
-                  <span className="block text-xs font-normal text-gray-500 mt-0.5">Override rates optional</span>
-                </h3>
-              </div>
-              <div className="space-y-3 sm:space-y-4">
-                <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                    Commission %
-                    <span className="text-gray-400 font-normal ml-1 text-xs">(property rate: {commissionPercent}%)</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-200 rounded-lg bg-gray-50 text-gray-700 text-sm sm:text-base box-border cursor-not-allowed"
-                    value={String(commissionPercent ?? 0)}
-                    readOnly
-                    disabled
-                  />
-                </div>
-                <div className="min-w-0">
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
-                    Tax %
-                    <span className="text-gray-400 font-normal ml-1 text-xs">
-                      (current: {taxPercent ? `${taxPercent}%` : '0%'})
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="w-full px-3 sm:px-4 py-2 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all text-sm sm:text-base box-border"
-                    placeholder={taxPercent ? `${taxPercent}%` : '0%'}
-                    value={overrideTax}
-                    onChange={e=>setOverrideTax(e.target.value)}
-                  />
-                </div>
-                <button
-                  className="w-full px-4 py-2.5 sm:py-3 bg-emerald-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-emerald-700 active:bg-emerald-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  onClick={approve}
-                  disabled={actionLoading || !ownerValidated}
-                >
-                  {actionLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      Approving...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-4 w-4" />
-                      Approve
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Mark Paid / Disbursed Action */}
-          {inv.status==="APPROVED" && (
-            <div className="min-w-0 overflow-hidden rounded-xl border border-emerald-100 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-5">
-              <div className="mb-3 flex min-w-0 items-start gap-3">
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50">
-                  <Send className="h-5 w-5 text-emerald-600" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="m-0 text-base font-semibold text-gray-900">Ready for payout</h3>
-                  <p className="m-0 mt-1 text-sm leading-5 text-gray-500">
-                    Verify the destination and send securely through AzamPay.
-                  </p>
-                </div>
-              </div>
-              <Link
-                href={`/admin/disbursements?sourceType=OWNER_INVOICE&sourceId=${inv.id}`}
-                className="box-border flex w-full max-w-full min-w-0 items-center justify-center gap-2 whitespace-normal rounded-lg bg-emerald-600 px-3 py-2.5 text-center text-sm font-medium leading-5 text-white no-underline shadow-sm transition-all duration-200 hover:bg-emerald-700 active:bg-emerald-800 sm:px-4"
-              >
-                <Send className="h-4 w-4 flex-shrink-0" />
-                <span className="min-w-0">Continue to Disbursements</span>
+          <div className={`min-w-0 rounded-xl border border-solid p-3.5 ${nextTone.box}`}>
+            <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${nextTone.eyebrow}`}>{nextStep.tone === "green" ? "Outcome" : "Next step"}</p>
+            <p className={`m-0 mt-1 text-[14px] font-bold leading-snug ${nextTone.title}`}>{nextStep.title}</p>
+            <p className={`m-0 mt-0.5 break-words text-[12px] leading-snug ${nextTone.text}`}>{nextStep.text}</p>
+            {nextStep.cta?.href ? (
+              <Link href={nextStep.cta.href} className={`mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold no-underline transition ${nextTone.button}`}>
+                {nextStep.cta.label} <Send className="h-3.5 w-3.5" aria-hidden />
               </Link>
-            </div>
-          )}
-
-          {/* Invoice History/Audit Trail */}
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-            <div className="flex items-center gap-3 mb-4 sm:mb-6">
-              <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
-                <Clock className="h-5 w-5 text-indigo-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Invoice History</h2>
-                <p className="text-xs sm:text-sm text-gray-500 mt-1">Audit trail of invoice status changes</p>
-              </div>
-            </div>
-            <div className="space-y-3 sm:space-y-4">
-              {/* Created */}
-              <div className="flex items-start gap-3 p-3 sm:p-4 bg-gray-50 rounded-lg border-l-4 border-gray-400">
-                <FileText className="h-4 w-4 text-gray-500 flex-shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-gray-900">Invoice Created</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    {new Date(inv.issuedAt).toLocaleDateString()} at {new Date(inv.issuedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Verified */}
-              {ownerValidatedAt && (
-                <div className="flex items-start gap-3 p-3 sm:p-4 bg-sky-50 rounded-lg border-l-4 border-sky-500">
-                  <ShieldCheck className="h-4 w-4 text-sky-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900">Owner Validated Booking</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {new Date(ownerValidatedAt).toLocaleDateString()} at {new Date(ownerValidatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </div>
-                    {inv.ownerValidation?.code?.status && (
-                      <div className="text-xs text-gray-500 mt-1">Code status: {inv.ownerValidation.code.status}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {inv.verifiedAt && (
-                <div className="flex items-start gap-3 p-3 sm:p-4 bg-blue-50 rounded-lg border-l-4 border-blue-500">
-                  <CheckCircle2 className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900">Verified</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {new Date(inv.verifiedAt).toLocaleDateString()} at {new Date(inv.verifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </div>
-                    {inv.verifiedByUser && (
-                      <div className="text-xs text-gray-500 mt-1">By: {inv.verifiedByUser.name || `User #${inv.verifiedByUser.id}`}</div>
-                    )}
-                    {inv.notes && (
-                      <div className="text-xs text-gray-600 mt-2 p-2 bg-white rounded border border-gray-200">
-                        <span className="font-medium">Notes:</span> {inv.notes}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Approved */}
-              {inv.approvedAt && (
-                <div className="flex items-start gap-3 p-3 sm:p-4 bg-emerald-50 rounded-lg border-l-4 border-emerald-500">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900">Approved</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {new Date(inv.approvedAt).toLocaleDateString()} at {new Date(inv.approvedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </div>
-                    {inv.approvedByUser && (
-                      <div className="text-xs text-gray-500 mt-1">By: {inv.approvedByUser.name || `User #${inv.approvedByUser.id}`}</div>
-                    )}
-                    {inv.invoiceNumber && (
-                      <div className="text-xs text-gray-600 mt-2">
-                        <span className="font-medium">Invoice #:</span> {inv.invoiceNumber}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Paid / Disbursed */}
-              {inv.paidAt && (
-                <div className="flex items-start gap-3 p-3 sm:p-4 bg-green-50 rounded-lg border-l-4 border-green-500">
-                  <Receipt className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900">{paidStatusLabel(inv)}</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {new Date(inv.paidAt).toLocaleDateString()} at {new Date(inv.paidAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </div>
-                    {inv.paidByUser && (
-                      <div className="text-xs text-gray-500 mt-1">By: {inv.paidByUser.name || `User #${inv.paidByUser.id}`}</div>
-                    )}
-                    {inv.paymentMethod && (
-                      <div className="text-xs text-gray-600 mt-2">
-                        <span className="font-medium">{completionLabel(inv)} Method:</span> {inv.paymentMethod}
-                      </div>
-                    )}
-                    {inv.accountNumber && (
-                      <div className="text-xs text-gray-600 mt-1">
-                        <span className="font-medium">Account:</span> <span className="font-mono">{maskAccountNumber(inv.accountNumber)}</span>
-                      </div>
-                    )}
-                    {inv.paymentRef && (
-                      <div className="text-xs text-gray-600 mt-1">
-                        <span className="font-medium">{completionLabel(inv)} Reference:</span> {inv.paymentRef}
-                      </div>
-                    )}
-                    {inv.receiptNumber && (
-                      <div className="text-xs text-gray-600 mt-1">
-                        <span className="font-medium">Receipt #:</span> {inv.receiptNumber}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            ) : nextStep.cta?.run ? (
+              <button type="button" onClick={nextStep.cta.run} className={`mt-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold transition ${nextTone.button}`}>
+                {nextStep.cta.label}
+              </button>
+            ) : null}
           </div>
+        </div>
+
+        {/* Pipeline */}
+        <ol
+          className="relative m-0 grid list-none border-0 border-t border-solid border-neutral-100 px-1 py-4 sm:px-5"
+          style={{ gridTemplateColumns: `repeat(${pipeline.length}, minmax(0, 1fr))` }}
+        >
+          <span className="absolute top-[30px] h-0.5 rounded-full bg-neutral-200" style={{ left: `${50 / pipeline.length}%`, right: `${50 / pipeline.length}%` }} aria-hidden />
+          <span
+            className="absolute top-[30px] h-0.5 rounded-full bg-emerald-600 transition-all duration-500"
+            style={{ left: `${50 / pipeline.length}%`, width: `${(Math.max(0, leadingDone - 1) / Math.max(1, pipeline.length - 1)) * (100 - 100 / pipeline.length)}%` }}
+            aria-hidden
+          />
+          {pipeline.map((stage, i) => {
+            const current = i === firstOpen;
+            return (
+              <li key={stage.key} className="relative flex min-w-0 flex-col items-center px-0.5 text-center">
+                <span
+                  className={[
+                    "inline-flex h-7 w-7 items-center justify-center rounded-full",
+                    stage.done ? "bg-emerald-600 text-white" : current ? "border-2 border-solid border-amber-400 bg-amber-50 text-amber-700" : "border-2 border-solid border-neutral-200 bg-white",
+                  ].join(" ")}
+                >
+                  {stage.done ? <CheckCircle2 className="h-4 w-4" aria-hidden /> : current ? <Clock className="h-3.5 w-3.5" aria-hidden /> : <span className="h-1.5 w-1.5 rounded-full bg-neutral-300" />}
+                </span>
+                <span className="mt-1.5 text-[12px] font-bold leading-tight text-neutral-800">{stage.label}</span>
+                <span className={`text-[11px] leading-tight ${current ? "text-amber-700" : "text-neutral-400"}`}>{stage.at && stage.done ? longDate(stage.at) : current ? "Waiting" : ""}</span>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-4">
+          {/* Money */}
+          <section className={CARD}>
+            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+              <h2 className="m-0 text-sm font-bold text-neutral-900">Money</h2>
+              <p className="m-0 mt-0.5 text-[12px] text-neutral-500">What the guest paid and how it splits</p>
+            </div>
+            <div className="p-4 sm:p-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="m-0 text-[11px] font-semibold text-neutral-500">{isOwnerClaim ? "Guest paid" : "Total paid"}</p>
+                  <p className="m-0 mt-0.5 text-2xl font-black tabular-nums tracking-tight text-neutral-950">{fmt(grossTotal)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="m-0 text-[11px] font-semibold text-neutral-500">Owner payout</p>
+                  <p className="m-0 mt-0.5 text-2xl font-black tabular-nums tracking-tight text-emerald-700">{fmt(baseAmount)}</p>
+                </div>
+              </div>
+              <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+                <span className="bg-emerald-600" style={{ width: `${ownerShare}%` }} />
+                <span className="bg-violet-500" style={{ width: `${commissionShare}%` }} />
+              </div>
+              <dl className="m-0 mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="rounded-xl bg-neutral-50/80 px-3 py-2.5">
+                  <dt className="flex items-center gap-1.5 text-[11px] font-semibold text-neutral-500"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden /> Owner</dt>
+                  <dd className="m-0 mt-0.5 text-sm font-black tabular-nums text-neutral-900">{fmt(baseAmount)}</dd>
+                  <dd className="m-0 text-[11px] text-neutral-400">{ownerShare}% of what the guest paid</dd>
+                </div>
+                <div className="rounded-xl bg-neutral-50/80 px-3 py-2.5">
+                  <dt className="flex items-center gap-1.5 text-[11px] font-semibold text-neutral-500"><span className="h-2 w-2 rounded-full bg-violet-500" aria-hidden /> NoLSAF commission</dt>
+                  <dd className="m-0 mt-0.5 text-sm font-black tabular-nums text-neutral-900">{fmt(commissionAmount)}</dd>
+                  <dd className="m-0 text-[11px] text-neutral-400">{commissionPercent}% rate</dd>
+                </div>
+                <div className="rounded-xl bg-neutral-50/80 px-3 py-2.5">
+                  <dt className="text-[11px] font-semibold text-neutral-500">Tax on commission</dt>
+                  <dd className="m-0 mt-0.5 text-sm font-black tabular-nums text-neutral-900">{fmt(taxAmount)}</dd>
+                  <dd className="m-0 text-[11px] text-neutral-400">{taxPercent}% rate</dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
+          {/* Receipt */}
+          {isPaidOut && (inv.receiptNumber || inv.paymentRef || inv.paymentMethod) ? (
+            <section className={CARD}>
+              <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">{completionLabel(inv)} receipt</h2>
+                <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Proof of where the money went</p>
+              </div>
+              <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
+                {inv.receiptQrDataUrl ? (
+                  <div className="inline-flex self-start rounded-xl border border-solid border-neutral-200 bg-white p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={inv.receiptQrDataUrl} alt="" className="h-[150px] w-[150px] object-contain [image-rendering:pixelated]" />
+                  </div>
+                ) : null}
+                <dl className="m-0 min-w-0 space-y-2 text-[13px]">
+                  <div><dt className="text-[11px] font-semibold text-neutral-500">Amount</dt><dd className="m-0 font-black text-emerald-700">{fmt(isOwnerClaim ? baseAmount : grossTotal)}</dd></div>
+                  {inv.paymentMethod ? <div><dt className="text-[11px] font-semibold text-neutral-500">Method</dt><dd className="m-0 break-words font-semibold text-neutral-900">{inv.paymentMethod}{inv.accountNumber ? ` · ${maskAccountNumber(inv.accountNumber)}` : ""}</dd></div> : null}
+                  {inv.paymentRef ? <div><dt className="text-[11px] font-semibold text-neutral-500">Reference</dt><dd className="m-0 break-all font-mono font-semibold text-neutral-900">{inv.paymentRef}</dd></div> : null}
+                  {inv.receiptNumber ? <div><dt className="text-[11px] font-semibold text-neutral-500">Receipt</dt><dd className="m-0 break-all font-mono font-semibold text-neutral-900">{inv.receiptNumber}</dd></div> : null}
+                  {inv.paidAt ? <div><dt className="text-[11px] font-semibold text-neutral-500">Date</dt><dd className="m-0 font-semibold text-neutral-900">{longDate(inv.paidAt)}, {timeOf(inv.paidAt)}</dd></div> : null}
+                </dl>
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <div className="min-w-0 space-y-4">
+          {/* Actions */}
+          {!isPaidOut && isOwnerClaim ? (
+            <section id="invoice-actions" className={CARD}>
+              <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">Actions</h2>
+                <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Only what this claim allows right now</p>
+              </div>
+              <div className="space-y-2.5 p-4 sm:p-5">
+                {blocked ? (
+                  <p className="m-0 flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-[12.5px] text-amber-900">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                    <span>The owner hasn&apos;t validated the booking code yet. Verify and approve unlock once they do.</span>
+                  </p>
+                ) : null}
+
+                {actionMessage ? (
+                  <p role="status" className={`m-0 flex items-start gap-2 rounded-xl border border-solid px-3 py-2.5 text-[12.5px] ${actionMessage.type === "error" ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+                    {actionMessage.type === "error" ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />}
+                    <span>{actionMessage.text}</span>
+                  </p>
+                ) : null}
+
+                {(canVerify || canApprove) && !blocked ? (
+                  <>
+                    {!openAction ? (
+                      <div className="grid gap-2">
+                        {canVerify ? (
+                          <button type="button" onClick={() => setOpenAction("verify")} className="flex min-h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-3.5 py-2 text-[13px] font-bold text-white transition hover:bg-[#014d47]">
+                            <ShieldCheck className="h-4 w-4" aria-hidden /> Verify
+                          </button>
+                        ) : null}
+                        {canApprove ? (
+                          <button
+                            type="button"
+                            onClick={() => setOpenAction("approve")}
+                            className={canVerify
+                              ? "flex min-h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-[13px] font-bold text-neutral-700 transition hover:bg-neutral-50"
+                              : "flex min-h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-3.5 py-2 text-[13px] font-bold text-white transition hover:bg-[#014d47]"}
+                          >
+                            <CheckCircle2 className="h-4 w-4" aria-hidden /> {canVerify ? "Approve without verifying" : "Approve"}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : openAction === "verify" ? (
+                      <div className="space-y-2.5 rounded-xl border border-solid border-emerald-200 bg-emerald-50/50 p-3">
+                        <label htmlFor="invoice-verify-note" className="block text-[12.5px] font-bold text-neutral-800">
+                          Verification note <span className="font-normal text-neutral-500">(optional)</span>
+                        </label>
+                        <textarea
+                          id="invoice-verify-note"
+                          value={notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                          placeholder={defaultVerificationMessage}
+                          className="block min-h-[90px] w-full resize-y rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+                        />
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setOpenAction(null)} disabled={actionLoading} className="inline-flex min-h-9 flex-1 cursor-pointer items-center justify-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[12.5px] font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+                          <button type="button" onClick={() => void verify()} disabled={actionLoading} suppressHydrationWarning className="inline-flex min-h-9 flex-[2] cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3 text-[12.5px] font-bold text-white transition hover:bg-[#014d47] disabled:opacity-50">
+                            {actionLoading ? "Verifying…" : "Confirm verify"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 rounded-xl border border-solid border-emerald-200 bg-emerald-50/50 p-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="m-0 text-[11px] font-semibold text-neutral-500">Commission</p>
+                            <p className="m-0 mt-0.5 text-[13px] font-bold text-neutral-900">{commissionPercent}% <span className="font-normal text-neutral-400">property rate</span></p>
+                          </div>
+                          <div>
+                            <label htmlFor="invoice-tax-override" className="block text-[11px] font-semibold text-neutral-500">Tax % override</label>
+                            <input
+                              id="invoice-tax-override"
+                              type="number"
+                              step="0.01"
+                              value={overrideTax}
+                              onChange={(e) => setOverrideTax(e.target.value)}
+                              placeholder={`${taxPercent || 0}`}
+                              className="mt-0.5 block h-9 w-full rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-[13px] text-neutral-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+                            />
+                          </div>
+                        </div>
+                        <p className="m-0 text-[11px] text-neutral-500">Leave tax empty to keep the current {taxPercent || 0}%.</p>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setOpenAction(null)} disabled={actionLoading} className="inline-flex min-h-9 flex-1 cursor-pointer items-center justify-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[12.5px] font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+                          <button type="button" onClick={() => void approve()} disabled={actionLoading} suppressHydrationWarning className="inline-flex min-h-9 flex-[2] cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3 text-[12.5px] font-bold text-white transition hover:bg-[#014d47] disabled:opacity-50">
+                            {actionLoading ? "Approving…" : "Confirm approve"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : null}
+
+                {normalizedStatus === "APPROVED" ? (
+                  <Link
+                    href={`/admin/disbursements?sourceType=OWNER_INVOICE&sourceId=${inv.id}`}
+                    className="flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-3.5 py-2 text-[13px] font-bold text-white no-underline transition hover:bg-[#014d47]"
+                  >
+                    <Send className="h-4 w-4" aria-hidden /> Continue to disbursements
+                  </Link>
+                ) : null}
+
+                {!canVerify && !canApprove && normalizedStatus !== "APPROVED" && !blocked ? (
+                  <p className="m-0 rounded-xl bg-neutral-50 px-3 py-2.5 text-[12.5px] text-neutral-600">No action is available at this stage.</p>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          {/* Payout destination */}
+          {hasPayoutDetails ? (
+            <section className={CARD}>
+              <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">Payout destination</h2>
+                <p className="m-0 mt-0.5 text-[12px] text-neutral-500">
+                  Owner prefers {payout?.payoutPreferred === "MOBILE_MONEY" ? "mobile money" : payout?.payoutPreferred === "BANK" ? "bank transfer" : "no method yet"}
+                </p>
+              </div>
+              <dl className="m-0 space-y-2 p-4 text-[13px] sm:p-5">
+                {[
+                  { key: "BANK", label: payout?.bankName ? `Bank · ${payout.bankName}` : "Bank", value: payout?.bankAccountNumber ? maskAccountNumber(payout.bankAccountNumber) : null },
+                  { key: "MOBILE_MONEY", label: payout?.mobileMoneyProvider ? `Mobile money · ${payout.mobileMoneyProvider}` : "Mobile money", value: payout?.mobileMoneyNumber ? maskAccountNumber(payout.mobileMoneyNumber) : null },
+                ].map((row) => {
+                  const preferred = payout?.payoutPreferred === row.key;
+                  return (
+                    <div key={row.key} className={`flex min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2.5 ${preferred ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-neutral-50/80"}`}>
+                      <dt className="min-w-0 truncate text-[12px] text-neutral-600">
+                        {row.label}
+                        {preferred ? <span className="ml-1.5 rounded-full bg-emerald-600 px-1.5 py-px text-[10px] font-bold text-white">Preferred</span> : null}
+                      </dt>
+                      <dd className={`m-0 shrink-0 font-mono text-[12.5px] font-semibold ${row.value ? "text-neutral-900" : "text-neutral-400"}`}>{row.value || "Not provided"}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </section>
+          ) : null}
+
+          {/* History */}
+          <section className={CARD}>
+            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+              <h2 className="m-0 text-sm font-bold text-neutral-900">History</h2>
+              <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Every step this invoice went through</p>
+            </div>
+            <ol className="m-0 list-none p-4 sm:p-5">
+              {history.map((item, idx) => (
+                <li key={item.key} className="relative pb-4 pl-8 last:pb-0">
+                  {idx < history.length - 1 ? <span className="absolute bottom-0 left-[11px] top-7 w-px bg-neutral-200" aria-hidden /> : null}
+                  <span className="absolute left-0 top-0 flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200">
+                    <item.Icon className="h-3.5 w-3.5 text-neutral-500" aria-hidden />
+                  </span>
+                  <p className="m-0 text-[13px] font-bold text-neutral-900">{item.title}</p>
+                  <p className="m-0 mt-0.5 text-[11px] text-neutral-400">
+                    {longDate(item.at)}, {timeOf(item.at)}{item.by ? ` · ${item.by}` : ""}
+                  </p>
+                  {item.lines?.length ? (
+                    <div className="mt-1 space-y-0.5 rounded-lg bg-neutral-50 px-2.5 py-1.5 text-[11.5px] text-neutral-600">
+                      {item.lines.map((line) => <p key={line} className="m-0 break-words">{line}</p>)}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          </section>
         </div>
       </div>
     </div>
