@@ -3,7 +3,7 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { Prisma } from "@prisma/client";
 import { blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
-import { confirmedCustomerPayment } from "../services/payouts/eligibility.js";
+import { confirmedCustomerPaymentForBooking } from "../services/payouts/eligibility.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { makeQR } from "../lib/qr.js";
 import { allocateReceiptNumber } from "../lib/documentSequence.js";
@@ -252,7 +252,7 @@ router.post("/:id/approve", blockImpersonated as RequestHandler, async (req, res
   const id = Number(req.params.id);
   if (!(await requireOwnerValidatedForInvoice(id, res))) return;
   const me = (req as AuthedRequest).user?.id;
-  const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true, netPayable: true } });
+  const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, bookingId: true, invoiceNumber: true, netPayable: true } });
   if (!before) return res.status(404).json({ error: "Invoice not found" });
 
   const claimed = await prisma.invoice.updateMany({
@@ -269,7 +269,7 @@ router.post("/:id/approve", blockImpersonated as RequestHandler, async (req, res
   // Recorded, not enforced. An approval where nothing has been collected is
   // the shape of the unpaid-booking walk, and the audit row is where that
   // becomes reviewable after the fact.
-  const collected = await confirmedCustomerPayment(id, "TZS").catch(() => null);
+  const collected = await confirmedCustomerPaymentForBooking(before.bookingId, "TZS").catch(() => null);
 
   await invalidateOwnerReports(inv.ownerId); // invalidate cache for the owner
   if (me) {

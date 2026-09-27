@@ -52,42 +52,31 @@ export interface EligiblePayoutSource {
 /** Decimal comparison tolerance, matching the callback amount check in azampay/disbursement/contract.ts. */
 const AMOUNT_TOLERANCE = 0.01;
 const OWNER_INVOICE_PAYOUT_CURRENCY = "TZS";
+const CUSTOMER_INVOICE_PREFIX = "INV-";
 
 export class PaymentCurrencyMismatchError extends Error {
   constructor(
-    readonly invoiceId: number,
+    readonly paymentSource: string,
     readonly expectedCurrency: string,
     readonly receivedCurrencies: readonly string[]
   ) {
     super(
-      `Invoice ${invoiceId} has successful payment events in ${receivedCurrencies.join(", ")}, ` +
+      `${paymentSource} has successful payment events in ${receivedCurrencies.join(", ")}, ` +
         `but its payout currency is ${expectedCurrency}`
     );
     this.name = "PaymentCurrencyMismatchError";
   }
 }
 
-/**
- * How much confirmed customer money NoLSAF holds against one invoice.
- *
- * Reads PaymentEvent, not Invoice.status. Invoice.status is not evidence of
- * collection: POST /admin/invoices/:id/pay sets it to PAID with an
- * admin-supplied paymentRef and no provider confirmation, and the same PAID
- * value is also written at the END of the owner payout by
- * ledger.writeBackSourcePaid, so the column carries two opposite meanings.
- *
- * PaymentEvent rows are written only by the provider webhook and carry a
- * unique provider eventId, so no admin route can mint one. That is the
- * property this gate depends on.
- */
-export async function confirmedCustomerPayment(
-  invoiceId: number,
-  expectedCurrency: string
+async function sumConfirmedCustomerPayment(
+  where: Prisma.PaymentEventWhereInput,
+  expectedCurrency: string,
+  paymentSource: string
 ): Promise<Prisma.Decimal> {
   const normalizedExpected = expectedCurrency.trim().toUpperCase();
   const settledByCurrency = await prisma.paymentEvent.groupBy({
     by: ["currency"],
-    where: { invoiceId, status: "SUCCESS" },
+    where: { ...where, status: "SUCCESS" },
     _sum: { amount: true },
   });
 
@@ -96,7 +85,7 @@ export async function confirmedCustomerPayment(
     .filter((currency: string) => currency !== normalizedExpected);
   if (unexpectedCurrencies.length > 0) {
     throw new PaymentCurrencyMismatchError(
-      invoiceId,
+      paymentSource,
       normalizedExpected,
       [...new Set(unexpectedCurrencies)]
     );
@@ -110,10 +99,54 @@ export async function confirmedCustomerPayment(
     );
 }
 
+/**
+ * How much provider-confirmed customer money NoLSAF holds against one invoice.
+ *
+ * Reads PaymentEvent, not Invoice.status. PaymentEvent rows are written by the
+ * provider webhook and carry a unique provider eventId, so a mutable invoice
+ * status or an admin-supplied reference cannot manufacture collection evidence.
+ */
+export async function confirmedCustomerPayment(
+  invoiceId: number,
+  expectedCurrency: string
+): Promise<Prisma.Decimal> {
+  return sumConfirmedCustomerPayment(
+    { invoiceId },
+    expectedCurrency,
+    `Invoice ${invoiceId}`
+  );
+}
+
+/**
+ * How much customer money was confirmed for a marketplace accommodation
+ * booking. Customer checkout and owner payout intentionally use two different
+ * Invoice rows: INV-* receives the provider PaymentEvent, while OINV-* is the
+ * owner's claim and later becomes the OWNER_INVOICE disbursement source.
+ * Therefore an owner payout must resolve collection through bookingId rather
+ * than looking for a PaymentEvent on the OINV-* row itself.
+ */
+export async function confirmedCustomerPaymentForBooking(
+  bookingId: number,
+  expectedCurrency: string
+): Promise<Prisma.Decimal> {
+  return sumConfirmedCustomerPayment(
+    {
+      invoice: {
+        is: {
+          bookingId,
+          invoiceNumber: { startsWith: CUSTOMER_INVOICE_PREFIX },
+        },
+      },
+    },
+    expectedCurrency,
+    `Booking ${bookingId}`
+  );
+}
+
 async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: sourceId },
-    select: { id: true, ownerId: true, status: true, netPayable: true, total: true },
+    select: { id: true, ownerId: true, bookingId: true, status: true, netPayable: true, total: true },
   });
   if (!invoice) throw new PayoutIneligibleError("OWNER_INVOICE", sourceId, "invoice not found");
   if (invoice.status !== "APPROVED") {
@@ -137,14 +170,13 @@ async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource>
   }
 
   // Solvency gate: never pay out more than was actually collected for this
-  // booking. Approval alone is not evidence of payment — the invoice approve
-  // action is gated on the owner having validated a check-in code, which is a
-  // guest-arrival signal, and codes can be issued by an admin outside the
-  // payment path. Without this check an unpaid booking could be walked to an
-  // APPROVED invoice and settled out of NoLSAF's own float.
+  // booking. The owner claim is OINV-* while the provider-confirmed customer
+  // payment belongs to the separate INV-* row for the same booking. Following
+  // bookingId keeps the gate fail-closed without falsely reporting zero merely
+  // because the two legitimate records have different invoice IDs.
   let collected: Prisma.Decimal;
   try {
-    collected = await confirmedCustomerPayment(sourceId, OWNER_INVOICE_PAYOUT_CURRENCY);
+    collected = await confirmedCustomerPaymentForBooking(invoice.bookingId, OWNER_INVOICE_PAYOUT_CURRENCY);
   } catch (error) {
     if (error instanceof PaymentCurrencyMismatchError) {
       throw new PayoutIneligibleError("OWNER_INVOICE", sourceId, error.message);
