@@ -138,6 +138,31 @@ function ReviewMetric({ icon, label, value, note }: { icon: React.ReactNode; lab
   return <div className="rounded-xl bg-neutral-50 p-3 ring-1 ring-neutral-200"><div className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></div><p className="mb-0 mt-2 text-lg font-extrabold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
 }
 
+type AuditTone = "neutral" | "good" | "warn" | "bad";
+const AUDIT_TONE_ICON: Record<AuditTone, React.ReactNode> = {
+  neutral: null,
+  good: <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="OK" />,
+  warn: <AlertTriangle className="h-4 w-4 text-amber-600" aria-label="Needs review" />,
+  bad: <XCircle className="h-4 w-4 text-red-600" aria-label="Problem" />,
+};
+
+/** Night Audit summary tile: the corner mark says whether the figure is fine, not just what it is. */
+function AuditTile({ icon, label, value, note, tone = "neutral" }: { icon: React.ReactNode; label: string; value: string; note: string; tone?: AuditTone }) {
+  return <div className="min-w-0 rounded-xl bg-white p-3.5 ring-1 ring-neutral-200">
+    <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></span>{AUDIT_TONE_ICON[tone]}</div>
+    <p className="mb-0 mt-2 truncate text-lg font-extrabold tabular-nums text-neutral-950">{value}</p>
+    <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p>
+  </div>;
+}
+
+type AuditStepState = "done" | "current" | "blocked" | "pending";
+const AUDIT_STEP_SKIN: Record<AuditStepState, { bar: string; dot: string; label: string }> = {
+  done: { bar: "bg-emerald-600", dot: "bg-emerald-600 text-white", label: "text-neutral-900" },
+  current: { bar: "bg-sky-500", dot: "bg-sky-500 text-white", label: "text-neutral-900" },
+  blocked: { bar: "bg-red-500", dot: "bg-red-500 text-white", label: "text-red-800" },
+  pending: { bar: "bg-neutral-200", dot: "bg-neutral-200 text-neutral-500", label: "text-neutral-400" },
+};
+
 export default function FinanceControlPage() {
   const { selectedPropertyId } = useNrms();
   const router = useRouter();
@@ -359,7 +384,7 @@ export default function FinanceControlPage() {
     {/* Preflight is disabled app-wide, so `border-*` on a div paints nothing.
         Edges here are rings, and single-side rules are inset shadows. */}
     <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
-      <header className="flex flex-wrap items-start gap-x-5 gap-y-3 px-5 py-4">
+      <header className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><WalletCards className="h-5 w-5" /></span>
         <div className="min-w-[16rem] flex-1">
           <p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS financial control</p>
@@ -372,10 +397,10 @@ export default function FinanceControlPage() {
           {(() => {
             const state = BUSINESS_DAY_STATE[data?.businessDay.status ?? ""] ?? { label: "Unknown", skin: "bg-neutral-100 text-neutral-600 ring-neutral-200", note: "The state of this business day could not be read." };
             return (
-              <span title={state.note} className={`inline-flex min-h-10 cursor-help items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${loading ? "bg-neutral-100 text-neutral-500 ring-neutral-200" : state.skin}`}>
+              <span title={state.note} className={`inline-flex h-11 cursor-help items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${loading ? "bg-neutral-100 text-neutral-500 ring-neutral-200" : state.skin}`}>
                 <LockKeyhole className="h-4 w-4 shrink-0 opacity-70" />
                 <span className="flex flex-col leading-none">
-                  <span className="text-[10px] font-bold uppercase tracking-wide opacity-60">Business date</span>
+                  <span className="text-[9px] font-bold uppercase tracking-[0.1em] opacity-60">Business date</span>
                   <span className="mt-1">{loading ? "Checking" : state.label}</span>
                 </span>
               </span>
@@ -388,7 +413,7 @@ export default function FinanceControlPage() {
               disabled={!canManage}
               aria-expanded={editingAuditTime}
               title={canManage ? "Change the property's business-date cutoff" : "Only an owner or manager can change the Night Audit cutoff"}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl border-0 bg-white px-3 text-left text-neutral-800 ring-1 ring-neutral-200 transition enabled:cursor-pointer enabled:hover:bg-neutral-50 enabled:hover:ring-neutral-300 disabled:cursor-default"
+              className="inline-flex h-11 items-center gap-2 rounded-xl border-0 bg-white px-3 text-left text-neutral-800 ring-1 ring-neutral-200 transition enabled:cursor-pointer enabled:hover:bg-neutral-50 enabled:hover:ring-neutral-300 disabled:cursor-default"
             >
               <Clock3 className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
               <span className="flex flex-col leading-none"><span className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Audit cutoff</span><span className="mt-1 text-xs font-extrabold tabular-nums">{data?.nightAuditPolicy.closeTime ?? "20:00"} <span className="font-semibold text-neutral-400">EAT</span></span></span>
@@ -399,53 +424,57 @@ export default function FinanceControlPage() {
             const hasLedgerEntries = Boolean(data?.ledger.transactions.length);
             const balanced = hasLedgerEntries && Boolean(data?.ledger.balanced);
             const label = loading ? "Checking" : !hasLedgerEntries ? (data?.businessDay.status === "CLOSED" ? "No entries posted" : "Awaiting Night Audit") : balanced ? "Balanced" : "Review required";
-            return <span className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${balanced ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : hasLedgerEntries ? "bg-amber-50 text-amber-800 ring-amber-300" : "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>
+            return <span className={`inline-flex h-11 items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${balanced ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : hasLedgerEntries ? "bg-amber-50 text-amber-800 ring-amber-300" : "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>
               {balanced ? <CheckCircle2 className="h-4 w-4 shrink-0 opacity-70" /> : hasLedgerEntries ? <AlertTriangle className="h-4 w-4 shrink-0 opacity-70" /> : <BookOpen className="h-4 w-4 shrink-0 opacity-60" />}
-              <span className="flex flex-col leading-none"><span className="text-[10px] font-bold uppercase tracking-wide opacity-60">Ledger control</span><span className="mt-1">{label}</span></span>
+              <span className="flex flex-col leading-none"><span className="text-[9px] font-bold uppercase tracking-[0.1em] opacity-60">Ledger control</span><span className="mt-1">{label}</span></span>
             </span>;
           })()}
-          <button type="button" onClick={() => void load()} className="inline-flex h-10 appearance-none items-center gap-2 rounded-xl border-0 bg-white px-3.5 text-xs font-bold text-neutral-600 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+          <button type="button" onClick={() => void load()} className="inline-flex h-11 appearance-none items-center gap-2 rounded-xl border-0 bg-white px-3.5 text-xs font-bold text-neutral-600 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
       </header>
 
       {/* The two pickers scope everything below. They sat inside the same row
           as the status chips, with a wide gap between, so it was not obvious
           they were controls rather than more status. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-neutral-50/70 px-5 py-2.5 shadow-[inset_0_1px_0_0_#f1f5f9]">
+      {/* DatePickerField's own `border` falls back to the UA outset style with
+          preflight off, so inside this toolbar the picker is flattened and the
+          segmented wrapper draws the single ring. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-neutral-50/70 px-5 py-2.5 shadow-[inset_0_1px_0_0_#f1f5f9]">
         <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400"><CalendarCheck2 className="h-3.5 w-3.5" />Business date</span>
         {/* Reconciliation is done day by day, so stepping is the common move
             and it was only possible through the calendar popover. */}
-        <div className="flex items-center gap-1.5">
-          <button type="button" aria-label="Previous day" onClick={() => setBusinessDate(shiftDay(businessDate, -1))} className="flex h-9 w-9 appearance-none items-center justify-center rounded-lg border-0 bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><ChevronLeft className="h-4 w-4" /></button>
-          <div className="w-[148px]"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
-          <button type="button" aria-label="Next day" disabled={businessDate >= localDay()} onClick={() => setBusinessDate(shiftDay(businessDate, 1))} className="flex h-9 w-9 appearance-none items-center justify-center rounded-lg border-0 bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
-          {businessDate !== (tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate) && (
-            <button type="button" onClick={() => setBusinessDate(tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate)} className="h-9 appearance-none rounded-lg border-0 bg-white px-3 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-50">{tab === "cashiers" ? "Active business date" : "Latest closable day"}</button>
-          )}
-          {tab === "audit" && unclosedBusinessDays.length > 0 && (
-            <label className="relative flex h-9 items-center gap-2 rounded-lg bg-amber-50 px-2.5 text-amber-900 ring-1 ring-amber-200">
-              <Clock3 className="h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden />
-              <span className="pointer-events-none text-[9px] font-bold uppercase tracking-wide text-amber-700">Unclosed</span>
-              <select
-                aria-label="Choose an unclosed business date"
-                value={unclosedBusinessDays.some((openDay) => openDay.businessDate === businessDate) ? businessDate : ""}
-                onChange={(event) => { if (event.target.value) { setBusinessDate(event.target.value); setMonth(event.target.value.slice(0, 7)); } }}
-                className="h-full min-w-[142px] appearance-none border-0 bg-transparent pr-5 text-[11px] font-bold text-amber-950 outline-none"
-              >
-                <option value="">{unclosedBusinessDays.length} unclosed day{unclosedBusinessDays.length === 1 ? "" : "s"}</option>
-                {unclosedBusinessDays.map((openDay) => <option key={openDay.id} value={openDay.businessDate}>{dayLabel(openDay.businessDate)} · {openDay.status === "CLOSING" ? "Closing" : openDay.canClose ? "Ready" : "Waiting"}</option>)}
-              </select>
-              <ChevronRight className="pointer-events-none absolute right-2 h-3.5 w-3.5 rotate-90 text-amber-600" aria-hidden />
-            </label>
-          )}
+        <div className="flex h-9 items-stretch overflow-hidden rounded-lg bg-white ring-1 ring-neutral-200 focus-within:ring-emerald-300">
+          <button type="button" aria-label="Previous day" onClick={() => setBusinessDate(shiftDay(businessDate, -1))} className="flex w-9 appearance-none items-center justify-center border-0 bg-white text-neutral-500 transition hover:bg-emerald-50 hover:text-emerald-800"><ChevronLeft className="h-4 w-4" /></button>
+          <div className="w-[140px] shadow-[inset_1px_0_0_0_#e5e5e5,inset_-1px_0_0_0_#e5e5e5] [&_button]:!h-9 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
+          <button type="button" aria-label="Next day" disabled={businessDate >= localDay()} onClick={() => setBusinessDate(shiftDay(businessDate, 1))} className="flex w-9 appearance-none items-center justify-center border-0 bg-white text-neutral-500 transition hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"><ChevronRight className="h-4 w-4" /></button>
         </div>
+        {businessDate !== (tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate) && (
+          <button type="button" onClick={() => setBusinessDate(tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate)} className="inline-flex h-9 appearance-none items-center gap-1 rounded-lg border-0 bg-transparent px-2 text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-50"><RefreshCw className="h-3 w-3" />{tab === "cashiers" ? "Jump to active date" : "Jump to latest closable"}</button>
+        )}
         {["expenses", "ledger", "tax", "nbs"].includes(tab) && <>
           <span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden="true" />
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Reporting month</span>
-            <div className="w-[132px]"><DatePickerField label="Reporting month" value={`${month}-01`} onChangeAction={(next) => setMonth(next.slice(0, 7))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast display="month" /></div>
+            <div className="w-[132px] overflow-hidden rounded-lg bg-white ring-1 ring-neutral-200 [&_button]:!h-9 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold"><DatePickerField label="Reporting month" value={`${month}-01`} onChangeAction={(next) => setMonth(next.slice(0, 7))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast display="month" /></div>
           </div>
         </>}
+        {/* Pending closes are an alert, not a filter, so they sit apart on the right. */}
+        {tab === "audit" && unclosedBusinessDays.length > 0 && (
+          <label className="relative ml-auto flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-amber-50 pl-2.5 pr-8 text-amber-900 ring-1 ring-amber-200 transition hover:ring-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+            <select
+              aria-label="Choose an unclosed business date"
+              value={unclosedBusinessDays.some((openDay) => openDay.businessDate === businessDate) ? businessDate : ""}
+              onChange={(event) => { if (event.target.value) { setBusinessDate(event.target.value); setMonth(event.target.value.slice(0, 7)); } }}
+              style={{ appearance: "none", WebkitAppearance: "none", MozAppearance: "none", fontFamily: "inherit" }}
+              className="h-full cursor-pointer border-0 bg-transparent p-0 text-[11px] font-bold text-amber-950 outline-none"
+            >
+              <option value="">{unclosedBusinessDays.length} unclosed day{unclosedBusinessDays.length === 1 ? "" : "s"} to audit</option>
+              {unclosedBusinessDays.map((openDay) => <option key={openDay.id} value={openDay.businessDate}>{dayLabel(openDay.businessDate)} · {openDay.status === "CLOSING" ? "Closing" : openDay.canClose ? "Ready" : "Waiting"}</option>)}
+            </select>
+            <ChevronRight className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 rotate-90 text-amber-600" aria-hidden />
+          </label>
+        )}
       </div>
 
       {/* Six views were reachable only from the workspace sidebar, so the page
@@ -494,10 +523,14 @@ export default function FinanceControlPage() {
           <header className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-5 w-5" /></span>
             <div className="min-w-0 flex-1">
-              <h3 className="m-0 text-base font-bold text-neutral-900">Night Audit control centre</h3>
-              <p className="mb-0 mt-1 text-xs text-neutral-500">Review every recorded activity and closing outcome for {dayLabel(businessDate)} before locking the date.</p>
+              <h3 className="m-0 text-base font-bold text-neutral-900">Night Audit · {dayLabel(businessDate)}</h3>
+              <p className="mb-0 mt-1 text-xs text-neutral-500">Review every recorded activity and closing outcome before locking the date.</p>
             </div>
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE[data?.businessDay.status ?? "NOT_OPENED"]?.skin ?? "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>{BUSINESS_DAY_STATE[data?.businessDay.status ?? "NOT_OPENED"]?.label ?? "Unknown"}</span>
+            {data?.businessDay.status === "NOT_OPENED" ? (
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE.NOT_OPENED!.skin}`}>{BUSINESS_DAY_STATE.NOT_OPENED!.label}</span>
+            ) : (
+              <button type="button" onClick={() => setConfirmNightAudit(true)} disabled={busy || data?.businessDay.status === "CLOSING"} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ClipboardCheck className="h-4 w-4" />{data?.businessDay.status === "CLOSED" ? "View final report" : "Open full review"}</button>
+            )}
           </header>
 
           {data?.businessDay.status === "NOT_OPENED" ? (
@@ -506,26 +539,87 @@ export default function FinanceControlPage() {
               <div className="min-w-0 flex-1"><p className="m-0 text-sm font-bold text-neutral-800">No operating record for this date</p><p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">This date was never opened for hotel operations. Browsing it does not create an artificial financial close.{oldestUnclosedDay ? " Choose a recorded unclosed day instead." : " There are no recorded unclosed business days."}</p>{oldestUnclosedDay && <button type="button" onClick={() => { setBusinessDate(oldestUnclosedDay.businessDate); setMonth(oldestUnclosedDay.businessDate.slice(0, 7)); }} className="mt-3 h-9 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">Review oldest unclosed · {dayLabel(oldestUnclosedDay.businessDate)}</button>}</div>
             </div>
           ) : (
-            <div className="border-t border-neutral-100 p-4 sm:p-5">
-              <div className={`rounded-xl p-4 ring-1 ${data?.businessDay.status === "CLOSED" ? "bg-neutral-50 ring-neutral-200" : !canCloseSelectedDate ? "bg-sky-50 ring-sky-200" : data?.blockers.length ? "bg-red-50 ring-red-200" : "bg-emerald-50 ring-emerald-200"}`}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="m-0 text-sm font-bold text-neutral-900">{data?.businessDay.status === "CLOSED" ? "Completed and locked" : !canCloseSelectedDate ? "Operating until the configured boundary" : data?.blockers.length ? `${data.blockers.length} closing control${data.blockers.length === 1 ? "" : "s"} need attention` : "Ready for full closing review"}</p>
-                    <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">{data?.businessDay.status === "CLOSED" ? `Closed ${time(data.businessDay.closedAt)}` : !canCloseSelectedDate ? `This date becomes eligible after the ${data?.nightAuditPolicy.closeTime} EAT boundary. Next boundary: ${time(data?.nightAuditPolicy.nextCloseAt)}.` : data?.blockers.length ? "Open the review to see each blocker, the day's activity and the affected outcome." : "All blocking controls passed. Review operations, cash and proposed ledger entries before confirming."}</p>
+            (() => {
+              // One status reading drives the headline, the stepper and the tile marks,
+              // so the card cannot say "locked" in one place and "waiting" in another.
+              const status = data?.businessDay.status;
+              const closed = status === "CLOSED";
+              const closing = status === "CLOSING";
+              const blockerCount = data?.blockers.length ?? 0;
+              const warningCount = data?.warnings.length ?? 0;
+              const readyToClose = canCloseSelectedDate && !blockerCount;
+              const finalAudit = data?.businessDay.audits.find((audit) => audit.status === "CLOSED") ?? null;
+              const currency = data?.property.currency || "TZS";
+              const review = data?.nightAuditReview;
+              const closeTime = data?.nightAuditPolicy.closeTime ?? "20:00";
+
+              const headline = closed ? { icon: <LockKeyhole className="h-4 w-4" />, skin: "bg-neutral-900 text-white", title: "Completed and locked", detail: `Closed ${time(data?.businessDay.closedAt)}${finalAudit ? ` · Report ${finalAudit.reportNumber}` : ""}` }
+                : closing ? { icon: <Loader2 className="h-4 w-4 animate-spin" />, skin: "bg-amber-100 text-amber-800", title: "Night Audit is running", detail: "The ledger is posting. This date locks when the run finishes." }
+                : !canCloseSelectedDate ? { icon: <Clock3 className="h-4 w-4" />, skin: "bg-sky-100 text-sky-800", title: `Trading until the ${closeTime} EAT cutoff`, detail: `This date becomes eligible after the boundary. Next boundary: ${time(data?.nightAuditPolicy.nextCloseAt)}.` }
+                : blockerCount ? { icon: <AlertTriangle className="h-4 w-4" />, skin: "bg-red-100 text-red-700", title: `${blockerCount} closing control${blockerCount === 1 ? "" : "s"} need attention`, detail: "Open the review to see each blocker, the day's activity and the affected outcome." }
+                : { icon: <CheckCircle2 className="h-4 w-4" />, skin: "bg-emerald-100 text-emerald-800", title: "Ready to close", detail: `All blocking controls passed${warningCount ? `, ${warningCount} warning${warningCount === 1 ? "" : "s"} to acknowledge` : ""}. Review operations, cash and ledger entries before confirming.` };
+
+              const steps: Array<{ label: string; detail: string; state: AuditStepState }> = [
+                { label: "Day opened", detail: data?.businessDay.openedAt ? time(data.businessDay.openedAt) : "Trading started", state: "done" },
+                { label: `Cutoff ${closeTime} EAT`, detail: closed || canCloseSelectedDate ? "Boundary passed" : `Next ${time(data?.nightAuditPolicy.nextCloseAt)}`, state: closed || canCloseSelectedDate ? "done" : "current" },
+                { label: "Closing controls", detail: closed ? "All passed" : !canCloseSelectedDate ? "Checked after cutoff" : blockerCount ? `${blockerCount} blocking` : "All passed", state: closed ? "done" : !canCloseSelectedDate ? "pending" : blockerCount ? "blocked" : "done" },
+                { label: "Audit and lock", detail: closed ? time(data?.businessDay.closedAt) : closing ? "Running now" : readyToClose ? "Ready to run" : "Waiting", state: closed ? "done" : closing || readyToClose ? "current" : "pending" },
+              ];
+
+              const cashiers = review?.cashiers;
+              const ledger = review?.ledger;
+              return (
+                <div className="space-y-4 p-4 shadow-[inset_0_1px_0_0_#f1f5f9] sm:p-5">
+                  <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
+                    <div className="flex items-start gap-3">
+                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${headline.skin}`}>{headline.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="m-0 text-sm font-bold text-neutral-900">{headline.title}</p>
+                        <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">{headline.detail}</p>
+                      </div>
+                    </div>
+                    <ol className="m-0 mt-4 grid list-none grid-cols-2 gap-x-3 gap-y-4 p-0 lg:grid-cols-4" aria-label="Night Audit progress">
+                      {steps.map((step, index) => {
+                        const skin = AUDIT_STEP_SKIN[step.state];
+                        return (
+                          <li key={step.label} className="min-w-0" aria-current={step.state === "current" || step.state === "blocked" ? "step" : undefined}>
+                            <span className={`block h-1 rounded-full ${skin.bar}`} aria-hidden />
+                            <div className="mt-2.5 flex items-start gap-2">
+                              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${skin.dot}`}>{step.state === "done" ? <CheckCircle2 className="h-3.5 w-3.5" /> : step.state === "blocked" ? "!" : index + 1}</span>
+                              <div className="min-w-0">
+                                <p className={`m-0 truncate text-[11px] font-bold ${skin.label}`}>{step.label}</p>
+                                <p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-500">{step.detail}</p>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
                   </div>
-                  <button type="button" onClick={() => setConfirmNightAudit(true)} disabled={busy || data?.businessDay.status === "CLOSING"} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ClipboardCheck className="h-4 w-4" />{data?.businessDay.status === "CLOSED" ? "View final report" : "Open full review"}</button>
+
+                  {review && cashiers && ledger && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <AuditTile icon={<BedDouble className="h-3.5 w-3.5" />} label="Guest movement" value={`${review.operations.arrivals} in · ${review.operations.departures} out`} note={`${review.operations.inHouseAtReview} in house · ${review.operations.reservationsCreated} new reservation${review.operations.reservationsCreated === 1 ? "" : "s"}`} />
+                    <AuditTile icon={<WalletCards className="h-3.5 w-3.5" />} label="Cashier shifts" value={cashiers.total ? `${cashiers.signedOff}/${cashiers.total} signed off` : "No shifts"} note={cashiers.total ? `${cashiers.open} still open · ${cashiers.closed} closed` : "No cashier shift was recorded for this date"} tone={!cashiers.total ? "neutral" : cashiers.open || cashiers.signedOff !== cashiers.total ? "warn" : "good"} />
+                    <AuditTile icon={<Scale className="h-3.5 w-3.5" />} label="Cash variance" value={cash(cashiers.variance, currency)} note={cashiers.total ? `Expected ${cash(cashiers.expectedCash, currency)} · declared ${cash(cashiers.declaredCash, currency)}` : "No cash was counted"} tone={!cashiers.total ? "neutral" : cashiers.variance === 0 ? "good" : "warn"} />
+                    <AuditTile icon={<BookOpen className="h-3.5 w-3.5" />} label="Ledger" value={`${ledger.transactionCount} ${ledger.transactionCount === 1 ? "entry" : "entries"}`} note={`${ledger.balanced ? "Balanced" : "Not balanced"} · ${ledger.stockMovementsPosted} stock movement${ledger.stockMovementsPosted === 1 ? "" : "s"}`} tone={ledger.balanced ? "good" : "bad"} />
+                  </div>}
+
+                  {data && data.businessDay.audits.length > 0 && <div>
+                    <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Audit history</p>
+                    <ul className="m-0 mt-2 list-none overflow-hidden rounded-xl p-0 ring-1 ring-neutral-200">
+                      {data.businessDay.audits.map((audit, index) => (
+                        <li key={audit.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 bg-white px-3.5 py-2.5 text-[11px] ${index ? "shadow-[inset_0_1px_0_0_#f1f5f9]" : ""}`}>
+                          {audit.status === "CLOSED" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />}
+                          <span className="font-mono font-semibold text-neutral-800">{audit.reportNumber}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{codeLabel(audit.status)}</span>
+                          <span className="ml-auto tabular-nums text-neutral-500">{time(audit.completedAt || audit.startedAt)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>}
                 </div>
-              </div>
-
-              {data?.nightAuditReview && <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <ReviewMetric icon={<LogIn className="h-3.5 w-3.5" />} label="Arrivals" value={String(data.nightAuditReview.operations.arrivals)} note={`${data.nightAuditReview.operations.inHouseAtReview} guests currently in house`} />
-                <ReviewMetric icon={<LogOut className="h-3.5 w-3.5" />} label="Departures" value={String(data.nightAuditReview.operations.departures)} note={`${data.nightAuditReview.operations.reservationsCreated} reservations created`} />
-                <ReviewMetric icon={<WalletCards className="h-3.5 w-3.5" />} label="Cashier shifts" value={`${data.nightAuditReview.cashiers.signedOff}/${data.nightAuditReview.cashiers.total}`} note={`Signed off · variance ${cash(data.nightAuditReview.cashiers.variance, data?.property.currency || "TZS")}`} />
-                <ReviewMetric icon={<BookOpen className="h-3.5 w-3.5" />} label="Ledger outcome" value={String(data.nightAuditReview.ledger.transactionCount)} note={`${data.nightAuditReview.ledger.balanced ? "Balanced" : "Not balanced"} · ${data.nightAuditReview.ledger.stockMovementsPosted} stock movements`} />
-              </div>}
-
-              {data && data.businessDay.audits.length > 0 && <div className="mt-4 border-t border-neutral-100 pt-3"><p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Audit history</p><div className="mt-2 flex flex-wrap gap-2">{data.businessDay.audits.map((audit) => <span key={audit.id} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-semibold ring-1 ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{audit.reportNumber} · {audit.status} · {time(audit.completedAt || audit.startedAt)}</span>)}</div></div>}
-            </div>
+              );
+            })()
           )}
         </section>
 
