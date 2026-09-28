@@ -473,6 +473,11 @@ model Property {
   housekeepingDailyServiceTime     String    @default("11:00") @db.VarChar(5)
   housekeepingLastDailyServiceDate DateTime?
 
+  /// Property-controlled business-date boundary for Night Audit, in the NRMS
+  /// operating timezone. Before this HH:mm, activity remains on the preceding
+  /// business date; the day is never auto-closed and still requires review.
+  nrmsNightAuditCloseTime String @default("20:00") @db.VarChar(5)
+
   /// How guests pay the property directly for QR outlet orders: the hotel's
   /// own Lipa Namba, bank account, card-at-counter note and so on. Money never
   /// touches NoLSAF rails. Array of { label, value, name? }.

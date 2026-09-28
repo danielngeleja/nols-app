@@ -5,6 +5,7 @@
 
 export const SHIFT_ZONE = "Africa/Dar_es_Salaam";
 export const NRMS_BUSINESS_DAY_LOCKED = "NRMS_BUSINESS_DAY_LOCKED";
+export const DEFAULT_NIGHT_AUDIT_CLOSE_TIME = "20:00";
 
 export function shiftMoney(value: unknown): number {
   const parsed = Number(value ?? 0);
@@ -22,11 +23,50 @@ export function nextShiftDayKey(key: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Business date in the property's timezone, so a late-night shift books to the right day. */
-export function shiftDayKey(date: Date): string {
+function localClock(date: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: SHIFT_ZONE, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
+  const timeParts = new Intl.DateTimeFormat("en-GB", { timeZone: SHIFT_ZONE, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date);
+  const getTime = (type: Intl.DateTimeFormatPartTypes) => timeParts.find((part) => part.type === type)?.value ?? "00";
+  return { day: `${get("year")}-${get("month")}-${get("day")}`, minutes: Number(getTime("hour")) * 60 + Number(getTime("minute")) };
+}
+
+function closeMinutes(value: string): number {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return 1200;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 ? hours * 60 + minutes : 1200;
+}
+
+export function previousShiftDayKey(key: string): string {
+  const date = shiftDateOnly(key);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Hotel business date at a property-selected boundary. With a 20:00 close,
+ * 19:30 on 25 July still belongs to 24 July; 20:00 starts 25 July. This keeps
+ * late-night hotel operations together instead of forcing a midnight rollover.
+ */
+export function shiftDayKey(date: Date, closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME): string {
+  const local = localClock(date);
+  return local.minutes < closeMinutes(closeTime) ? previousShiftDayKey(local.day) : local.day;
+}
+
+export function nightAuditSchedule(date = new Date(), closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME) {
+  const local = localClock(date);
+  const activeBusinessDate = local.minutes < closeMinutes(closeTime) ? previousShiftDayKey(local.day) : local.day;
+  const latestClosableDate = previousShiftDayKey(activeBusinessDate);
+  const nextCloseDay = local.minutes < closeMinutes(closeTime) ? local.day : nextShiftDayKey(local.day);
+  return {
+    closeTime,
+    timezone: SHIFT_ZONE,
+    activeBusinessDate,
+    latestClosableDate,
+    nextCloseAt: new Date(`${nextCloseDay}T${closeTime}:00+03:00`),
+  };
 }
 
 export async function ensureBusinessDay(tx: any, propertyId: number, key: string, userId: number | null) {
@@ -44,8 +84,8 @@ export async function ensureBusinessDay(tx: any, propertyId: number, key: string
  * either completes before the audit snapshot or observes the sealed day and
  * fails.
  */
-export async function assertNrmsBusinessDayWritable(tx: any, propertyId: number, at?: Date): Promise<string> {
-  const key = shiftDayKey(at ?? new Date());
+export async function assertNrmsBusinessDayWritable(tx: any, propertyId: number, at?: Date, closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME): Promise<string> {
+  const key = shiftDayKey(at ?? new Date(), closeTime);
   const businessDay = await tx.nrmsBusinessDay.findUnique({
     where: { propertyId_businessDate: { propertyId, businessDate: shiftDateOnly(key) } },
     select: { businessDate: true, status: true },
@@ -63,19 +103,20 @@ export async function assertNrmsBusinessDayWritable(tx: any, propertyId: number,
     orderBy: { businessDate: "desc" },
     select: { businessDate: true, status: true },
   });
-  if (latest?.status === "OPEN") return shiftDayKey(latest.businessDate);
+  const latestKey = latest?.businessDate ? new Date(latest.businessDate).toISOString().slice(0, 10) : null;
+  if (latest?.status === "OPEN" && latestKey) return latestKey;
   if (latest?.status === "CLOSING") {
     throw new Error(NRMS_BUSINESS_DAY_LOCKED);
   }
-  const openKey = latest?.status === "CLOSED" ? nextShiftDayKey(shiftDayKey(latest.businessDate)) : key;
+  const openKey = latest?.status === "CLOSED" && latestKey ? nextShiftDayKey(latestKey) : key;
   const opened = await ensureBusinessDay(tx, propertyId, openKey, null);
   if (opened.status !== "OPEN") throw new Error(NRMS_BUSINESS_DAY_LOCKED);
   return openKey;
 }
 
-/** Local midnight of a business-day key. SHIFT_ZONE is fixed UTC+3, no DST. */
-export function shiftDayStart(key: string): Date {
-  return new Date(`${key}T00:00:00.000+03:00`);
+/** Property business-date boundary. SHIFT_ZONE is fixed UTC+3, no DST. */
+export function shiftDayStart(key: string, closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME): Date {
+  return new Date(`${key}T${closeTime}:00.000+03:00`);
 }
 
 /**

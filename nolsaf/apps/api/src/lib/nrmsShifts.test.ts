@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNrmsBusinessDayWritable, expectedCashForShift, nextShiftDayKey, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "./nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, expectedCashForShift, nextShiftDayKey, nightAuditSchedule, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "./nrmsShifts.js";
 
 describe("shiftMoney", () => {
   it("rounds to two decimals and coerces junk to zero", () => {
@@ -11,10 +11,28 @@ describe("shiftMoney", () => {
 });
 
 describe("shiftDayKey", () => {
-  it("uses the property timezone so a late-night close books to the local day", () => {
-    // 2026-07-24 22:30 UTC is already 2026-07-25 01:30 in Dar es Salaam (UTC+3).
-    expect(shiftDayKey(new Date("2026-07-24T22:30:00Z"))).toBe("2026-07-25");
-    expect(shiftDayKey(new Date("2026-07-24T10:00:00Z"))).toBe("2026-07-24");
+  it("keeps after-midnight activity on the prior business date until the configured close time", () => {
+    // 16:30 UTC is 19:30 EAT, before the default 20:00 hotel boundary.
+    expect(shiftDayKey(new Date("2026-07-24T16:30:00Z"))).toBe("2026-07-23");
+    expect(shiftDayKey(new Date("2026-07-24T17:00:00Z"))).toBe("2026-07-24");
+  });
+
+  it("uses a property-specific boundary", () => {
+    expect(shiftDayKey(new Date("2026-07-24T20:30:00Z"), "00:30")).toBe("2026-07-24");
+    expect(shiftDayKey(new Date("2026-07-24T21:30:00Z"), "00:30")).toBe("2026-07-25");
+  });
+});
+
+describe("nightAuditSchedule", () => {
+  it("does not make yesterday closable until the property's boundary", () => {
+    const before = nightAuditSchedule(new Date("2026-07-24T16:30:00Z"), "20:00");
+    expect(before.activeBusinessDate).toBe("2026-07-23");
+    expect(before.latestClosableDate).toBe("2026-07-22");
+    expect(before.nextCloseAt.toISOString()).toBe("2026-07-24T17:00:00.000Z");
+
+    const after = nightAuditSchedule(new Date("2026-07-24T17:15:00Z"), "20:00");
+    expect(after.activeBusinessDate).toBe("2026-07-24");
+    expect(after.latestClosableDate).toBe("2026-07-23");
   });
 });
 
@@ -28,7 +46,7 @@ describe("nextShiftDayKey", () => {
 describe("NRMS business-day write seal", () => {
   it("allows financial writes while the day is open", async () => {
     const tx = { nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ status: "OPEN" }) } };
-    await expect(assertNrmsBusinessDayWritable(tx, 3, new Date("2026-07-24T10:00:00Z"))).resolves.toBe("2026-07-24");
+    await expect(assertNrmsBusinessDayWritable(tx, 3, new Date("2026-07-24T10:00:00Z"))).resolves.toBe("2026-07-23");
   });
 
   it.each(["CLOSING", "CLOSED"])("rejects financial writes when the day is %s", async (status) => {

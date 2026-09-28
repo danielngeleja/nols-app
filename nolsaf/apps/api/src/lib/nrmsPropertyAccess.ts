@@ -37,6 +37,7 @@ export type NrmsPropertyAccess = {
     nrmsMenuPublic: boolean;
     housekeepingDailyServiceEnabled: boolean;
     housekeepingDailyServiceTime: string;
+    nrmsNightAuditCloseTime: string;
   };
   /**
    * The property's PAYG account, already loaded here to run the frozen and
@@ -74,6 +75,7 @@ export async function loadNrmsPropertyAccess(
       nrmsMenuPublic: true,
       housekeepingDailyServiceEnabled: true,
       housekeepingDailyServiceTime: true,
+      nrmsNightAuditCloseTime: true,
     },
   });
   if (!property) {

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, BadgeCheck, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ChevronLeft, ChevronRight, Loader2, LockKeyhole, Plus, Receipt, RefreshCw, Scale, WalletCards, XCircle } from "lucide-react";
+import { AlertTriangle, BadgeCheck, BedDouble, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ClipboardCheck, Loader2, LockKeyhole, LogIn, LogOut, Plus, Receipt, RefreshCw, Scale, Settings2, WalletCards, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
 import FiscalReceiptsCard from "../_components/FiscalReceiptsCard";
 import { serviceLabelForRole } from "../_components/ShiftPanel";
+import NrmsModalFrame from "../_components/NrmsModalFrame";
 
 type Tab = "audit" | "cashiers" | "expenses" | "ledger" | "tax" | "nbs";
 type ExpenseRow = { id: number; category: string; description: string; amount: number; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null; voidReason: string | null; createdAt: string };
@@ -21,8 +22,27 @@ type ShiftCloseSummary = {
 type Shift = { id: number; cashierName: string; assignment: { role: string; outletName: string | null } | null; handoverFromName: string | null; currency: string; status: string; openingFloat: number; liveExpectedCash: number; expectedCash: number; declaredCash: number | null; variance: number | null; closeNote: string | null; closeSummary: ShiftCloseSummary | null; openedAt: string; closedAt: string | null; ownerSignedOffAt: string | null; ownerSignedOffByName: string | null };
 type LedgerEntry = { id: number; accountCode: string; accountName: string; debit: number; credit: number };
 type LedgerTransaction = { id: number; transactionNumber: string; description: string; sourceType: string; currency: string; occurredAt: string; entries: LedgerEntry[] };
+type NightAuditReview = {
+  generatedAt: string;
+  window: { startedAt: string; through: string };
+  controls: { passed: boolean; blockers: Blocker[]; warnings: Blocker[] };
+  operations: { arrivals: number; departures: number; reservationsCreated: number; inHouseAtReview: number };
+  cashiers: { total: number; open: number; closed: number; signedOff: number; expectedCash: number; declaredCash: number; variance: number };
+  ledger: {
+    transactionCount: number;
+    stockMovementsPosted: number;
+    debitTotal: number;
+    creditTotal: number;
+    balanced: boolean;
+    bySource: Array<{ sourceType: string; count: number; debit: number; credit: number }>;
+    activities: Array<{ sourceType: string; description: string; currency: string; occurredAt: string; debit: number; credit: number }>;
+  };
+};
 type FinanceData = {
   property: { id: number; title: string; currency: string | null }; accessRole: "OWNER" | "MANAGER" | "FRONT_DESK"; businessDate: string; month: string;
+  nightAuditPolicy: { closeTime: string; timezone: string; activeBusinessDate: string; latestClosableDate: string; nextCloseAt: string; canCloseSelectedDate: boolean };
+  unclosedBusinessDays: Array<{ id: number; businessDate: string; status: "OPEN" | "CLOSING"; openedAt: string; canClose: boolean }>;
+  nightAuditReview: NightAuditReview | null;
   businessDay: { id: number | null; status: string; openedAt?: string; closedAt?: string | null; audits: Array<{ id: number; reportNumber: string; status: string; startedAt: string; completedAt: string | null; summary: any }> };
   blockers: Blocker[]; warnings: Blocker[]; shifts: Shift[];
   unassignedSales: { count: number; amount: number; byMethod: Array<{ method: string; count: number; amount: number }> };
@@ -110,6 +130,14 @@ function Metric({ label, value, note, tone = "neutral" }: { label: string; value
   return <div className={`min-w-0 rounded-xl p-4 ring-1 ${tone === "green" ? "ring-emerald-200 bg-emerald-50" : tone === "amber" ? "ring-amber-200 bg-amber-50" : "ring-neutral-200 bg-white"}`}><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
 }
 
+function codeLabel(value: string) {
+  return value.split("_").map((word) => word.charAt(0) + word.slice(1).toLowerCase()).join(" ");
+}
+
+function ReviewMetric({ icon, label, value, note }: { icon: React.ReactNode; label: string; value: string; note: string }) {
+  return <div className="rounded-xl bg-neutral-50 p-3 ring-1 ring-neutral-200"><div className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></div><p className="mb-0 mt-2 text-lg font-extrabold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
+}
+
 export default function FinanceControlPage() {
   const { selectedPropertyId } = useNrms();
   const router = useRouter();
@@ -128,6 +156,8 @@ export default function FinanceControlPage() {
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [confirmNightAudit, setConfirmNightAudit] = useState(false);
   const [acknowledgeFiscalBacklog, setAcknowledgeFiscalBacklog] = useState(false);
+  const [editingAuditTime, setEditingAuditTime] = useState(false);
+  const [auditTimeDraft, setAuditTimeDraft] = useState("20:00");
 
   useEffect(() => {
     const view = searchParams.get("view");
@@ -153,6 +183,9 @@ export default function FinanceControlPage() {
   useEffect(() => {
     if (data?.accessRole === "FRONT_DESK" && !["audit", "cashiers"].includes(tab)) setTab("audit");
   }, [data?.accessRole, tab]);
+  useEffect(() => {
+    if (!editingAuditTime && data?.nightAuditPolicy.closeTime) setAuditTimeDraft(data.nightAuditPolicy.closeTime);
+  }, [data?.nightAuditPolicy.closeTime, editingAuditTime]);
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
@@ -232,7 +265,10 @@ export default function FinanceControlPage() {
   };
   const propertyCurrency = data?.property.currency || "Currency not set";
   const fiscalBacklogWarning = data?.warnings.find((warning) => warning.code === "FISCAL_RECEIPTS_PENDING") ?? null;
-  const isCompletedBusinessDate = businessDate < localDay();
+  const canCloseSelectedDate = Boolean(data?.nightAuditPolicy.canCloseSelectedDate);
+  const latestAuditDate = data?.nightAuditPolicy.latestClosableDate ?? lastCompletedDay();
+  const unclosedBusinessDays = data?.unclosedBusinessDays ?? [];
+  const oldestUnclosedDay = unclosedBusinessDays[0] ?? null;
   const closeShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Cashier shift closed and its variance has been recorded.");
   const reconcileShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/reconcile`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Physical cash count recorded. Review and sign off this shift.");
   const signOffShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/sign-off`), "Shift sales acknowledged and signed off.");
@@ -255,6 +291,17 @@ export default function FinanceControlPage() {
       } catch { /* the sidebar refresh remains the fallback */ }
     }
   };
+  const saveAuditTime = async () => {
+    if (!selectedPropertyId || !/^([01]\d|2[0-3]):[0-5]\d$/.test(auditTimeDraft)) {
+      setError("Choose a valid Night Audit time.");
+      return;
+    }
+    const saved = await action(
+      () => apiClient.put(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/settings`, { closeTime: auditTimeDraft }),
+      `Night Audit boundary updated to ${auditTimeDraft} EAT.`,
+    );
+    if (saved) setEditingAuditTime(false);
+  };
   const classifyTender = (orderId: number) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/outlet-orders/${orderId}/classify`, { method: tenderCorrections[orderId] }), "Outlet payment method classified for reconciliation.");
   const canManage = data?.accessRole === "OWNER" || data?.accessRole === "MANAGER";
   const blockerAction = (code: string): { label: string; run: () => void } | null => {
@@ -266,8 +313,8 @@ export default function FinanceControlPage() {
     return null;
   };
   useEffect(() => {
-    if (tab !== "audit" || !canManage || !isCompletedBusinessDate || Boolean(data?.blockers.length) || data?.businessDay.status === "CLOSED") setConfirmNightAudit(false);
-  }, [canManage, data?.blockers.length, data?.businessDay.status, isCompletedBusinessDate, tab]);
+    if (tab !== "audit" || !canManage || !canCloseSelectedDate || data?.businessDay.status === "CLOSED") setConfirmNightAudit(false);
+  }, [canCloseSelectedDate, canManage, data?.businessDay.status, tab]);
   const profitAndLoss = useMemo(() => {
     const byCurrency = new Map<string, { revenue: number; expense: number }>();
     for (const account of data?.ledger.accounts ?? []) {
@@ -334,6 +381,20 @@ export default function FinanceControlPage() {
               </span>
             );
           })()}
+          <div>
+            <button
+              type="button"
+              onClick={() => canManage && setEditingAuditTime(true)}
+              disabled={!canManage}
+              aria-expanded={editingAuditTime}
+              title={canManage ? "Change the property's business-date cutoff" : "Only an owner or manager can change the Night Audit cutoff"}
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border-0 bg-white px-3 text-left text-neutral-800 ring-1 ring-neutral-200 transition enabled:cursor-pointer enabled:hover:bg-neutral-50 enabled:hover:ring-neutral-300 disabled:cursor-default"
+            >
+              <Clock3 className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
+              <span className="flex flex-col leading-none"><span className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Audit cutoff</span><span className="mt-1 text-xs font-extrabold tabular-nums">{data?.nightAuditPolicy.closeTime ?? "20:00"} <span className="font-semibold text-neutral-400">EAT</span></span></span>
+              {canManage && <Settings2 className="ml-1 h-3.5 w-3.5 text-neutral-400" aria-hidden />}
+            </button>
+          </div>
           {data?.ledger.loaded && (() => {
             const hasLedgerEntries = Boolean(data?.ledger.transactions.length);
             const balanced = hasLedgerEntries && Boolean(data?.ledger.balanced);
@@ -358,8 +419,24 @@ export default function FinanceControlPage() {
           <button type="button" aria-label="Previous day" onClick={() => setBusinessDate(shiftDay(businessDate, -1))} className="flex h-9 w-9 appearance-none items-center justify-center rounded-lg border-0 bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><ChevronLeft className="h-4 w-4" /></button>
           <div className="w-[148px]"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
           <button type="button" aria-label="Next day" disabled={businessDate >= localDay()} onClick={() => setBusinessDate(shiftDay(businessDate, 1))} className="flex h-9 w-9 appearance-none items-center justify-center rounded-lg border-0 bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
-          {businessDate !== (tab === "cashiers" ? localDay() : lastCompletedDay()) && (
-            <button type="button" onClick={() => setBusinessDate(tab === "cashiers" ? localDay() : lastCompletedDay())} className="h-9 appearance-none rounded-lg border-0 bg-white px-3 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-50">{tab === "cashiers" ? "Today" : "Latest completed day"}</button>
+          {businessDate !== (tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate) && (
+            <button type="button" onClick={() => setBusinessDate(tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate)} className="h-9 appearance-none rounded-lg border-0 bg-white px-3 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-50">{tab === "cashiers" ? "Active business date" : "Latest closable day"}</button>
+          )}
+          {tab === "audit" && unclosedBusinessDays.length > 0 && (
+            <label className="relative flex h-9 items-center gap-2 rounded-lg bg-amber-50 px-2.5 text-amber-900 ring-1 ring-amber-200">
+              <Clock3 className="h-3.5 w-3.5 shrink-0 text-amber-700" aria-hidden />
+              <span className="pointer-events-none text-[9px] font-bold uppercase tracking-wide text-amber-700">Unclosed</span>
+              <select
+                aria-label="Choose an unclosed business date"
+                value={unclosedBusinessDays.some((openDay) => openDay.businessDate === businessDate) ? businessDate : ""}
+                onChange={(event) => { if (event.target.value) { setBusinessDate(event.target.value); setMonth(event.target.value.slice(0, 7)); } }}
+                className="h-full min-w-[142px] appearance-none border-0 bg-transparent pr-5 text-[11px] font-bold text-amber-950 outline-none"
+              >
+                <option value="">{unclosedBusinessDays.length} unclosed day{unclosedBusinessDays.length === 1 ? "" : "s"}</option>
+                {unclosedBusinessDays.map((openDay) => <option key={openDay.id} value={openDay.businessDate}>{dayLabel(openDay.businessDate)} · {openDay.status === "CLOSING" ? "Closing" : openDay.canClose ? "Ready" : "Waiting"}</option>)}
+              </select>
+              <ChevronRight className="pointer-events-none absolute right-2 h-3.5 w-3.5 rotate-90 text-amber-600" aria-hidden />
+            </label>
           )}
         </div>
         {["expenses", "ledger", "tax", "nbs"].includes(tab) && <>
@@ -381,7 +458,7 @@ export default function FinanceControlPage() {
               key={item.id}
               type="button"
               onClick={() => {
-                const nextBusinessDate = item.id === "cashiers" ? localDay() : item.id === "audit" ? lastCompletedDay() : businessDate;
+                const nextBusinessDate = item.id === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : item.id === "audit" ? latestAuditDate : businessDate;
                 setTab(item.id); setBusinessDate(nextBusinessDate); setMonth(nextBusinessDate.slice(0, 7)); setError(null); setMessage(null);
                 router.replace(`/owner/nrms/finance?view=${item.id}&businessDate=${encodeURIComponent(nextBusinessDate)}`);
               }}
@@ -394,130 +471,91 @@ export default function FinanceControlPage() {
         })}
       </nav>
     </section>
+    {editingAuditTime && canManage && (
+      <NrmsModalFrame
+        title="Night Audit cutoff"
+        compact
+        compactFooter
+        small
+        closeOnEscape={!busy}
+        onClose={() => { if (!busy) { setEditingAuditTime(false); setAuditTimeDraft(data?.nightAuditPolicy.closeTime ?? "20:00"); } }}
+        footer={<div className="flex items-center justify-end gap-2"><button type="button" onClick={() => { setEditingAuditTime(false); setAuditTimeDraft(data?.nightAuditPolicy.closeTime ?? "20:00"); }} disabled={busy} className="h-9 rounded-lg border-0 bg-white px-3 text-[11px] font-bold text-neutral-600 ring-1 ring-neutral-200 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button><button type="button" onClick={() => void saveAuditTime()} disabled={busy || auditTimeDraft === data?.nightAuditPolicy.closeTime} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="h-3.5 w-3.5" />}Save</button></div>}
+      >
+        <div>
+          <label className="block" htmlFor="night-audit-cutoff"><span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-500">Closing time</span><div className="mt-1.5 flex h-10 items-center overflow-hidden rounded-lg bg-white ring-1 ring-neutral-300 focus-within:ring-2 focus-within:ring-emerald-500"><input id="night-audit-cutoff" type="time" value={auditTimeDraft} onChange={(event) => setAuditTimeDraft(event.target.value)} className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-extrabold tabular-nums text-neutral-900 outline-none" /><span className="mr-2 rounded bg-neutral-100 px-1.5 py-1 text-[9px] font-bold text-neutral-500">EAT</span></div></label>
+          <p className="mb-0 mt-2 text-[10px] leading-4 text-neutral-500">Earlier activity stays on the previous business date. Closing remains manual.</p>
+        </div>
+      </NrmsModalFrame>
+    )}
     {(error || message) && <div className={`rounded-xl px-4 py-3 text-xs font-semibold ring-1 ${error ? "ring-red-200 bg-red-50 text-red-700" : "ring-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
     {tab === "audit" && (
-      <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
-        <header className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-4 w-4" /></span>
-          <div className="min-w-0">
-            <h3 className="m-0 text-sm font-bold text-neutral-900">Night Audit review</h3>
-            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Every row belongs to {dayLabel(businessDate)}. Clear blocking rows in order; no override or bypass is available.</p>
-          </div>
-          <span className={`ml-auto inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE[data?.businessDay.status ?? "NOT_OPENED"]?.skin ?? "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>{BUSINESS_DAY_STATE[data?.businessDay.status ?? "NOT_OPENED"]?.label ?? "Unknown"}</span>
-        </header>
+      <>
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
+          <header className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <h3 className="m-0 text-base font-bold text-neutral-900">Night Audit control centre</h3>
+              <p className="mb-0 mt-1 text-xs text-neutral-500">Review every recorded activity and closing outcome for {dayLabel(businessDate)} before locking the date.</p>
+            </div>
+            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE[data?.businessDay.status ?? "NOT_OPENED"]?.skin ?? "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>{BUSINESS_DAY_STATE[data?.businessDay.status ?? "NOT_OPENED"]?.label ?? "Unknown"}</span>
+          </header>
 
-        <div className="overflow-x-auto border-0 border-t border-solid border-neutral-100">
-          <table className="w-full min-w-[900px] border-collapse text-left">
-            <thead className="bg-neutral-50 text-[9px] font-bold uppercase tracking-wide text-neutral-500">
-              <tr>
-                <th className="px-4 py-2.5 sm:pl-5">Business date</th>
-                <th className="px-4 py-2.5">Event</th>
-                <th className="px-4 py-2.5">Detail</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5 text-right sm:pr-5">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100 text-xs">
-              {data?.businessDay.status === "CLOSED" ? (
-                <tr>
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                  <td className="px-4 py-3 font-semibold text-neutral-900">Night Audit close</td>
-                  <td className="px-4 py-3 text-neutral-500">Ledger locked{data.businessDay.closedAt ? ` · ${time(data.businessDay.closedAt)}` : ""}</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-700">CLOSED</span></td>
-                  <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">No action</td>
-                </tr>
-              ) : data?.businessDay.status === "NOT_OPENED" ? (
-                <tr>
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                  <td className="px-4 py-3 font-semibold text-neutral-900">No operating record</td>
-                  <td className="px-4 py-3 text-neutral-500">This date was never opened for hotel operations. Browsing it does not create a financial close.</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] font-bold text-neutral-600">NOT OPENED</span></td>
-                  <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">No action</td>
-                </tr>
-              ) : data?.businessDay.status === "CLOSING" ? (
-                <tr className="bg-amber-50/35">
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                  <td className="px-4 py-3 font-semibold text-amber-900">Night Audit in progress</td>
-                  <td className="px-4 py-3 text-neutral-500">The close transaction currently owns this business date.</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-800">CLOSING</span></td>
-                  <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">Refresh shortly</td>
-                </tr>
-              ) : !isCompletedBusinessDate ? (
-                <tr>
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                  <td className="px-4 py-3 font-semibold text-neutral-900">Operating business date</td>
-                  <td className="px-4 py-3 text-neutral-500">Today cannot be locked while hotel operations continue.</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-800">OPERATING</span></td>
-                  <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">Choose an earlier date</td>
-                </tr>
-              ) : data?.blockers.length ? (
-                data.blockers.map((blocker) => {
-                  const next = blockerAction(blocker.code);
-                  return <tr key={blocker.code} className="bg-red-50/35">
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                    <td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-semibold text-red-800"><AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-600" />{blocker.code.split("_").map((word) => word.charAt(0) + word.slice(1).toLowerCase()).join(" ")}</span></td>
-                    <td className="px-4 py-3 text-neutral-600">{blocker.message}</td>
-                    <td className="px-4 py-3"><span className="rounded-full bg-red-50 px-2 py-1 text-[9px] font-bold text-red-700 ring-1 ring-red-200">BLOCKED · {blocker.count}</span></td>
-                    <td className="px-4 py-3 text-right sm:pr-5">{next ? <button type="button" onClick={next.run} className="h-8 rounded-lg border border-solid border-red-200 bg-white px-3 text-[10px] font-bold text-red-700 hover:bg-red-50">{next.label}</button> : <span className="text-[10px] text-red-600">Review source record</span>}</td>
-                  </tr>;
-                })
-              ) : (
-                <tr className="bg-emerald-50/35">
-                  <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                  <td className="px-4 py-3"><span className="inline-flex items-center gap-2 font-semibold text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-700" />Closing controls</span></td>
-                  <td className="px-4 py-3 text-neutral-600">All controls passed. Balanced entries can be posted and this date can be locked.</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700 ring-1 ring-emerald-200">READY</span></td>
-                  <td className="px-4 py-3 text-right sm:pr-5"><button type="button" onClick={() => setConfirmNightAudit(true)} disabled={!canManage || busy || confirmNightAudit} className="h-8 rounded-lg border-0 bg-[#073c35] px-3 text-[10px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">{!canManage ? "Manager required" : confirmNightAudit ? "Review open" : "Review close"}</button></td>
-                </tr>
-              )}
-              {data?.businessDay.audits.map((audit) => <tr key={audit.id}>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900 sm:pl-5">{dayLabel(businessDate)}</td>
-                <td className="px-4 py-3 font-mono text-[10px] font-semibold text-neutral-700">{audit.reportNumber}</td>
-                <td className="px-4 py-3 text-neutral-500">Night Audit attempt · {time(audit.completedAt || audit.startedAt)}</td>
-                <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{audit.status}</span></td>
-                <td className="px-4 py-3 text-right text-[10px] text-neutral-400 sm:pr-5">Recorded</td>
-              </tr>)}
-            </tbody>
-          </table>
-        </div>
-
-        {confirmNightAudit && canManage && isCompletedBusinessDate && !data?.blockers.length && data?.businessDay.status === "OPEN" && (
-            <div className="border-0 border-t border-solid border-amber-200 bg-amber-50 p-4 sm:px-5" role="region" aria-live="polite" aria-labelledby="night-audit-confirmation-title">
-              <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 shadow-sm ring-1 ring-amber-200"><LockKeyhole className="h-4 w-4" /></span>
-                <div className="min-w-0 flex-1">
-                  <p id="night-audit-confirmation-title" className="m-0 text-sm font-bold text-amber-950">Close business date {businessDate}?</p>
-                  <p className="mb-0 mt-1 text-xs leading-5 text-amber-900">Review the impact before confirming. This is a controlled financial close, not a temporary status change.</p>
-                  <ul className="mb-0 mt-3 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900">
-                    <li>Balanced operational entries will be posted to the accounting ledger and the Night Audit report will be stored.</li>
-                    <li>This completed business date will be locked. Any later correction must be recorded on an open business date with its audit reason.</li>
-                    <li>The next business date will open immediately so check-ins, checkouts, payments and outlet operations can continue.</li>
-                  </ul>
-                  {fiscalBacklogWarning && (
-                    <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-[11px] leading-4 text-amber-950 ring-1 ring-amber-300">
-                      <input
-                        type="checkbox"
-                        checked={acknowledgeFiscalBacklog}
-                        onChange={(event) => setAcknowledgeFiscalBacklog(event.target.checked)}
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700"
-                      />
-                      <span>
-                        <strong className="block">Acknowledge unresolved TRA delivery</strong>
-                        {fiscalBacklogWarning.message} I understand the listed receipts remain legally outstanding and that this acknowledgement will be stored with the Night Audit.
-                      </span>
-                    </label>
-                  )}
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <button type="button" onClick={() => void closeAudit()} disabled={busy || Boolean(fiscalBacklogWarning && !acknowledgeFiscalBacklog)} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-amber-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
-                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockKeyhole className="h-3.5 w-3.5" />} Yes, post ledger and close
-                    </button>
-                    <button type="button" onClick={() => setConfirmNightAudit(false)} disabled={busy} className="min-h-10 cursor-pointer rounded-lg border border-solid border-amber-300 bg-white px-4 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50">Not yet</button>
+          {data?.businessDay.status === "NOT_OPENED" ? (
+            <div className="flex items-start gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-5">
+              <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
+              <div className="min-w-0 flex-1"><p className="m-0 text-sm font-bold text-neutral-800">No operating record for this date</p><p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">This date was never opened for hotel operations. Browsing it does not create an artificial financial close.{oldestUnclosedDay ? " Choose a recorded unclosed day instead." : " There are no recorded unclosed business days."}</p>{oldestUnclosedDay && <button type="button" onClick={() => { setBusinessDate(oldestUnclosedDay.businessDate); setMonth(oldestUnclosedDay.businessDate.slice(0, 7)); }} className="mt-3 h-9 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">Review oldest unclosed · {dayLabel(oldestUnclosedDay.businessDate)}</button>}</div>
+            </div>
+          ) : (
+            <div className="border-t border-neutral-100 p-4 sm:p-5">
+              <div className={`rounded-xl p-4 ring-1 ${data?.businessDay.status === "CLOSED" ? "bg-neutral-50 ring-neutral-200" : !canCloseSelectedDate ? "bg-sky-50 ring-sky-200" : data?.blockers.length ? "bg-red-50 ring-red-200" : "bg-emerald-50 ring-emerald-200"}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="m-0 text-sm font-bold text-neutral-900">{data?.businessDay.status === "CLOSED" ? "Completed and locked" : !canCloseSelectedDate ? "Operating until the configured boundary" : data?.blockers.length ? `${data.blockers.length} closing control${data.blockers.length === 1 ? "" : "s"} need attention` : "Ready for full closing review"}</p>
+                    <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">{data?.businessDay.status === "CLOSED" ? `Closed ${time(data.businessDay.closedAt)}` : !canCloseSelectedDate ? `This date becomes eligible after the ${data?.nightAuditPolicy.closeTime} EAT boundary. Next boundary: ${time(data?.nightAuditPolicy.nextCloseAt)}.` : data?.blockers.length ? "Open the review to see each blocker, the day's activity and the affected outcome." : "All blocking controls passed. Review operations, cash and proposed ledger entries before confirming."}</p>
                   </div>
+                  <button type="button" onClick={() => setConfirmNightAudit(true)} disabled={busy || data?.businessDay.status === "CLOSING"} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ClipboardCheck className="h-4 w-4" />{data?.businessDay.status === "CLOSED" ? "View final report" : "Open full review"}</button>
                 </div>
               </div>
+
+              {data?.nightAuditReview && <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <ReviewMetric icon={<LogIn className="h-3.5 w-3.5" />} label="Arrivals" value={String(data.nightAuditReview.operations.arrivals)} note={`${data.nightAuditReview.operations.inHouseAtReview} guests currently in house`} />
+                <ReviewMetric icon={<LogOut className="h-3.5 w-3.5" />} label="Departures" value={String(data.nightAuditReview.operations.departures)} note={`${data.nightAuditReview.operations.reservationsCreated} reservations created`} />
+                <ReviewMetric icon={<WalletCards className="h-3.5 w-3.5" />} label="Cashier shifts" value={`${data.nightAuditReview.cashiers.signedOff}/${data.nightAuditReview.cashiers.total}`} note={`Signed off · variance ${cash(data.nightAuditReview.cashiers.variance, data?.property.currency || "TZS")}`} />
+                <ReviewMetric icon={<BookOpen className="h-3.5 w-3.5" />} label="Ledger outcome" value={String(data.nightAuditReview.ledger.transactionCount)} note={`${data.nightAuditReview.ledger.balanced ? "Balanced" : "Not balanced"} · ${data.nightAuditReview.ledger.stockMovementsPosted} stock movements`} />
+              </div>}
+
+              {data && data.businessDay.audits.length > 0 && <div className="mt-4 border-t border-neutral-100 pt-3"><p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Audit history</p><div className="mt-2 flex flex-wrap gap-2">{data.businessDay.audits.map((audit) => <span key={audit.id} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-semibold ring-1 ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{audit.reportNumber} · {audit.status} · {time(audit.completedAt || audit.startedAt)}</span>)}</div></div>}
             </div>
+          )}
+        </section>
+
+        {confirmNightAudit && data?.businessDay.status !== "NOT_OPENED" && (
+          <NrmsModalFrame
+            title={`Night Audit · ${dayLabel(businessDate)}`}
+            subtitle={`Business-date boundary ${data?.nightAuditPolicy.closeTime} EAT · review generated ${time(data?.nightAuditReview?.generatedAt)}`}
+            icon={<ClipboardCheck className="h-5 w-5" />}
+            extraWide
+            closeOnEscape={!busy}
+            onClose={() => { if (!busy) { setConfirmNightAudit(false); setAcknowledgeFiscalBacklog(false); } }}
+            footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button type="button" onClick={() => setConfirmNightAudit(false)} disabled={busy} className="min-h-10 rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 disabled:opacity-50">Close review</button>{data?.businessDay.status === "OPEN" && <button type="button" onClick={() => void closeAudit()} disabled={!canManage || !canCloseSelectedDate || Boolean(data?.blockers.length) || busy || Boolean(fiscalBacklogWarning && !acknowledgeFiscalBacklog) || !data?.nightAuditReview?.ledger.balanced} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-amber-700 px-5 text-xs font-bold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}Post ledger and close date</button>}</div>}
+          >
+            {!data?.nightAuditReview ? <div className="rounded-xl bg-neutral-50 p-5 text-sm text-neutral-600 ring-1 ring-neutral-200">This historical close predates the expanded activity snapshot. Its report number and ledger remain available in Audit history and Accounting ledger.</div> : <div className="space-y-5">
+              <section>
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Operational activity</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Captured from {time(data.nightAuditReview.window.startedAt)} through {time(data.nightAuditReview.window.through)}.</p></div><span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-700 ring-1 ring-sky-200">{data.nightAuditPolicy.closeTime} EAT boundary</span></div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><ReviewMetric icon={<LogIn className="h-3.5 w-3.5" />} label="Checked in" value={String(data.nightAuditReview.operations.arrivals)} note="Arrivals completed in this business window" /><ReviewMetric icon={<LogOut className="h-3.5 w-3.5" />} label="Checked out" value={String(data.nightAuditReview.operations.departures)} note="Departures completed in this business window" /><ReviewMetric icon={<BedDouble className="h-3.5 w-3.5" />} label="In house" value={String(data.nightAuditReview.operations.inHouseAtReview)} note="Guests still checked in at review time" /><ReviewMetric icon={<CalendarCheck2 className="h-3.5 w-3.5" />} label="Reservations" value={String(data.nightAuditReview.operations.reservationsCreated)} note="Reservations created in this business window" /></div>
+              </section>
+
+              <section className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200"><div className="flex items-center justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Cashier reconciliation</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Physical cash, recorded expectation and manager sign-off.</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${data.nightAuditReview.cashiers.open || data.nightAuditReview.cashiers.signedOff !== data.nightAuditReview.cashiers.total ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{data.nightAuditReview.cashiers.signedOff}/{data.nightAuditReview.cashiers.total} signed off</span></div><div className="mt-3 grid gap-3 sm:grid-cols-3"><Metric label="Expected cash" value={cash(data.nightAuditReview.cashiers.expectedCash, data?.property.currency || "TZS")} note={`${data.nightAuditReview.cashiers.closed} closed shift${data.nightAuditReview.cashiers.closed === 1 ? "" : "s"}`} /><Metric label="Declared cash" value={cash(data.nightAuditReview.cashiers.declaredCash, data?.property.currency || "TZS")} note="Physical counts entered by cashiers or managers" /><Metric label="Variance" value={cash(data.nightAuditReview.cashiers.variance, data?.property.currency || "TZS")} note={data.nightAuditReview.cashiers.variance === 0 ? "Expected and declared cash agree" : "Explained variance retained in shift records"} tone={data.nightAuditReview.cashiers.variance === 0 ? "green" : "amber"} /></div></section>
+
+              <section><h4 className="m-0 text-sm font-bold text-neutral-900">Closing controls</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every blocking control must clear. No override or bypass is available.</p><div className="mt-3 space-y-2">{data.nightAuditReview.controls.blockers.length ? data.nightAuditReview.controls.blockers.map((blocker) => { const next = blockerAction(blocker.code); return <div key={blocker.code} className="flex flex-wrap items-center gap-3 rounded-xl bg-red-50 p-3 ring-1 ring-red-200"><AlertTriangle className="h-4 w-4 shrink-0 text-red-600" /><div className="min-w-0 flex-1"><p className="m-0 text-xs font-bold text-red-900">{codeLabel(blocker.code)}</p><p className="mb-0 mt-1 text-[10px] text-red-700">{blocker.message}</p></div>{next && <button type="button" onClick={() => { setConfirmNightAudit(false); next.run(); }} className="h-8 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700">{next.label}</button>}</div>; }) : <div className="flex items-center gap-3 rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="h-4 w-4" />All blocking controls passed.</div>}{data.nightAuditReview.controls.warnings.map((warning) => <div key={warning.code} className="flex items-start gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="m-0 text-xs font-bold text-amber-900">{codeLabel(warning.code)}</p><p className="mb-0 mt-1 text-[10px] text-amber-800">{warning.message}</p></div></div>)}</div></section>
+
+              <section><div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Proposed ledger outcome</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every activity below becomes an immutable balanced ledger transaction when you close.</p></div><div className="text-right"><p className="m-0 text-lg font-extrabold tabular-nums text-neutral-950">{cash(data.nightAuditReview.ledger.debitTotal, data?.property.currency || "TZS")}</p><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Debit = credit · {data.nightAuditReview.ledger.transactionCount} entries</p></div></div><div className="mt-3 overflow-hidden rounded-xl ring-1 ring-neutral-200"><div className="max-h-72 overflow-auto"><table className="w-full min-w-[680px] border-collapse text-left"><thead className="sticky top-0 bg-neutral-50 text-[9px] font-bold uppercase tracking-wide text-neutral-500"><tr><th className="px-3 py-2.5">Activity</th><th className="px-3 py-2.5">Type</th><th className="px-3 py-2.5">Time</th><th className="px-3 py-2.5 text-right">Debit</th><th className="px-3 py-2.5 text-right">Credit</th></tr></thead><tbody className="divide-y divide-neutral-100 text-[11px]">{data.nightAuditReview.ledger.activities.map((activity, index) => <tr key={`${activity.sourceType}-${index}`}><td className="max-w-[260px] px-3 py-2.5 font-semibold text-neutral-800">{activity.description}</td><td className="px-3 py-2.5 text-neutral-500">{codeLabel(activity.sourceType)}</td><td className="whitespace-nowrap px-3 py-2.5 text-neutral-500">{time(activity.occurredAt)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.debit, activity.currency)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.credit, activity.currency)}</td></tr>)}{!data.nightAuditReview.ledger.activities.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-xs text-neutral-400">No ledger activity is waiting to post for this date.</td></tr>}</tbody></table></div></div></section>
+
+              <section className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-200"><h4 className="m-0 text-sm font-bold text-amber-950">What closing will do</h4><ul className="mb-0 mt-2 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900"><li>Post the balanced activities above to the accounting ledger and store this review in the Night Audit report.</li><li>Lock {dayLabel(businessDate)}. Later corrections must be recorded on an open business date with an audit reason.</li><li>Open the next sequential business date so hotel operations continue without a gap.</li></ul>{fiscalBacklogWarning && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-[11px] leading-4 text-amber-950 ring-1 ring-amber-300"><input type="checkbox" checked={acknowledgeFiscalBacklog} onChange={(event) => setAcknowledgeFiscalBacklog(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700" /><span><strong className="block">Acknowledge unresolved TRA delivery</strong>{fiscalBacklogWarning.message} I understand this acknowledgement is stored with the final Night Audit.</span></label>}</section>
+            </div>}
+          </NrmsModalFrame>
         )}
-      </section>
+      </>
     )}
 
     {tab === "audit" && Boolean(data?.unclassifiedTenders?.length) && <section id="unclassified-tenders" className="scroll-mt-4 overflow-hidden rounded-xl ring-1 ring-amber-200 bg-white shadow-sm">

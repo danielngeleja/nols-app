@@ -8,7 +8,7 @@ import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
-import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, NRMS_BUSINESS_DAY_LOCKED, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, nightAuditSchedule, NRMS_BUSINESS_DAY_LOCKED, shiftDayStart, shiftHandoverSummary } from "../lib/nrmsShifts.js";
 import { buildStockPostings } from "../lib/nrmsStockLedger.js";
 
 export const router = Router();
@@ -37,6 +37,9 @@ const closeShiftSchema = z.object({ declaredCash: z.number().min(0), closeNote: 
 const closeDaySchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   acknowledgeFiscalBacklog: z.boolean().optional().default(false),
+});
+const nightAuditSettingsSchema = z.object({
+  closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
 });
 const classifyTenderSchema = z.object({ method: z.enum(PAYMENT_METHODS) });
 const createExpenseSchema = z.object({
@@ -315,6 +318,106 @@ async function buildPostings(source: any, propertyId: number, key: string, event
   return postings;
 }
 
+function nightAuditEventWindow(key: string, closeTime: string, openedAt: Date | string | null | undefined, through: Date) {
+  const configuredStart = shiftDayStart(key, closeTime);
+  const recordedStart = openedAt ? new Date(openedAt) : configuredStart;
+  return {
+    start: new Date(Math.min(configuredStart.getTime(), recordedStart.getTime())),
+    end: through,
+  };
+}
+
+async function pendingNightAuditPostings(source: any, propertyId: number, key: string, closeTime: string, currency: string, openedAt: Date | string | null | undefined, through: Date, reportNumber: string) {
+  const eventWindow = nightAuditEventWindow(key, closeTime, openedAt, through);
+  const calendarWindow = dayRange(key);
+  const stock = await buildStockPostings(source, {
+    propertyId,
+    reportNumber,
+    currency,
+    occurredAt: calendarWindow.start,
+    closeBoundary: through,
+    window: eventWindow,
+  });
+  const candidates = [...await buildPostings(source, propertyId, key, eventWindow), ...stock.postings];
+  const alreadyPosted = candidates.length
+    ? await source.nrmsLedgerTransaction.findMany({
+      where: { propertyId, sourceKey: { in: candidates.map((posting) => posting.sourceKey) } },
+      select: { sourceKey: true },
+    })
+    : [];
+  const postedKeys = new Set(alreadyPosted.map((posting: any) => posting.sourceKey));
+  return { eventWindow, stock, postings: candidates.filter((posting) => !postedKeys.has(posting.sourceKey)) };
+}
+
+async function buildNightAuditReview(
+  source: any,
+  propertyId: number,
+  key: string,
+  eventWindow: { start: Date; end: Date },
+  issues: { blockers: any[]; warnings: any[] },
+  postings: Posting[],
+  stockMovementsPosted: number,
+) {
+  const [arrivals, departures, reservationsCreated, inHouse, shifts] = await Promise.all([
+    source.reservation.count({ where: { propertyId, checkedInAt: { gte: eventWindow.start, lt: eventWindow.end } } }),
+    source.reservation.count({ where: { propertyId, checkedOutAt: { gte: eventWindow.start, lt: eventWindow.end } } }),
+    source.reservation.count({ where: { propertyId, createdAt: { gte: eventWindow.start, lt: eventWindow.end } } }),
+    source.reservation.count({ where: { propertyId, status: "CHECKED_IN" } }),
+    source.nrmsCashierShift.findMany({
+      where: { propertyId, businessDate: dateOnly(key) },
+      select: { status: true, expectedCash: true, declaredCash: true, variance: true, ownerSignedOffAt: true },
+    }),
+  ]);
+  const debitTotal = money(postings.reduce((total, posting) => total + posting.entries.reduce((sum, entry) => sum + entry.debit, 0), 0));
+  const creditTotal = money(postings.reduce((total, posting) => total + posting.entries.reduce((sum, entry) => sum + entry.credit, 0), 0));
+  const bySourceMap = new Map<string, { sourceType: string; count: number; debit: number; credit: number }>();
+  const activityRows = postings.map((posting) => {
+    const debit = money(posting.entries.reduce((sum, entry) => sum + entry.debit, 0));
+    const credit = money(posting.entries.reduce((sum, entry) => sum + entry.credit, 0));
+    const current = bySourceMap.get(posting.sourceType) ?? { sourceType: posting.sourceType, count: 0, debit: 0, credit: 0 };
+    current.count += 1;
+    current.debit = money(current.debit + debit);
+    current.credit = money(current.credit + credit);
+    bySourceMap.set(posting.sourceType, current);
+    return {
+      sourceType: posting.sourceType,
+      description: posting.description,
+      currency: posting.currency,
+      occurredAt: posting.occurredAt,
+      debit,
+      credit,
+    };
+  });
+  return {
+    generatedAt: eventWindow.end,
+    window: { startedAt: eventWindow.start, through: eventWindow.end },
+    controls: {
+      passed: issues.blockers.length === 0,
+      blockers: issues.blockers,
+      warnings: issues.warnings,
+    },
+    operations: { arrivals, departures, reservationsCreated, inHouseAtReview: inHouse },
+    cashiers: {
+      total: shifts.length,
+      open: shifts.filter((shift: any) => shift.status === "OPEN").length,
+      closed: shifts.filter((shift: any) => shift.status === "CLOSED").length,
+      signedOff: shifts.filter((shift: any) => shift.ownerSignedOffAt != null).length,
+      expectedCash: money(shifts.reduce((sum: number, shift: any) => sum + Number(shift.expectedCash || 0), 0)),
+      declaredCash: money(shifts.reduce((sum: number, shift: any) => sum + Number(shift.declaredCash || 0), 0)),
+      variance: money(shifts.reduce((sum: number, shift: any) => sum + Number(shift.variance || 0), 0)),
+    },
+    ledger: {
+      transactionCount: postings.length,
+      stockMovementsPosted,
+      debitTotal,
+      creditTotal,
+      balanced: debitTotal === creditTotal,
+      bySource: [...bySourceMap.values()],
+      activities: activityRows,
+    },
+  };
+}
+
 function isTanzanian(value: string | null | undefined): boolean {
   const nationality = String(value ?? "").trim().toUpperCase();
   return ["TZ", "TZA", "TANZANIA", "TANZANIAN", "UNITED REPUBLIC OF TANZANIA"].includes(nationality);
@@ -367,6 +470,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
     if (!active) return;
     const propertyId = active.property.id;
+    const closeTime = active.property.nrmsNightAuditCloseTime;
     const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.businessDate ?? "")) ? String(req.query.businessDate) : dayKey(new Date());
     const month = /^\d{4}-\d{2}$/.test(String(req.query.month ?? "")) ? String(req.query.month) : businessDate.slice(0, 7);
     const requestedView = ["audit", "cashiers", "expenses", "ledger", "tax", "nbs"].includes(String(req.query.view ?? "")) ? String(req.query.view) : "audit";
@@ -382,7 +486,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const start = dateOnly(businessDate);
     const selectedDayRange = dayRange(businessDate);
     const emptyNbs = { month, reportingDays: reportMonthRange.days, bedsAvailable: 0, bedNightsAvailable: 0, bedNightsOccupied: 0, domesticBedNights: 0, internationalBedNights: 0, roomNightsOccupied: 0, bedOccupancyRate: 0, missingNationalityBedNights: 0, methodology: "Open NBS statistics to calculate this reporting month." };
-    const [day, shifts, issues, nbs, unclassifiedTenders] = await Promise.all([
+    const [day, shifts, issues, nbs, unclassifiedTenders, unclosedBusinessDays] = await Promise.all([
       needsAudit
         ? db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } })
         : db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, select: { id: true, status: true, openedAt: true, closedAt: true } }),
@@ -393,6 +497,12 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
         select: { id: true, orderNumber: true, customerLabel: true, currency: true, total: true, settledAt: true, outlet: { select: { name: true, type: true } }, reservation: { select: { guestProfile: { select: { fullName: true } }, allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } } } } } } },
         orderBy: { settledAt: "asc" },
+      }) : Promise.resolve([]),
+      needsAudit ? db.nrmsBusinessDay.findMany({
+        where: { propertyId, status: { in: ["OPEN", "CLOSING"] } },
+        select: { id: true, businessDate: true, status: true, openedAt: true },
+        orderBy: { businessDate: "asc" },
+        take: 90,
       }) : Promise.resolve([]),
     ]);
     // Cashier rows are per-user, not per-outlet, so we separately join each
@@ -437,10 +547,50 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const stockBalances = await db.nrmsStockBalance.findMany({ where: { stockItem: { propertyId, status: "ACTIVE" }, quantity: { gt: 0 } }, select: { quantity: true, stockItem: { select: { averageCost: true, category: true } } } });
     const stockValue = money(stockBalances.reduce((sum: number, row: any) => sum + Number(row.quantity) * Number(row.stockItem.averageCost), 0));
     const taxRows = transactions.flatMap((transaction: any) => transaction.entries.filter((entry: any) => entry.accountCode === "2200").map((entry: any) => ({ transactionNumber: transaction.transactionNumber, occurredAt: transaction.occurredAt, description: transaction.description, currency: transaction.currency, tax: money(entry.credit) - money(entry.debit) })));
+    const schedule = nightAuditSchedule(new Date(), closeTime);
+    let resolvedIssues = issues;
+    let nightAuditReview: any = null;
+    if (needsAudit && day?.status === "CLOSED") {
+      nightAuditReview = day.nightAudits?.find((audit: any) => audit.status === "CLOSED")?.summary?.review ?? null;
+      if (nightAuditReview?.controls) resolvedIssues = nightAuditReview.controls;
+    } else if (needsAudit && day?.status === "OPEN") {
+      const through = new Date();
+      const preview = await pendingNightAuditPostings(
+        db,
+        propertyId,
+        businessDate,
+        closeTime,
+        (active.property.currency || "TZS").toUpperCase(),
+        day.openedAt,
+        through,
+        `NA-PREVIEW-${propertyId}-${businessDate.replace(/-/g, "")}`,
+      );
+      resolvedIssues = await controlIssues(db, propertyId, businessDate, preview.eventWindow);
+      nightAuditReview = await buildNightAuditReview(db, propertyId, businessDate, preview.eventWindow, resolvedIssues, preview.postings, preview.stock.movementIds.length);
+    }
     res.json({
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },
+      nightAuditPolicy: {
+        closeTime,
+        timezone: schedule.timezone,
+        activeBusinessDate: schedule.activeBusinessDate,
+        latestClosableDate: schedule.latestClosableDate,
+        nextCloseAt: schedule.nextCloseAt,
+        canCloseSelectedDate: businessDate <= schedule.latestClosableDate,
+      },
+      unclosedBusinessDays: unclosedBusinessDays.map((openDay: any) => {
+        const openDate = new Date(openDay.businessDate).toISOString().slice(0, 10);
+        return {
+          id: openDay.id,
+          businessDate: openDate,
+          status: openDay.status,
+          openedAt: openDay.openedAt,
+          canClose: openDate <= schedule.latestClosableDate,
+        };
+      }),
+      nightAuditReview,
       businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits ?? [] } : { id: null, status: "NOT_OPENED", audits: [] },
-      blockers: issues.blockers, warnings: issues.warnings, shifts: enrichedShifts, unassignedSales,
+      blockers: resolvedIssues.blockers, warnings: resolvedIssues.warnings, shifts: enrichedShifts, unassignedSales,
       unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in", room: order.reservation ? (order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room") : "Walk-in" })),
       ledger: { loaded: needsLedger, accounts: [...accountMap.values()], transactions, balanced: transactions.length > 0 && transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },
@@ -620,21 +770,55 @@ router.post("/property/:propertyId/outlet-orders/:orderId/classify", (async (req
   }
 }) as RequestHandler);
 
+router.put("/property/:propertyId/night-audit/settings", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const parsed = nightAuditSettingsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Choose a valid Night Audit time in HH:mm format" });
+  const closeTime = parsed.data.closeTime;
+  const property = await db.$transaction(async (tx: any) => {
+    const updated = await tx.property.update({
+      where: { id: active.property.id },
+      data: { nrmsNightAuditCloseTime: closeTime },
+      select: { nrmsNightAuditCloseTime: true },
+    });
+    await auditOrThrow(tx, req, "NRMS_NIGHT_AUDIT_TIME_UPDATED", "PROPERTY", {
+      closeTime: active.property.nrmsNightAuditCloseTime,
+      timezone: ZONE,
+    }, {
+      closeTime: updated.nrmsNightAuditCloseTime,
+      timezone: ZONE,
+    }, active.property.id);
+    return updated;
+  });
+  const schedule = nightAuditSchedule(new Date(), property.nrmsNightAuditCloseTime);
+  res.json({
+    settings: {
+      closeTime: property.nrmsNightAuditCloseTime,
+      timezone: schedule.timezone,
+      activeBusinessDate: schedule.activeBusinessDate,
+      latestClosableDate: schedule.latestClosableDate,
+      nextCloseAt: schedule.nextCloseAt,
+    },
+  });
+}) as RequestHandler);
+
 router.post("/property/:propertyId/night-audit/close", (async (req: AuthedRequest, res: Response) => {
   const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
   if (!active) return;
   if (!requireManager(active, res)) return;
   const parsed = closeDaySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a valid business date" });
-  const today = dayKey(new Date());
-  if (parsed.data.businessDate >= today) {
-    const latestClosable = new Date(`${today}T00:00:00.000Z`);
-    latestClosable.setUTCDate(latestClosable.getUTCDate() - 1);
-    const latestClosableDate = latestClosable.toISOString().slice(0, 10);
+  const closeTime = active.property.nrmsNightAuditCloseTime;
+  const schedule = nightAuditSchedule(new Date(), closeTime);
+  if (parsed.data.businessDate > schedule.latestClosableDate) {
     return res.status(409).json({
-      error: `Night Audit can close only a completed business date. Choose ${latestClosableDate} or an earlier open date; ${parsed.data.businessDate} is still operating.`,
-      code: "BUSINESS_DAY_NOT_COMPLETED",
-      latestClosableDate,
+      error: `This business date remains operational until the property's ${closeTime} EAT Night Audit boundary. The latest closable date is ${schedule.latestClosableDate}.`,
+      code: "NIGHT_AUDIT_NOT_YET_AVAILABLE",
+      latestClosableDate: schedule.latestClosableDate,
+      nextCloseAt: schedule.nextCloseAt,
+      closeTime,
     });
   }
   const reportNumber = `NA-${active.property.id}-${parsed.data.businessDate.replace(/-/g, "")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
@@ -659,11 +843,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       if (earliestOpenKey && earliestOpenKey !== parsed.data.businessDate) throw new Error(`EARLIER_BUSINESS_DAY_OPEN:${earliestOpenKey}`);
       const closeBoundary = new Date();
       const calendarWindow = dayRange(parsed.data.businessDate);
-      const openedAt = day.openedAt ? new Date(day.openedAt) : calendarWindow.start;
-      const eventWindow = {
-        start: new Date(Math.min(calendarWindow.start.getTime(), openedAt.getTime())),
-        end: closeBoundary,
-      };
+      const eventWindow = nightAuditEventWindow(parsed.data.businessDate, closeTime, day.openedAt, closeBoundary);
       await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSING" } });
 
       const issues = await controlIssues(tx, active.property.id, parsed.data.businessDate, eventWindow);
@@ -759,12 +939,15 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       for (let index = 0; index < stock.movementIds.length; index += 1000) {
         await tx.nrmsStockMovement.updateMany({ where: { id: { in: stock.movementIds.slice(index, index + 1000) }, ledgerRunId: null }, data: { ledgerRunId: audit.id } });
       }
+      const review = await buildNightAuditReview(tx, active.property.id, parsed.data.businessDate, eventWindow, issues, postings, stock.movementIds.length);
       const summary = {
         transactionCount: postings.length,
         stockMovementsPosted: stock.movementIds.length,
         debitTotal: money(debitTotal),
         creditTotal: money(debitTotal),
         fiscalBacklogAcknowledgement,
+        closePolicy: { closeTime, timezone: ZONE },
+        review,
       };
       const closedAt = closeBoundary;
       const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });

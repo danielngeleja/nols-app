@@ -693,7 +693,7 @@ router.post("/property/:propertyId/shifts/open", blockImpersonated as RequestHan
         openingFloat = Number(outgoing.declaredCash);
         handoverFromId = outgoing.id;
       }
-      const day = await ensureBusinessDay(tx, access.property.id, shiftDayKey(new Date()), req.user!.id);
+      const day = await ensureBusinessDay(tx, access.property.id, shiftDayKey(new Date(), access.property.nrmsNightAuditCloseTime), req.user!.id);
       if (day.status !== "OPEN") throw new Error("BUSINESS_DAY_CLOSED");
       return tx.nrmsCashierShift.create({ data: { propertyId: access.property.id, businessDayId: day.id, userId: req.user!.id, businessDate: day.businessDate, currency, openingFloat, handoverFromId } });
     }, ORDER_TX_OPTIONS);
