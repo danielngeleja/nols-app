@@ -218,21 +218,26 @@ export default function SystemHealthPopover({
     };
   }, [checkHealth, recordSample]);
 
+  const performanceDegraded = health === "healthy" && latencyMs != null && latencyMs > 800;
   const statusLabel =
     health === "healthy"
-      ? "Systems ok"
+      ? performanceDegraded ? "Systems slow" : "Systems ok"
       : health === "checking"
         ? "Checking"
         : "Connection issue";
   const statusDot =
     health === "healthy"
-      ? variant === "dark" ? "bg-emerald-400" : "bg-emerald-500"
+      ? performanceDegraded
+        ? "bg-amber-400"
+        : variant === "dark" ? "bg-emerald-400" : "bg-emerald-500"
       : health === "checking"
         ? "bg-amber-400 animate-pulse"
         : "bg-rose-500";
   const heartTone =
     health === "healthy"
-      ? variant === "dark" ? "text-emerald-400" : "text-emerald-600"
+      ? performanceDegraded
+        ? "text-amber-500"
+        : variant === "dark" ? "text-emerald-400" : "text-emerald-600"
       : "text-transparent";
   const buttonTone =
     variant === "dark"
@@ -244,6 +249,12 @@ export default function SystemHealthPopover({
     second: "2-digit",
   });
   const latencyLabel = latencyDescription(latencyMs, health);
+  const latencyTextTone =
+    health !== "healthy"
+      ? "text-rose-700"
+      : performanceDegraded
+        ? "text-amber-700"
+        : "text-emerald-700";
   const connectionPercent = healthPercent(samples.connection);
   const apiPercent = healthPercent(samples.api);
   const databasePercent = healthPercent(samples.database);
@@ -335,7 +346,7 @@ export default function SystemHealthPopover({
                 </div>
                 <div className="min-w-0">
                   <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">API response</p>
-                  <p className={`mb-0 mt-1 text-base font-extrabold ${health === "healthy" ? "text-emerald-700" : "text-rose-700"}`}>
+                  <p className={`mb-0 mt-1 text-base font-extrabold ${latencyTextTone}`}>
                     {latencyLabel}
                   </p>
                   <p className="mb-0 mt-1 text-[11px] font-medium leading-4 text-slate-500">
@@ -344,14 +355,20 @@ export default function SystemHealthPopover({
                 </div>
               </div>
 
-              <div className="divide-y divide-slate-100 px-4">
-                <ServiceRow Icon={Wifi} label="Your connection" status={online ? "healthy" : "unavailable"} percent={connectionPercent} />
-                <ServiceRow Icon={Server} label="NoLSAF API" status={api} percent={apiPercent} />
-                <ServiceRow Icon={Database} label="Database" status={database} percent={databasePercent} />
+              <div className="px-4 pt-3">
+                <div className="flex items-center justify-between gap-3 pb-1 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  <span>Recent availability</span>
+                  <span className="normal-case tracking-normal">Last {sampleCount || 0} / {SAMPLE_LIMIT} checks</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  <ServiceRow Icon={Wifi} label="Your connection" status={online ? "healthy" : "unavailable"} percent={connectionPercent} />
+                  <ServiceRow Icon={Server} label="NoLSAF API" status={api} percent={apiPercent} />
+                  <ServiceRow Icon={Database} label="Database" status={database} percent={databasePercent} />
+                </div>
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-2.5 text-[10px] font-semibold text-slate-500">
-                <span>{sampleCount ? `Based on ${sampleCount} recent check${sampleCount === 1 ? "" : "s"}` : "Collecting health data"}</span>
+                <span>{health === "healthy" ? performanceDegraded ? "Services available · response is slow" : "All monitored services are ready" : "Some services need attention"}</span>
                 <span className="shrink-0 tabular-nums">{checkedTime ? `Checked ${checkedTime}` : "Checking now"}</span>
               </div>
             </Popover.Panel>
