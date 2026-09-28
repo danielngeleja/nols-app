@@ -12,52 +12,98 @@ import {
 } from "lucide-react";
 
 type HealthState = "checking" | "healthy" | "unavailable";
+type HealthSamples = {
+  connection: boolean[];
+  api: boolean[];
+  database: boolean[];
+};
+
+const SAMPLE_LIMIT = 10;
 
 type SystemHealthPopoverProps = {
   variant?: "light" | "dark";
   className?: string;
 };
 
-function statusCopy(status: HealthState) {
-  if (status === "healthy") return "Operational";
-  if (status === "checking") return "Checking";
-  return "Unavailable";
+function appendSample(samples: boolean[], value: boolean) {
+  return [...samples, value].slice(-SAMPLE_LIMIT);
+}
+
+function healthPercent(samples: boolean[]) {
+  if (!samples.length) return null;
+  return Math.round((samples.filter(Boolean).length / samples.length) * 100);
 }
 
 function ServiceRow({
   Icon,
   label,
   status,
+  percent,
 }: {
   Icon: ElementType;
   label: string;
   status: HealthState;
+  percent: number | null;
 }) {
-  const tone =
-    status === "healthy"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
-      : status === "checking"
-        ? "bg-amber-50 text-amber-700 ring-amber-600/10"
-        : "bg-rose-50 text-rose-700 ring-rose-600/10";
-  const dot =
-    status === "healthy"
-      ? "bg-emerald-500"
-      : status === "checking"
-        ? "bg-amber-400 animate-pulse"
-        : "bg-rose-500";
+  const traceTone = status === "checking"
+    ? "stroke-amber-400"
+    : status === "unavailable" || (percent != null && percent < 80)
+      ? "stroke-rose-500"
+      : percent != null && percent < 100
+        ? "stroke-amber-400"
+        : "stroke-emerald-500";
+  const textTone = status === "checking"
+    ? "text-amber-700"
+    : status === "unavailable" || (percent != null && percent < 80)
+      ? "text-rose-700"
+      : percent != null && percent < 100
+        ? "text-amber-700"
+        : "text-emerald-700";
 
   return (
-    <div className="flex items-center justify-between gap-3 py-2.5">
-      <span className="inline-flex min-w-0 items-center gap-2.5 text-xs font-semibold text-slate-700">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
-          <Icon className="h-4 w-4" aria-hidden />
-        </span>
-        <span className="truncate">{label}</span>
+    <div className="flex items-center gap-2.5 py-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+        <Icon className="h-4 w-4" aria-hidden />
       </span>
-      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold ring-1 ring-inset ${tone}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
-        {statusCopy(status)}
-      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="truncate text-xs font-semibold text-slate-700">{label}</span>
+          <span className={`shrink-0 text-[11px] font-extrabold tabular-nums ${textTone}`}>
+            {percent == null ? "Checking" : `${percent}%`}
+          </span>
+        </div>
+        <div
+          className="mt-1 h-3"
+          role="progressbar"
+          aria-label={`${label} recent health`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percent ?? undefined}
+          aria-valuetext={percent == null ? "Checking" : `${percent} percent`}
+        >
+          <svg viewBox="0 0 320 12" preserveAspectRatio="none" className="h-full w-full" aria-hidden>
+            <path
+              d="M1 6 H72 L80 6 L85 2 L91 10 L97 4 L104 6 H210 L218 6 L223 2.5 L229 9.5 L235 4 L242 6 H319"
+              fill="none"
+              className="stroke-slate-200"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              pathLength="100"
+            />
+            <path
+              d="M1 6 H72 L80 6 L85 2 L91 10 L97 4 L104 6 H210 L218 6 L223 2.5 L229 9.5 L235 4 L242 6 H319"
+              fill="none"
+              className={`${traceTone} transition-all duration-500 ${status === "healthy" ? "animate-[pulse_2s_ease-in-out_infinite]" : status === "checking" ? "animate-pulse" : ""}`}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              pathLength="100"
+              strokeDasharray={`${percent ?? 0} 100`}
+            />
+          </svg>
+        </div>
+      </div>
     </div>
   );
 }
@@ -80,6 +126,19 @@ export default function SystemHealthPopover({
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [samples, setSamples] = useState<HealthSamples>({
+    connection: [],
+    api: [],
+    database: [],
+  });
+
+  const recordSample = useCallback((connectionReady: boolean, apiReady: boolean, databaseReady: boolean) => {
+    setSamples((current) => ({
+      connection: appendSample(current.connection, connectionReady),
+      api: appendSample(current.api, apiReady),
+      database: appendSample(current.database, databaseReady),
+    }));
+  }, []);
 
   const checkHealth = useCallback(async (signal?: AbortSignal, manual = false) => {
     const browserOnline = typeof navigator === "undefined" || navigator.onLine;
@@ -93,6 +152,7 @@ export default function SystemHealthPopover({
       setLatencyMs(null);
       setLastCheckedAt(new Date());
       setRefreshing(false);
+      recordSample(false, false, false);
       return;
     }
 
@@ -112,6 +172,7 @@ export default function SystemHealthPopover({
       setDatabase(databaseReady ? "healthy" : "unavailable");
       setLatencyMs(Math.max(1, Math.round(performance.now() - startedAt)));
       setLastCheckedAt(new Date());
+      recordSample(true, true, databaseReady);
     } catch (error) {
       if ((error as Error)?.name !== "AbortError") {
         setHealth("unavailable");
@@ -119,11 +180,12 @@ export default function SystemHealthPopover({
         setDatabase("unavailable");
         setLatencyMs(null);
         setLastCheckedAt(new Date());
+        recordSample(true, false, false);
       }
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [recordSample]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -143,6 +205,7 @@ export default function SystemHealthPopover({
       setDatabase("unavailable");
       setLatencyMs(null);
       setLastCheckedAt(new Date());
+      recordSample(false, false, false);
     };
 
     window.addEventListener("online", onOnline);
@@ -153,7 +216,7 @@ export default function SystemHealthPopover({
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
-  }, [checkHealth]);
+  }, [checkHealth, recordSample]);
 
   const statusLabel =
     health === "healthy"
@@ -181,6 +244,10 @@ export default function SystemHealthPopover({
     second: "2-digit",
   });
   const latencyLabel = latencyDescription(latencyMs, health);
+  const connectionPercent = healthPercent(samples.connection);
+  const apiPercent = healthPercent(samples.api);
+  const databasePercent = healthPercent(samples.database);
+  const sampleCount = samples.connection.length;
   const latencyScore =
     health === "healthy" && latencyMs != null
       ? Math.max(8, Math.min(100, Math.round(106 - latencyMs / 12)))
@@ -227,7 +294,7 @@ export default function SystemHealthPopover({
                 <div>
                   <p className="m-0 text-sm font-extrabold text-slate-900">System health</p>
                   <p className="mb-0 mt-1 text-[11px] font-medium text-slate-500">
-                    Live readiness check from this device
+                    Recent health from up to {SAMPLE_LIMIT} live checks
                   </p>
                 </div>
                 <button
@@ -278,13 +345,13 @@ export default function SystemHealthPopover({
               </div>
 
               <div className="divide-y divide-slate-100 px-4">
-                <ServiceRow Icon={Wifi} label="Your connection" status={online ? "healthy" : "unavailable"} />
-                <ServiceRow Icon={Server} label="NoLSAF API" status={api} />
-                <ServiceRow Icon={Database} label="Database" status={database} />
+                <ServiceRow Icon={Wifi} label="Your connection" status={online ? "healthy" : "unavailable"} percent={connectionPercent} />
+                <ServiceRow Icon={Server} label="NoLSAF API" status={api} percent={apiPercent} />
+                <ServiceRow Icon={Database} label="Database" status={database} percent={databasePercent} />
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-2.5 text-[10px] font-semibold text-slate-500">
-                <span>{health === "healthy" ? "All monitored services are ready" : "Some services need attention"}</span>
+                <span>{sampleCount ? `Based on ${sampleCount} recent check${sampleCount === 1 ? "" : "s"}` : "Collecting health data"}</span>
                 <span className="shrink-0 tabular-nums">{checkedTime ? `Checked ${checkedTime}` : "Checking now"}</span>
               </div>
             </Popover.Panel>
