@@ -21,10 +21,12 @@ const mocks = vi.hoisted(() => ({
   paymentEventFindFirst: vi.fn(),
   paymentEventCreate: vi.fn(),
   paymentEventUpdate: vi.fn(),
+  nrmsTokenFindUnique: vi.fn(),
   parseCoralEncryptedJson: vi.fn(),
   markInvoicePaid: vi.fn(),
   markTourBookingPaid: vi.fn(),
   markGroupBookingDepositPaid: vi.fn(),
+  reconcileNrmsPaymentAndAccrue: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -40,7 +42,7 @@ vi.mock("@nolsaf/prisma", () => ({
       update: mocks.paymentEventUpdate,
       upsert: vi.fn(),
     },
-    nrmsServicePaymentToken: { findUnique: vi.fn(async () => null) },
+    nrmsServicePaymentToken: { findUnique: mocks.nrmsTokenFindUnique },
     $transaction: vi.fn(),
   },
 }));
@@ -85,7 +87,7 @@ vi.mock("../routes/webhooks.payments.js", () => ({
 
 vi.mock("../lib/nrmsBilling.js", () => ({
   markNrmsPaymentFailed: vi.fn(),
-  reconcileNrmsPaymentAndAccrue: vi.fn(),
+  reconcileNrmsPaymentAndAccrue: mocks.reconcileNrmsPaymentAndAccrue,
 }));
 
 const WEB = "https://www.nolsaf.test";
@@ -128,9 +130,11 @@ beforeEach(() => {
   mocks.paymentEventFindUnique.mockResolvedValue(null);
   mocks.paymentEventFindFirst.mockResolvedValue(null);
   mocks.paymentEventCreate.mockResolvedValue({ id: 1 });
+  mocks.nrmsTokenFindUnique.mockResolvedValue(null);
   mocks.markInvoicePaid.mockResolvedValue({ ok: true });
   mocks.markTourBookingPaid.mockResolvedValue({ ok: true });
   mocks.markGroupBookingDepositPaid.mockResolvedValue({ ok: true });
+  mocks.reconcileNrmsPaymentAndAccrue.mockResolvedValue(undefined);
 });
 
 /** Posts the encrypted postback the way Coral does, with an optional query string. */
@@ -226,6 +230,67 @@ describe("Coral card postback: app payers return to the app", () => {
 });
 
 describe("Coral card postback: web payers stay on the web", () => {
+  it("resolves an NRMS attempt reference and returns to billing without echoed query parameters", async () => {
+    const paymentRef = "NRMS-C-1234567890ABCDEF1234567890ABCDEF";
+    const nrmsToken = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
+    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => {
+      if (where.checkoutSessionId === paymentRef) {
+        return {
+          token: nrmsToken,
+          amount: 75000,
+          currency: "USD",
+          payment: null,
+          statement: { account: { id: 12 } },
+        };
+      }
+      return null;
+    });
+
+    const res = await postback(paymentRef);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toMatch(new RegExp(`^${WEB}/owner/nrms/billing\\?`));
+    expect(res.headers.location).toContain(`ref=${paymentRef}`);
+    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ token: nrmsToken, amount: 75000 }),
+      "CoralCommerce NRMS"
+    );
+    expect(mocks.paymentEventCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ currency: "USD" }),
+    }));
+  });
+
+  it("resolves an NRMS callback from an earlier retry through its initiation event", async () => {
+    const paymentRef = "NRMS-C-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const nrmsToken = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
+    const token = {
+      token: nrmsToken,
+      amount: 50000,
+      currency: "TZS",
+      payment: null,
+      statement: { account: { id: 12 } },
+    };
+    mocks.nrmsTokenFindUnique.mockImplementation(async ({ where }: any) => (
+      where.token === nrmsToken ? token : null
+    ));
+    mocks.paymentEventFindUnique.mockImplementation(async ({ where }: any) => (
+      where.eventId === `${paymentRef}-INIT`
+        ? { provider: "CORALCOMMERCE", payload: { paymentRef, nrmsToken } }
+        : null
+    ));
+
+    const res = await postback(paymentRef);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toMatch(new RegExp(`^${WEB}/owner/nrms/billing\\?`));
+    expect(mocks.reconcileNrmsPaymentAndAccrue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ token: nrmsToken }),
+      "CoralCommerce NRMS"
+    );
+  });
+
   it("keeps a booking payer on the web payment page", async () => {
     anInvoice();
     persistedIntent("web");

@@ -15,6 +15,7 @@ import {
 } from "../lib/azampay.helpers.js";
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
+import { createNrmsCoralReferenceFields } from "../lib/nrmsCoral.js";
 import crypto from "crypto";
 
 export const router = Router();
@@ -74,7 +75,7 @@ async function markNrmsTokenProcessing(row: any, method: string, checkoutSession
   ]);
 }
 
-async function recordNrmsInitiation(input: { row: any; eventId: string; channel: string; provider: string; phone?: string; checkoutUrl?: string }) {
+async function recordNrmsInitiation(input: { row: any; eventId: string; channel: string; provider: string; paymentRef?: string; phone?: string; checkoutUrl?: string; required?: boolean }) {
   try {
     await (prisma as any).paymentEvent.upsert({
       where: { eventId: input.eventId },
@@ -88,11 +89,12 @@ async function recordNrmsInitiation(input: { row: any; eventId: string; channel:
         paymentChannel: input.channel,
         phone: input.phone,
         checkoutUrl: input.checkoutUrl,
-        payload: { nrmsToken: input.row.token, statementId: input.row.statementId, paymentRef: input.row.token },
+        payload: { nrmsToken: input.row.token, statementId: input.row.statementId, paymentRef: input.paymentRef ?? input.row.token },
       },
     });
   } catch (error: any) {
     console.warn("[NRMS payment] Could not record initiation event:", error?.message ?? error);
+    if (input.required) throw error;
   }
 }
 
@@ -284,7 +286,8 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     const config = requiredNrmsCoralConfig();
     if (!config) return res.status(503).json({ error: "Card payments are not configured" });
     const postbackParams = { kind: "nrms", propertyId: String(row.statement.account.propertyId) };
-    const paymentRef = row.token;
+    const coralReference = createNrmsCoralReferenceFields();
+    const paymentRef = coralReference.paymentRef;
     const owner = row.statement.account.owner;
     const description = `NRMS statement #${row.statementId} · ${row.statement.account.property.title}`.slice(0, 100);
     const coralPayload = {
@@ -293,8 +296,8 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         Username: config.username,
         Password: config.password,
         Destination: "ucfurl",
-        Submission: { Number: 1, Stamp: paymentRef.slice(0, 40) },
-        Identifier: paymentRef,
+        Submission: coralReference.Submission,
+        Identifier: coralReference.Identifier,
         Alias: config.alias,
         Currency: row.currency,
         Order: {
@@ -317,12 +320,23 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         },
       },
     };
+    // Persist the provider-reference-to-token mapping before creating an
+    // external checkout. A callback must never arrive for an unresolvable NRMS
+    // payment, even if the token predates the shorter Coral reference format.
+    await recordNrmsInitiation({
+      row,
+      eventId: `${paymentRef}-INIT`,
+      channel: "CARD",
+      provider: "CORALCOMMERCE",
+      paymentRef,
+      required: true,
+    });
     const providerResponse = await coralPostJson64(coralPayload);
     if (!providerResponse.ok) return res.status(502).json({ error: "Card checkout could not be initiated" });
     const providerData = parseCoralInitiateResponse(providerResponse.body);
     if (providerData.code !== "000" || !providerData.redirectUrl) return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
-    await recordNrmsInitiation({ row, eventId: `${paymentRef}-INIT`, channel: "CARD", provider: "CORALCOMMERCE", checkoutUrl: providerData.redirectUrl.slice(0, 2048) });
-    await markNrmsTokenProcessing(row, "CARD");
+    await recordNrmsInitiation({ row, eventId: `${paymentRef}-INIT`, channel: "CARD", provider: "CORALCOMMERCE", paymentRef, checkoutUrl: providerData.redirectUrl.slice(0, 2048) });
+    await markNrmsTokenProcessing(row, "CARD", paymentRef);
     const result = { status: "PENDING", transactionId: paymentRef, paymentRef, checkoutUrl: providerData.redirectUrl };
     if (idemKey) await idemSet(idemKey, result);
     return res.json({ ok: true, ...result });
