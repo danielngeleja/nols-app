@@ -313,7 +313,17 @@ export async function reconcileNrmsPayment(tx: any, input: NrmsPaymentReconcileI
   if (!token) throw new Error("NRMS_TOKEN_NOT_FOUND");
   // A repeated callback for the token that already won is idempotent. It must
   // never create another payment or reduce the account balance twice.
-  if (token.payment) return { payment: token.payment, statementId: token.statementId };
+  if (token.payment) {
+    if (
+      input.provider === "CORALCOMMERCE" &&
+      (
+        token.payment.provider !== input.provider ||
+        token.payment.providerRef !== input.providerRef ||
+        Number(token.payment.amount) !== input.amount
+      )
+    ) throw new Error("NRMS_TOKEN_ALREADY_SETTLED_BY_ANOTHER_PAYMENT");
+    return { payment: token.payment, statementId: token.statementId };
+  }
   const tokenStatus = String(token.status || "").toUpperCase();
   if (!["PENDING", "PROCESSING"].includes(tokenStatus)) throw new Error("NRMS_TOKEN_INVALID_STATUS");
   if (token.expiresAt <= new Date()) throw new Error("NRMS_TOKEN_EXPIRED");
@@ -368,8 +378,38 @@ export async function reconcileNrmsPaymentAndAccrue(
 ) {
   // Keep the authoritative payment transaction short. Commission attribution
   // performs several independent reads and must never consume the transaction's
-  // timeout or poison its commit when that secondary work is slow.
-  const settled = await client.$transaction((tx: any) => reconcileNrmsPayment(tx, input));
+  // timeout or poison its commit when that secondary work is slow. The staging
+  // database can take over five seconds for the settlement writes alone, so the
+  // default interactive transaction timeout is too short for this path.
+  let settled: { payment: any; statementId: number } | null = null;
+  try {
+    settled = await client.$transaction(
+      (tx: any) => reconcileNrmsPayment(tx, input),
+      { maxWait: 10_000, timeout: 20_000 },
+    );
+  } catch (error) {
+    // Callback and browser postback can settle the same token concurrently.
+    // After a losing transaction rolls back, check the committed state. Only
+    // acknowledge it as a retry if this exact token has a verified payment
+    // for the same provider transaction and amount.
+    try {
+      const token = await client.nrmsServicePaymentToken.findUnique({
+        where: { token: input.token },
+        include: { payment: true, statement: { select: { status: true } } },
+      });
+      if (
+        token?.statement?.status === "PAID" &&
+        token.payment?.status === "VERIFIED" &&
+        token.payment.provider === input.provider &&
+        token.payment.providerRef === input.providerRef &&
+        Number(token.payment.amount) === input.amount
+      ) {
+        settled = { payment: token.payment, statementId: token.statementId };
+      }
+    } catch { /* Preserve the original settlement error. */ }
+    if (!settled) throw error;
+  }
+  if (!settled) throw new Error("NRMS_SETTLEMENT_RESULT_MISSING");
   await accrueNrmsSalesCommissionAfterCommit(client, settled.statementId, context);
   return settled.payment;
 }

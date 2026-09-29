@@ -484,8 +484,9 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
   if (!paymentRef) {
     throw new Error("coral_missing_payment_ref");
   }
+  const isNrmsReference = /^NRMS-/i.test(paymentRef);
 
-  const invoice = await prisma.invoice.findFirst({
+  const invoice = isNrmsReference ? null : await prisma.invoice.findFirst({
     where: { paymentRef },
     select: {
       id: true,
@@ -496,7 +497,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     },
   });
 
-  const tourBooking = invoice ? null : await prisma.tourBooking.findFirst({
+  const tourBooking = (isNrmsReference || invoice) ? null : await prisma.tourBooking.findFirst({
     where: { paymentRef },
     select: {
       id: true,
@@ -507,7 +508,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     },
   });
 
-  const groupBooking = (invoice || tourBooking) ? null : await prisma.groupBooking.findFirst({
+  const groupBooking = (isNrmsReference || invoice || tourBooking) ? null : await prisma.groupBooking.findFirst({
     where: { paymentRef },
     select: {
       id: true,
@@ -526,7 +527,7 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
   });
 
   let nrmsPaymentToken: any = null;
-  if (!invoice && !tourBooking && !groupBooking && /^NRMS-/i.test(paymentRef)) {
+  if (isNrmsReference) {
     const include = { statement: { include: { account: true } }, payment: true };
 
     // Exact token matching keeps callbacks from checkouts created before the
@@ -582,19 +583,11 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
     ? Math.round(Number(groupBooking?.depositAmount ?? 0))
     : Math.round(Number(nrmsPaymentToken?.amount ?? 0));
 
-  const existing = await prisma.paymentEvent.findUnique({
-    where: { eventId },
-    select: { id: true, status: true },
-  }).catch(() => null);
-
-  if (existing) {
-    if (existing.status !== eventStatus) {
-      await prisma.paymentEvent.update({
-        where: { id: existing.id },
-        data: { status: eventStatus, rawStatus: notice.status || notice.code || undefined, payload: notice.raw },
-      });
-    }
-  } else {
+  // For NRMS, a provider success is not yet a settled payment. Keep its event
+  // pending until the statement and account update commit below.
+  const statusBeforeSettlement = isSuccess && nrmsPaymentToken ? "PENDING" : eventStatus;
+  let createdEvent = false;
+  try {
     await prisma.paymentEvent.create({
       data: {
         provider: "CORALCOMMERCE",
@@ -610,11 +603,31 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
           : groupBooking
           ? resolveCoralCurrency(groupBooking.currency)
           : resolveCoralCurrency(nrmsPaymentToken?.currency),
-        status: eventStatus,
+        status: statusBeforeSettlement,
         paymentChannel: "CARD",
         rawStatus: notice.status || notice.code || null,
         payload: notice.raw,
       },
+    });
+    createdEvent = true;
+  } catch (error: any) {
+    if (error?.code !== "P2002") throw error;
+    // Coral sends both callback and browser postback, often for the same event.
+    // Only a duplicate Coral event may be treated as an idempotent retry.
+    const existing = await prisma.paymentEvent.findUnique({
+      where: { eventId },
+      select: { provider: true },
+    });
+    if (existing?.provider !== "CORALCOMMERCE") throw error;
+  }
+  if (!createdEvent && statusBeforeSettlement !== "PENDING") {
+    await prisma.paymentEvent.updateMany({
+      where: {
+        eventId,
+        provider: "CORALCOMMERCE",
+        status: { in: statusBeforeSettlement === "SUCCESS" ? ["PENDING", "FAILED"] : ["PENDING"] },
+      },
+      data: { status: statusBeforeSettlement, rawStatus: notice.status || notice.code || undefined, payload: notice.raw },
     });
   }
 
@@ -638,9 +651,16 @@ async function handleCoralNotification(kind: "callback" | "postback", encryptedV
       idempotencyKey: `CORAL:${eventId}`.slice(0, 120),
       amount,
     }, "CoralCommerce NRMS");
+    await prisma.paymentEvent.updateMany({
+      where: { eventId, provider: "CORALCOMMERCE", status: { in: ["PENDING", "FAILED"] } },
+      data: { status: "SUCCESS", rawStatus: notice.status || notice.code || undefined, payload: notice.raw },
+    });
   }
   if (isFailure && nrmsPaymentToken) {
-    await prisma.$transaction((tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token));
+    await prisma.$transaction(
+      (tx: any) => markNrmsPaymentFailed(tx, nrmsPaymentToken.token),
+      { maxWait: 10_000, timeout: 20_000 },
+    );
   }
 
   if (isSuccess && tourBooking && tourBooking.paymentStatus !== "PAID") {
