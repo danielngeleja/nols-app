@@ -98,8 +98,8 @@ beforeEach(() => {
       account: {
         id: 12,
         propertyId: 1,
-        owner: { name: "Owner", fullName: "Test Owner", email: "owner@example.test", phone: "+255700000000" },
-        property: { id: 1, title: "Test Hotel" },
+        owner: { name: "Owner", fullName: "Test Öwner", email: "owner@example.test", phone: "+255700000000" },
+        property: { id: 1, title: "Test Hôtel · Zanzibar" },
       },
     },
   };
@@ -137,6 +137,21 @@ describe("NRMS Coral checkout latency boundary", () => {
     });
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.coralPost).toHaveBeenCalledTimes(1);
+    const sent = mocks.coralPost.mock.calls[0][0].Transaction;
+    expect(sent.Order.Products[0]).toMatchObject({
+      Code: "NRMS",
+      Description: "NoLSAF NRMS statement #9",
+      Price: 50_000,
+      SubTotal: 50_000,
+    });
+    expect(sent.UCF).toMatchObject({
+      CustomerFullName: "NoLSAF Owner",
+      CustomerEmail: "",
+      CustomerMobile: "",
+      CallbackUrl: "https://api.example.test/callback",
+    });
+    expect(sent.Identifier).toBe(token);
+    expect(sent.Submission.Stamp).toBe(response.body.transactionId);
     expect(mocks.eventUpsert).toHaveBeenCalledTimes(2);
     expect(mocks.transaction.mock.invocationCallOrder[0]).toBeLessThan(mocks.coralPost.mock.invocationCallOrder[0]);
   });

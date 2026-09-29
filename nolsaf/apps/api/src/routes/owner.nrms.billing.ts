@@ -213,7 +213,6 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         include: {
           account: {
             include: {
-              owner: { select: { name: true, fullName: true, email: true, phone: true } },
               property: { select: { id: true, title: true } },
             },
           },
@@ -333,8 +332,9 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     const postbackParams = { kind: "nrms", propertyId: String(row.statement.account.propertyId) };
     const coralReference = createNrmsCoralReferenceFields(row.token);
     const paymentRef = coralReference.paymentRef;
-    const owner = row.statement.account.owner;
-    const description = `NRMS statement #${row.statementId} · ${row.statement.account.property.title}`.slice(0, 100);
+    // These fields are only displayed by Coral. Keep them in the same simple
+    // ASCII form as the working tour and group-stay hosted checkouts.
+    const description = `NoLSAF NRMS statement #${row.statementId}`;
     const coralCurrency = String(row.currency || "").trim().toUpperCase();
     if (coralCurrency !== "TZS" && coralCurrency !== "USD") {
       return res.status(409).json({ error: "This statement currency is not supported for card payments" });
@@ -355,9 +355,9 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
           ProductTotal: amount,
         },
         UCF: {
-          CustomerFullName: String(owner.fullName || owner.name || "NoLSAF Owner").slice(0, 100),
-          CustomerEmail: String(owner.email || "").slice(0, 255),
-          CustomerMobile: String(owner.phone || "").slice(0, 40),
+          CustomerFullName: "NoLSAF Owner",
+          CustomerEmail: "",
+          CustomerMobile: "",
           CallbackUrl: config.callbackUrl,
           CallbackFormat: "json",
           CallbackMethod: "post",
@@ -398,6 +398,19 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
       await failNrmsCardAttempt(row, paymentRef, providerData.code || "REJECTED");
       return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
     }
+    // Log only URL structure: the query values are one-use session credentials.
+    let hostedUrlShape: Record<string, unknown> = { validUrl: false };
+    try {
+      const hostedUrl = new URL(providerData.redirectUrl);
+      hostedUrlShape = {
+        validUrl: true,
+        host: hostedUrl.host,
+        path: hostedUrl.pathname,
+        hasKey: hostedUrl.searchParams.has("key"),
+        hasUcfctrl: hostedUrl.searchParams.has("ucfctrl"),
+        length: providerData.redirectUrl.length,
+      };
+    } catch { /* Keep the provider response intact for diagnosis. */ }
     const result = { status: "PENDING", transactionId: paymentRef, paymentRef: row.token, checkoutUrl: providerData.redirectUrl };
     res.json({ ok: true, ...result });
     const responseSentAt = performance.now();
@@ -408,6 +421,7 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
       coralMs: Math.round((coralCompletedAt - coralStartedAt) * 100) / 100,
       responseAfterCoralMs: Math.round((responseSentAt - coralCompletedAt) * 100) / 100,
       code: providerData.code,
+      hostedUrlShape,
     }));
 
     // These are audit/cache enrichments only. The authoritative token and
