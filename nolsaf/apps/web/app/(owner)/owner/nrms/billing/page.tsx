@@ -239,12 +239,12 @@ export default function NrmsBillingPage() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const automaticPaymentState = useRef<"idle" | "creating" | "done">("idle");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preserveError = false) => {
     if (!selectedPropertyId) return;
     try {
       const response = await apiClient.get(`/api/owner/nrms/billing/${selectedPropertyId}`);
       setAccount(response.data?.account);
-      setError(null);
+      if (!preserveError) setError(null);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.error || "Failed to load NRMS billing");
     }
@@ -308,7 +308,7 @@ export default function NrmsBillingPage() {
     let timer: number | null = null;
     const poll = async () => {
       if (stopped) return;
-      if (document.visibilityState === "visible") await load();
+      if (document.visibilityState === "visible") await load(true);
       delay = Math.min(delay * 2, 20_000);
       if (!stopped) timer = window.setTimeout(() => void poll(), delay);
     };
@@ -422,11 +422,20 @@ export default function NrmsBillingPage() {
   }, [account, load, paymentTarget, selectedPropertyId, smokeScenario]);
 
   if (!selectedPropertyId) return <p className="py-10 text-center text-sm text-neutral-500">Select a property to view billing.</p>;
-  if (error) return <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>;
   if (!account) {
     return (
-      <div className="flex items-center justify-center gap-2 py-16 text-sm font-medium text-neutral-400">
-        <Loader2 className="h-4 w-4 animate-spin text-emerald-700" /> Loading billing
+      <div className="space-y-4 py-6">
+        <h1 className="text-xl font-semibold text-neutral-950">Usage and payments</h1>
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <span>{error}</span>
+            <button type="button" onClick={() => void load()} className="rounded-lg border border-red-200 bg-white px-3 py-2 font-semibold text-red-800 hover:bg-red-100">Retry loading</button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-2 py-16 text-sm font-medium text-neutral-400">
+            <Loader2 className="h-4 w-4 animate-spin text-emerald-700" /> Loading billing
+          </div>
+        )}
       </div>
     );
   }
@@ -529,6 +538,7 @@ export default function NrmsBillingPage() {
         `/api/owner/nrms/billing/tokens/${encodeURIComponent(target.token)}/initiate`,
         payload,
       );
+      setError(null);
       if (method.method === "CARD" && response.data?.checkoutUrl) {
         window.location.assign(response.data.checkoutUrl);
         return;
@@ -537,7 +547,9 @@ export default function NrmsBillingPage() {
       setProcessingSince((current) => ({ ...current, [target.token]: Date.now() }));
       await load();
     } catch (requestError: any) {
-      setError(requestError?.response?.data?.error || "Failed to initiate payment");
+      const message = requestError?.response?.data?.error || "Failed to initiate payment";
+      if (requestError?.response?.status === 409) await load(true);
+      setError(message);
     } finally {
       setBusyToken(null);
     }
@@ -632,6 +644,18 @@ export default function NrmsBillingPage() {
           </div>
         </div>
       </section>
+
+      {error && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-800">
+          <span className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</span>
+          {/token.*(expired|no longer usable)|expired.*token/i.test(error) && balance > 0 && (
+            <button type="button" disabled={busy} onClick={() => void requestToken()} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-800 transition hover:bg-red-100 disabled:opacity-60">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              {busy ? "Generating…" : "Generate new token"}
+            </button>
+          )}
+        </div>
+      )}
 
       {alert && (
         <div className={`flex items-start gap-2.5 rounded-xl border p-3.5 text-sm font-medium ${alert.className}`}>
