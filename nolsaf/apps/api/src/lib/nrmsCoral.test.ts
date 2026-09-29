@@ -16,12 +16,18 @@ describe("NRMS Coral payment references", () => {
     expect(second).not.toBe(first);
   });
 
-  it("uses one identical reference for Coral Stamp and Identifier", () => {
-    const fields = createNrmsCoralReferenceFields();
+  it("uses a unique Stamp and the stable NRMS token as Identifier", () => {
+    const token = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
+    const fields = createNrmsCoralReferenceFields(token);
 
     expect(fields.Submission.Stamp).toBe(fields.paymentRef);
-    expect(fields.Identifier).toBe(fields.paymentRef);
-    expect(fields.Identifier.length).toBeLessThanOrEqual(CORAL_MAX_PAYMENT_REFERENCE_LENGTH);
+    expect(fields.Submission.Stamp.length).toBeLessThanOrEqual(CORAL_MAX_PAYMENT_REFERENCE_LENGTH);
+    expect(fields.Identifier).toBe(token);
+    expect(fields.Identifier).not.toBe(fields.Submission.Stamp);
+  });
+
+  it("rejects a non-NRMS Identifier", () => {
+    expect(() => createNrmsCoralReferenceFields("BOOKING-123")).toThrow("invalid_nrms_coral_identifier");
   });
 
   it("only accepts an initiation mapping for the same provider reference", () => {

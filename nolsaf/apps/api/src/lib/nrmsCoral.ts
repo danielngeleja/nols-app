@@ -3,9 +3,9 @@ import crypto from "crypto";
 export const CORAL_MAX_PAYMENT_REFERENCE_LENGTH = 40;
 
 /**
- * Coral uses this value as both Submission.Stamp and Identifier. Keep it
- * provider-safe and distinct for every checkout attempt; the NRMS payment
- * token remains the stable internal settlement key.
+ * Coral uses this value as Submission.Stamp. Keep it provider-safe and
+ * distinct for every checkout attempt; the NRMS payment token is sent as the
+ * stable Identifier and remains the internal settlement key.
  */
 export function createNrmsCoralPaymentReference(): string {
   const reference = `NRMS-C-${crypto.randomBytes(16).toString("hex").toUpperCase()}`;
@@ -15,12 +15,17 @@ export function createNrmsCoralPaymentReference(): string {
   return reference;
 }
 
-export function createNrmsCoralReferenceFields() {
+export function createNrmsCoralReferenceFields(nrmsToken: string) {
+  if (!/^NRMS-/i.test(nrmsToken) || nrmsToken.length > 255) {
+    throw new Error("invalid_nrms_coral_identifier");
+  }
   const paymentRef = createNrmsCoralPaymentReference();
   return {
     paymentRef,
     Submission: { Number: 1, Stamp: paymentRef },
-    Identifier: paymentRef,
+    // Coral defines Identifier as the stable merchant order reference and
+    // Stamp as the unique max-40-character submission reference.
+    Identifier: nrmsToken,
   } as const;
 }
 

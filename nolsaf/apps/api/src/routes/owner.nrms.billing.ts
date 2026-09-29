@@ -286,10 +286,14 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     const config = requiredNrmsCoralConfig();
     if (!config) return res.status(503).json({ error: "Card payments are not configured" });
     const postbackParams = { kind: "nrms", propertyId: String(row.statement.account.propertyId) };
-    const coralReference = createNrmsCoralReferenceFields();
+    const coralReference = createNrmsCoralReferenceFields(row.token);
     const paymentRef = coralReference.paymentRef;
     const owner = row.statement.account.owner;
     const description = `NRMS statement #${row.statementId} · ${row.statement.account.property.title}`.slice(0, 100);
+    const coralCurrency = String(row.currency || "").trim().toUpperCase();
+    if (coralCurrency !== "TZS" && coralCurrency !== "USD") {
+      return res.status(409).json({ error: "This statement currency is not supported for card payments" });
+    }
     const coralPayload = {
       Transaction: {
         Version: "3.16",
@@ -299,7 +303,7 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         Submission: coralReference.Submission,
         Identifier: coralReference.Identifier,
         Alias: config.alias,
-        Currency: row.currency,
+        Currency: coralCurrency,
         Order: {
           Products: [{ ID: 1, Code: "NRMS", Description: description, Price: amount, Quantity: 1, VAT: 0, SubTotal: amount }],
           Delivery: { Auto: true },
@@ -337,7 +341,7 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     if (providerData.code !== "000" || !providerData.redirectUrl) return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
     await recordNrmsInitiation({ row, eventId: `${paymentRef}-INIT`, channel: "CARD", provider: "CORALCOMMERCE", paymentRef, checkoutUrl: providerData.redirectUrl.slice(0, 2048) });
     await markNrmsTokenProcessing(row, "CARD", paymentRef);
-    const result = { status: "PENDING", transactionId: paymentRef, paymentRef, checkoutUrl: providerData.redirectUrl };
+    const result = { status: "PENDING", transactionId: paymentRef, paymentRef: row.token, checkoutUrl: providerData.redirectUrl };
     if (idemKey) await idemSet(idemKey, result);
     return res.json({ ok: true, ...result });
   } catch (error: any) {
