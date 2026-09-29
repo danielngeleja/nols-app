@@ -1,0 +1,143 @@
+import express from "express";
+import request from "supertest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  tokenFindFirst: vi.fn(),
+  tokenUpdate: vi.fn(),
+  accountUpdate: vi.fn(),
+  eventUpsert: vi.fn(),
+  transaction: vi.fn(),
+  coralPost: vi.fn(),
+  parseCoral: vi.fn(),
+  idemSet: vi.fn(),
+}));
+
+vi.mock("@nolsaf/prisma", () => {
+  const prisma: any = {
+    nrmsServicePaymentToken: {
+      findFirst: mocks.tokenFindFirst,
+      update: mocks.tokenUpdate,
+    },
+    ownerPaygAccount: { update: mocks.accountUpdate },
+    paymentEvent: { upsert: mocks.eventUpsert },
+    $transaction: mocks.transaction,
+  };
+  return { prisma };
+});
+
+vi.mock("../middleware/auth.js", () => ({
+  requireAuth: (req: any, _res: any, next: any) => { req.user = { id: 7, role: "OWNER" }; next(); },
+  requireRole: () => (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock("../lib/nrms.js", () => ({
+  requireNrms: (_req: any, _res: any, next: any) => next(),
+  loadOwnedActiveNrmsProperty: vi.fn(),
+}));
+
+vi.mock("../lib/azampay.auth.js", () => ({
+  getAzamPayToken: vi.fn(),
+  invalidateAzamPayToken: vi.fn(),
+}));
+
+vi.mock("../lib/azampay.helpers.js", () => ({
+  azampayMnoPost: vi.fn(),
+  describeAzamPayResponseBody: vi.fn(),
+  idemGet: vi.fn(async () => null),
+  idemSet: mocks.idemSet,
+  makePaymentRateLimiter: vi.fn(() => (_req: any, _res: any, next: any) => next()),
+  normalizePhone: vi.fn(),
+  CHECKOUT_BANK_CODES: ["CRDB"],
+}));
+
+vi.mock("../lib/coralcommerce.helpers.js", () => ({
+  coralPostJson64: mocks.coralPost,
+  parseCoralInitiateResponse: mocks.parseCoral,
+}));
+
+vi.mock("../lib/serviceAvailability.js", () => ({
+  getPaymentMethodAvailability: vi.fn(async () => ({ enabled: true })),
+}));
+
+vi.mock("../lib/nrmsBilling.js", () => ({
+  markNrmsPaymentFailed: vi.fn(),
+}));
+
+let app: express.Express;
+const token = "NRMS-1234567890ABCDEF1234567890ABCDEF1234";
+
+beforeAll(async () => {
+  process.env.CORAL_UCF_USERNAME = "test-user";
+  process.env.CORAL_UCF_PASSWORD = "test-password";
+  process.env.CORAL_UCF_ALIAS = "test-alias";
+  process.env.CORAL_UCF_CALLBACK_URL = "https://api.example.test/callback";
+  process.env.CORAL_UCF_POSTBACK_SUCCESS_URL = "https://web.example.test/return";
+  process.env.CORAL_UCF_POSTBACK_FAILURE_URL = "https://web.example.test/return";
+  const { default: router } = await import("./owner.nrms.billing.js");
+  app = express();
+  app.use(express.json());
+  app.use("/api/owner/nrms/billing", router);
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  const row = {
+    id: 41,
+    token,
+    amount: 50_000,
+    currency: "TZS",
+    status: "PENDING",
+    expiresAt: new Date(Date.now() + 86_400_000),
+    payment: null,
+    statementId: 9,
+    statement: {
+      id: 9,
+      status: "PAYABLE",
+      accountId: 12,
+      account: {
+        id: 12,
+        propertyId: 1,
+        owner: { name: "Owner", fullName: "Test Owner", email: "owner@example.test", phone: "+255700000000" },
+        property: { id: 1, title: "Test Hotel" },
+      },
+    },
+  };
+  mocks.tokenFindFirst.mockResolvedValue(row);
+  mocks.tokenUpdate.mockResolvedValue(row);
+  mocks.accountUpdate.mockResolvedValue({ id: 12 });
+  mocks.transaction.mockImplementation(async (input: any) => (
+    Array.isArray(input) ? Promise.all(input) : input({})
+  ));
+  mocks.coralPost.mockResolvedValue({ ok: true, status: 200, body: "{}" });
+  mocks.parseCoral.mockReturnValue({
+    code: "000",
+    message: "Request processed successfully",
+    redirectUrl: "https://secure.coralcommerce.test/Payserver/Hosted/Index?key=fresh",
+  });
+  mocks.idemSet.mockResolvedValue(undefined);
+});
+
+describe("NRMS Coral checkout latency boundary", () => {
+  it("returns the hosted URL without waiting for post-Coral audit enrichment", async () => {
+    mocks.eventUpsert
+      .mockResolvedValueOnce({ id: 1 })
+      .mockImplementationOnce(() => new Promise(() => undefined));
+
+    const response = await request(app)
+      .post(`/api/owner/nrms/billing/tokens/${token}/initiate`)
+      .send({ channel: "CARD", idempotencyKey: "nrms-card-test-123" })
+      .timeout({ response: 1_000, deadline: 2_000 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      paymentRef: token,
+      checkoutUrl: "https://secure.coralcommerce.test/Payserver/Hosted/Index?key=fresh",
+    });
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.coralPost).toHaveBeenCalledTimes(1);
+    expect(mocks.eventUpsert).toHaveBeenCalledTimes(2);
+    expect(mocks.transaction.mock.invocationCallOrder[0]).toBeLessThan(mocks.coralPost.mock.invocationCallOrder[0]);
+  });
+});

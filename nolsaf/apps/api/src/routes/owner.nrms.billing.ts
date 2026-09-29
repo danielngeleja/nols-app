@@ -16,6 +16,7 @@ import {
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { createNrmsCoralReferenceFields } from "../lib/nrmsCoral.js";
+import { markNrmsPaymentFailed } from "../lib/nrmsBilling.js";
 import crypto from "crypto";
 
 export const router = Router();
@@ -95,6 +96,50 @@ async function recordNrmsInitiation(input: { row: any; eventId: string; channel:
   } catch (error: any) {
     console.warn("[NRMS payment] Could not record initiation event:", error?.message ?? error);
     if (input.required) throw error;
+  }
+}
+
+async function prepareNrmsCardAttempt(row: any, paymentRef: string) {
+  await prisma.$transaction([
+    (prisma as any).paymentEvent.upsert({
+      where: { eventId: `${paymentRef}-INIT` },
+      update: {
+        status: "PENDING",
+        checkoutUrl: null,
+        payload: { nrmsToken: row.token, statementId: row.statementId, paymentRef },
+      },
+      create: {
+        provider: "CORALCOMMERCE",
+        eventId: `${paymentRef}-INIT`,
+        amount: Number(row.amount),
+        currency: row.currency,
+        status: "PENDING",
+        paymentChannel: "CARD",
+        payload: { nrmsToken: row.token, statementId: row.statementId, paymentRef },
+      },
+    }),
+    (prisma as any).nrmsServicePaymentToken.update({
+      where: { id: row.id },
+      data: { method: "CARD", status: "PROCESSING", checkoutSessionId: paymentRef },
+    }),
+    (prisma as any).ownerPaygAccount.update({
+      where: { id: row.statement.accountId },
+      data: { status: "PAYMENT_PENDING" },
+    }),
+  ]);
+}
+
+async function failNrmsCardAttempt(row: any, paymentRef: string, rawStatus?: string) {
+  try {
+    await prisma.$transaction(async (tx: any) => {
+      await tx.paymentEvent.updateMany({
+        where: { eventId: `${paymentRef}-INIT`, status: "PENDING" },
+        data: { status: "FAILED", rawStatus: rawStatus || undefined },
+      });
+      await markNrmsPaymentFailed(tx, row.token);
+    });
+  } catch (error: any) {
+    console.warn("[NRMS/Card] Could not persist failed initiation:", error?.message ?? error);
   }
 }
 
@@ -324,26 +369,62 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         },
       },
     };
-    // Persist the provider-reference-to-token mapping before creating an
-    // external checkout. A callback must never arrive for an unresolvable NRMS
-    // payment, even if the token predates the shorter Coral reference format.
-    await recordNrmsInitiation({
+    // Complete all required persistence before asking Coral to create its
+    // short-lived hosted session. Once Coral returns the URL, nothing on the
+    // database path is allowed to delay delivery of that URL to the browser.
+    const cardStartedAt = performance.now();
+    await prepareNrmsCardAttempt(row, paymentRef);
+    const coralStartedAt = performance.now();
+    let providerResponse;
+    try {
+      providerResponse = await coralPostJson64(coralPayload);
+    } catch (error) {
+      await failNrmsCardAttempt(row, paymentRef, "REQUEST_FAILED");
+      throw error;
+    }
+    const coralCompletedAt = performance.now();
+    if (!providerResponse.ok) {
+      await failNrmsCardAttempt(row, paymentRef, `HTTP_${providerResponse.status}`);
+      return res.status(502).json({ error: "Card checkout could not be initiated" });
+    }
+    let providerData;
+    try {
+      providerData = parseCoralInitiateResponse(providerResponse.body);
+    } catch (error) {
+      await failNrmsCardAttempt(row, paymentRef, "INVALID_RESPONSE");
+      throw error;
+    }
+    if (providerData.code !== "000" || !providerData.redirectUrl) {
+      await failNrmsCardAttempt(row, paymentRef, providerData.code || "REJECTED");
+      return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
+    }
+    const result = { status: "PENDING", transactionId: paymentRef, paymentRef: row.token, checkoutUrl: providerData.redirectUrl };
+    res.json({ ok: true, ...result });
+    const responseSentAt = performance.now();
+    console.info("[NRMS/Card] Coral checkout timing", JSON.stringify({
+      requestId: (req as any).requestId || null,
+      statementId: row.statementId,
+      preparationMs: Math.round((coralStartedAt - cardStartedAt) * 100) / 100,
+      coralMs: Math.round((coralCompletedAt - coralStartedAt) * 100) / 100,
+      responseAfterCoralMs: Math.round((responseSentAt - coralCompletedAt) * 100) / 100,
+      code: providerData.code,
+    }));
+
+    // These are audit/cache enrichments only. The authoritative token and
+    // callback mapping were committed before Coral was called, so neither may
+    // hold the hosted checkout response open.
+    void recordNrmsInitiation({
       row,
       eventId: `${paymentRef}-INIT`,
       channel: "CARD",
       provider: "CORALCOMMERCE",
       paymentRef,
-      required: true,
+      checkoutUrl: providerData.redirectUrl.slice(0, 2048),
     });
-    const providerResponse = await coralPostJson64(coralPayload);
-    if (!providerResponse.ok) return res.status(502).json({ error: "Card checkout could not be initiated" });
-    const providerData = parseCoralInitiateResponse(providerResponse.body);
-    if (providerData.code !== "000" || !providerData.redirectUrl) return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
-    await recordNrmsInitiation({ row, eventId: `${paymentRef}-INIT`, channel: "CARD", provider: "CORALCOMMERCE", paymentRef, checkoutUrl: providerData.redirectUrl.slice(0, 2048) });
-    await markNrmsTokenProcessing(row, "CARD", paymentRef);
-    const result = { status: "PENDING", transactionId: paymentRef, paymentRef: row.token, checkoutUrl: providerData.redirectUrl };
-    if (idemKey) await idemSet(idemKey, result);
-    return res.json({ ok: true, ...result });
+    if (idemKey) void idemSet(idemKey, result).catch((error: any) => {
+      console.warn("[NRMS/Card] Could not cache initiation response:", error?.message ?? error);
+    });
+    return;
   } catch (error: any) {
     console.error("[NRMS payment] initiation failed:", error?.message ?? error);
     return res.status(503).json({ error: "Payment service is temporarily unavailable" });
