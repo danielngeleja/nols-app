@@ -8,6 +8,10 @@ import { shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Statement/token creation can follow bulk usage writes on a slow database.
+// Keep that entire change atomic, but allow more than Prisma's 5-second default.
+export const NRMS_STATEMENT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
 function utcDay(value: Date): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
 }

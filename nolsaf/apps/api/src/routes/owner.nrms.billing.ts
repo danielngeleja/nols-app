@@ -16,7 +16,7 @@ import {
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { createNrmsCoralReferenceFields } from "../lib/nrmsCoral.js";
-import { markNrmsPaymentFailed } from "../lib/nrmsBilling.js";
+import { markNrmsPaymentFailed, NRMS_STATEMENT_TRANSACTION_OPTIONS } from "../lib/nrmsBilling.js";
 import { generateNrmsBillingReceiptPdf, type NrmsBillingReceiptData } from "../lib/pdfDocuments.js";
 import crypto from "crypto";
 
@@ -507,7 +507,7 @@ router.post("/:propertyId/token", (async (req: AuthedRequest, res: Response) => 
     const statement = await tx.nrmsBillingStatement.create({ data: { accountId: active.account.id, amount, currency } });
     await tx.nrmsBillingStatementItem.createMany({ data: events.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
     return tx.nrmsServicePaymentToken.create({ data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency, expiresAt: new Date(Date.now() + 7 * 86400000) } });
-  });
+  }, NRMS_STATEMENT_TRANSACTION_OPTIONS);
   if (!token) return res.status(409).json({ error: "No unbilled usage is available" });
   res.status(201).json({ token });
 }) as RequestHandler);

@@ -1,6 +1,6 @@
 import { prisma } from "@nolsaf/prisma";
 import { runNrmsWorker } from "../lib/nrmsWorkerHealth.js";
-import { buildNrmsUsageRows, getAlreadyBilledNights, applyNrmsUsageRows } from "../lib/nrmsBilling.js";
+import { buildNrmsUsageRows, getAlreadyBilledNights, applyNrmsUsageRows, NRMS_STATEMENT_TRANSACTION_OPTIONS } from "../lib/nrmsBilling.js";
 
 const db = prisma as any;
 
@@ -18,6 +18,7 @@ function utcDay(value: Date): Date {
 export async function runNrmsUsageAccrual(now = new Date()) {
   const today = utcDay(now);
   const processedProperties = new Set<number>();
+  const failedProperties = new Set<number>();
   let totalEvents = 0;
   const batchSize = Math.max(50, Math.min(1000, Number(process.env.NRMS_WORKER_BATCH_SIZE || 250)));
   let cursorId = 0;
@@ -55,10 +56,14 @@ export async function runNrmsUsageAccrual(now = new Date()) {
     }
 
     for (const [propertyId, propertyReservations] of byProperty) {
+      // If an earlier batch for this property failed, preserve ordering and
+      // retry the whole property on the next run instead of posting later nights.
+      if (failedProperties.has(propertyId)) continue;
+      const transactionStartedAt = performance.now();
       try {
-        await db.$transaction(async (tx: any) => {
+        const result = await db.$transaction(async (tx: any) => {
           const account = await tx.ownerPaygAccount.findUnique({ where: { propertyId }, include: { policy: true } });
-          if (!account) return;
+          if (!account) return { usageEvents: 0 };
           const allocationIds = propertyReservations.flatMap((r: any) => r.allocations.map((a: any) => a.id));
           const alreadyBilled = await getAlreadyBilledNights(tx, allocationIds);
           const rows = propertyReservations.flatMap((reservation: any) =>
@@ -77,16 +82,27 @@ export async function runNrmsUsageAccrual(now = new Date()) {
               alreadyBilled,
             }),
           );
-          if (!rows.length) return;
-          const result = await applyNrmsUsageRows(tx, account, rows);
-          totalEvents += result.usageEvents;
-        });
+          if (!rows.length) return { usageEvents: 0 };
+          return applyNrmsUsageRows(tx, account, rows);
+        }, NRMS_STATEMENT_TRANSACTION_OPTIONS);
+        // A transaction can fail while committing after its callback returns.
+        // Count usage only after Prisma confirms the entire statement committed.
+        totalEvents += result.usageEvents;
         processedProperties.add(propertyId);
+        const durationMs = Math.round(performance.now() - transactionStartedAt);
+        if (durationMs > 5_000) {
+          console.warn("[nrms-usage-accrual] slow property transaction", { propertyId, reservations: propertyReservations.length, durationMs });
+        }
       } catch (error) {
-        console.error(`[nrms-usage-accrual] property ${propertyId} failed`, error);
+        failedProperties.add(propertyId);
+        console.error(`[nrms-usage-accrual] property ${propertyId} failed after ${Math.round(performance.now() - transactionStartedAt)} ms`, error);
       }
     }
     if (isLastBatch) break;
+  }
+  // Continue other properties, but never mark the worker HEALTHY if any failed.
+  if (failedProperties.size) {
+    throw new Error(`NRMS usage accrual failed for ${failedProperties.size} propert${failedProperties.size === 1 ? "y" : "ies"}: ${[...failedProperties].join(", ")}`);
   }
   return { properties: processedProperties.size, usageEvents: totalEvents };
 }

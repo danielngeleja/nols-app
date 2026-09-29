@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   coralPost: vi.fn(),
   parseCoral: vi.fn(),
   idemSet: vi.fn(),
+  loadOwnedActive: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => {
@@ -33,7 +34,7 @@ vi.mock("../middleware/auth.js", () => ({
 
 vi.mock("../lib/nrms.js", () => ({
   requireNrms: (_req: any, _res: any, next: any) => next(),
-  loadOwnedActiveNrmsProperty: vi.fn(),
+  loadOwnedActiveNrmsProperty: mocks.loadOwnedActive,
 }));
 
 vi.mock("../lib/azampay.auth.js", () => ({
@@ -62,6 +63,7 @@ vi.mock("../lib/serviceAvailability.js", () => ({
 
 vi.mock("../lib/nrmsBilling.js", () => ({
   markNrmsPaymentFailed: vi.fn(),
+  NRMS_STATEMENT_TRANSACTION_OPTIONS: { maxWait: 10_000, timeout: 30_000 },
 }));
 
 let app: express.Express;
@@ -189,5 +191,23 @@ describe("NRMS billing receipt PDF", () => {
     expect(response.headers["content-type"]).toMatch(/^application\/pdf/);
     expect(response.headers["content-disposition"]).toContain("NRMS-RCPT-10.pdf");
     expect(response.body.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+});
+
+describe("NRMS owner payment token", () => {
+  it("uses the bounded statement transaction timeout", async () => {
+    mocks.loadOwnedActive.mockResolvedValue({ account: { id: 12, policyId: 2, unpaidBalance: 10_000 } });
+    const existing = { id: 51, token, amount: 10_000 };
+    mocks.transaction.mockImplementationOnce((callback: (tx: unknown) => Promise<unknown>) => callback({
+      nrmsServicePaymentToken: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        findFirst: vi.fn().mockResolvedValue(existing),
+      },
+    }));
+
+    const response = await request(app).post("/api/owner/nrms/billing/1/token");
+    expect(response.status).toBe(201);
+    expect(response.body.token).toMatchObject(existing);
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 30_000 });
   });
 });
