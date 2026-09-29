@@ -13,6 +13,7 @@ import { sendMail } from "../lib/mailer.js";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
+import { BASE_CURRENCY, getFxRates } from "../lib/fx.js";
 import {
   isOwnerInvoiceReference,
   matchesOwnerInvoiceReference,
@@ -1413,31 +1414,51 @@ export default router;
 
 // GET /admin/properties
 // Returns aggregated revenue by property (top-N by total). Query: ?top=10
+function revenueAmountInTzs(amount: unknown, currency: unknown, rates: Record<string, number>): number {
+  const value = Number(amount ?? 0);
+  const code = String(currency || BASE_CURRENCY).toUpperCase();
+  if (code === BASE_CURRENCY) return value;
+  const rate = rates[code];
+  return Number.isFinite(rate) && rate > 0 ? value * rate : value;
+}
+
 router.get('/properties', async (req, res) => {
   try {
     const top = Math.max(1, Math.min(200, Number(req.query.top ?? 10)));
-    const rows: Array<any> = await prisma.$queryRaw`
+    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
       SELECT p.id AS id, p.title AS name,
-        COALESCE(SUM(i.total), 0) AS total,
-        COALESCE(SUM(i.commissionAmount), 0) AS commission_total,
-        0 AS subscription_total
+        COALESCE(SUM(i.commissionAmount), 0) AS commission_total
       FROM invoice i
       JOIN booking b ON i.bookingId = b.id
       JOIN property p ON b.propertyId = p.id
       WHERE i.status IN ('APPROVED', 'PAID')
       GROUP BY p.id, p.title
-      ORDER BY total DESC
-      LIMIT ${top}
-    ` as any;
+    `, prisma.$queryRaw<Array<any>>`
+      SELECT p.id AS id, p.title AS name, pay.currency AS currency,
+        COALESCE(SUM(pay.amount), 0) AS subscription_total
+      FROM nrms_service_payment pay
+      JOIN nrms_service_payment_token token ON token.id = pay.tokenId
+      JOIN nrms_billing_statement statement ON statement.id = token.statementId
+      JOIN owner_payg_account account ON account.id = statement.accountId
+      JOIN property p ON p.id = account.propertyId
+      WHERE pay.status IN ('VERIFIED', 'MANUALLY_VERIFIED')
+      GROUP BY p.id, p.title, pay.currency
+    `, getFxRates()]);
 
-    // Normalize numbers
-    const result = rows.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      total: Number(r.total ?? 0),
-      commission: Number(r.commission_total ?? 0),
-      subscription: Number(r.subscription_total ?? 0),
-    }));
+    const byProperty = new Map<number, { id: number; name: string; total: number; commission: number; subscription: number }>();
+    for (const row of commissionRows) {
+      const id = Number(row.id);
+      const commission = Number(row.commission_total ?? 0);
+      byProperty.set(id, { id, name: String(row.name ?? ''), total: commission, commission, subscription: 0 });
+    }
+    for (const row of subscriptionRows) {
+      const id = Number(row.id);
+      const current = byProperty.get(id) ?? { id, name: String(row.name ?? ''), total: 0, commission: 0, subscription: 0 };
+      current.subscription += revenueAmountInTzs(row.subscription_total, row.currency, fx.tzsPerUnit);
+      current.total = current.commission + current.subscription;
+      byProperty.set(id, current);
+    }
+    const result = [...byProperty.values()].sort((a, b) => b.total - a.total).slice(0, top);
     res.json(result);
   } catch (err: any) {
     console.error('Error in GET /admin/properties', err);
@@ -1462,18 +1483,36 @@ router.get('/series', async (req, res) => {
     if (interval === 'hour') fmt = '%Y-%m-%d %H:00';
     if (interval === 'month') fmt = '%Y-%m';
 
-    const rows: Array<any> = await prisma.$queryRaw`
+    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
       SELECT DATE_FORMAT(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00'), ${fmt}) AS label,
-        COALESCE(SUM(i.commissionAmount),0) AS commission_total,
-        0 AS subscription_total
+        COALESCE(SUM(i.commissionAmount),0) AS commission_total
       FROM invoice i
       WHERE i.status IN ('APPROVED','PAID') AND i.issuedAt BETWEEN ${sqlFromIso} AND ${sqlToIso}
       GROUP BY label
       ORDER BY label
-    ` as any;
+    `, prisma.$queryRaw<Array<any>>`
+      SELECT DATE_FORMAT(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00'), ${fmt}) AS label,
+        pay.currency AS currency, COALESCE(SUM(pay.amount), 0) AS subscription_total
+      FROM nrms_service_payment pay
+      WHERE pay.status IN ('VERIFIED', 'MANUALLY_VERIFIED')
+        AND pay.verifiedAt BETWEEN ${sqlFromIso} AND ${sqlToIso}
+      GROUP BY label, pay.currency
+    `, getFxRates()]);
 
-    // normalize
-    const result = rows.map((r: any) => ({ label: r.label, commission: Number(r.commission_total ?? 0), subscription: Number(r.subscription_total ?? 0) }));
+    const byLabel = new Map<string, { label: string; commission: number; subscription: number }>();
+    for (const row of commissionRows) {
+      if (row.label == null) continue;
+      const label = String(row.label);
+      byLabel.set(label, { label, commission: Number(row.commission_total ?? 0), subscription: 0 });
+    }
+    for (const row of subscriptionRows) {
+      if (row.label == null) continue;
+      const label = String(row.label);
+      const current = byLabel.get(label) ?? { label, commission: 0, subscription: 0 };
+      current.subscription += revenueAmountInTzs(row.subscription_total, row.currency, fx.tzsPerUnit);
+      byLabel.set(label, current);
+    }
+    const result = [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label));
     res.json(result);
   } catch (err: any) {
     console.error('Error in GET /admin/revenue/series', err);
@@ -1498,16 +1537,28 @@ router.get('/summary', async (req, res) => {
     const fromIso = yesterdayStart.toISOString();
     const toIso = todayEnd.toISOString();
 
-    const rows: Array<any> = await prisma.$queryRaw`
+    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
       SELECT
         COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${todayStart.toISOString()}, '+00:00', '+03:00')) THEN COALESCE(i.commissionAmount,0) ELSE 0 END),0) AS today_total,
         COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${yesterdayStart.toISOString()}, '+00:00', '+03:00')) THEN COALESCE(i.commissionAmount,0) ELSE 0 END),0) AS yesterday_total
       FROM invoice i
       WHERE i.status IN ('APPROVED','PAID') AND i.issuedAt BETWEEN ${fromIso} AND ${toIso}
-    ` as any;
+    `, prisma.$queryRaw<Array<any>>`
+      SELECT pay.currency AS currency,
+        COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${todayStart.toISOString()}, '+00:00', '+03:00')) THEN pay.amount ELSE 0 END), 0) AS today_total,
+        COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${yesterdayStart.toISOString()}, '+00:00', '+03:00')) THEN pay.amount ELSE 0 END), 0) AS yesterday_total
+      FROM nrms_service_payment pay
+      WHERE pay.status IN ('VERIFIED', 'MANUALLY_VERIFIED')
+        AND pay.verifiedAt BETWEEN ${fromIso} AND ${toIso}
+      GROUP BY pay.currency
+    `, getFxRates()]);
 
-    const today = Number(rows?.[0]?.today_total ?? 0);
-    const yesterday = Number(rows?.[0]?.yesterday_total ?? 0);
+    const today = Number(commissionRows?.[0]?.today_total ?? 0) + subscriptionRows.reduce(
+      (sum, row) => sum + revenueAmountInTzs(row.today_total, row.currency, fx.tzsPerUnit), 0,
+    );
+    const yesterday = Number(commissionRows?.[0]?.yesterday_total ?? 0) + subscriptionRows.reduce(
+      (sum, row) => sum + revenueAmountInTzs(row.yesterday_total, row.currency, fx.tzsPerUnit), 0,
+    );
     let deltaLabel = '0%';
     if (yesterday > 0) {
       const pct = Math.round(((today - yesterday) / yesterday) * 100);
