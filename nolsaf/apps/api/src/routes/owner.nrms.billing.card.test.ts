@@ -156,3 +156,38 @@ describe("NRMS Coral checkout latency boundary", () => {
     expect(mocks.transaction.mock.invocationCallOrder[0]).toBeLessThan(mocks.coralPost.mock.invocationCallOrder[0]);
   });
 });
+
+describe("NRMS billing receipt PDF", () => {
+  it("only downloads a receipt for a verified paid statement", async () => {
+    const pending = await request(app).get(`/api/owner/nrms/billing/tokens/${token}/receipt.pdf`);
+    expect(pending.status).toBe(409);
+
+    const paidRow = {
+      id: 41,
+      token,
+      method: "CARD",
+      status: "PAID",
+      statementId: 1098,
+      statement: {
+        status: "PAID",
+        paidAt: new Date("2026-09-29T14:38:00.000Z"),
+        account: { property: { title: "Namibia Villa" } },
+      },
+      payment: {
+        id: 10,
+        status: "VERIFIED",
+        provider: "CORALCOMMERCE",
+        providerRef: "10292000000000024709",
+        verifiedAt: new Date("2026-09-29T14:38:00.000Z"),
+        amount: 10_000,
+        currency: "TZS",
+      },
+    };
+    mocks.tokenFindFirst.mockResolvedValue(paidRow);
+    const response = await request(app).get(`/api/owner/nrms/billing/tokens/${token}/receipt.pdf`);
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toMatch(/^application\/pdf/);
+    expect(response.headers["content-disposition"]).toContain("NRMS-RCPT-10.pdf");
+    expect(response.body.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+});

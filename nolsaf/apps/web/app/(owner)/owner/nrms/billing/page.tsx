@@ -30,7 +30,6 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import { downloadNrmsReceipt } from "@/lib/nrmsReceiptDownload";
 import PaymentMethodModal, { type SelectedPaymentMethod } from "@/components/PaymentMethodModal";
 import { useNrms } from "../_components/NrmsProvider";
 
@@ -213,11 +212,22 @@ export default function NrmsBillingPage() {
     if (receiptBusy) return;
     setReceiptBusy(token);setReceiptError(null);
     try {
-      const response = await apiClient.get(`/api/owner/nrms/billing/tokens/${encodeURIComponent(token)}/receipt`);
-      if (response.data?.receipt?.statementId !== statementId) throw new Error('Receipt does not match the statement');
-      await downloadNrmsReceipt(response.data.receipt);
+      const response = await apiClient.get<Blob>(`/api/owner/nrms/billing/tokens/${encodeURIComponent(token)}/receipt.pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `nrms-statement-${statementId}-receipt.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (cause: any) {
-      setReceiptError(cause?.response?.data?.error || 'The receipt could not be downloaded. Please try again.');
+      const payload = cause?.response?.data;
+      let message = payload?.error;
+      if (payload instanceof Blob) {
+        try { message = JSON.parse(await payload.text())?.error; } catch { /* PDF or non-JSON error */ }
+      }
+      setReceiptError(message || 'The receipt could not be downloaded. Please try again.');
     }
     finally {setReceiptBusy(null);}
   };

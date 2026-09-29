@@ -805,6 +805,96 @@ export async function generatePaymentReceiptPdf(data: PaymentReceiptData): Promi
   }, { size: "A4", margin: MARGIN });
 }
 
+export interface NrmsBillingReceiptData {
+  reference: string;
+  settlementReference: string;
+  statementId: number;
+  propertyTitle: string;
+  amount: number;
+  currency: string;
+  method: string | null;
+  manual: boolean;
+  paidAt: Date | string | null;
+  verifiedAt: Date | string | null;
+  providerReference: string | null;
+}
+
+/** An A5, vector-text receipt in the same family as the NRMS folio receipt. */
+export async function generateNrmsBillingReceiptPdf(data: NrmsBillingReceiptData): Promise<Buffer> {
+  const pageWidth = 419.53;
+  const pageHeight = 595.28;
+  const margin = 34;
+  const width = pageWidth - margin * 2;
+  const method = data.method
+    ? data.method.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase())
+    : "Not recorded";
+  const dateTime = (value: Date | string | null) => value ? fmtDateTime(value) : "Not recorded";
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = margin;
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text("NoLSAF", margin, y, { width: 150, lineBreak: false });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN).text("NoLS Africa Co LTD", margin, y + 22, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text("Quality Stay For Every Wallet", margin, y + 35, { lineBreak: false });
+    doc.font(fonts.bold).fontSize(16).fillColor(TEAL).text("PAYMENT RECEIPT", margin, y, { width, align: "right", lineBreak: false });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.reference, margin, y + 24, { width, align: "right", lineBreak: false });
+    y += 58;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+    y += 14;
+
+    doc.roundedRect(margin, y, width, 67, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL)
+      .text("NRMS STATEMENT SETTLEMENT", margin + 12, y + 11, { characterSpacing: 0.8, lineBreak: false });
+    doc.font(fonts.bold).fontSize(22).fillColor(TEXT_MAIN)
+      .text(`${data.currency} ${Number(data.amount).toLocaleString("en-US", { maximumFractionDigits: 2 })}`, margin + 12, y + 29, { width: width - 90, lineBreak: false });
+    doc.roundedRect(margin + width - 65, y + 22, 52, 21, 4).fill("#dcfce7");
+    doc.font(fonts.bold).fontSize(9).fillColor("#166534")
+      .text("PAID", margin + width - 65, y + 29, { width: 52, align: "center", lineBreak: false });
+    y += 83;
+
+    const section = (title: string) => {
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL)
+        .text(title, margin, y, { characterSpacing: 0.8, lineBreak: false });
+      y += 18;
+    };
+    const row = (label: string, value: string) => {
+      doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+      doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+        .text(label, margin + 2, y + 7, { width: 125, lineBreak: false });
+      doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+        .text(value, margin + 132, y + 6, { width: width - 134, height: 20, ellipsis: true });
+      y += 27;
+    };
+
+    section("PAYMENT INFORMATION");
+    row("Receipt number", data.reference);
+    row("Settlement reference", data.settlementReference);
+    row("Payment method", method);
+    row("Verification", data.manual ? "Manually reconciled" : "Provider verified");
+    row("Paid at", data.manual ? "Not recorded independently" : dateTime(data.paidAt));
+    row("Verified at", dateTime(data.verifiedAt));
+    if (data.providerReference) row("Provider reference", data.providerReference);
+    y += 12;
+    section("STATEMENT DETAILS");
+    row("Statement number", `#${data.statementId}`);
+    row("Property", data.propertyTitle);
+
+    // The barcode and footer occupy the page margin, as on the folio receipt.
+    doc.page.margins.bottom = 0;
+    const noteY = Math.max(y + 16, pageHeight - 112);
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+      .text("Confirms NRMS statement settlement, not owner payout. This is not a fiscal tax receipt.", margin, noteY, { width, align: "center" });
+    const barcodeY = pageHeight - 71;
+    drawCode128Barcode(doc, data.reference, margin + 91, barcodeY, width - 182, 23);
+    doc.font("Courier-Bold").fontSize(7).fillColor(TEXT_MAIN)
+      .text(data.reference, margin, barcodeY + 27, { width, align: "center", lineBreak: false });
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, pageHeight - 31).lineTo(margin + width, pageHeight - 31).stroke();
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text("NoLSAF  |  payments@nolsaf.com  |  nolsaf.com", margin, pageHeight - 24, { width, align: "center", lineBreak: false });
+    doc.page.margins.bottom = margin;
+  }, { size: "A5", margin });
+}
+
 // ─── 3. Owner Disbursement Notice ─────────────────────────────────────────────
 
 export interface OwnerDisbursementData {

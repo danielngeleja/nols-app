@@ -17,6 +17,7 @@ import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerc
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { createNrmsCoralReferenceFields } from "../lib/nrmsCoral.js";
 import { markNrmsPaymentFailed } from "../lib/nrmsBilling.js";
+import { generateNrmsBillingReceiptPdf, type NrmsBillingReceiptData } from "../lib/pdfDocuments.js";
 import crypto from "crypto";
 
 export const router = Router();
@@ -158,23 +159,39 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
 }) as RequestHandler);
 
 const methodSchema = z.object({ method: z.enum(["MOBILE_MONEY", "CARD", "BANK"]) });
-// Receipts are now rendered in the browser from GET /tokens/:token/receipt.
-// Pages loaded before that change still ask for the old PDF URL; tell them to
-// reload rather than returning a bare "Not found".
-router.get("/tokens/:token/receipt.pdf", ((_req: AuthedRequest, res: Response) => {
-  res.setHeader('Cache-Control', 'no-store');
-  res.status(410).json({ error: "This page is out of date. Please refresh the page and download the receipt again.", code: "RECEIPT_ENDPOINT_MOVED" });
-}) as RequestHandler);
-router.get("/tokens/:token/receipt",(async (req: AuthedRequest, res: Response) => {
+async function loadVerifiedReceipt(req: AuthedRequest, res: Response): Promise<NrmsBillingReceiptData | null> {
   const row = await (prisma as any).nrmsServicePaymentToken.findFirst({
     where: { token: req.params.token, statement: { account: { ownerId: req.user!.id } } },
     include: { payment: true, statement: { include: { account: { include: { property: { select: { title: true } } } } } } },
   });
-  if (!row) return res.status(404).json({ error: "Payment not found" });
-  if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) return res.status(409).json({ error: "A verified receipt is not available for this payment" });
-  res.setHeader('Cache-Control', 'private, no-store');
+  if (!row) { res.status(404).json({ error: "Payment not found" }); return null; }
+  if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) {
+    res.status(409).json({ error: "A verified receipt is not available for this payment" });
+    return null;
+  }
   const manual = row.payment.status === 'MANUALLY_VERIFIED' || row.payment.provider === 'ADMIN_MANUAL';
-  res.json({receipt:{reference:`NRMS-RCPT-${row.payment.id}`,settlementReference:`NRMS-${row.statementId}-${String(row.token).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase().padStart(4,'0')}`,statementId:row.statementId,propertyTitle:row.statement.account.property.title,amount:Number(row.payment.amount),currency:row.payment.currency,method:row.method,manual,paidAt:manual?null:row.statement.paidAt,verifiedAt:row.payment.verifiedAt,providerReference:row.payment.providerRef}});
+  return { reference:`NRMS-RCPT-${row.payment.id}`, settlementReference:`NRMS-${row.statementId}-${String(row.token).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase().padStart(4,'0')}`, statementId:row.statementId, propertyTitle:row.statement.account.property.title, amount:Number(row.payment.amount), currency:row.payment.currency, method:row.method, manual, paidAt:manual?null:row.statement.paidAt, verifiedAt:row.payment.verifiedAt, providerReference:row.payment.providerRef };
+}
+
+router.get("/tokens/:token/receipt.pdf", (async (req: AuthedRequest, res: Response) => {
+  const receipt = await loadVerifiedReceipt(req, res);
+  if (!receipt) return;
+  try {
+    const pdf = await generateNrmsBillingReceiptPdf(receipt);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${receipt.reference}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(pdf);
+  } catch (error) {
+    console.error("[NRMS/Billing] receipt PDF failed", error);
+    res.status(500).json({ error: "The receipt PDF could not be generated" });
+  }
+}) as RequestHandler);
+router.get("/tokens/:token/receipt",(async (req: AuthedRequest, res: Response) => {
+  const receipt = await loadVerifiedReceipt(req, res);
+  if (!receipt) return;
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ receipt });
 }) as RequestHandler);
 router.post("/tokens/:token/declare", (async (req: AuthedRequest, res: Response) => {
   const parsed = methodSchema.safeParse(req.body);
