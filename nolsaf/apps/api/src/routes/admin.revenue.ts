@@ -10,6 +10,7 @@ import { invalidateOwnerReports } from "../lib/cache.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { decrypt } from "../lib/crypto.js";
 import { sendMail } from "../lib/mailer.js";
+import { sendSms } from "../lib/sms.js";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
@@ -570,6 +571,12 @@ async function getAdminRevenueInvoice(req: express.Request, res: express.Respons
   }
 }
 
+function ownerPayoutReady(payout: ReturnType<typeof normalizeOwnerPayout>): boolean {
+  if (payout.payoutPreferred === "BANK") return Boolean(payout.bankName && payout.bankAccountNumber);
+  if (payout.payoutPreferred === "MOBILE_MONEY") return Boolean(payout.mobileMoneyProvider && payout.mobileMoneyNumber);
+  return false;
+}
+
 router.get("/invoices/by-reference/:reference", getAdminRevenueInvoice);
 router.get("/invoices/:reference(\\d+)", getAdminRevenueInvoice);
 
@@ -708,6 +715,87 @@ router.post("/invoices/:id/verify", async (req, res) => {
   } catch (err: any) {
     console.error("Error in POST /admin/invoices/:id/verify", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** POST /admin/revenue/invoices/:id/remind-payout { channel: "EMAIL" | "SMS" } */
+router.post("/invoices/:id/remind-payout", async (req, res) => {
+  const id = Number(req.params.id);
+  const channel = String(req.body?.channel ?? "").toUpperCase();
+  const adminId = Number((req.user as any)?.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid invoice ID" });
+  if (channel !== "EMAIL" && channel !== "SMS") return res.status(400).json({ error: "Choose EMAIL or SMS" });
+  if (!Number.isSafeInteger(adminId) || adminId <= 0) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, invoiceNumber: true, status: true },
+    });
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    if (!String(invoice.invoiceNumber ?? "").toUpperCase().startsWith("OINV-") || ["PAID", "DISBURSED"].includes(invoice.status)) {
+      return res.status(409).json({ error: "This invoice is not awaiting owner payout setup" });
+    }
+
+    const owner = await prisma.user.findUnique({
+      where: { id: invoice.ownerId },
+      select: { id: true, email: true, phone: true, payout: true },
+    });
+    if (!owner) return res.status(404).json({ error: "Owner not found" });
+    if (ownerPayoutReady(normalizeOwnerPayout(owner.payout))) {
+      return res.status(409).json({ error: "Owner payout details are already complete. Refresh this invoice." });
+    }
+
+    const destination = channel === "EMAIL" ? owner.email?.trim() : owner.phone?.trim();
+    if (!destination) return res.status(422).json({ error: `Owner has no ${channel === "EMAIL" ? "email address" : "phone number"} on file` });
+
+    const recentlySent = await prisma.adminAudit.findFirst({
+      where: {
+        targetUserId: owner.id,
+        action: "OWNER_PAYOUT_REMINDER",
+        createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) },
+      },
+      select: { id: true },
+    });
+    if (recentlySent) return res.status(429).json({ error: "A payout reminder was sent to this owner recently. Try again in 15 minutes." });
+
+    const configuredOrigin = String(process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "").trim();
+    let profileUrl: string | null = null;
+    try {
+      const url = new URL("/owner/profile", configuredOrigin);
+      if (url.protocol === "https:" || (process.env.NODE_ENV !== "production" && url.protocol === "http:")) profileUrl = url.href;
+    } catch { /* The reminder still tells the owner where to go when no web origin is configured. */ }
+
+    const instruction = "Sign in to NoLSAF, open Owner Profile, and set your preferred payout method (bank or mobile money) with complete payout details.";
+    let delivery: { success: boolean; provider?: string; messageId?: string; error?: string };
+    try {
+      if (channel === "EMAIL") {
+        delivery = await sendMail(
+          destination,
+          "Action needed: complete your NoLSAF payout details",
+          `<p>Your owner payout claim is waiting for payout details.</p><p>${instruction}</p>${profileUrl ? `<p><a href="${profileUrl}">Open Owner Profile</a></p>` : ""}<p>Once saved, NoLSAF can continue processing your claim.</p>`,
+        );
+      } else {
+        delivery = await sendSms(destination, `NoLSAF: Your owner payout claim is waiting. ${instruction}${profileUrl ? ` ${profileUrl}` : ""}`);
+      }
+    } catch (error) {
+      console.error("Owner payout reminder delivery failed", { invoiceId: id, channel, error });
+      return res.status(502).json({ error: `Could not send ${channel === "EMAIL" ? "email" : "SMS"} reminder. Try again later.` });
+    }
+    if (!delivery.success || delivery.provider === "suppressed" || delivery.provider === "console") {
+      return res.status(502).json({ error: `The ${channel === "EMAIL" ? "email" : "SMS"} reminder was not delivered. Check the owner's notification eligibility or provider configuration.` });
+    }
+
+    await createAdminAuditSafe({
+      adminId,
+      targetUserId: owner.id,
+      action: "OWNER_PAYOUT_REMINDER",
+      details: { invoiceId: id, channel, provider: delivery.provider, messageId: delivery.messageId ?? null },
+    });
+    return res.json({ ok: true, channel, message: `${channel === "EMAIL" ? "Email" : "SMS"} reminder sent to the owner.` });
+  } catch (error) {
+    console.error("Error in POST /admin/revenue/invoices/:id/remind-payout", error);
+    return res.status(500).json({ error: "Could not send payout reminder" });
   }
 });
 

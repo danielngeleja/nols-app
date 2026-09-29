@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, FileText, Building2, Calendar, CheckCircle2, Clock, Receipt, AlertCircle, ShieldCheck, Send } from "lucide-react";
+import { ArrowLeft, FileText, Building2, Calendar, CheckCircle2, Clock, Receipt, AlertCircle, ShieldCheck, Send, Mail, MessageSquare } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
@@ -92,6 +92,7 @@ export default function Page(){
   const [notes, setNotes] = useState("");
   const [overrideTax, setOverrideTax] = useState<string>("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [reminderLoading, setReminderLoading] = useState<"EMAIL" | "SMS" | null>(null);
   const [actionMessage, setActionMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [openAction, setOpenAction] = useState<"verify" | "approve" | null>(null);
   
@@ -156,6 +157,20 @@ export default function Page(){
       setActionMessage({ type: "error", text: detail || err?.response?.data?.error || "Failed to approve invoice" });
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  async function remindOwner(channel: "EMAIL" | "SMS") {
+    if (!inv || reminderLoading) return;
+    setReminderLoading(channel);
+    setActionMessage(null);
+    try {
+      const response = await api.post<{ message?: string }>(`/api/admin/revenue/invoices/${inv.id}/remind-payout`, { channel });
+      setActionMessage({ type: "success", text: response.data?.message || `${channel === "EMAIL" ? "Email" : "SMS"} reminder sent to the owner.` });
+    } catch (err: any) {
+      setActionMessage({ type: "error", text: err?.response?.data?.error || `Could not send ${channel === "EMAIL" ? "email" : "SMS"} reminder.` });
+    } finally {
+      setReminderLoading(null);
     }
   }
 
@@ -288,6 +303,12 @@ export default function Page(){
   const CARD = "min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]";
   const payout = inv.ownerPayout;
   const hasPayoutDetails = Boolean(payout?.payoutPreferred || payout?.bankAccountNumber || payout?.mobileMoneyNumber);
+  const payoutReady = payout?.payoutPreferred === "BANK"
+    ? Boolean(payout.bankName && payout.bankAccountNumber)
+    : payout?.payoutPreferred === "MOBILE_MONEY"
+      ? Boolean(payout.mobileMoneyProvider && payout.mobileMoneyNumber)
+      : false;
+  const needsPayoutReminder = isOwnerClaim && !isPaidOut && !payoutReady;
   const showDisbursementStamp = isOwnerClaim && isSuccessfulCompletion;
   const disbursementRecipient = payout?.bankAccountName || inv.booking.property.title;
   const recordedPaymentMethod = String(inv.paymentMethod || "").trim();
@@ -601,6 +622,22 @@ export default function Page(){
                 <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Only what this claim allows right now</p>
               </div>
               <div className="space-y-2.5 p-4 sm:p-5">
+                {needsPayoutReminder ? (
+                  <div className="space-y-2.5 rounded-xl border border-solid border-amber-200 bg-amber-50 px-3 py-3 text-[12.5px] text-amber-950">
+                    <p className="m-0 flex items-start gap-2">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                      <span>Owner must choose a preferred payout method and complete the bank or mobile-money details before this claim can be approved.</span>
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button type="button" onClick={() => void remindOwner("EMAIL")} disabled={Boolean(reminderLoading) || actionLoading} className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-white px-2.5 text-[12px] font-bold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
+                        <Mail className="h-3.5 w-3.5" aria-hidden /> {reminderLoading === "EMAIL" ? "Sending…" : "Remind by email"}
+                      </button>
+                      <button type="button" onClick={() => void remindOwner("SMS")} disabled={Boolean(reminderLoading) || actionLoading} className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-white px-2.5 text-[12px] font-bold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
+                        <MessageSquare className="h-3.5 w-3.5" aria-hidden /> {reminderLoading === "SMS" ? "Sending…" : "Remind by SMS"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {blocked ? (
                   <p className="m-0 flex items-start gap-2 rounded-xl border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-[12.5px] text-amber-900">
                     <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
