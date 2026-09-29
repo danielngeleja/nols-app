@@ -5,7 +5,7 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { auditOrThrow } from "../lib/audit.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
-import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
+import { createNightAuditLedgerTransactions } from "../lib/nrmsNightAuditLedger.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
 import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, nightAuditSchedule, NRMS_BUSINESS_DAY_LOCKED, shiftDayStart, shiftHandoverSummary } from "../lib/nrmsShifts.js";
@@ -822,6 +822,16 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     });
   }
   const reportNumber = `NA-${active.property.id}-${parsed.data.businessDate.replace(/-/g, "")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const closeStartedAt = Date.now();
+  let closePhase = "lock";
+  let phaseStartedAt = closeStartedAt;
+  const phaseDurationsMs: Record<string, number> = {};
+  const startPhase = (next: string) => {
+    phaseDurationsMs[closePhase] = (phaseDurationsMs[closePhase] ?? 0) + Date.now() - phaseStartedAt;
+    closePhase = next;
+    phaseStartedAt = Date.now();
+  };
+  let postingCount = 0;
   try {
     const result = await db.$transaction(async (tx: any) => {
       // The property row is the shared serialization lock used by every NRMS
@@ -846,6 +856,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       const eventWindow = nightAuditEventWindow(parsed.data.businessDate, closeTime, day.openedAt, closeBoundary);
       await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSING" } });
 
+      startPhase("controls");
       const issues = await controlIssues(tx, active.property.id, parsed.data.businessDate, eventWindow);
       if (issues.blockers.length) {
         const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "BLOCKED", reportNumber, blockers: issues.blockers, warnings: issues.warnings, startedById: req.user!.id, completedAt: new Date() } });
@@ -894,6 +905,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         }
         : { required: false, acknowledged: false, count: 0, receipts: [] };
 
+      startPhase("stock-postings");
       const stock = await buildStockPostings(tx, {
         propertyId: active.property.id,
         reportNumber,
@@ -902,6 +914,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         closeBoundary,
         window: eventWindow,
       });
+      startPhase("financial-postings");
       const candidates = [...await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow), ...stock.postings];
       const alreadyPosted = candidates.length
         ? await tx.nrmsLedgerTransaction.findMany({
@@ -911,6 +924,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         : [];
       const postedKeys = new Set(alreadyPosted.map((posting: any) => posting.sourceKey));
       const postings = candidates.filter((posting) => !postedKeys.has(posting.sourceKey));
+      postingCount = postings.length;
       for (const posting of postings) {
         const debit = money(posting.entries.reduce((sum, entry) => sum + entry.debit, 0));
         const credit = money(posting.entries.reduce((sum, entry) => sum + entry.credit, 0));
@@ -919,9 +933,9 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
 
       const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "DRAFT", reportNumber, blockers: [], warnings: issues.warnings, startedById: req.user!.id } });
       let debitTotal = 0;
-      for (const [index, posting] of postings.entries()) {
+      const ledgerRows = postings.map((posting, index) => {
         debitTotal += posting.entries.reduce((sum, entry) => sum + entry.debit, 0);
-        await createNightAuditLedgerTransaction(tx, {
+        return {
           propertyId: active.property.id,
           businessDayId: day.id,
           nightAuditRunId: audit.id,
@@ -932,13 +946,17 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
           description: posting.description,
           currency: posting.currency,
           occurredAt: posting.occurredAt,
-          entries: { create: posting.entries },
-        });
-      }
+          entries: posting.entries,
+        };
+      });
+      startPhase("ledger-headers-and-entries");
+      await createNightAuditLedgerTransactions(tx, ledgerRows);
       // Each stock movement is posted once: stamp it with this run.
+      startPhase("stock-movements");
       for (let index = 0; index < stock.movementIds.length; index += 1000) {
         await tx.nrmsStockMovement.updateMany({ where: { id: { in: stock.movementIds.slice(index, index + 1000) }, ledgerRunId: null }, data: { ledgerRunId: audit.id } });
       }
+      startPhase("review");
       const review = await buildNightAuditReview(tx, active.property.id, parsed.data.businessDate, eventWindow, issues, postings, stock.movementIds.length);
       const summary = {
         transactionCount: postings.length,
@@ -950,6 +968,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         review,
       };
       const closedAt = closeBoundary;
+      startPhase("finalize");
       const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });
       const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt } });
       const nextBusinessDate = nextShiftDayKey(parsed.data.businessDate);
@@ -972,7 +991,11 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         }, active.property.id);
       }
       return { blocked: false as const, businessDay: closed, nextBusinessDay, audit: closedAudit };
-    }, { maxWait: 10_000, timeout: 30_000 });
+    }, { maxWait: 10_000, timeout: 60_000 });
+
+    startPhase("done");
+    const closeDurationMs = Date.now() - closeStartedAt;
+    if (closeDurationMs > 10_000) console.warn("[NRMS Night Audit] slow close", { propertyId: active.property.id, businessDate: parsed.data.businessDate, closeDurationMs, postingCount, phaseDurationsMs });
 
     if ("acknowledgementRequired" in result && result.acknowledgementRequired) {
       return res.status(409).json({
@@ -985,6 +1008,8 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     if ("blocked" in result && result.blocked) return res.status(409).json({ error: "Night Audit is blocked. Clear every control issue before closing the business date.", blockers: result.blockers, audit: result.audit });
     res.json({ businessDay: result.businessDay, nextBusinessDay: result.nextBusinessDay, audit: result.audit });
   } catch (error) {
+    const failedPhase = closePhase;
+    startPhase("failed");
     const code = error instanceof Error ? error.message : "";
     if (code === "BUSINESS_DAY_NOT_OPENED") return res.status(409).json({ error: "This date was never opened for operations, so there is no business day to close.", code });
     if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closing or closed.", code: NRMS_BUSINESS_DAY_LOCKED });
@@ -993,6 +1018,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
       return res.status(409).json({ error: `Close the earlier open business date ${targetBusinessDate} first. Night Audit must follow one chronological sequence.`, code: "EARLIER_BUSINESS_DAY_OPEN", targetBusinessDate });
     }
     if (code === "NEXT_BUSINESS_DAY_LOCKED") return res.status(409).json({ error: "The next business date is already closing or closed. Review the business-day sequence before continuing.", code });
+    console.error("[NRMS Night Audit] close failed", { propertyId: active.property.id, businessDate: parsed.data.businessDate, phase: failedPhase, postingCount, elapsedMs: Date.now() - closeStartedAt, phaseDurationsMs, prismaCode: (error as { code?: string })?.code, prismaMeta: (error as { meta?: unknown })?.meta });
     if (code.startsWith("UNBALANCED_ACCOUNTING_EVENT:")) return res.status(500).json({ error: `Unbalanced accounting event: ${code.slice("UNBALANCED_ACCOUNTING_EVENT:".length)}` });
     throw error;
   }
