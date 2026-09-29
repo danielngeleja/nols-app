@@ -140,7 +140,7 @@ describe("NRMS Coral checkout latency boundary", () => {
     const sent = mocks.coralPost.mock.calls[0][0].Transaction;
     expect(sent.Order.Products[0]).toMatchObject({
       Code: "NRMS",
-      Description: "NoLSAF NRMS statement #9",
+      Description: "NoLSAF NRMS usage charges - Statement #9",
       Price: 50_000,
       SubTotal: 50_000,
     });

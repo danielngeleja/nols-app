@@ -334,7 +334,7 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     const paymentRef = coralReference.paymentRef;
     // These fields are only displayed by Coral. Keep them in the same simple
     // ASCII form as the working tour and group-stay hosted checkouts.
-    const description = `NoLSAF NRMS statement #${row.statementId}`;
+    const description = `NoLSAF NRMS usage charges - Statement #${row.statementId}`;
     const coralCurrency = String(row.currency || "").trim().toUpperCase();
     if (coralCurrency !== "TZS" && coralCurrency !== "USD") {
       return res.status(409).json({ error: "This statement currency is not supported for card payments" });
