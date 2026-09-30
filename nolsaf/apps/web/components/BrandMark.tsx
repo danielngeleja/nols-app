@@ -8,8 +8,10 @@ type BrandMarkProps = {
   className?: string;
 };
 
-const FRAME = "M 680 140 Q 640 51 480 51 L 240 51 Q 48 51 48 240 L 48 630 Q 48 820 240 820 L 520 820 Q 704 820 704 640 L 704 228";
-const LETTER = "M 271 612 L 271 240 Q 330 228 400 310 L 560 540 Q 620 612 704 600";
+export const BRAND_MARK_FRAME = "M 680 140 Q 640 51 480 51 L 240 51 Q 48 51 48 240 L 48 630 Q 48 820 240 820 L 520 820 Q 704 820 704 640 L 704 228";
+export const BRAND_MARK_LETTER = "M 271 612 L 271 240 Q 330 228 400 310 L 560 540 Q 620 612 704 600";
+const FRAME = BRAND_MARK_FRAME;
+const LETTER = BRAND_MARK_LETTER;
 
 export default function BrandMark({ size = 64, draw = false, className }: BrandMarkProps) {
   return (

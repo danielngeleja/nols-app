@@ -1,18 +1,22 @@
 "use client";
 
-// The workspace entrance. Opening NRMS used to show a bare grey spinner, which
-// read as "stuck" rather than "opening". This holds the door for a beat with
-// the brand mark, draws a ring while the real request is in flight, and names
-// what is actually happening instead of selling a slogan back to staff who
-// already work here.
+// The workspace entrance. The NoLSAF mark draws itself on a loop, the same
+// motion as the site-wide loader, with only the property name beneath it.
+// Earlier versions narrated timed steps ("Verifying your access", "Almost
+// there") that changed on a clock rather than on real progress; they are gone.
+// The screen stays silent unless something is actually wrong: offline, or
+// slow enough that a Retry is worth offering.
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { BRAND_MARK_FRAME, BRAND_MARK_LETTER } from "@/components/BrandMark";
 
-// Long enough to read the property name, short enough to survive being seen
-// ten times a shift. If the data lands sooner we still hold; if it lands later
-// the ring simply rests at full and the status line waits with it.
-const MIN_HOLD_MS = 2400;
-const MAX_HOLD_MS = 8000;
+// Long enough for the frame and the N to finish drawing once, so the mark is
+// never cut off half traced. Fast loads leave after this; slow ones wait.
+const MIN_HOLD_MS = 1600;
+// Past this the screen offers Retry. Past MAX_HOLD it stands down so a request
+// that never settles cannot lock staff out; whatever the shell renders next
+// (spinner, error notice) takes over.
+const SLOW_MS = 6000;
+const MAX_HOLD_MS = 15000;
 const EXIT_MS = 420;
 
 export default function NrmsBootScreen({
@@ -24,8 +28,9 @@ export default function NrmsBootScreen({
   propertyTitle?: string | null;
   onDone: () => void;
 }) {
-  const [step, setStep] = useState(0);
   const [held, setHeld] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const handedOff = useRef(false);
 
@@ -36,12 +41,8 @@ export default function NrmsBootScreen({
 
   useEffect(() => {
     const timers = [
-      setTimeout(() => setStep(1), 900),
-      setTimeout(() => setStep(2), 1800),
       setTimeout(() => setHeld(true), MIN_HOLD_MS),
-      // Failsafe: a request that never settles must not leave staff staring at
-      // a locked door. Past this point the screen stands down and whatever the
-      // shell renders next (spinner, error notice) takes over.
+      setTimeout(() => setSlow(true), SLOW_MS),
       setTimeout(() => {
         if (handedOff.current) return;
         handedOff.current = true;
@@ -50,6 +51,17 @@ export default function NrmsBootScreen({
       }, MAX_HOLD_MS),
     ];
     return () => timers.forEach(clearTimeout);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setOffline(!navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
   }, []);
 
   // Hand off only once both the data and the minimum hold are satisfied, then
@@ -66,75 +78,46 @@ export default function NrmsBootScreen({
     return () => clearTimeout(timer);
   }, [ready, held, onDone]);
 
-  const status =
-    step === 0
-      ? "Verifying your access"
-      : step === 1
-      ? propertyTitle
-        ? `Loading ${propertyTitle}`
-        : "Loading your property"
-      : ready
-      ? "Front desk ready"
-      : "Almost there";
+  const notice = offline ? "You're offline. NRMS opens when you're back online." : slow ? "Still loading. Your connection seems slow." : null;
 
   return (
-    // A neutral page canvas sits behind the panel, matching the inset margin
-    // the sidebar and header use elsewhere in this shell (mx-3 mt-3, rounded
-    // corners). Full-bleed hard corners were the actual complaint: on a wide
-    // monitor a flat rectangle with square corners reads as unfinished next
-    // to every other surface in the app, which is all rounded floating cards.
-    <div className="fixed inset-0 z-50 bg-neutral-100 p-3" role="status" aria-live="polite" aria-label="Opening the NRMS workspace">
+    // Inset, rounded panel on the neutral canvas, matching the shell's
+    // floating sidebar and header rather than a hard full-bleed rectangle.
+    <div className="fixed inset-0 z-50 bg-neutral-100 p-3" role="status" aria-live="polite" aria-label={`Opening ${propertyTitle || "the NRMS workspace"}`}>
       <style>{`
         .nrms-boot { transition: opacity ${EXIT_MS}ms cubic-bezier(.22,1,.36,1), transform ${EXIT_MS}ms cubic-bezier(.22,1,.36,1); }
         .nrms-boot-leaving { opacity: 0; transform: scale(0.99); }
-        .nrms-boot-halo { animation: nrms-boot-halo 4.5s cubic-bezier(.4,0,.2,1) infinite; }
-        @keyframes nrms-boot-halo { 0% { transform: scale(.78); opacity: 0; } 35% { opacity: .45; } 100% { transform: scale(1.35); opacity: 0; } }
-        .nrms-boot-ring { stroke-dasharray: 251.33; stroke-dashoffset: 251.33; animation: nrms-boot-ring 2s cubic-bezier(.4,0,.2,1) .25s forwards; }
-        @keyframes nrms-boot-ring { to { stroke-dashoffset: 0; } }
-        .nrms-boot-mark { opacity: 0; transform: scale(.94); animation: nrms-boot-mark .7s cubic-bezier(.22,1,.36,1) .06s forwards; }
-        @keyframes nrms-boot-mark { to { opacity: 1; transform: none; } }
-        .nrms-boot-in { opacity: 0; transform: translateY(5px); animation: nrms-boot-in .62s cubic-bezier(.22,1,.36,1) forwards; }
-        .nrms-boot-d1 { animation-delay: .20s; }
-        .nrms-boot-d2 { animation-delay: .34s; }
-        .nrms-boot-d3 { animation-delay: .48s; }
-        @keyframes nrms-boot-in { to { opacity: 1; transform: none; } }
+        .nrms-boot-frame, .nrms-boot-letter { stroke-dasharray: 1; stroke-dashoffset: 1; animation: nrms-boot-frame 3s cubic-bezier(.65,0,.35,1) infinite; }
+        .nrms-boot-letter { animation-name: nrms-boot-letter; }
+        @keyframes nrms-boot-frame { 0% { stroke-dashoffset: 1; } 35%, 70% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+        @keyframes nrms-boot-letter { 0%, 15% { stroke-dashoffset: 1; } 50%, 70% { stroke-dashoffset: 0; } 100% { stroke-dashoffset: -1; } }
+        .nrms-boot-in { opacity: 0; animation: nrms-boot-in .5s ease-out .3s forwards; }
+        @keyframes nrms-boot-in { to { opacity: 1; } }
         @media (prefers-reduced-motion: reduce) {
-          .nrms-boot-halo { animation: none; }
-          .nrms-boot-ring { animation-duration: .01ms; stroke-dashoffset: 0; }
-          .nrms-boot-mark, .nrms-boot-in { animation-duration: .01ms; animation-delay: 0s; opacity: 1; transform: none; }
+          .nrms-boot-frame, .nrms-boot-letter { animation: none; stroke-dashoffset: 0; }
+          .nrms-boot-in { animation-duration: .01ms; animation-delay: 0s; }
         }
       `}</style>
 
-      <div className={`nrms-boot relative flex h-full w-full items-center justify-center overflow-hidden rounded-[28px] ${leaving ? "nrms-boot-leaving" : ""}`} style={{ background: "linear-gradient(160deg, #0c3a32 0%, #082f2a 45%, #06231f 100%)" }}>
-        {/* No glow or sheen: a fine, static dot grid reads as a considered
-            surface (blueprint/operations texture) rather than a light effect,
-            and a quiet bottom vignette grounds the panel instead of lighting it. */}
-        <div aria-hidden className="pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.09) 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
-        <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(120% 90% at 50% 100%, rgba(0,0,0,0.30) 0%, rgba(0,0,0,0) 62%)" }} />
-        <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[28px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]" />
+      <div className={`nrms-boot relative flex h-full w-full items-center justify-center rounded-[28px] bg-white shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)] ${leaving ? "nrms-boot-leaving" : ""}`}>
+        <div className="flex flex-col items-center px-6 text-center">
+          <svg width={60} height={68} viewBox="-10 0 770 870" fill="none" stroke="#02665e" strokeLinecap="round" aria-hidden>
+            <path className="nrms-boot-frame" d={BRAND_MARK_FRAME} strokeWidth={86} pathLength={1} />
+            <path className="nrms-boot-letter" d={BRAND_MARK_LETTER} strokeWidth={84} pathLength={1} />
+          </svg>
+          <p className="nrms-boot-in m-0 mt-5 max-w-[24ch] text-[15px] font-bold tracking-[-0.01em] text-neutral-900">{propertyTitle || "NRMS"}</p>
 
-        <div className="relative flex flex-col items-center px-6 text-center">
-          {/* The ring has to clear the logo tile's corners, not just its edges: a
-              44px square has a 62px diagonal, so the circle sits at 80px across
-              to keep an even margin the whole way round. */}
-          <div className="nrms-boot-mark relative mb-7 flex h-[6.5rem] w-[6.5rem] items-center justify-center">
-            <span aria-hidden className="nrms-boot-halo absolute h-[6.5rem] w-[6.5rem] rounded-full border border-white/20" />
-            <svg viewBox="0 0 104 104" className="absolute inset-0 h-[6.5rem] w-[6.5rem]" aria-hidden>
-              <circle cx="52" cy="52" r="40" fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="1.5" />
-              <circle className="nrms-boot-ring" cx="52" cy="52" r="40" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="1.5" strokeLinecap="round" transform="rotate(-90 52 52)" />
-            </svg>
-            <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-[13px] bg-white shadow-[0_6px_18px_rgba(0,0,0,0.22)]">
-              <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={44} height={44} className="h-10 w-10 scale-[1.9] object-contain" priority />
-            </span>
-          </div>
-
-          <p className="nrms-boot-in nrms-boot-d1 m-0 text-[11px] font-bold tracking-[0.18em] text-emerald-100/40">NoLSAF NRMS</p>
-          <p className="nrms-boot-in nrms-boot-d2 m-0 mt-2 max-w-[22ch] text-[15px] font-bold tracking-[-0.01em] text-white">
-            {propertyTitle || "NRMS WORKSPACE"}
-          </p>
-          {/* Re-keying replays the fade on every step, but only the first line
-              waits its turn in the opening stagger. */}
-          <p key={status} className={`nrms-boot-in ${step === 0 ? "nrms-boot-d3" : ""} mb-0 mt-2 text-xs text-emerald-100/50`}>{status}</p>
+          {notice && (
+            <div className="nrms-boot-in mt-6 flex flex-col items-center">
+              <p className="m-0 text-xs text-neutral-500">{notice}</p>
+              {!offline && (
+                // A plain link reloads even if the client bundle is what stalled.
+                <a href="" className="mt-2.5 inline-flex min-h-9 items-center rounded-full border border-solid border-neutral-300 bg-white px-4 text-xs font-semibold text-neutral-700 no-underline transition hover:border-[#02665e] hover:text-[#02665e]">
+                  Retry
+                </a>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
