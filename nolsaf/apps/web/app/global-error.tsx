@@ -11,7 +11,7 @@
 //   amber, timer   our server. Retries by itself after a countdown.
 //   red            still failing after 3 automatic tries in a short window.
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { BRAND_MARK_FRAME, BRAND_MARK_LETTER } from "@/components/BrandMark";
+import StatusMark from "@/components/StatusMark";
 
 const RETRY_SECONDS = 8;
 const MAX_TRIES = 3;
@@ -53,7 +53,6 @@ function eatTime(date: Date) {
   return date.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-const GREEN = "#02665e";
 const button: CSSProperties = { height: 40, padding: "0 18px", borderRadius: 10, border: "1px solid #d4d4d4", background: "#fff", color: "#171717", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" };
 
 export default function GlobalError({
@@ -102,7 +101,6 @@ export default function GlobalError({
     return () => clearTimeout(timer);
   }, [state, seconds, retry]);
 
-  const ring = state === "offline" ? "#378ADD" : state === "down" ? "#E24B4A" : "#EF9F27";
   const title = state === "offline" ? "You're offline" : state === "down" ? "Service unavailable" : state === "checking" ? "Checking connection" : "Server not responding";
   const detail = state === "offline"
     ? "Reconnecting automatically"
@@ -113,27 +111,9 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body style={{ margin: 0, background: "#f5f5f5", fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", color: "#171717" }}>
-        <style>{`
-          @keyframes nls-err-count { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 1; } }
-          @keyframes nls-err-spin { to { transform: rotate(360deg); } }
-          @media (prefers-reduced-motion: reduce) { .nls-err-anim { animation: none !important; } }
-        `}</style>
         <main role="alert" aria-live="assertive" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box" }}>
           <section style={{ width: "100%", maxWidth: 380, boxSizing: "border-box", background: "#fff", border: "1px solid #e5e5e5", borderRadius: 20, padding: "40px 24px", textAlign: "center", boxShadow: "0 18px 40px -30px rgba(15,23,42,0.45)" }}>
-            <div style={{ position: "relative", width: 76, height: 76, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <svg width={76} height={76} viewBox="0 0 76 76" style={{ position: "absolute", inset: 0 }} aria-hidden>
-                {state === "offline" && <circle cx="38" cy="38" r="35" fill="none" stroke={ring} strokeWidth="2.5" strokeDasharray="5 6" className="nls-err-anim" style={{ transformOrigin: "center", animation: "nls-err-spin 12s linear infinite" }} />}
-                {(state === "retrying" || state === "checking") && <>
-                  <circle cx="38" cy="38" r="35" fill="none" stroke="#e5e5e5" strokeWidth="2.5" />
-                  {state === "retrying" && <circle key="count" cx="38" cy="38" r="35" fill="none" stroke={ring} strokeWidth="2.5" strokeLinecap="round" pathLength={1} strokeDasharray="1" transform="rotate(-90 38 38)" className="nls-err-anim" style={{ animation: `nls-err-count ${RETRY_SECONDS}s linear forwards` }} />}
-                </>}
-                {state === "down" && <circle cx="38" cy="38" r="35" fill="none" stroke={ring} strokeWidth="2.5" />}
-              </svg>
-              <svg width={34} height={38} viewBox="-10 0 770 870" fill="none" stroke={GREEN} aria-hidden>
-                <path d={BRAND_MARK_FRAME} strokeWidth={86} />
-                <path d={BRAND_MARK_LETTER} strokeWidth={84} />
-              </svg>
-            </div>
+            <div style={{ display: "flex", justifyContent: "center" }}><StatusMark ring={state === "checking" ? "idle" : state} countdownSeconds={state === "retrying" ? RETRY_SECONDS : undefined} /></div>
 
             <h1 style={{ margin: "22px 0 6px", fontSize: 20, fontWeight: 700, letterSpacing: "-0.01em" }}>{title}</h1>
             <p style={{ margin: 0, fontSize: 14, color: "#525252", fontVariantNumeric: "tabular-nums" }}>{detail}</p>

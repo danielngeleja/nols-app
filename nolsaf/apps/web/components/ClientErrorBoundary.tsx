@@ -1,16 +1,24 @@
 "use client";
 import React from "react";
+import StatusMark from "@/components/StatusMark";
 
 type Props = { children: React.ReactNode };
 
-export default class ClientErrorBoundary extends React.Component<Props, { error: Error | null }> {
+/**
+ * Catches a crash in one part of the page (today: the legal modal in each site
+ * header) so the rest of the page keeps working. The fallback is a small card
+ * pinned to the bottom of the screen in the same style as the global error
+ * screen, not a block dropped into the layout: this boundary sits inside the
+ * header, and a tall card there pushed the whole page down.
+ */
+export default class ClientErrorBoundary extends React.Component<Props, { error: Error | null; dismissed: boolean }> {
   constructor(props: Props) {
     super(props);
-    this.state = { error: null };
+    this.state = { error: null, dismissed: false };
   }
 
   static getDerivedStateFromError(error: Error) {
-    return { error };
+    return { error, dismissed: false };
   }
 
   componentDidCatch(error: Error, info: any) {
@@ -28,33 +36,26 @@ export default class ClientErrorBoundary extends React.Component<Props, { error:
   }
 
   handleReload = () => {
-    // Force a full reload to attempt fetching fresh chunks
+    // A full reload fetches fresh code, which is what fixes a stale chunk.
     if (typeof window !== 'undefined') window.location.reload();
   };
 
   render() {
     if (this.state.error) {
+      if (this.state.dismissed) return null;
       return (
-        <div className="flex min-h-[60vh] w-full items-center justify-center p-6">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-[0_8px_30px_-12px_rgba(0,0,0,0.15)]">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50">
-              <svg className="h-7 w-7 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
-              </svg>
+        <div role="alert" className="fixed inset-x-0 bottom-4 z-[9998] flex justify-center px-4">
+          <div className="box-border flex w-full max-w-sm items-center gap-3 rounded-2xl border border-solid border-neutral-200 bg-white p-3 pr-2 shadow-[0_18px_40px_-20px_rgba(15,23,42,0.45)]">
+            <StatusMark ring="retrying" size={44} />
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-bold text-neutral-900">Part of this page didn&apos;t load</p>
+              <p className="m-0 mt-0.5 text-xs text-neutral-500">Reload to fix it. Nothing was lost.</p>
             </div>
-            <h2 className="text-lg font-bold text-slate-900">Something didn&apos;t load</h2>
-            <p className="mt-2 text-sm text-slate-500">A component failed to load. During development this usually means code changed and chunks are being rebuilt — reloading the page fixes it.</p>
-            <button
-              onClick={this.handleReload}
-              className="mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-              </svg>
-              Reload page
+            <button type="button" onClick={this.handleReload} className="h-9 flex-shrink-0 appearance-none rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-800 transition hover:border-[#02665e] hover:text-[#02665e]">
+              Reload
+            </button>
+            <button type="button" aria-label="Dismiss" onClick={() => this.setState({ dismissed: true })} className="grid h-9 w-8 flex-shrink-0 appearance-none place-items-center rounded-lg border-0 bg-transparent text-lg leading-none text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700">
+              ×
             </button>
           </div>
         </div>
