@@ -548,6 +548,15 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const stockValue = money(stockBalances.reduce((sum: number, row: any) => sum + Number(row.quantity) * Number(row.stockItem.averageCost), 0));
     const taxRows = transactions.flatMap((transaction: any) => transaction.entries.filter((entry: any) => entry.accountCode === "2200").map((entry: any) => ({ transactionNumber: transaction.transactionNumber, occurredAt: transaction.occurredAt, description: transaction.description, currency: transaction.currency, tax: money(entry.credit) - money(entry.debit) })));
     const schedule = nightAuditSchedule(new Date(), closeTime);
+    // Business-day states around the selected date for the page's week strip,
+    // so each tile can say Closed / To audit / Trading without a request per day.
+    const businessDayStrip = needsAudit || needsCashiers
+      ? (await db.nrmsBusinessDay.findMany({
+        where: { propertyId, businessDate: { gte: new Date(start.getTime() - 10 * 86_400_000), lte: new Date(start.getTime() + 10 * 86_400_000) } },
+        select: { businessDate: true, status: true },
+        orderBy: { businessDate: "asc" },
+      })).map((row: any) => ({ businessDate: new Date(row.businessDate).toISOString().slice(0, 10), status: row.status }))
+      : [];
     let resolvedIssues = issues;
     let nightAuditReview: any = null;
     if (needsAudit && day?.status === "CLOSED") {
@@ -588,6 +597,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
           canClose: openDate <= schedule.latestClosableDate,
         };
       }),
+      businessDayStrip,
       nightAuditReview,
       businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits ?? [] } : { id: null, status: "NOT_OPENED", audits: [] },
       blockers: resolvedIssues.blockers, warnings: resolvedIssues.warnings, shifts: enrichedShifts, unassignedSales,

@@ -42,6 +42,7 @@ type FinanceData = {
   property: { id: number; title: string; currency: string | null }; accessRole: "OWNER" | "MANAGER" | "FRONT_DESK"; businessDate: string; month: string;
   nightAuditPolicy: { closeTime: string; timezone: string; activeBusinessDate: string; latestClosableDate: string; nextCloseAt: string; canCloseSelectedDate: boolean };
   unclosedBusinessDays: Array<{ id: number; businessDate: string; status: "OPEN" | "CLOSING"; openedAt: string; canClose: boolean }>;
+  businessDayStrip?: Array<{ businessDate: string; status: "OPEN" | "CLOSING" | "CLOSED" }>;
   nightAuditReview: NightAuditReview | null;
   businessDay: { id: number | null; status: string; openedAt?: string; closedAt?: string | null; audits: Array<{ id: number; reportNumber: string; status: string; startedAt: string; completedAt: string | null; summary: any }> };
   blockers: Blocker[]; warnings: Blocker[]; shifts: Shift[];
@@ -82,6 +83,17 @@ function dayLabel(day: string) {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" });
 }
+function shiftMonth(month: string, delta: number) {
+  const [y, m] = month.split("-").map(Number);
+  const next = new Date(Date.UTC(y!, m! - 1 + delta, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function countdown(ms: number) {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+function clockTime(value: Date) { return value.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hour12: false }); }
 function cash(value: number, currency: string) { return `${currency} ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
 function time(value?: string | null) { return value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " EAT" : "Not recorded"; }
 function tenderAmount(shift: Shift, method: string): number { return shift.closeSummary?.mySales.byMethod.find((row) => row.method === method)?.amount ?? 0; }
@@ -183,6 +195,13 @@ export default function FinanceControlPage() {
   const [acknowledgeFiscalBacklog, setAcknowledgeFiscalBacklog] = useState(false);
   const [editingAuditTime, setEditingAuditTime] = useState(false);
   const [auditTimeDraft, setAuditTimeDraft] = useState("20:00");
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  // Drives the "Night Audit in 3h 12m" countdown; minute precision is enough.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const view = searchParams.get("view");
@@ -214,7 +233,7 @@ export default function FinanceControlPage() {
 
   const load = useCallback(async (silent = false) => {
     if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
-    try { const response = await apiClient.get(`/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}&view=${tab}`); setData(response.data); }
+    try { const response = await apiClient.get(`/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}&view=${tab}`); setData(response.data); setLastLoadedAt(new Date()); }
     catch (cause: any) { setError(cause?.response?.data?.error || "Unable to load financial control records"); }
     finally { if (!silent) setLoading(false); }
   }, [businessDate, month, selectedPropertyId, tab]);
@@ -294,6 +313,7 @@ export default function FinanceControlPage() {
   const latestAuditDate = data?.nightAuditPolicy.latestClosableDate ?? lastCompletedDay();
   const unclosedBusinessDays = data?.unclosedBusinessDays ?? [];
   const oldestUnclosedDay = unclosedBusinessDays[0] ?? null;
+  const isDayScoped = tab === "audit" || tab === "cashiers";
   const closeShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Cashier shift closed and its variance has been recorded.");
   const reconcileShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/reconcile`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Physical cash count recorded. Review and sign off this shift.");
   const signOffShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/sign-off`), "Shift sales acknowledged and signed off.");
@@ -383,99 +403,127 @@ export default function FinanceControlPage() {
   return <div className="mx-auto max-w-[1500px] space-y-4 pb-10">
     {/* Preflight is disabled app-wide, so `border-*` on a div paints nothing.
         Edges here are rings, and single-side rules are inset shadows. */}
+    {/* Header: identity and page-wide actions on top, then a week strip that is
+        both the date picker and an at-a-glance audit status for recent days,
+        then the view tabs. Month-based views get a month strip instead. */}
     <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
-      <header className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><WalletCards className="h-5 w-5" /></span>
-        <div className="min-w-[16rem] flex-1">
-          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS financial control</p>
-          <h2 className="mb-0 mt-0.5 text-xl font-bold tracking-tight text-neutral-950">Business date, cash and statutory records</h2>
-          <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">One controlled flow from operational transactions to Night Audit, ledgers and NBS statistics.</p>
-        </div>
-        {/* Both states were 8px/10px chips in the far corner. They gate every
-            action on this page, so they carry real weight now. */}
-        <div className="flex flex-wrap items-center gap-2">
-          {(() => {
-            const state = BUSINESS_DAY_STATE[data?.businessDay.status ?? ""] ?? { label: "Unknown", skin: "bg-neutral-100 text-neutral-600 ring-neutral-200", note: "The state of this business day could not be read." };
-            return (
-              <span title={state.note} className={`inline-flex h-11 cursor-help items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${loading ? "bg-neutral-100 text-neutral-500 ring-neutral-200" : state.skin}`}>
-                <LockKeyhole className="h-4 w-4 shrink-0 opacity-70" />
-                <span className="flex flex-col leading-none">
-                  <span className="text-[9px] font-bold uppercase tracking-[0.1em] opacity-60">Business date</span>
-                  <span className="mt-1">{loading ? "Checking" : state.label}</span>
-                </span>
-              </span>
-            );
-          })()}
-          <div>
-            <button
-              type="button"
-              onClick={() => canManage && setEditingAuditTime(true)}
-              disabled={!canManage}
-              aria-expanded={editingAuditTime}
-              title={canManage ? "Change the property's business-date cutoff" : "Only an owner or manager can change the Night Audit cutoff"}
-              className="inline-flex h-11 items-center gap-2 rounded-xl border-0 bg-white px-3 text-left text-neutral-800 ring-1 ring-neutral-200 transition enabled:cursor-pointer enabled:hover:bg-neutral-50 enabled:hover:ring-neutral-300 disabled:cursor-default"
-            >
-              <Clock3 className="h-4 w-4 shrink-0 text-sky-700" aria-hidden />
-              <span className="flex flex-col leading-none"><span className="text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Audit cutoff</span><span className="mt-1 text-xs font-extrabold tabular-nums">{data?.nightAuditPolicy.closeTime ?? "20:00"} <span className="font-semibold text-neutral-400">EAT</span></span></span>
-              {canManage && <Settings2 className="ml-1 h-3.5 w-3.5 text-neutral-400" aria-hidden />}
-            </button>
-          </div>
-          {data?.ledger.loaded && (() => {
-            const hasLedgerEntries = Boolean(data?.ledger.transactions.length);
-            const balanced = hasLedgerEntries && Boolean(data?.ledger.balanced);
-            const label = loading ? "Checking" : !hasLedgerEntries ? (data?.businessDay.status === "CLOSED" ? "No entries posted" : "Awaiting Night Audit") : balanced ? "Balanced" : "Review required";
-            return <span className={`inline-flex h-11 items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${balanced ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : hasLedgerEntries ? "bg-amber-50 text-amber-800 ring-amber-300" : "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>
-              {balanced ? <CheckCircle2 className="h-4 w-4 shrink-0 opacity-70" /> : hasLedgerEntries ? <AlertTriangle className="h-4 w-4 shrink-0 opacity-70" /> : <BookOpen className="h-4 w-4 shrink-0 opacity-60" />}
-              <span className="flex flex-col leading-none"><span className="text-[9px] font-bold uppercase tracking-[0.1em] opacity-60">Ledger control</span><span className="mt-1">{label}</span></span>
-            </span>;
-          })()}
-          <button type="button" onClick={() => void load()} className="inline-flex h-11 appearance-none items-center gap-2 rounded-xl border-0 bg-white px-3.5 text-xs font-bold text-neutral-600 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
-        </div>
-      </header>
+      {(() => {
+        const status = data?.businessDay.status;
+        const closeTime = data?.nightAuditPolicy.closeTime ?? "20:00";
+        const msToClose = data ? new Date(data.nightAuditPolicy.nextCloseAt).getTime() - now : 0;
+        const auditDue = isDayScoped && status === "OPEN" && canCloseSelectedDate;
+        const auditLine = !isDayScoped ? `Cutoff ${closeTime} EAT`
+          : status === "CLOSING" ? "Night Audit running now"
+          : auditDue ? `Night Audit due · cutoff ${closeTime} EAT passed`
+          : msToClose > 0 ? `Night Audit ${closeTime} EAT · in ${countdown(msToClose)}`
+          : `Night Audit ${closeTime} EAT`;
+        const today = localDay();
+        const thisMonth = today.slice(0, 7);
 
-      {/* The two pickers scope everything below. They sat inside the same row
-          as the status chips, with a wide gap between, so it was not obvious
-          they were controls rather than more status. */}
-      {/* DatePickerField's own `border` falls back to the UA outset style with
-          preflight off, so inside this toolbar the picker is flattened and the
-          segmented wrapper draws the single ring. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-neutral-50/70 px-5 py-2.5 shadow-[inset_0_1px_0_0_#f1f5f9]">
-        <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400"><CalendarCheck2 className="h-3.5 w-3.5" />Business date</span>
-        {/* Reconciliation is done day by day, so stepping is the common move
-            and it was only possible through the calendar popover. */}
-        <div className="flex h-9 items-stretch overflow-hidden rounded-lg bg-white ring-1 ring-neutral-200 focus-within:ring-emerald-300">
-          <button type="button" aria-label="Previous day" onClick={() => setBusinessDate(shiftDay(businessDate, -1))} className="flex w-9 appearance-none items-center justify-center border-0 bg-white text-neutral-500 transition hover:bg-emerald-50 hover:text-emerald-800"><ChevronLeft className="h-4 w-4" /></button>
-          <div className="w-[140px] shadow-[inset_1px_0_0_0_#e5e5e5,inset_-1px_0_0_0_#e5e5e5] [&_button]:!h-9 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
-          <button type="button" aria-label="Next day" disabled={businessDate >= localDay()} onClick={() => setBusinessDate(shiftDay(businessDate, 1))} className="flex w-9 appearance-none items-center justify-center border-0 bg-white text-neutral-500 transition hover:bg-emerald-50 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white"><ChevronRight className="h-4 w-4" /></button>
-        </div>
-        {businessDate !== (tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate) && (
-          <button type="button" onClick={() => setBusinessDate(tab === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : latestAuditDate)} className="inline-flex h-9 appearance-none items-center gap-1 rounded-lg border-0 bg-transparent px-2 text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-50"><RefreshCw className="h-3 w-3" />{tab === "cashiers" ? "Jump to active date" : "Jump to latest closable"}</button>
-        )}
-        {["expenses", "ledger", "tax", "nbs"].includes(tab) && <>
-          <span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden="true" />
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">Reporting month</span>
-            <div className="w-[132px] overflow-hidden rounded-lg bg-white ring-1 ring-neutral-200 [&_button]:!h-9 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold"><DatePickerField label="Reporting month" value={`${month}-01`} onChangeAction={(next) => setMonth(next.slice(0, 7))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast display="month" /></div>
+        const stripEnd = [shiftDay(businessDate, 3), today].sort()[0]!;
+        const stripDays = Array.from({ length: 7 }, (_, index) => shiftDay(stripEnd, index - 6));
+        const stripStatus = new Map((data?.businessDayStrip ?? []).map((row) => [row.businessDate, row.status]));
+        if (data && isDayScoped && status && status !== "NOT_OPENED") stripStatus.set(businessDate, status as "OPEN" | "CLOSING" | "CLOSED");
+        const olderUnclosed = tab === "audit" ? unclosedBusinessDays.filter((openDay) => openDay.businessDate < stripDays[0]!) : [];
+
+        const monthEnd = [shiftMonth(month, 2), thisMonth].sort()[0]!;
+        const stripMonths = Array.from({ length: 6 }, (_, index) => shiftMonth(monthEnd, index - 5));
+
+        const tileState = (day: string): { label: string; tone: "closed" | "due" | "trading" | "none" } => {
+          const dayStatus = stripStatus.get(day);
+          if (dayStatus === "CLOSED") return { label: "Closed", tone: "closed" };
+          if (dayStatus === "CLOSING") return { label: "Closing", tone: "due" };
+          if (dayStatus === "OPEN") return day <= latestAuditDate ? { label: "To audit", tone: "due" } : { label: "Trading", tone: "trading" };
+          return { label: loading && !data ? "..." : "No record", tone: "none" };
+        };
+        const tileSkin = {
+          closed: "bg-white text-neutral-900 ring-1 ring-neutral-200 hover:ring-emerald-300",
+          due: "bg-amber-50 text-amber-950 ring-1 ring-amber-300 hover:ring-amber-400",
+          trading: "border border-dashed border-neutral-300 bg-white text-neutral-900 hover:border-emerald-400",
+          none: "bg-transparent text-neutral-400 ring-1 ring-neutral-200 hover:bg-white",
+        };
+        const tileStatusText = { closed: "text-emerald-700", due: "text-amber-700", trading: "text-sky-700", none: "text-neutral-400" };
+        const stepButton = "flex h-full min-h-[64px] w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent";
+
+        return <>
+          <header className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4">
+            <div className="min-w-[15rem] flex-1">
+              <p className="m-0 truncate text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS financial control{data?.property.title && <span className="normal-case tracking-normal text-neutral-400"> · {data.property.title}</span>}</p>
+              <h2 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950 sm:text-xl">Business date, cash and statutory records</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {olderUnclosed.length > 0 && (
+                <button type="button" onClick={() => { setBusinessDate(olderUnclosed[0]!.businessDate); setMonth(olderUnclosed[0]!.businessDate.slice(0, 7)); }} className="inline-flex h-9 appearance-none items-center gap-1.5 rounded-lg border-0 bg-amber-50 px-3 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200 transition hover:ring-amber-400">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />{olderUnclosed.length} older day{olderUnclosed.length === 1 ? "" : "s"} to audit · from {dayLabel(olderUnclosed[0]!.businessDate)}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => canManage && setEditingAuditTime(true)}
+                disabled={!canManage}
+                aria-expanded={editingAuditTime}
+                title={canManage ? "Change the property's business-date cutoff" : "Only an owner or manager can change the Night Audit cutoff"}
+                className={`inline-flex h-9 appearance-none items-center gap-1.5 rounded-lg border-0 px-3 text-[11px] font-semibold transition enabled:cursor-pointer disabled:cursor-default ${auditDue ? "bg-amber-50 text-amber-900 enabled:hover:bg-amber-100" : "bg-transparent text-neutral-600 enabled:hover:bg-neutral-100"}`}
+              >
+                <Clock3 className={`h-3.5 w-3.5 ${auditDue ? "text-amber-600" : "text-sky-700"}`} />{auditLine}{canManage && <Settings2 className="h-3 w-3 text-neutral-400" />}
+              </button>
+              <button type="button" onClick={() => void load()} title="Reload financial controls" className="inline-flex h-9 appearance-none items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 text-[11px] font-semibold tabular-nums text-neutral-500 transition hover:bg-neutral-100 hover:text-emerald-800">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />{loading ? "Syncing" : lastLoadedAt ? clockTime(lastLoadedAt) : "Sync"}
+              </button>
+            </div>
+          </header>
+
+          <div className="flex items-stretch gap-1.5 bg-neutral-50 px-2 py-3 shadow-[inset_0_1px_0_0_#f1f5f9] sm:px-3">
+            {isDayScoped ? <>
+              <button type="button" aria-label="Previous week" onClick={() => setBusinessDate(shiftDay(businessDate, -7))} className={stepButton}><ChevronLeft className="h-4 w-4" /></button>
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <div className="grid min-w-[520px] grid-cols-7 gap-1.5">
+                  {stripDays.map((day) => {
+                    const on = day === businessDate;
+                    const state = tileState(day);
+                    const [y, m, d] = day.split("-").map(Number);
+                    const weekday = day === today ? "Today" : new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", weekday: "short" });
+                    return (
+                      <button key={day} type="button" onClick={() => { setBusinessDate(day); setMonth(day.slice(0, 7)); }} aria-current={on ? "date" : undefined} title={`${dayLabel(day)} · ${state.label}`}
+                        className={`flex min-h-[64px] appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : tileSkin[state.tone]}`}>
+                        <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{weekday}</span>
+                        <span className="mt-0.5 text-base font-extrabold leading-none tabular-nums">{d}</span>
+                        <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold ${on ? "text-emerald-200" : tileStatusText[state.tone]}`}>{state.tone === "closed" && <CheckCircle2 className="h-3 w-3" />}{state.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="button" aria-label="Next week" disabled={businessDate >= today} onClick={() => setBusinessDate([shiftDay(businessDate, 7), today].sort()[0]!)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
+              {/* Any other date: the calendar opens from this button (the picker sits invisibly over it). */}
+              <div className="relative flex w-10 shrink-0 items-center justify-center rounded-xl text-neutral-500 ring-1 ring-neutral-200 transition hover:bg-white hover:text-emerald-800" title="Choose any business date">
+                <CalendarCheck2 className="h-4 w-4" />
+                <div className="absolute inset-0 opacity-0 [&>*]:!h-full [&_button]:!h-full [&_button]:!w-full [&_button]:!min-w-0 [&_button]:!cursor-pointer [&_button]:!p-0"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
+              </div>
+            </> : <>
+              <button type="button" aria-label="Earlier months" onClick={() => setMonth(shiftMonth(month, -6))} className={stepButton}><ChevronLeft className="h-4 w-4" /></button>
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <div className="grid min-w-[440px] grid-cols-6 gap-1.5">
+                  {stripMonths.map((value) => {
+                    const on = value === month;
+                    const [y, m] = value.split("-").map(Number);
+                    const label = new Date(Date.UTC(y!, m! - 1, 1, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", month: "short" });
+                    return (
+                      <button key={value} type="button" onClick={() => setMonth(value)} aria-current={on ? "date" : undefined}
+                        className={`flex min-h-[64px] appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : "bg-white text-neutral-900 ring-1 ring-neutral-200 hover:ring-emerald-300"}`}>
+                        <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{y}</span>
+                        <span className="mt-0.5 text-base font-extrabold leading-none">{label}</span>
+                        <span className={`mt-1 text-[10px] font-bold ${on ? "text-emerald-200" : value === thisMonth ? "text-sky-700" : "text-neutral-400"}`}>{value === thisMonth ? "To date" : "Full month"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="button" aria-label="Later months" disabled={month >= thisMonth} onClick={() => setMonth([shiftMonth(month, 6), thisMonth].sort()[0]!)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
+            </>}
           </div>
-        </>}
-        {/* Pending closes are an alert, not a filter, so they sit apart on the right. */}
-        {tab === "audit" && unclosedBusinessDays.length > 0 && (
-          <label className="relative ml-auto flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-amber-50 pl-2.5 pr-8 text-amber-900 ring-1 ring-amber-200 transition hover:ring-amber-300">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
-            <select
-              aria-label="Choose an unclosed business date"
-              value={unclosedBusinessDays.some((openDay) => openDay.businessDate === businessDate) ? businessDate : ""}
-              onChange={(event) => { if (event.target.value) { setBusinessDate(event.target.value); setMonth(event.target.value.slice(0, 7)); } }}
-              style={{ appearance: "none", WebkitAppearance: "none", MozAppearance: "none", fontFamily: "inherit" }}
-              className="h-full cursor-pointer border-0 bg-transparent p-0 text-[11px] font-bold text-amber-950 outline-none"
-            >
-              <option value="">{unclosedBusinessDays.length} unclosed day{unclosedBusinessDays.length === 1 ? "" : "s"} to audit</option>
-              {unclosedBusinessDays.map((openDay) => <option key={openDay.id} value={openDay.businessDate}>{dayLabel(openDay.businessDate)} · {openDay.status === "CLOSING" ? "Closing" : openDay.canClose ? "Ready" : "Waiting"}</option>)}
-            </select>
-            <ChevronRight className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 rotate-90 text-amber-600" aria-hidden />
-          </label>
-        )}
-      </div>
+        </>;
+      })()}
 
       {/* Six views were reachable only from the workspace sidebar, so the page
           never showed which one you were in or offered a way across. */}
@@ -492,7 +540,7 @@ export default function FinanceControlPage() {
                 router.replace(`/owner/nrms/finance?view=${item.id}&businessDate=${encodeURIComponent(nextBusinessDate)}`);
               }}
               aria-current={on ? "page" : undefined}
-              className={`inline-flex min-h-11 shrink-0 appearance-none items-center gap-1.5 rounded-t-lg border-0 px-3 text-xs font-bold transition ${on ? "bg-white text-emerald-800 shadow-[inset_0_-2px_0_0_#047857]" : "bg-transparent text-neutral-500 hover:bg-white/70 hover:text-neutral-800"}`}
+              className={`inline-flex min-h-11 shrink-0 appearance-none items-center gap-1.5 border-0 bg-transparent px-3 text-xs font-bold transition ${on ? "text-emerald-800 shadow-[inset_0_-2px_0_0_#047857]" : "text-neutral-500 hover:text-neutral-900"}`}
             >
               <item.icon className="h-3.5 w-3.5" />{item.label}
             </button>
