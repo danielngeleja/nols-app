@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { TrendingUp, HandCoins, Hourglass, Wallet, ArrowUp, ArrowDown, ChevronsUpDown, Search, X, AlertCircle, Coins, ExternalLink } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import TablePagination from "@/components/TablePagination";
 
 type RevenueStatus = "PENDING" | "AWAITING_DEPOSIT" | "DEPOSIT_PAID" | "CONFIRMED" | "COMPLETED" | "CANCELED";
@@ -105,6 +106,7 @@ const gsRef = (id: number) => `GS-${String(id).padStart(4, "0")}`;
 const NF = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 export default function GroupStayRevenuePage() {
+  useAdminHref();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -386,7 +388,7 @@ export default function GroupStayRevenuePage() {
                       <tr key={r.id} className={`border-0 border-b border-solid border-neutral-100 transition-colors last:border-b-0 hover:bg-neutral-50/70 ${canceled ? "text-neutral-400" : ""}`}>
                         <td className="px-4 py-3.5 sm:pl-5">
                           <Link
-                            href={`/admin/group-stays/bookings?bookingId=${r.id}`}
+                            href={`/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", r.id)}`}
                             className="group inline-flex items-center gap-1 rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[11px] text-neutral-700 no-underline hover:bg-neutral-200 hover:no-underline"
                           >
                             {gsRef(r.id)}

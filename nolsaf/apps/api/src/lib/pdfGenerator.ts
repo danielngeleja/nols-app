@@ -52,6 +52,12 @@ export interface BookingDetails {
     balanceDue?: number;
     /** Heading beside the QR. Defaults to "Payment received in full", or "Deposit received" when a balance is due. */
     confirmationTitle?: string;
+    /** Number under the title. Defaults to the receipt number (an invoice passes its invoice number). */
+    documentNumber?: string;
+    /** Line under the number. Defaults to "Paid <date>" or "Payment confirmed". */
+    dateLine?: string;
+    /** Label of the first totals row. Defaults to "Amount received" (an unpaid invoice uses "Amount due"). */
+    amountLabel?: string;
   };
 }
 
@@ -674,8 +680,8 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
     </div>
     <div class="document-heading">
       <div class="document-title">${esc(documentTitle)}</div>
-      <div class="document-number">${esc(receiptReference)}</div>
-      <div class="document-date">${esc(paidAt ? `Paid ${paidAt}` : "Payment confirmed")}</div>
+      <div class="document-number">${esc(doc.documentNumber || receiptReference)}</div>
+      <div class="document-date">${esc(doc.dateLine || (paidAt ? `Paid ${paidAt}` : "Payment confirmed"))}</div>
     </div>
   </header>
 
@@ -717,7 +723,7 @@ export async function generateBookingReservationHTML(details: BookingDetails): P
   </section>
 
   <section class="totals">
-    <div class="total-row"><span>Amount received</span><strong>${amount} ${esc(currency)}</strong></div>
+    <div class="total-row"><span>${esc(doc.amountLabel || "Amount received")}</span><strong>${amount} ${esc(currency)}</strong></div>
     <div class="total-row final"><span>Balance</span><span>${balanceDue.toLocaleString("en-US")} ${esc(currency)}</span></div>
   </section>
 

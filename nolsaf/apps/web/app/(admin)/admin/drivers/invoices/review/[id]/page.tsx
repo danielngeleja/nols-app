@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -158,6 +159,14 @@ function payoutLabels(status: string) {
 
 export default function AdminDriverInvoiceReviewPage() {
   const params = useParams<{ id: string }>();
+  return (
+    <AdminRecordGate kind="transport-payout" param={params?.id} backHref="/admin/drivers/invoices">
+      {(id) => <AdminDriverInvoiceReview id={id} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminDriverInvoiceReview({ id }: { id: number }) {
   const router = useRouter();
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -165,7 +174,6 @@ export default function AdminDriverInvoiceReviewPage() {
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
 
-  const id = params?.id;
 
   const load = useCallback(async () => {
     if (!id) return;

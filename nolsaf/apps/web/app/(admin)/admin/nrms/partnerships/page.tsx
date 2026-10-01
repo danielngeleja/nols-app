@@ -9,6 +9,7 @@ import {
   Eye, RefreshCw, RotateCcw, Save, Search, ShieldCheck, Users, X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type LinkStatus = "INVITED" | "REQUESTED" | "AGENT_ACCEPTED" | "ACTIVE" | "SUSPENDED" | "REJECTED" | "TERMINATED";
 type Partnership = {
@@ -41,6 +42,7 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 }
 
 export default function AdminNrmsPartnershipsPage() {
+  const recordHref = useAdminHref();
   const [rows, setRows] = useState<Partnership[]>([]);
   const [summary, setSummary] = useState<Record<string, number>>({});
   const [status, setStatus] = useState<LinkStatus | "ALL">("ALL");
@@ -186,7 +188,7 @@ export default function AdminNrmsPartnershipsPage() {
           { label: "Agency identity", value: pretty(selected.agentAccount.verificationStatus), ready: selected.agentAccount.status === "ACTIVE" && selected.agentAccount.verificationStatus === "VERIFIED", fix: "Verify the operator's agency identity", href: "/admin/nrms/agents" },
           { label: "Hotel consent", value: pretty(selected.hotelConsentStatus), ready: selected.hotelConsentStatus === "ACCEPTED", fix: "Waiting for the hotel to accept", href: null },
           { label: "Operator consent", value: pretty(selected.agentConsentStatus), ready: selected.agentConsentStatus === "ACCEPTED", fix: "Waiting for the operator to accept", href: null },
-          { label: "Property billing", value: pretty(selected.property.billingStatus || "Unavailable"), ready: ["TRIAL", "ACTIVE", "WARNING"].includes(selected.property.billingStatus || ""), fix: "Property must settle NRMS billing", href: `/admin/nrms/${selected.property.id}` },
+          { label: "Property billing", value: pretty(selected.property.billingStatus || "Unavailable"), ready: ["TRIAL", "ACTIVE", "WARNING"].includes(selected.property.billingStatus || ""), fix: "Property must settle NRMS billing", href: recordHref("property", selected.property.id) },
         ];
         const done = steps.filter((s) => s.ready).length;
         const blockers = steps.filter((s) => !s.ready);
@@ -341,7 +343,7 @@ export default function AdminNrmsPartnershipsPage() {
                           <p className="m-0 text-[11px] text-neutral-400">Accommodation · {selected.property.region || "Region not recorded"}</p>
                           <p className="m-0 truncate text-sm font-semibold text-neutral-900">{selected.property.title}</p>
                         </div>
-                        <Link href={`/admin/nrms/${selected.property.id}`} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 no-underline hover:bg-neutral-100 hover:text-neutral-700" aria-label="Open property"><ChevronRight className="h-4 w-4" /></Link>
+                        <Link href={recordHref("property", selected.property.id)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 no-underline hover:bg-neutral-100 hover:text-neutral-700" aria-label="Open property"><ChevronRight className="h-4 w-4" /></Link>
                       </div>
                     </div>
                   </section>

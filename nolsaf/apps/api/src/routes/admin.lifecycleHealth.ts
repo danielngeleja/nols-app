@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
 import {
   mapGroupStayLifecycle,
   mapPropertyLifecycle,
@@ -190,7 +191,7 @@ router.get("/", async (req, res) => {
         title: booking.property?.title || "Accommodation booking",
         customer: booking.user?.name || booking.guestName || booking.user?.email || null,
         createdAt: booking.createdAt,
-        detailHref: cancellation ? `/admin/cancellations/${cancellation.id}` : `/admin/bookings/${booking.id}`,
+        detailHref: cancellation ? `/admin/cancellations/${recordRef("cancellation", cancellation.id) ?? cancellation.id}` : `/admin/bookings/${recordRef("booking", booking.id) ?? booking.id}`,
         lifecycle,
         source: {
           bookingStatus: booking.status,
@@ -221,7 +222,7 @@ router.get("/", async (req, res) => {
         title: `${text(booking.groupType) || "Group"} stay${booking.toRegion ? ` · ${booking.toRegion}` : ""}`,
         customer: booking.user?.name || booking.user?.email || null,
         createdAt: booking.createdAt,
-        detailHref: `/admin/group-stays/bookings?bookingId=${booking.id}`,
+        detailHref: `/admin/group-stays/bookings?bookingId=${recordRef("group-stay", booking.id) ?? booking.id}`,
         lifecycle,
         source: {
           bookingStatus: booking.status,
@@ -254,7 +255,7 @@ router.get("/", async (req, res) => {
         title: booking.title || "Tour booking",
         customer: booking.guestName || booking.guestEmail || null,
         createdAt: booking.createdAt,
-        detailHref: cancellation ? `/admin/cancellations/tours/${cancellation.id}` : "/admin/agents/tour-bookings",
+        detailHref: cancellation ? `/admin/cancellations/tours/${recordRef("tour-case", cancellation.id) ?? cancellation.id}` : "/admin/agents/tour-bookings",
         lifecycle,
         source: {
           bookingStatus: booking.status,

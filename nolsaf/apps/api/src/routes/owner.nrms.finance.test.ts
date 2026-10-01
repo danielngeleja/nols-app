@@ -29,7 +29,7 @@ vi.mock("../middleware/auth.js", () => ({
 
 vi.mock("../lib/nrmsPropertyAccess.js", () => ({ loadNrmsPropertyAccess: mocks.loadNrmsPropertyAccess }));
 vi.mock("../lib/nrmsAvailability.js", () => ({ lockPropertyInventory: mocks.lockPropertyInventory }));
-vi.mock("../lib/nrmsNightAuditLedger.js", () => ({ createNightAuditLedgerTransaction: vi.fn() }));
+vi.mock("../lib/nrmsNightAuditLedger.js", () => ({ createNightAuditLedgerTransactions: vi.fn(async () => undefined) }));
 vi.mock("../lib/nrmsReporting.js", () => ({ allocateStayValue: vi.fn() }));
 vi.mock("../lib/nrmsShifts.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/nrmsShifts.js")>();

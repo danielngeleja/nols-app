@@ -5,6 +5,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { AlertTriangle, Building2, ChevronLeft, ChevronRight, Coins, Handshake, Hotel, Loader2, MessageCircle, Search, ShieldAlert, ShieldCheck, Wallet } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader, SummaryCard } from "./_components/CommercialUi";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Enrollment = {
   id: number;
@@ -71,6 +72,7 @@ const PROPERTY_PAGE_SIZE = 10;
 const ENROLLMENT_PAGE_SIZE = 10;
 
 export default function AdminNrmsDirectoryPage() {
+  const recordHref = useAdminHref();
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [properties, setProperties] = useState<DirectoryProperty[]>([]);
   // Platform channel loyalty from verified-stay reviews. Reported to admins only:
@@ -352,7 +354,7 @@ export default function AdminNrmsDirectoryPage() {
                     <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-neutral-600">{p.activeOrderPoints}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{shortDate(p.lastOrderAt)}</td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-neutral-500">{shortDate(p.lastNightAuditAt)}</td>
-                    <td className="whitespace-nowrap px-4 py-3.5 text-right sm:px-5"><Link href={`/admin/nrms/${p.propertyId}`} className="inline-flex rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-100">View</Link></td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right sm:px-5"><Link href={recordHref("property", p.propertyId)} className="inline-flex rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:border-emerald-300 hover:bg-emerald-100">View</Link></td>
                   </tr>
                 );
               })}

@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { Trophy, Truck, Search, Star, TrendingUp, Users, Target, Award, CheckCircle, Eye, X, BarChart3, PieChart as PieChartIcon, Car, Bike, CarTaxiFront, MessageSquare, Send, Clock, Bell, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import { io, Socket } from "socket.io-client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -104,6 +105,7 @@ type DriverTableSortKey = "driver" | "vehicle" | "level" | "progress" | "metrics
 
 export default function AdminDriversLevelsPage() {
   const searchParams = useSearchParams();
+  const queryDriverId = useAdminQueryId("driver", searchParams?.get("driverId"), "driverId");
   const router = useRouter();
   const pathname = usePathname();
   const [drivers, setDrivers] = useState<DriverWithLevel[]>([]);
@@ -246,8 +248,7 @@ export default function AdminDriversLevelsPage() {
   }, [activeTab, loadDrivers, loadMessages]);
 
   useEffect(() => {
-    const raw = searchParams?.get("driverId") || "";
-    const id = Number(raw);
+    const id = queryDriverId ?? 0;
     if (!Number.isFinite(id) || id <= 0) return;
     if (!drivers.length) return;
     const found = drivers.find((d) => d.id === id) || null;
@@ -255,7 +256,7 @@ export default function AdminDriversLevelsPage() {
     if (selectedDriver?.id === id && showDetailsModal) return;
     setSelectedDriver(found);
     setShowDetailsModal(true);
-  }, [searchParams, drivers, selectedDriver, showDetailsModal]);
+  }, [queryDriverId, drivers, selectedDriver, showDetailsModal]);
 
   const closeDetailsModal = useCallback(() => {
     setShowDetailsModal(false);

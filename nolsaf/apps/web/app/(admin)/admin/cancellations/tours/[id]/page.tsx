@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import {
   AlertTriangle, ArrowLeft, CalendarDays, CheckCircle2, CircleDollarSign,
   Clock3, FileText, MapPin, RotateCcw, ShieldCheck, User, XCircle,
@@ -49,7 +50,14 @@ function eventLabel(type: string) {
 
 export default function AdminTourCancellationDetailPage() {
   const params = useParams<{ id?: string | string[] }>();
-  const id = Number(Array.isArray(params.id) ? params.id[0] : params.id);
+  return (
+    <AdminRecordGate kind="tour-case" param={params?.id} backHref="/admin/cancellations/tours">
+      {(id) => <AdminTourCancellationDetail id={id} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminTourCancellationDetail({ id }: { id: number }) {
   const [item, setItem] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

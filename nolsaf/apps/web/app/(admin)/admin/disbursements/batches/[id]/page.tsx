@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft, BadgeCheck, CheckCircle2, Layers, Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -70,7 +71,14 @@ function errorMessage(cause: any, fallback: string) {
 
 export default function BatchDetailPage() {
   const params = useParams<{ id: string }>();
-  const batchId = Number(params?.id);
+  return (
+    <AdminRecordGate kind="disbursement-batch" param={params?.id} backHref="/admin/disbursements/batches">
+      {(batchId) => <BatchDetail batchId={batchId} />}
+    </AdminRecordGate>
+  );
+}
+
+function BatchDetail({ batchId }: { batchId: number }) {
   const [batch, setBatch] = useState<BatchDetail | null>(null);
   const [release, setRelease] = useState<ReleaseAuthority | null>(null);
   const [loading, setLoading] = useState(true);

@@ -6,6 +6,7 @@ import { AlertTriangle, ArrowLeft, ArrowRight, Building2, CalendarClock, CheckCi
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { CountPill, EmptyState, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Policy = { id: number; version: string; effectiveFrom: string; effectiveTo: string | null; roomNightPrice: number; trialDays: number; reminderAmount: number; warningAmount: number; unpaidLimit: number; graceDays: number; accountCount: number };
 type Account = { id: number; propertyId: number; propertyTitle: string; owner: { name: string }; status: string; trialEndsAt: string; unpaidBalance: number; unpaidLimit: number; policy: { id: number; version: string }; dunning: { stage: string; freezeAt: string | null } };
@@ -72,6 +73,7 @@ function clampPercent(part: number, whole: number): number {
 }
 
 export default function NrmsPricingPage() {
+  const recordHref = useAdminHref();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [form, setForm] = useState(initialPolicy);
@@ -373,7 +375,7 @@ export default function NrmsPricingPage() {
                     <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                          <Link href={`/admin/nrms/${a.propertyId}`} className="truncate text-sm font-bold text-neutral-900 no-underline transition hover:text-emerald-700" title={a.propertyTitle}>{a.propertyTitle}</Link>
+                          <Link href={recordHref("property", a.propertyId)} className="truncate text-sm font-bold text-neutral-900 no-underline transition hover:text-emerald-700" title={a.propertyTitle}>{a.propertyTitle}</Link>
                           <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${stage.badge}`}>{a.dunning.stage.replaceAll("_", " ")}</span>
                         </div>
                         <p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">{a.owner.name} <span className="px-0.5">·</span> policy {a.policy.version}</p>

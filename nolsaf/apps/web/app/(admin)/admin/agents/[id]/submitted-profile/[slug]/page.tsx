@@ -2,20 +2,14 @@
 
 import { useParams } from "next/navigation";
 import { OperatorProfilePreviewScreen } from "@/app/account/agent/profile/preview/OperatorProfilePreviewScreen";
-import LogoSpinner from "@/components/LogoSpinner";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 
 export default function SubmittedProfileSlugPage() {
   const params = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(params?.id) ? params.id[0] : params?.id;
-  const adminAgentId = Number(idParam);
 
-  if (!Number.isFinite(adminAgentId) || adminAgentId <= 0) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <LogoSpinner size="lg" />
-      </div>
-    );
-  }
-
-  return <OperatorProfilePreviewScreen adminAgentId={adminAgentId} />;
+  return (
+    <AdminRecordGate kind="agent" param={params?.id} backHref="/admin/agents">
+      {(adminAgentId) => <OperatorProfilePreviewScreen adminAgentId={adminAgentId} />}
+    </AdminRecordGate>
+  );
 }

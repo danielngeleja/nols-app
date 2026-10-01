@@ -120,6 +120,8 @@ router.get("/", async (req, res) => {
           { invoiceNumber: { contains: searchTerm } },
           { receiptNumber: { contains: searchTerm } },
           { booking: { property: { title: { contains: searchTerm } } } },
+          { owner: { name: { contains: searchTerm } } },
+          { owner: { email: { contains: searchTerm } } },
         ];
       }
     }
@@ -183,7 +185,23 @@ router.get("/", async (req, res) => {
       prisma.invoice.count({ where }),
     ]);
 
-    res.json({ total, page: Number(page), pageSize: take, items });
+    // Platform-wide status totals for the page header, so its cards describe
+    // every invoice rather than only the rows on the current page. Ignores the
+    // list filters on purpose: the cards are what the filters choose between.
+    const byStatus = await prisma.invoice.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+      _sum: { total: true, netPayable: true, commissionAmount: true },
+    });
+    const summary = byStatus.map((row) => ({
+      status: row.status,
+      count: row._count._all,
+      total: Number(row._sum.total ?? 0),
+      netPayable: Number(row._sum.netPayable ?? 0),
+      commission: Number(row._sum.commissionAmount ?? 0),
+    }));
+
+    res.json({ total, page: Number(page), pageSize: take, items, summary });
   } catch (err: any) {
     // If the DB schema is out-of-date (missing column), Prisma will throw P2022
     if (err instanceof Prisma.PrismaClientKnownRequestError) {

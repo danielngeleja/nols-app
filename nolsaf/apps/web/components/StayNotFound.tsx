@@ -18,10 +18,10 @@ export default function StayNotFound({ href = "/public/properties" }: { href?: s
         <circle cx="35" cy="8" r="5" fill="none" stroke="#a3a3a3" strokeWidth="2" />
         <g className="nls-keytag">
           <line x1="35" y1="13" x2="35" y2="24" stroke="#a3a3a3" strokeWidth="2" />
-          <rect x="12" y="24" width="46" height="70" rx="12" fill="#e6f4f1" stroke="#1d9e75" strokeWidth="1.5" />
-          <circle cx="35" cy="36" r="4" fill="#ffffff" stroke="#1d9e75" strokeWidth="1.5" />
+          <rect x="12" y="24" width="46" height="70" rx="12" fill="#e6f4f1" stroke="#02665e" strokeWidth="1.5" />
+          <circle cx="35" cy="36" r="4" fill="#ffffff" stroke="#02665e" strokeWidth="1.5" />
           <text x="35" y="70" textAnchor="middle" fontSize="17" fontWeight="700" fill="#02665e" fontFamily="inherit">404</text>
-          <text x="35" y="84" textAnchor="middle" fontSize="8" fontWeight="600" letterSpacing="1" fill="#0f6e56" fontFamily="inherit">STAY</text>
+          <text x="35" y="84" textAnchor="middle" fontSize="8" fontWeight="600" letterSpacing="1" fill="#02665e" fontFamily="inherit">STAY</text>
         </g>
       </svg>
       <h1 className="mb-0 mt-5 text-2xl font-bold tracking-tight text-neutral-900">We couldn&apos;t find this stay</h1>

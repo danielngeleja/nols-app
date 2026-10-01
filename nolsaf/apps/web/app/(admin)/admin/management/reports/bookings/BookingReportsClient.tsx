@@ -1,10 +1,10 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ClipboardList, FileText, Printer, RefreshCw, Users } from "lucide-react";
+import { AlertTriangle, ClipboardList, FileText, Printer, RefreshCw, Star, Users } from "lucide-react";
 
 import Chart from "@/components/Chart";
-import NoLSAFReportsFrame, { NoLSAFReportTitle } from "@/components/admin/reports/NoLSAFReportsFrame";
+import NoLSAFReportsFrame, { NoLSAFMuted, NoLSAFRegister, NoLSAFReportTitle, NoLSAFStack, NoLSAFStatusBadge } from "@/components/admin/reports/NoLSAFReportsFrame";
 import ReportPeriodPicker from "@/components/admin/reports/ReportPeriodPicker";
 import {
   adminReportPrintStyles,
@@ -59,6 +59,12 @@ function fmtDateOnly(iso: string | Date | null | undefined) {
   const d = typeof iso === "string" ? new Date(iso) : iso;
   if (Number.isNaN(d.getTime())) return String(iso);
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" });
+}
+
+/** Register cell for a stay: check-in on top, check-out underneath. */
+function stayCell(checkIn: string | null | undefined, checkOut: string | null | undefined) {
+  if (!checkIn && !checkOut) return <NoLSAFMuted />;
+  return <NoLSAFStack top={checkIn ? fmtDateOnly(checkIn) : "Not set"} bottom={`to ${checkOut ? fmtDateOnly(checkOut) : "not set"}`} strong={false} />;
 }
 
 type TotalsState = {
@@ -1082,189 +1088,183 @@ export default function BookingReportsClient() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
-            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Owner booking register</div>
-            <div className="overflow-x-auto px-3 pb-3">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/70">
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Name</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Gender</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Nationality</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Paid at</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Property Name</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Check-in &amp; out</th>
-                    <th className="py-2.5 pr-0 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Rating</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {ownerItems.length === 0 ? (
-                    <tr>
-                      <td className="py-4 text-slate-400 text-sm" colSpan={8}>
-                        No records in this range.
-                      </td>
-                    </tr>
+          <NoLSAFRegister<OwnerBookingItem>
+            icon={FileText}
+            title="Owner booking register"
+            subtitle="Guest, property, stay, payment and rating for standard property bookings."
+            rows={ownerItems}
+            rowKey={(b) => `ob-${b.id}`}
+            noun={["booking", "bookings"]}
+            loading={loading}
+            emptyTitle="No owner bookings"
+            emptyText="No standard property bookings were recorded in this period."
+            columns={[
+              {
+                key: "guest",
+                label: "Guest",
+                width: "15rem",
+                render: (b) => (
+                  <NoLSAFStack
+                    top={b.guestName || b.user?.name || "Guest not named"}
+                    bottom={[b.sex, b.nationality].filter(Boolean).join(" · ") || undefined}
+                  />
+                ),
+              },
+              { key: "property", label: "Property", width: "13rem", render: (b) => (b.property?.title ? <NoLSAFStack top={b.property.title} strong={false} /> : <NoLSAFMuted />) },
+              { key: "stay", label: "Stay", width: "11rem", render: (b) => stayCell(b.checkIn, b.checkOut) },
+              { key: "status", label: "Status", width: "8rem", render: (b) => <NoLSAFStatusBadge status={b.status} /> },
+              {
+                key: "amount",
+                label: "Amount",
+                width: "9rem",
+                align: "right",
+                render: (b) => {
+                  const amount = b.payment?.amount ?? b.invoice?.total ?? null;
+                  return numOrNull(amount) === null ? <NoLSAFMuted /> : <span className="font-bold text-neutral-900">{fmtAmount(amount)}</span>;
+                },
+              },
+              {
+                key: "paid",
+                label: "Paid at",
+                width: "10rem",
+                render: (b) => {
+                  const paidAt = b.payment?.paidAt ?? b.invoice?.paidAt ?? null;
+                  return paidAt ? fmtDateTime(paidAt) : <NoLSAFMuted text="Not paid" />;
+                },
+              },
+              {
+                key: "rating",
+                label: "Rating",
+                width: "7rem",
+                align: "right",
+                render: (b) =>
+                  typeof b.review?.rating === "number" ? (
+                    <span className="inline-flex items-center gap-1 font-bold text-amber-600">
+                      <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
+                      {b.review.rating}
+                    </span>
                   ) : (
-                    ownerItems.map((b) => {
-                      const name = b.guestName || b.user?.name || "—";
-                      const gender = b.sex || "—";
-                      const nationality = b.nationality || "—";
-                      const amountCandidate = b.payment?.amount ?? b.invoice?.total ?? null;
-                      const paidAtCandidate = b.payment?.paidAt ?? b.invoice?.paidAt ?? null;
-                      const amount = numOrNull(amountCandidate) === null ? "—" : fmtAmount(amountCandidate);
-                      const paidAt = paidAtCandidate ? fmtDateTime(paidAtCandidate) : "—";
-                      const property = b.property?.title || "—";
-                      const stay = `${fmtDateOnly(b.checkIn)} → ${fmtDateOnly(b.checkOut)}`;
-                      const rating = b.review?.rating;
-                      return (
-                        <tr key={`ob-${b.id}`}>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{name}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{gender}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{nationality}</td>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{amount}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{paidAt}</td>
-                          <td className="py-2 pr-4 text-slate-700">{property}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{stay}</td>
-                          <td className="py-2 pr-0 text-slate-500 whitespace-nowrap">{rating ?? "—"}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                    <NoLSAFMuted text="No review" />
+                  ),
+              },
+            ]}
+          />
 
-          <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
-            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Group stay register</div>
-            <div className="overflow-x-auto px-3 pb-3">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/70">
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Name</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Phone</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Gender</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Nationality</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Status</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted Amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed Amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Currency</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted Property</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed Property</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Check-in &amp; out</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Created</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Accepted</th>
-                    <th className="py-2.5 pr-0 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Confirmed</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {groupItems.length === 0 ? (
-                    <tr>
-                      <td className="py-4 text-slate-400 text-sm" colSpan={14}>
-                        No records in this range.
-                      </td>
-                    </tr>
-                  ) : (
-                    groupItems.map((b) => {
-                      const name = b.leadPassenger?.name || b.user?.name || "—";
-                      const phone = b.leadPassenger?.phone || b.user?.phone || "—";
-                      const gender = b.leadPassenger?.gender || "—";
-                      const nationality = b.leadPassenger?.nationality || "—";
-                      const status = b.status || "—";
-                      const acceptedAmount = fmtAmount(b.acceptedTotalAmount ?? null);
-                      const confirmedAmount = fmtAmount(b.confirmedTotalAmount ?? null);
-                      const currency = b.currency || "—";
-                      const acceptedProperty = b.acceptedProperty?.title || "—";
-                      const confirmedProperty = b.confirmedProperty?.title || "—";
-                      const stay = `${fmtDateOnly(b.checkIn)} → ${fmtDateOnly(b.checkOut)}`;
-                      const created = b.createdAt ? fmtDateTime(b.createdAt) : "—";
-                      const accepted = b.acceptedAt ? fmtDateTime(b.acceptedAt) : "—";
-                      const confirmed = b.confirmedAt ? fmtDateTime(b.confirmedAt) : "—";
-                      return (
-                        <tr key={`gb-${b.id}`}>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{name}</td>
-                          <td className="py-2 pr-4 text-slate-700 whitespace-nowrap">{phone}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{gender}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{nationality}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{status}</td>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{acceptedAmount}</td>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{confirmedAmount}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{currency}</td>
-                          <td className="py-2 pr-4 text-slate-700">{acceptedProperty}</td>
-                          <td className="py-2 pr-4 text-slate-700">{confirmedProperty}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{stay}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{created}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{accepted}</td>
-                          <td className="py-2 pr-0 text-slate-500 whitespace-nowrap">{confirmed}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <NoLSAFRegister<GroupStayItem>
+            icon={Users}
+            title="Group stay register"
+            subtitle="Lead guest, placement from accepted to confirmed, value and workflow timeline."
+            rows={groupItems}
+            rowKey={(b) => `gb-${b.id}`}
+            noun={["group stay", "group stays"]}
+            loading={loading}
+            emptyTitle="No group stays"
+            emptyText="No group stay requests were recorded in this period."
+            columns={[
+              {
+                key: "lead",
+                label: "Lead guest",
+                width: "14rem",
+                render: (b) => (
+                  <NoLSAFStack
+                    top={b.leadPassenger?.name || b.user?.name || "Guest not named"}
+                    bottom={[b.leadPassenger?.phone || b.user?.phone, b.leadPassenger?.gender, b.leadPassenger?.nationality].filter(Boolean).join(" · ") || undefined}
+                  />
+                ),
+              },
+              { key: "status", label: "Status", width: "8rem", render: (b) => <NoLSAFStatusBadge status={b.status} /> },
+              {
+                key: "property",
+                label: "Property",
+                width: "14rem",
+                render: (b) => {
+                  const confirmed = b.confirmedProperty?.title;
+                  const accepted = b.acceptedProperty?.title;
+                  if (!confirmed && !accepted) return <NoLSAFMuted text="Not placed yet" />;
+                  return <NoLSAFStack top={confirmed || accepted} bottom={confirmed ? (accepted && accepted !== confirmed ? `Accepted: ${accepted}` : "Confirmed") : "Accepted, awaiting confirmation"} strong={false} />;
+                },
+              },
+              { key: "stay", label: "Stay", width: "11rem", render: (b) => stayCell(b.checkIn, b.checkOut) },
+              {
+                key: "amount",
+                label: "Amount",
+                width: "11rem",
+                align: "right",
+                render: (b) => {
+                  const confirmed = numOrNull(b.confirmedTotalAmount);
+                  const accepted = numOrNull(b.acceptedTotalAmount);
+                  if (confirmed === null && accepted === null) return <NoLSAFMuted text="No quote yet" />;
+                  const currency = b.currency || "";
+                  return (
+                    <NoLSAFStack
+                      top={`${currency} ${fmtAmount(confirmed ?? accepted)}`.trim()}
+                      bottom={confirmed !== null ? (accepted !== null && accepted !== confirmed ? `Accepted ${fmtAmount(accepted)}` : "Confirmed") : "Accepted"}
+                    />
+                  );
+                },
+              },
+              {
+                key: "timeline",
+                label: "Timeline",
+                width: "12rem",
+                render: (b) => {
+                  const step = b.confirmedAt ? ["Confirmed", b.confirmedAt] : b.acceptedAt ? ["Accepted", b.acceptedAt] : b.createdAt ? ["Created", b.createdAt] : null;
+                  if (!step) return <NoLSAFMuted />;
+                  return <NoLSAFStack top={step[0]} bottom={fmtDateTime(step[1] as string)} strong={false} />;
+                },
+              },
+            ]}
+          />
 
-          <div className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
-            <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3 text-sm font-bold text-neutral-950">Tour booking register</div>
-            <div className="overflow-x-auto px-3 pb-3">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/70">
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Booking code</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Operator</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Tour</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Destination</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Travelers</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Gross amount</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Commission</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Currency</th>
-                    <th className="py-2.5 pr-4 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Status</th>
-                    <th className="py-2.5 pr-0 text-left text-[12.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {tourItems.length === 0 ? (
-                    <tr>
-                      <td className="py-4 text-slate-400 text-sm" colSpan={10}>
-                        No records in this range.
-                      </td>
-                    </tr>
-                  ) : (
-                    tourItems.map((b) => {
-                      const bookingCode = b.bookingCode || `#${b.id}`;
-                      const operator = b.operatorName || "—";
-                      const tour = b.tourTitle || "—";
-                      const destination = b.destination || "—";
-                      const travelers = b.numberOfPeople === null || b.numberOfPeople === undefined ? "—" : String(b.numberOfPeople);
-                      const gross = numOrNull(b.grossAmount) === null ? "—" : fmtAmount(b.grossAmount);
-                      const commission = numOrNull(b.commissionAmount) === null ? "—" : fmtAmount(b.commissionAmount);
-                      const currency = b.currency || "—";
-                      const status = b.status || "—";
-                      const created = b.createdAt ? fmtDateTime(b.createdAt) : "—";
-                      return (
-                        <tr key={`tb-${b.id}`}>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{bookingCode}</td>
-                          <td className="py-2 pr-4 text-slate-700 whitespace-nowrap">{operator}</td>
-                          <td className="py-2 pr-4 text-slate-700">{tour}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{destination}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{travelers}</td>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{gross}</td>
-                          <td className="py-2 pr-4 text-slate-900 font-semibold whitespace-nowrap">{commission}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{currency}</td>
-                          <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{status}</td>
-                          <td className="py-2 pr-0 text-slate-500 whitespace-nowrap">{created}</td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <NoLSAFRegister<TourBookingItem>
+            icon={ClipboardList}
+            title="Tour booking register"
+            subtitle="Operator, tour, travellers, value, commission and claim status."
+            rows={tourItems}
+            rowKey={(b) => `tb-${b.id}`}
+            noun={["tour booking", "tour bookings"]}
+            loading={loading}
+            emptyTitle="No tour bookings"
+            emptyText="No tour bookings were recorded in this period."
+            columns={[
+              {
+                key: "code",
+                label: "Booking",
+                width: "12rem",
+                render: (b) => <NoLSAFStack top={<span className="font-mono">{b.bookingCode || `#${b.id}`}</span>} bottom={b.createdAt ? fmtDateTime(b.createdAt) : undefined} />,
+              },
+              { key: "operator", label: "Operator", width: "12rem", render: (b) => (b.operatorName ? <NoLSAFStack top={b.operatorName} strong={false} /> : <NoLSAFMuted />) },
+              {
+                key: "tour",
+                label: "Tour",
+                width: "15rem",
+                render: (b) => (b.tourTitle || b.destination ? <NoLSAFStack top={b.tourTitle || "Untitled tour"} bottom={b.destination || undefined} strong={false} /> : <NoLSAFMuted />),
+              },
+              {
+                key: "travelers",
+                label: "Travellers",
+                width: "7rem",
+                align: "right",
+                render: (b) => (typeof b.numberOfPeople === "number" ? <span className="font-bold text-neutral-800">{b.numberOfPeople}</span> : <NoLSAFMuted />),
+              },
+              {
+                key: "gross",
+                label: "Gross",
+                width: "10rem",
+                align: "right",
+                render: (b) => (numOrNull(b.grossAmount) === null ? <NoLSAFMuted /> : <span className="font-bold text-neutral-900">{`${b.currency || ""} ${fmtAmount(b.grossAmount)}`.trim()}</span>),
+              },
+              {
+                key: "commission",
+                label: "Commission",
+                width: "10rem",
+                align: "right",
+                render: (b) => (numOrNull(b.commissionAmount) === null ? <NoLSAFMuted /> : <span className="font-bold text-emerald-700">{`${b.currency || ""} ${fmtAmount(b.commissionAmount)}`.trim()}</span>),
+              },
+              { key: "status", label: "Status", width: "8rem", render: (b) => <NoLSAFStatusBadge status={b.status} /> },
+            ]}
+          />
 
-          {loading ? <div className="text-[13px] text-slate-400 font-medium text-center py-2">Loading…</div> : null}
     </NoLSAFReportsFrame>
   );
 }

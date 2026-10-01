@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 import {
   AlertTriangle, ArrowLeft, Ban, Calendar, CheckCircle2, ChevronDown, ChevronRight, Clock,
   CreditCard, FileText, Loader2, Lock, Mail, MapPin, MessageSquare, Phone, RefreshCw,
@@ -106,8 +108,15 @@ const nights = (from: string, to: string) => Math.max(1, Math.round((new Date(to
 
 export default function AdminCancellationDetailPage() {
   const params = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(params?.id) ? params?.id?.[0] : params?.id;
-  const id = Number(idParam);
+  return (
+    <AdminRecordGate kind="cancellation" param={params?.id} backHref="/admin/cancellations">
+      {(id) => <AdminCancellationDetail id={id} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminCancellationDetail({ id }: { id: number }) {
+  const recordHref = useAdminHref();
 
   const [item, setItem] = useState<Item | null>(null);
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo>(null);
@@ -346,7 +355,7 @@ export default function AdminCancellationDetailPage() {
               </div>
               <div className="min-w-0 bg-white px-4 py-3">
                 <p className="m-0 text-[11px] text-slate-400">Property</p>
-                <Link href={`/admin/nrms/${item.booking.property.id}`} className="m-0 mt-0.5 block truncate text-sm font-semibold text-slate-900 no-underline hover:text-[#02665e]">{item.booking.property.title}</Link>
+                <Link href={recordHref("property", item.booking.property.id)} className="m-0 mt-0.5 block truncate text-sm font-semibold text-slate-900 no-underline hover:text-[#02665e]">{item.booking.property.title}</Link>
                 <p className="m-0 mt-1 flex items-center gap-1 truncate text-xs text-slate-500"><MapPin className="h-3.5 w-3.5 flex-shrink-0" />{place || "Location not recorded"}{item.booking.property.type ? ` · ${item.booking.property.type}` : ""}</p>
               </div>
             </div>

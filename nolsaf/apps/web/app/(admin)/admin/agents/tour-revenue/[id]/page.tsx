@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import {
   AlertCircle,
   ArrowLeft,
@@ -22,6 +23,7 @@ import {
 import apiClient from "@/lib/apiClient";
 import QRCode from "@/components/QRCode";
 import TourAdvancePanel, { type TourAdvanceRow } from "@/components/admin/TourAdvancePanel";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -132,7 +134,15 @@ function isActionAllowed(status: RevenueStatus, action: RevenueAction): boolean 
 
 export default function AdminTourRevenueDetailPage() {
   const params = useParams<{ id: string }>();
-  const id = Number(params?.id || 0);
+  return (
+    <AdminRecordGate kind="tour" param={params?.id} backHref="/admin/agents/tour-revenue">
+      {(id) => <AdminTourRevenueDetail id={id} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminTourRevenueDetail({ id }: { id: number }) {
+  const recordHref = useAdminHref();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -332,7 +342,7 @@ export default function AdminTourRevenueDetailPage() {
 
   const paidAt = revenue.disbursedAt || revenue.payoutPaidAt || revenue.updatedAt;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const receiptUrl = `${origin}/admin/agents/tour-revenue/${revenue.id}`;
+  const receiptUrl = `${origin}${recordHref("tour", revenue.id)}`;
   const disbursementReceiptPayload = [
     "NoLSAF Disbursement Receipt",
     `Tour Code: ${revenue.bookingCode}`,

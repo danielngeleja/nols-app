@@ -66,6 +66,14 @@ export type WorkbookData = {
   expenses: { rows: Array<{ id: number; category: string; description: string; amount: Money; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null }> };
   profitLoss: Array<{ currency: string; totalRevenue: Money; totalExpenses: Money; netProfit: Money; expensesByCategory: Array<{ category: string; amount: Money }> }>;
   staffPerformance: Array<{ staffId: number; name: string; role: string; currency: string; orders: number; sales: Money; tips: Money }>;
+  /** Optional for the same reason as `commercial`: older cached responses lack them. */
+  receivablesAging?: Array<{ currency: string; rows: Array<{ kind: string; name: string; reference: string; dueSince: string | null; bucket: string; amount: Money }> }>;
+  foodAndBeverage?: null | {
+    byCurrency: Array<{ currency: string; revenue: Money; cogs: Money; grossProfit: Money; marginPercent: number | null; losses: Money; lossesByAccount: Array<{ name: string; amount: Money }>; afterLosses: Money }>;
+    stockValue: Money;
+    payables: { total: Money; rows: Array<{ supplier: string; invoiceNumber: string; invoiceDate: string; dueDate: string | null; bucket: string; amount: Money }> };
+  };
+  fiscal?: null | { mode: string; status: string; tin: string | null; vrn: string | null; inRange: { total: number; byStatus: Record<string, number>; confirmedGross: Money; confirmedTax: Money } | null; backlog: Record<string, number> };
   /**
    * The commercial half: how the property SOLD, where every block above
    * describes how it RAN. Optional because a workbook may be built from a
@@ -117,7 +125,10 @@ export type WorkbookFinance = {
   ledger: { balanced: boolean; accounts: Array<{ accountCode: string; accountName: string; accountType: string; currency: string; debit: Money; credit: Money; balance: Money }> };
   tax: { total: Money; note: string; rows: Array<{ transactionNumber: string; occurredAt: string; description: string; currency: string; tax: Money }> };
   nbs: { month: string; reportingDays: number; bedsAvailable: number; bedNightsAvailable: number; bedNightsOccupied: number; domesticBedNights: number; internationalBedNights: number; roomNightsOccupied: number; bedOccupancyRate: number; missingNationalityBedNights: number };
+  nightAudits?: Array<{ reportNumber: string; status: string; startedAt: string; completedAt: string | null; businessDay?: { businessDate: string } }>;
 };
+
+const AGE_LABELS: Record<string, string> = { current: "Not yet due", d1_30: "1 to 30 days", d31_60: "31 to 60 days", d61_90: "61 to 90 days", d90plus: "Over 90 days" };
 
 export type WorkbookIdentity = {
   reportNumber: string;
@@ -1221,6 +1232,129 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
       { header: `Occurred at (${EAT_LABEL})`, group: "timing", value: (row) => asDate(row.occurredAt), format: DATETIME_FORMAT, width: 18 },
       { header: "Description", group: "identity", value: (row) => row.description, width: 40 },
       { header: `Tax (${currency})`, group: "deduction", value: (row) => row.tax, format: CURRENCY_FORMAT, total: true },
+    ],
+  });
+
+  /* ---- 11a. TRA fiscal receipts -------------------------------------- */
+  const fiscal = data.fiscal ?? null;
+  const fiscalOn = Boolean(fiscal && fiscal.mode !== "OFF");
+  addTableSheet(workbook, input, {
+    name: "Fiscal Receipts",
+    title: "TRA fiscal receipts",
+    subtitle: fiscalOn ? `Mode ${label(fiscal!.mode)} · ${label(fiscal!.status)}${fiscal!.tin ? ` · TIN ${fiscal!.tin}` : ""}${fiscal!.vrn ? ` · VRN ${fiscal!.vrn}` : ""}` : "TRA fiscal receipting is switched off for this property",
+    rows: fiscalOn
+      ? [
+        ...["CONFIRMED", "PENDING", "SENDING", "FAILED", "DEAD_LETTER", "BURNED"].map((status) => ({ item: `Receipts in period: ${label(status)}`, count: fiscal!.inRange?.byStatus[status] ?? 0, amount: null as number | null })),
+        { item: "Confirmed gross amount", count: null as number | null, amount: fiscal!.inRange?.confirmedGross ?? 0 },
+        { item: "Confirmed tax amount", count: null as number | null, amount: fiscal!.inRange?.confirmedTax ?? 0 },
+        { item: "Not yet at TRA (all dates)", count: Object.values(fiscal!.backlog).reduce((sum, value) => sum + value, 0), amount: null as number | null },
+      ]
+      : [],
+    emptyNote: "Not required below the VAT threshold.",
+    columns: [
+      { header: "Measure", group: "identity", value: (row) => row.item, width: 36 },
+      { header: "Count", group: "volume", value: (row) => row.count, format: INTEGER_FORMAT },
+      { header: `Amount (${currency})`, group: "revenue", value: (row) => row.amount, format: CURRENCY_FORMAT },
+    ],
+  });
+
+  /* ---- 11b. Night Audit --------------------------------------------- */
+  addTableSheet(workbook, input, {
+    name: "Night Audit",
+    title: "Night Audit runs",
+    subtitle: `Business-date closes in this period · ledger ${finance.ledger.balanced ? "balanced" : "NOT balanced"}`,
+    rows: finance.nightAudits ?? [],
+    emptyNote: "No Night Audit run was recorded in this period.",
+    columns: [
+      { header: "Business date", group: "identity", value: (row) => asDate(row.businessDay?.businessDate ?? null), format: DATE_FORMAT, width: 16 },
+      { header: "Report number", group: "identity", value: (row) => row.reportNumber, width: 28 },
+      { header: "Status", group: "control", value: (row) => label(row.status) },
+      { header: `Started (${EAT_LABEL})`, group: "timing", value: (row) => asDate(row.startedAt), format: DATETIME_FORMAT, width: 18 },
+      { header: `Completed (${EAT_LABEL})`, group: "timing", value: (row) => asDate(row.completedAt), format: DATETIME_FORMAT, width: 18 },
+    ],
+  });
+
+  /* ---- 11c. NBS statistics ------------------------------------------ */
+  const nbs = finance.nbs;
+  addTableSheet(workbook, input, {
+    name: "NBS Statistics",
+    title: "NBS monthly accommodation statistics",
+    subtitle: `Reporting month ${nbs.month} · aggregate figures, no guest-identifying details`,
+    rows: [
+      { item: "Physical beds", value: nbs.bedsAvailable },
+      { item: "Reporting days", value: nbs.reportingDays },
+      { item: "Bed-nights available", value: nbs.bedNightsAvailable },
+      { item: "Bed-nights occupied", value: nbs.bedNightsOccupied },
+      { item: "Domestic bed-nights", value: nbs.domesticBedNights },
+      { item: "International bed-nights", value: nbs.internationalBedNights },
+      { item: "Room-nights occupied", value: nbs.roomNightsOccupied },
+      { item: "Bed occupancy rate %", value: Number(nbs.bedOccupancyRate.toFixed(1)) },
+      { item: "Bed-nights missing nationality", value: nbs.missingNationalityBedNights },
+    ],
+    emptyNote: "No NBS figures for this month.",
+    columns: [
+      { header: "Indicator", group: "identity", value: (row) => row.item, width: 34 },
+      { header: "Value", group: "volume", value: (row) => row.value, format: "#,##0.0##" },
+    ],
+  });
+
+  /* ---- 11d. F&B cost and stock -------------------------------------- */
+  const fnb = data.foodAndBeverage ?? null;
+  const fnbRow = fnb?.byCurrency.find((row) => row.currency === currency) ?? null;
+  addTableSheet(workbook, input, {
+    name: "FB Cost and Stock",
+    title: "Food and beverage cost and stock",
+    subtitle: "Cost of goods sold and losses post at Night Audit; stock on hand is valued at average cost",
+    rows: fnb
+      ? [
+        { item: "F&B revenue", amount: fnbRow?.revenue ?? 0 },
+        { item: "Cost of goods sold", amount: fnbRow?.cogs ?? 0 },
+        { item: "Gross profit", amount: fnbRow?.grossProfit ?? 0 },
+        { item: "Gross margin %", amount: fnbRow?.marginPercent ?? null },
+        ...(fnbRow?.lossesByAccount ?? []).map((loss) => ({ item: `Loss: ${loss.name}`, amount: loss.amount as number | null })),
+        { item: "Result after losses", amount: fnbRow?.afterLosses ?? 0 },
+        { item: "Stock on hand (average cost)", amount: fnb.stockValue },
+        { item: "Owed to suppliers", amount: fnb.payables.total },
+      ]
+      : [],
+    emptyNote: "The stock section was unavailable when this workbook was generated.",
+    columns: [
+      { header: "Measure", group: "identity", value: (row) => row.item, width: 36 },
+      { header: `Amount (${currency})`, group: "revenue", value: (row) => row.amount, format: CURRENCY_FORMAT },
+    ],
+  });
+
+  /* ---- 11e. Receivables aging --------------------------------------- */
+  addTableSheet(workbook, input, {
+    name: "Receivables Aging",
+    title: "Receivables aging",
+    subtitle: "Unpaid guest and agency balances, aged from checkout",
+    rows: data.receivablesAging?.find((row) => row.currency === currency)?.rows ?? [],
+    emptyNote: "No open guest or agency balances.",
+    columns: [
+      { header: "Owed by", group: "identity", value: (row) => row.name, width: 30 },
+      { header: "Type", group: "identity", value: (row) => (row.kind === "GUEST" ? "Guest" : "Agency") },
+      { header: "Reference", group: "identity", value: (row) => row.reference, width: 20 },
+      { header: "Due since", group: "timing", value: (row) => asDate(row.dueSince), format: DATE_FORMAT, width: 14 },
+      { header: "Age", group: "timing", value: (row) => AGE_LABELS[row.bucket] ?? row.bucket, width: 16 },
+      { header: `Amount (${currency})`, group: "revenue", value: (row) => row.amount, format: CURRENCY_FORMAT, total: true },
+    ],
+  });
+
+  /* ---- 11f. Supplier payables --------------------------------------- */
+  addTableSheet(workbook, input, {
+    name: "Supplier Payables",
+    title: "Supplier payables",
+    subtitle: "Unpaid supplier invoices, oldest settled first, aged from due date",
+    rows: fnb?.payables.rows ?? [],
+    emptyNote: "Nothing is owed to suppliers.",
+    columns: [
+      { header: "Supplier", group: "identity", value: (row) => row.supplier, width: 28 },
+      { header: "Invoice", group: "identity", value: (row) => row.invoiceNumber, width: 18 },
+      { header: "Invoice date", group: "timing", value: (row) => asDate(row.invoiceDate), format: DATE_FORMAT, width: 14 },
+      { header: "Due date", group: "timing", value: (row) => asDate(row.dueDate), format: DATE_FORMAT, width: 14 },
+      { header: "Age", group: "timing", value: (row) => AGE_LABELS[row.bucket] ?? row.bucket, width: 16 },
+      { header: `Open amount (${currency})`, group: "deduction", value: (row) => row.amount, format: CURRENCY_FORMAT, total: true },
     ],
   });
 

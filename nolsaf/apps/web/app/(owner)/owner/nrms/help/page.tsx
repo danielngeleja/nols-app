@@ -1,295 +1,426 @@
 "use client";
 
+// The NRMS guide, driven by the property's live state rather than static copy:
+// a setup checklist that ticks itself off, module cards that link into the
+// workspace with today's numbers, one search box over every answer, the
+// reader's own role called out, and support links that carry the property so
+// nobody has to explain which hotel they mean.
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  ArrowRight,
-  BadgeCheck,
-  BarChart3,
-  BedDouble,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardList,
-  Clock3,
-  DoorOpen,
-  FileText,
-  Headset,
-  Mail,
-  MessageCircle,
-  Phone,
-  QrCode,
-  ReceiptText,
-  ShieldCheck,
-  Sparkles,
-  Store,
-  Users,
-  UsersRound,
-  WalletCards,
+  AlertTriangle, ArrowRight, BadgeCheck, BarChart3, BedDouble, CalendarDays, Check, CheckCircle2, ChevronDown,
+  ClipboardList, DoorOpen, FileText, Headset, Loader2, LogIn, LogOut, Mail, MessageCircle, Package, Phone,
+  QrCode, ReceiptText, RefreshCw, Search, ShieldCheck, Store, Users, UsersRound, WalletCards, X,
 } from "lucide-react";
+import apiClient from "@/lib/apiClient";
 import { useNrms } from "../_components/NrmsProvider";
 
-const MODULES = [
-  { icon: DoorOpen, title: "Front desk operations", description: "Record arrivals, assign rooms, check guests in and complete checkout." },
-  { icon: CalendarDays, title: "Unified room calendar", description: "See NoLSAF bookings, external stays and room blocks together." },
-  { icon: Users, title: "Guests and stay records", description: "Keep guest details, reservation history, payments and balances organized." },
-  { icon: BedDouble, title: "Rooms and housekeeping", description: "Manage room types, units and housekeeping status across every floor." },
-  { icon: Store, title: "Restaurant and bar", description: "Run outlet orders and menus, with QR order points for guests." },
-  { icon: UsersRound, title: "Staff and roles", description: "Invite front desk, housekeeping and outlet staff scoped to their role." },
-  { icon: WalletCards, title: "Finance and night audit", description: "Close out each business day with night audit and cashier reconciliation." },
-  { icon: ReceiptText, title: "Transparent PAYG billing", description: "Track every chargeable external room-night in a clear ledger." },
+type GuideState = {
+  property: { id: number; title: string; currency: string | null; nightAuditCloseTime: string; menuPublic: boolean };
+  role: string;
+  setup: {
+    roomTypes: number; roomUnits: number; activeStaff: number | null; pendingInvites: number | null; outlets: number;
+    menuItems: number; orderPoints: number; reservations: number; closedBusinessDays: number; fiscalMode: string | null;
+  };
+  today: { arrivals: number; departures: number; inHouse: number };
+  generatedAt: string;
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  OWNER: "Owner", MANAGER: "Manager", SALES_EXECUTIVE: "Sales executive", FRONT_DESK: "Front desk",
+  RESTAURANT: "Restaurant", BAR: "Bar", OUTLET_SUPERVISOR: "Outlet supervisor", STOREKEEPER: "Storekeeper",
+};
+
+const ROLES: Array<{ key: string; scope: string }> = [
+  { key: "OWNER", scope: "Full access to every part of the workspace, including billing and staff." },
+  { key: "MANAGER", scope: "Same operational reach as the owner: outlets, staff, housekeeping, finance and front desk." },
+  { key: "SALES_EXECUTIVE", scope: "Inquiries, group business and agencies, with their own sales performance." },
+  { key: "FRONT_DESK", scope: "Reservations, check-in, check-out, cashier shifts and the Night Audit. Can view outlet orders but not place them." },
+  { key: "RESTAURANT", scope: "Orders for restaurant outlets." },
+  { key: "BAR", scope: "Orders for bar outlets." },
+  { key: "OUTLET_SUPERVISOR", scope: "Orders and menu management for one assigned outlet." },
+  { key: "STOREKEEPER", scope: "Stock, receiving, transfers, counts and purchasing." },
 ];
 
-const RESERVATION_STEPS = [
-  { step: "01", title: "Create the reservation", description: "Pick a source (walk-in, phone, direct or OTA), attach a guest, and choose room types and dates. It starts as Held or Confirmed." },
-  { step: "02", title: "Confirm and assign rooms", description: "Held reservations move to Confirmed once availability is re-checked. Every room needs a specific unit assigned before check-in." },
-  { step: "03", title: "Check the guest in", description: "Moves the stay to Checked in. Blocked if the assigned room isn't marked clean or inspected, though front desk can override when needed." },
-  { step: "04", title: "Move rooms anytime", description: "Reassign a stay to a different unit without losing its reservation history." },
-  { step: "05", title: "Settle and check out", description: "Only from Checked in. Any unpaid balance, unclassified outlet payments or unverified charges must be cleared first." },
-  { step: "06", title: "Cancel or mark no-show", description: "Releases the rooms and never bills, available from Draft, Held or Confirmed." },
+type GuideStep = { title: string; text: string };
+type GuideSection = { id: string; title: string; subtitle: string; icon: typeof ClipboardList; tone: string; href?: { label: string; to: string }[]; steps: GuideStep[] };
+
+const SECTIONS: GuideSection[] = [
+  {
+    id: "reservations", title: "Running a reservation", subtitle: "From creating a stay to settling and checking out.", icon: ClipboardList, tone: "bg-blue-600",
+    href: [{ label: "Reservations", to: "/owner/nrms/reservations" }, { label: "Room calendar", to: "/owner/nrms/calendar" }],
+    steps: [
+      { title: "Create the reservation", text: "Pick a source (walk-in, phone, direct or OTA), attach a guest, and choose room types and dates. It starts as Held or Confirmed." },
+      { title: "Confirm and assign rooms", text: "Held reservations move to Confirmed once availability is re-checked. Every room needs a specific unit before check-in." },
+      { title: "Check the guest in", text: "Blocked if the assigned room isn't clean or inspected, though front desk can override when needed." },
+      { title: "Move rooms anytime", text: "Reassign a stay to a different unit without losing its history." },
+      { title: "Settle and check out", text: "Any unpaid balance, unclassified outlet payment or unverified charge must be cleared first." },
+      { title: "Cancel or mark no-show", text: "Releases the rooms and never bills. Available from Draft, Held or Confirmed." },
+    ],
+  },
+  {
+    id: "outlets", title: "Restaurant, bar and QR ordering", subtitle: "Set up outlets and menus, then let guests order by scanning a code.", icon: QrCode, tone: "bg-violet-600",
+    href: [{ label: "Outlets and menus", to: "/owner/nrms/outlets" }, { label: "QR order points", to: "/owner/nrms/qr-codes" }, { label: "Live orders", to: "/owner/nrms/orders" }],
+    steps: [
+      { title: "Create an outlet", text: "Add a restaurant or bar as owner or manager, with its own currency if it differs from the property's." },
+      { title: "Add your menu", text: "Set item names, prices, categories and stock status. Outlet supervisors can maintain it too." },
+      { title: "Generate QR order points", text: "One per room in bulk, or standalone points for shared areas, each with a rotatable code and a printable sheet." },
+      { title: "Guests scan and order", text: "They see the live menu and pay at the counter, or charge the room if checked in and the name matches." },
+      { title: "Turn on auto-accept if you want", text: "Orders confirm automatically instead of waiting for staff to accept each one." },
+    ],
+  },
+  {
+    id: "finance", title: "Closing the day", subtitle: "Cashier shifts, Night Audit and the ledger.", icon: WalletCards, tone: "bg-emerald-700",
+    href: [{ label: "Night Audit", to: "/owner/nrms/finance?view=audit" }, { label: "Cashier variance", to: "/owner/nrms/finance?view=cashiers" }, { label: "Reports", to: "/owner/nrms/reports" }],
+    steps: [
+      { title: "Each cashier opens a shift", text: "The business date is set by the server clock and the Night Audit cutoff, never typed in." },
+      { title: "Close the shift with a physical count", text: "Expected cash is frozen at close. Any overage or shortage needs a written explanation." },
+      { title: "Managers sign off shifts", text: "Sign-off confirms the sales are authentic. It is recorded and cannot be undone." },
+      { title: "Run Night Audit after the cutoff", text: "Every blocker must clear. Closing posts a balanced ledger, locks the date and opens the next one." },
+      { title: "Export the reports", text: "Reports builds sealed PDF packs and an Excel workbook for the owner, accountant or auditor." },
+    ],
+  },
+  {
+    id: "billing", title: "How PAYG billing works", subtitle: "Pay only for external room-nights, tracked in a clear ledger.", icon: ReceiptText, tone: "bg-teal-700",
+    href: [{ label: "NRMS billing", to: "/owner/nrms/billing" }],
+    steps: [], // filled from the live usage policy
+  },
 ];
 
-const OUTLET_STEPS = [
-  { step: "01", title: "Create an outlet", description: "Add a restaurant or bar outlet as owner or manager, with its own currency if it differs from the property's." },
-  { step: "02", title: "Add your menu", description: "Set item names, prices, categories and stock status. Outlet supervisors can maintain this too." },
-  { step: "03", title: "Generate QR order points", description: "Create one per room in bulk, or standalone points for shared areas, each with a rotatable code and a printable QR sheet." },
-  { step: "04", title: "Guests scan and order", description: "They see the outlet's live menu and can pay at the counter, or charge it to their room if they're checked in and the name matches." },
-  { step: "05", title: "Turn on auto-accept if you want", description: "Orders confirm automatically instead of waiting for staff to accept each one." },
-];
-
-const ROLES = [
-  { role: "Owner", scope: "Full access to every part of the workspace." },
-  { role: "Manager", scope: "Same operational reach as the owner: outlets, staff, housekeeping, finance and front desk." },
-  { role: "Front desk", scope: "Reservations, check-in, check-out and the night audit. Can view outlet orders but not place or advance them." },
-  { role: "Housekeeper", scope: "Room status and housekeeping tasks only." },
-  { role: "Restaurant", scope: "Orders for restaurant-type outlets." },
-  { role: "Bar", scope: "Orders for bar-type outlets." },
-  { role: "Outlet supervisor", scope: "Orders and menu management, scoped to one assigned outlet." },
-];
-
-// Trial length and pricing are policy, not product copy. This reads the
-// account's live NrmsUsageChargePolicy via useNrms() rather than stating a
-// number here, since the policy can change without a code deploy.
-function buildBillingSteps(trialDays: number | undefined, currency: string | undefined, roomNightPrice: string | number | undefined) {
+function buildBillingSteps(trialDays: number | undefined, currency: string | undefined, roomNightPrice: string | number | undefined): GuideStep[] {
   const hasTrial = typeof trialDays === "number" && trialDays > 0;
-  const priceLine = currency && roomNightPrice != null
-    ? `Charged at ${currency} ${Number(roomNightPrice).toLocaleString()} per external room-night${hasTrial ? " after the trial" : ""}.`
-    : `Charged per external room-night${hasTrial ? " after the trial" : ""}, at the rate shown when you activate.`;
+  const price = currency && roomNightPrice != null ? `${currency} ${Number(roomNightPrice).toLocaleString()} per external room-night${hasTrial ? " after the trial" : ""}` : "the rate shown when you activate";
   return [
-    hasTrial
-      ? { step: "01", title: "Property trial starts on activation", description: `Your ${trialDays}-day trial begins the moment you activate NRMS on this property.` }
-      : { step: "01", title: "Usage policy starts on activation", description: "PAYG terms begin when you activate NRMS on this property." },
-    { step: "02", title: "Usage is tracked nightly", description: "Only external room-nights are metered. NoLSAF bookings carry no NRMS fee." },
-    { step: "03", title: "A statement opens when due", description: `${hasTrial ? "Once trial usage ends and charges reach the statement threshold" : "When charges reach the statement threshold"}, a payable statement is issued. ${priceLine}` },
-    { step: "04", title: "Pay by mobile money, bank or card", description: "Settle the statement from NRMS billing, and operations resume." },
+    { title: hasTrial ? "Trial starts on activation" : "Usage policy starts on activation", text: hasTrial ? `Your ${trialDays}-day trial begins the moment you activate NRMS on this property.` : "PAYG terms begin when you activate NRMS on this property." },
+    { title: "Usage is tracked nightly", text: "Only external room-nights are metered. NoLSAF bookings carry no NRMS fee." },
+    { title: "A statement opens when due", text: `When charges reach the statement threshold, a payable statement is issued, charged at ${price}.` },
+    { title: "Pay by mobile money, bank or card", text: "Settle the statement from NRMS billing, and operations continue." },
   ];
 }
 
 function buildFaqs(trialDays: number | undefined) {
   const hasTrial = typeof trialDays === "number" && trialDays > 0;
   return [
-    { q: "Does NRMS charge anything for NoLSAF bookings?", a: "No. NRMS usage fees apply only to external room-nights you record, meaning stays not booked through NoLSAF. Your marketplace commission is unaffected." },
-    { q: hasTrial ? `What happens after the ${trialDays}-day trial?` : "How does NRMS PAYG billing work?", a: "Usage is tracked and billed under your active PAYG policy. Pay statements as they're issued, right from NRMS billing." },
-    { q: "Can I lose NRMS access?", a: "Yes, if your property's Marketplace approval is withdrawn, or your account is frozen for unpaid usage past the limit. Both are reversible once resolved." },
-    { q: "Where do I see what I owe?", a: "Open NRMS billing from the Finance section in the sidebar. Every statement, token and payment is listed there." },
+    { q: "Does NRMS charge anything for NoLSAF bookings?", a: "No. NRMS usage fees apply only to external room-nights you record. Your marketplace commission is unaffected." },
+    { q: hasTrial ? `What happens after the ${trialDays}-day trial?` : "How does NRMS PAYG billing work?", a: "Usage is tracked and billed under your active PAYG policy. Pay statements as they're issued, from NRMS billing." },
+    { q: "Can I lose NRMS access?", a: "Yes, if the property's Marketplace approval is withdrawn, or the account is frozen for unpaid usage past the limit. Both are reversible once resolved." },
+    { q: "Where do I see what I owe?", a: "Open NRMS billing from the Finance section. Every statement, token and payment is listed there." },
+    { q: "Why can't I check a guest in?", a: "Usually the assigned room isn't marked clean or inspected yet. Update it in Housekeeping, or front desk can override." },
+    { q: "Why won't Night Audit close?", a: "Open the review. Each blocker names what's wrong, such as an open cashier shift or an unclassified outlet payment, and links to the fix." },
+    { q: "Do I need TRA fiscal receipts?", a: "Only if the business is VAT-registered. It's switched on from the Tax register in Finance and is off by default." },
+    { q: "How do I invite staff?", a: "From Staff and roles, by email. The person needs a NoLSAF account under that email and must accept the invite before the role applies." },
   ];
 }
 
+const SUPPORT_PHONE = process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+255736766726";
+const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@nolsaf.com";
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const index = text.toLowerCase().indexOf(query.toLowerCase());
+  if (index < 0) return <>{text}</>;
+  return <>{text.slice(0, index)}<mark className="rounded bg-amber-100 px-0.5 text-inherit">{text.slice(index, index + query.length)}</mark>{text.slice(index + query.length)}</>;
+}
+
+function SectionHead({ icon: Icon, tone, title, subtitle, right }: { icon: typeof ClipboardList; tone: string; title: string; subtitle: string; right?: ReactNode }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-3">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${tone}`}><Icon className="h-4 w-4" /></span>
+      <div className="min-w-0 flex-1">
+        <h2 className="m-0 text-base font-bold text-neutral-950 sm:text-lg">{title}</h2>
+        <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">{subtitle}</p>
+      </div>
+      {right}
+    </div>
+  );
+}
+
 export default function NrmsHelpPage() {
-  const { usagePolicy } = useNrms();
+  const { usagePolicy, selectedPropertyId, selectedProperty } = useNrms();
+  const [state, setState] = useState<GuideState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState<Record<string, boolean>>({ reservations: true });
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    if (!selectedPropertyId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiClient.get<GuideState>(`/api/owner/nrms/guide/property/${selectedPropertyId}`);
+      setState(response.data);
+    } catch (cause: any) {
+      setError(cause?.response?.data?.error || "Could not load the live status for this property.");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedPropertyId]);
+  useEffect(() => { void load(); }, [load]);
+
+  const role = state?.role ?? selectedProperty?.nrmsAccessRole ?? "OWNER";
+  const managerView = role === "OWNER" || role === "MANAGER";
   const billingSteps = buildBillingSteps(usagePolicy?.trialDays, usagePolicy?.currency, usagePolicy?.roomNightPrice);
   const faqs = buildFaqs(usagePolicy?.trialDays);
+  const sections = SECTIONS.map((section) => (section.id === "billing" ? { ...section, steps: billingSteps } : section)).filter((section) => section.id !== "billing" || role === "OWNER");
+  const s = state?.setup;
+
+  // Setup checklist. Each item is true or false from the live counts, and
+  // links straight to where it gets done. Staff roles only see it read-only.
+  const checklist = useMemo(() => {
+    if (!s || !state) return [];
+    return [
+      { key: "currency", title: "Property currency set", detail: state.property.currency ? `Trading in ${state.property.currency}` : "Needed before any cashier shift opens", done: Boolean(state.property.currency), href: "/owner/nrms/rooms", optional: false },
+      { key: "rooms", title: "Rooms configured", detail: s.roomUnits ? `${s.roomTypes} room ${s.roomTypes === 1 ? "type" : "types"} · ${s.roomUnits} ${s.roomUnits === 1 ? "unit" : "units"}` : "Add room types and their units", done: s.roomTypes > 0 && s.roomUnits > 0, href: "/owner/nrms/rooms", optional: false },
+      { key: "staff", title: "Staff invited", detail: s.activeStaff == null ? "Managed by the owner" : s.activeStaff ? `${s.activeStaff} active${s.pendingInvites ? ` · ${s.pendingInvites} awaiting acceptance` : ""}` : s.pendingInvites ? `${s.pendingInvites} invite${s.pendingInvites === 1 ? "" : "s"} awaiting acceptance` : "Invite front desk and outlet staff", done: (s.activeStaff ?? 0) > 0, href: "/owner/nrms/staff", optional: false },
+      { key: "outlet", title: "Restaurant or bar set up", detail: s.outlets ? `${s.outlets} ${s.outlets === 1 ? "outlet" : "outlets"} · ${s.menuItems} menu ${s.menuItems === 1 ? "item" : "items"}` : "Skip if the property has no restaurant or bar", done: s.outlets > 0 && s.menuItems > 0, href: "/owner/nrms/outlets", optional: true },
+      { key: "qr", title: "QR order points printed", detail: s.orderPoints ? `${s.orderPoints} active ${s.orderPoints === 1 ? "point" : "points"}` : "Let guests order from their room", done: s.orderPoints > 0, href: "/owner/nrms/qr-codes", optional: true },
+      { key: "reservation", title: "First reservation recorded", detail: s.reservations ? `${s.reservations} reservations so far` : "Record a walk-in, phone or OTA stay", done: s.reservations > 0, href: "/owner/nrms/reservations", optional: false },
+      { key: "audit", title: "First business day closed", detail: s.closedBusinessDays ? `${s.closedBusinessDays} days closed by Night Audit` : `Run Night Audit after the ${state.property.nightAuditCloseTime} EAT cutoff`, done: s.closedBusinessDays > 0, href: "/owner/nrms/finance?view=audit", optional: false },
+      { key: "fiscal", title: "TRA fiscal receipts", detail: s.fiscalMode == null ? "Managed by the owner" : s.fiscalMode !== "OFF" ? "Switched on" : "Only for VAT-registered businesses", done: s.fiscalMode != null && s.fiscalMode !== "OFF", href: "/owner/nrms/finance?view=tax", optional: true },
+    ];
+  }, [s, state]);
+  const required = checklist.filter((item) => !item.optional);
+  const requiredDone = required.filter((item) => item.done).length;
+  const nextStep = required.find((item) => !item.done) ?? null;
+
+  const modules = [
+    { icon: DoorOpen, title: "Front desk", text: "Arrivals, room assignment, check-in and checkout.", href: "/owner/nrms/reservations", stat: state ? `${state.today.arrivals} arriving · ${state.today.departures} leaving today` : null },
+    { icon: CalendarDays, title: "Room calendar", text: "NoLSAF bookings, external stays and blocks together.", href: "/owner/nrms/calendar", stat: state ? `${state.today.inHouse} in house now` : null },
+    { icon: Users, title: "Guests", text: "Guest details, stay history, payments and balances.", href: "/owner/nrms/guests", stat: s ? `${s.reservations} reservations recorded` : null },
+    { icon: BedDouble, title: "Rooms and housekeeping", text: "Room types, units and cleaning status.", href: "/owner/nrms/housekeeping", stat: s ? `${s.roomUnits} active ${s.roomUnits === 1 ? "unit" : "units"}` : null },
+    { icon: Store, title: "Restaurant and bar", text: "Outlet orders, menus and QR ordering.", href: "/owner/nrms/orders", stat: s ? `${s.outlets} ${s.outlets === 1 ? "outlet" : "outlets"} · ${s.orderPoints} QR points` : null },
+    { icon: Package, title: "Stock and purchasing", text: "Stock levels, receiving, counts and suppliers.", href: "/owner/nrms/stock", stat: null },
+    { icon: UsersRound, title: "Staff and roles", text: "Invite staff scoped to their role.", href: "/owner/nrms/staff", stat: s?.activeStaff != null ? `${s.activeStaff} active staff` : null },
+    { icon: WalletCards, title: "Finance and Night Audit", text: "Shifts, daily close, ledger and tax.", href: "/owner/nrms/finance?view=audit", stat: s ? `${s.closedBusinessDays} days closed` : null },
+    { icon: BarChart3, title: "Reports", text: "Sealed PDF packs and the Excel workbook.", href: "/owner/nrms/reports", stat: null },
+  ];
+
+  // One search across every answer on the page. A few dozen short strings, so
+  // it runs on each render rather than being memoised.
+  const q = query.trim();
+  const results = (() => {
+    if (q.length < 2) return [];
+    const needle = q.toLowerCase();
+    const hits: Array<{ area: string; title: string; text: string; href?: string }> = [];
+    for (const section of sections) for (const step of section.steps) if (`${step.title} ${step.text}`.toLowerCase().includes(needle)) hits.push({ area: section.title, title: step.title, text: step.text, href: section.href?.[0]?.to });
+    for (const item of modules) if (`${item.title} ${item.text}`.toLowerCase().includes(needle)) hits.push({ area: "Workspace", title: item.title, text: item.text, href: item.href });
+    for (const item of ROLES) if (`${ROLE_LABEL[item.key]} ${item.scope}`.toLowerCase().includes(needle)) hits.push({ area: "Roles", title: ROLE_LABEL[item.key]!, text: item.scope, href: "/owner/nrms/staff" });
+    for (const item of faqs) if (`${item.q} ${item.a}`.toLowerCase().includes(needle)) hits.push({ area: "Questions", title: item.q, text: item.a });
+    return hits;
+  })();
+
+  const payg = selectedProperty?.nrmsPaygAccount ?? null;
+  const trialDaysLeft = payg?.trialEndsAt ? Math.ceil((new Date(payg.trialEndsAt).getTime() - Date.now()) / 86_400_000) : null;
+  const unpaid = Number(payg?.unpaidBalance ?? 0);
+  const unpaidLimit = Number(payg?.unpaidLimit ?? 0);
+  const supportText = encodeURIComponent(`Hello NoLSAF support, I need help with NRMS for ${state?.property.title ?? selectedProperty?.title ?? "my property"} (property ${selectedPropertyId ?? ""}, ${ROLE_LABEL[role] ?? role}).`);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="rounded-[24px] border border-emerald-100 bg-[#f7fbf9] p-6 sm:p-8">
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.28em] text-emerald-700">NRMS guide</p>
-        <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-neutral-950 sm:text-3xl">Everything about running NRMS</h1>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500">
-          What's included, how PAYG billing works, and how to reach us when you need a hand.
-        </p>
-      </div>
+    <div id="nrms-guide" className="mx-auto w-full max-w-6xl space-y-6 pb-10">
+      <style>{`#nrms-guide, #nrms-guide * { box-sizing: border-box; } #nrms-guide [class~="border"] { border-style: solid; }`}</style>
 
-      <section className="mt-8">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#02665e]"><Sparkles className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">Everything included</h2>
-            <p className="text-sm text-neutral-500">One workspace for every part of running the property.</p>
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {MODULES.map(({ icon: Icon, title, description }) => (
-            <div key={title} className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-emerald-200 hover:shadow-md">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></div>
-              <h3 className="mt-3 text-sm font-bold text-neutral-900">{title}</h3>
-              <p className="mt-1.5 text-xs leading-5 text-neutral-500">{description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600"><ClipboardList className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">Running a reservation</h2>
-            <p className="text-sm text-neutral-500">From creating a stay to settling and checking out.</p>
-          </div>
-        </div>
-        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <div className="divide-y divide-neutral-100">
-            {RESERVATION_STEPS.map(({ step, title, description }) => (
-              <div key={step} className="flex items-start gap-4 px-5 py-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-50"><span className="text-xs font-bold text-blue-700">{step}</span></div>
-                <div>
-                  <p className="text-sm font-semibold text-neutral-900">{title}</p>
-                  <p className="mt-0.5 text-xs leading-5 text-neutral-500">{description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <Link href="/owner/nrms/reservations" className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
-          Go to reservations <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </section>
-
-      <section className="mt-10">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-600"><QrCode className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">Restaurant, bar and QR ordering</h2>
-            <p className="text-sm text-neutral-500">Set up outlets and menus, then let guests order by scanning a code.</p>
-          </div>
-        </div>
-        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <div className="divide-y divide-neutral-100">
-            {OUTLET_STEPS.map(({ step, title, description }) => (
-              <div key={step} className="flex items-start gap-4 px-5 py-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-200 bg-violet-50"><span className="text-xs font-bold text-violet-700">{step}</span></div>
-                <div>
-                  <p className="text-sm font-semibold text-neutral-900">{title}</p>
-                  <p className="mt-0.5 text-xs leading-5 text-neutral-500">{description}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-4">
-          <Link href="/owner/nrms/outlets" className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
-            Go to outlets and menus <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-          <Link href="/owner/nrms/qr-codes" className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
-            Go to QR order points <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-600"><ShieldCheck className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">Roles and permissions</h2>
-            <p className="text-sm text-neutral-500">What each staff role can see and do once invited.</p>
-          </div>
-        </div>
-        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <div className="divide-y divide-neutral-100">
-            {ROLES.map(({ role, scope }) => (
-              <div key={role} className="flex items-start gap-4 px-5 py-3.5">
-                <span className="mt-0.5 inline-flex shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-700">{role}</span>
-                <p className="text-xs leading-5 text-neutral-600">{scope}</p>
-              </div>
-            ))}
-          </div>
-          <div className="border-t border-neutral-100 bg-neutral-50 px-5 py-3.5">
-            <p className="text-xs leading-5 text-neutral-500">
-              Invite by email. The person needs an existing NoLSAF account under that email, and gets a confirmation
-              link. The role only takes effect once they accept it. Restaurant, bar and outlet supervisor invites
-              also need an outlet chosen. Revoking access needs a reason and is recorded.
+      {/* Hero: who and where, plus the search that answers anything below. */}
+      <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">NRMS guide</p>
+            <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-3xl">Everything about running NRMS</h1>
+            <p className="mb-0 mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-200 sm:text-sm">
+              <span className="font-semibold text-white">{state?.property.title ?? selectedProperty?.title ?? "Your property"}</span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[11px] font-bold text-emerald-100"><ShieldCheck className="h-3 w-3" />You are {ROLE_LABEL[role] ?? role}</span>
             </p>
           </div>
+          <button type="button" onClick={() => void load()} disabled={loading} aria-label="Refresh live status" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/25 bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
         </div>
-        <Link href="/owner/nrms/staff" className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
-          Go to staff and roles <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </section>
+        <label className="relative mt-5 flex h-12 items-center rounded-xl bg-white px-3.5 text-neutral-900 shadow-sm focus-within:ring-4 focus-within:ring-emerald-300/40">
+          <Search className="h-4 w-4 shrink-0 text-neutral-400" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the guide: check-in, night audit, QR, billing, staff…" aria-label="Search the guide" className="h-full min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm outline-none" />
+          {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="grid h-7 w-7 place-items-center rounded-md border-0 bg-neutral-100 text-neutral-500 hover:text-neutral-900"><X className="h-3.5 w-3.5" /></button>}
+        </label>
+        {!q && (
+          <nav aria-label="Guide sections" className="mt-3 flex flex-wrap gap-1.5">
+            {[["setup", "Setup"], ["workspace", "Workspace"], ...sections.map((section) => [section.id, section.title] as [string, string]), ["roles", "Roles"], ["faq", "Questions"], ["support", "Support"]].map(([id, text]) => (
+              <a key={id} href={`#guide-${id}`} className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white no-underline transition hover:bg-white/20">{text}</a>
+            ))}
+          </nav>
+        )}
+      </header>
 
-      <div className="mt-8 flex gap-4 rounded-xl border border-amber-200 bg-amber-50 p-5">
-        <BadgeCheck className="h-5 w-5 shrink-0 text-amber-500" />
-        <div>
-          <p className="text-sm font-semibold text-amber-800">NRMS stays tied to your Marketplace listing</p>
-          <p className="mt-1 text-xs leading-5 text-amber-700">
-            It opens automatically while this property is approved, and pauses if approval is withdrawn or usage
-            goes unpaid past your limit. Both are reversible once resolved.
-          </p>
-        </div>
-      </div>
+      {error && <div role="alert" className="flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"><AlertTriangle className="h-4 w-4 shrink-0" /><span className="flex-1">{error} The guide below still works.</span><button type="button" onClick={() => void load()} className="rounded-lg border-0 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900">Try again</button></div>}
 
-      <section className="mt-10">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600"><ReceiptText className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">How PAYG billing works</h2>
-            <p className="text-sm text-neutral-500">Pay only for external room-nights, tracked in a clear ledger.</p>
-          </div>
-        </div>
-        <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-          <div className="divide-y divide-neutral-100">
-            {billingSteps.map(({ step, title, description }) => (
-              <div key={step} className="flex items-start gap-4 px-5 py-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50"><span className="text-xs font-bold text-emerald-700">{step}</span></div>
-                <div>
-                  <p className="text-sm font-semibold text-neutral-900">{title}</p>
-                  <p className="mt-0.5 text-xs leading-5 text-neutral-500">{description}</p>
-                </div>
-                <CheckCircle2 className="ml-auto h-4 w-4 shrink-0 text-neutral-300" />
-              </div>
+      {q ? (
+        /* Search results replace the page until the box is cleared. */
+        <section aria-live="polite">
+          <p className="m-0 mb-3 text-sm text-neutral-600">{results.length ? <><strong className="text-neutral-900">{results.length}</strong> {results.length === 1 ? "answer" : "answers"} for “{q}”</> : q.length < 2 ? "Keep typing…" : <>No answers for “{q}”. Try another word, or <a href="#guide-support" onClick={() => setQuery("")} className="font-semibold text-emerald-700">contact support</a>.</>}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {results.map((hit, index) => (
+              <article key={`${hit.area}-${hit.title}-${index}`} className="flex flex-col rounded-xl border border-neutral-200 bg-white p-4">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-emerald-700">{hit.area}</p>
+                <h3 className="m-0 mt-1 text-sm font-bold text-neutral-900"><Highlight text={hit.title} query={q} /></h3>
+                <p className="m-0 mt-1 flex-1 text-xs leading-5 text-neutral-600"><Highlight text={hit.text} query={q} /></p>
+                {hit.href && <Link href={hit.href} className="mt-2.5 inline-flex items-center gap-1 text-xs font-bold text-emerald-700 no-underline hover:gap-2">Open <ArrowRight className="h-3.5 w-3.5" /></Link>}
+              </article>
             ))}
           </div>
-        </div>
-        <Link href="/owner/nrms/billing" className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline hover:gap-2.5 hover:no-underline">
-          Go to NRMS billing <ArrowRight className="h-3.5 w-3.5" />
-        </Link>
-      </section>
-
-      <section className="mt-10">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-700"><FileText className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">Frequently asked</h2>
-            <p className="text-sm text-neutral-500">The questions owners ask most while running NRMS.</p>
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {faqs.map(({ q, a }) => (
-            <div key={q} className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-neutral-900">{q}</p>
-              <p className="mt-1.5 text-xs leading-5 text-neutral-500">{a}</p>
+        </section>
+      ) : <>
+        {/* Live setup checklist */}
+        <section id="guide-setup" className="scroll-mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+          <div className="flex flex-wrap items-center gap-4 p-4 sm:p-5">
+            <div className="min-w-0 flex-1">
+              <h2 className="m-0 text-base font-bold text-neutral-950 sm:text-lg">{loading && !state ? "Checking your setup…" : requiredDone === required.length ? "Your property is fully set up" : `${requiredDone} of ${required.length} setup steps done`}</h2>
+              <p className="m-0 mt-0.5 text-xs text-neutral-500 sm:text-sm">{nextStep ? <>Next: <strong className="text-neutral-800">{nextStep.title}</strong></> : "Optional extras are listed below if you need them."}</p>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="mb-8 mt-10 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#02b4f5] shadow-md shadow-[#02b4f5]/30"><Headset className="h-4 w-4 text-white" /></div>
-          <div>
-            <h2 className="text-lg font-bold text-neutral-950">Still need a hand?</h2>
-            <p className="text-sm text-neutral-500">Reach a real person for anything this guide didn't cover.</p>
+            {nextStep && managerView && <Link href={nextStep.href} className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#073c35] px-4 text-xs font-bold text-white no-underline transition hover:bg-emerald-800">Continue setup <ArrowRight className="h-4 w-4" /></Link>}
           </div>
+          <div className="mx-4 mb-4 flex h-2 gap-1 sm:mx-5" aria-hidden="true">
+            {required.map((item) => <span key={item.key} className={`h-full flex-1 rounded-full ${item.done ? "bg-emerald-500" : "bg-neutral-200"}`} />)}
+          </div>
+          {loading && !state ? (
+            <div className="flex items-center gap-2 px-5 pb-5 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" />Reading this property's setup</div>
+          ) : (
+            <ul className="m-0 grid list-none gap-px bg-neutral-100 p-0 sm:grid-cols-2">
+              {checklist.map((item) => (
+                <li key={item.key} className="flex items-center gap-3 bg-white px-4 py-3 sm:px-5">
+                  <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${item.done ? "bg-emerald-600 text-white" : item.optional ? "border border-dashed border-neutral-300 text-neutral-300" : "border border-neutral-300 text-neutral-300"}`}>{item.done ? <Check className="h-4 w-4" /> : null}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-neutral-900">{item.title}{item.optional && <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-neutral-500">Optional</span>}</p>
+                    <p className="m-0 mt-0.5 truncate text-xs text-neutral-500">{item.detail}</p>
+                  </div>
+                  {!item.done && managerView && <Link href={item.href} className="shrink-0 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50">Set up</Link>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Today strip */}
+        {state && (
+          <section className="grid gap-3 sm:grid-cols-3">
+            {[
+              { icon: LogIn, label: "Arriving today", value: state.today.arrivals, href: "/owner/nrms/reservations", tone: "bg-sky-50 text-sky-700" },
+              { icon: LogOut, label: "Leaving today", value: state.today.departures, href: "/owner/nrms/reservations", tone: "bg-amber-50 text-amber-700" },
+              { icon: BedDouble, label: "In house now", value: state.today.inHouse, href: "/owner/nrms/calendar", tone: "bg-emerald-50 text-emerald-700" },
+            ].map(({ icon: Icon, label: text, value, href, tone }) => (
+              <Link key={text} href={href} className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 no-underline transition hover:border-emerald-300">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}><Icon className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-slate-500">{text}</p><p className="m-0 mt-0.5 text-lg font-bold tabular-nums text-slate-950">{value}</p></div>
+                <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-600" />
+              </Link>
+            ))}
+          </section>
+        )}
+
+        {/* Workspace modules, each a live link */}
+        <section id="guide-workspace" className="scroll-mt-4">
+          <SectionHead icon={CheckCircle2} tone="bg-[#02665e]" title="Your workspace" subtitle="Every part of running the property. Click any card to open it." />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {modules.map(({ icon: Icon, title, text, href, stat }) => (
+              <Link key={title} href={href} className="group flex flex-col rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="m-0 text-sm font-bold text-neutral-900">{title}</h3>
+                    <p className="m-0 mt-0.5 text-xs leading-5 text-neutral-500">{text}</p>
+                  </div>
+                  <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-600" />
+                </div>
+                {stat && <p className="m-0 mt-3 rounded-lg bg-neutral-50 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums text-neutral-700">{stat}</p>}
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* How-to guides as collapsible sections */}
+        {sections.map((section) => {
+          const isOpen = Boolean(open[section.id]);
+          return (
+            <section key={section.id} id={`guide-${section.id}`} className="scroll-mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+              <button type="button" aria-expanded={isOpen} onClick={() => setOpen((current) => ({ ...current, [section.id]: !isOpen }))} className="flex w-full items-center gap-3 border-0 bg-transparent p-4 text-left sm:p-5">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white ${section.tone}`}><section.icon className="h-4 w-4" /></span>
+                <span className="min-w-0 flex-1"><span className="block text-base font-bold text-neutral-950">{section.title}</span><span className="mt-0.5 block text-xs text-neutral-500 sm:text-sm">{section.subtitle} · {section.steps.length} steps</span></span>
+                <ChevronDown className={`h-5 w-5 shrink-0 text-neutral-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+              </button>
+              {isOpen && <>
+                <ol className="m-0 list-none p-0">
+                  {section.steps.map((step, index) => (
+                    <li key={step.title} className="flex items-start gap-3.5 px-4 py-3.5 shadow-[inset_0_1px_0_0_#f1f1f1] sm:px-5">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[11px] font-bold tabular-nums text-white">{index + 1}</span>
+                      <div className="min-w-0"><p className="m-0 text-sm font-semibold text-neutral-900">{step.title}</p><p className="m-0 mt-0.5 text-xs leading-5 text-neutral-500">{step.text}</p></div>
+                    </li>
+                  ))}
+                </ol>
+                {section.id === "billing" && payg && (
+                  <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 sm:px-5">
+                    <div className="rounded-xl bg-neutral-50 p-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Account status</p><p className="m-0 mt-1 text-sm font-bold text-neutral-900">{payg.status.replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}</p><p className="m-0 mt-0.5 text-xs text-neutral-500">{trialDaysLeft != null && trialDaysLeft > 0 ? `Trial ends in ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"}` : "Trial finished"}</p></div>
+                    <div className="rounded-xl bg-neutral-50 p-3.5"><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Unpaid usage</p><p className={`m-0 mt-1 text-sm font-bold tabular-nums ${unpaidLimit > 0 && unpaid / unpaidLimit > 0.8 ? "text-amber-700" : "text-neutral-900"}`}>{usagePolicy?.currency ?? ""} {unpaid.toLocaleString()}</p>{unpaidLimit > 0 && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200"><div className={`h-full rounded-full ${unpaid / unpaidLimit > 0.8 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, (unpaid / unpaidLimit) * 100)}%` }} /></div>}<p className="m-0 mt-1 text-[11px] text-neutral-500">Limit {usagePolicy?.currency ?? ""} {unpaidLimit.toLocaleString()} before access pauses</p></div>
+                  </div>
+                )}
+                {section.href && <div className="flex flex-wrap gap-2 px-4 pb-4 sm:px-5">{section.href.map((link) => <Link key={link.to} href={link.to} className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50">{link.label} <ArrowRight className="h-3.5 w-3.5" /></Link>)}</div>}
+              </>}
+            </section>
+          );
+        })}
+
+        {/* Roles, with the reader's own role called out */}
+        <section id="guide-roles" className="scroll-mt-4">
+          <SectionHead icon={ShieldCheck} tone="bg-rose-600" title="Roles and permissions" subtitle="What each role can see and do once invited." right={managerView ? <Link href="/owner/nrms/staff" className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 no-underline">Manage staff <ArrowRight className="h-3.5 w-3.5" /></Link> : undefined} />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ROLES.map((item) => {
+              const mine = item.key === role;
+              return (
+                <div key={item.key} className={`flex items-start gap-3 rounded-xl border p-3.5 ${mine ? "border-emerald-300 bg-emerald-50" : "border-neutral-200 bg-white"}`}>
+                  <span className={`mt-0.5 inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${mine ? "bg-emerald-600 text-white" : "bg-neutral-100 text-neutral-700"}`}>{ROLE_LABEL[item.key]}</span>
+                  <p className="m-0 text-xs leading-5 text-neutral-600">{item.scope}{mine && <strong className="mt-0.5 block text-emerald-800">This is your role.</strong>}</p>
+                </div>
+              );
+            })}
+          </div>
+          <p className="m-0 mt-3 text-xs leading-5 text-neutral-500">Invite by email. The person needs a NoLSAF account under that email and must accept before the role applies. Outlet roles also need an outlet chosen. Revoking access needs a reason and is recorded.</p>
+        </section>
+
+        <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <BadgeCheck className="h-5 w-5 shrink-0 text-amber-600" />
+          <div><p className="m-0 text-sm font-semibold text-amber-900">NRMS stays tied to your Marketplace listing</p><p className="m-0 mt-1 text-xs leading-5 text-amber-800">It opens while the property is approved, and pauses if approval is withdrawn or usage goes unpaid past the limit. Both are reversible once resolved.</p></div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <a href="https://wa.me/255736766726" target="_blank" rel="noopener noreferrer" className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline shadow-sm transition hover:-translate-y-1 hover:border-emerald-300 hover:shadow-md">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 transition group-hover:bg-emerald-600"><MessageCircle className="h-4 w-4 text-emerald-600 transition group-hover:text-white" /></div>
-            <div><p className="text-xs font-bold text-neutral-900">WhatsApp</p><p className="text-[11px] text-neutral-500">Fastest way to reach us</p></div>
+
+        {/* FAQ accordion */}
+        <section id="guide-faq" className="scroll-mt-4">
+          <SectionHead icon={FileText} tone="bg-neutral-700" title="Frequently asked" subtitle="The questions owners and staff ask most." />
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+            {faqs.map((item, index) => {
+              const isOpen = openFaq === index;
+              return (
+                <div key={item.q} className={index ? "shadow-[inset_0_1px_0_0_#f1f1f1]" : ""}>
+                  <button type="button" aria-expanded={isOpen} onClick={() => setOpenFaq(isOpen ? null : index)} className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-3.5 text-left sm:px-5">
+                    <span className="min-w-0 flex-1 text-sm font-semibold text-neutral-900">{item.q}</span>
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-neutral-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {isOpen && <p className="m-0 px-4 pb-4 text-xs leading-5 text-neutral-600 sm:px-5">{item.a}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </>}
+
+      {/* Support, pre-filled with the property so nobody has to explain it */}
+      <section id="guide-support" className="scroll-mt-4 rounded-2xl border border-neutral-200 bg-white p-5 sm:p-6">
+        <SectionHead icon={Headset} tone="bg-[#02b4f5]" title="Still need a hand?" subtitle="Reach a real person. Your property and role are included automatically." />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <a href={`https://wa.me/${SUPPORT_PHONE.replace(/[^\d]/g, "")}?text=${supportText}`} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:border-emerald-300">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 transition group-hover:bg-emerald-600"><MessageCircle className="h-4 w-4 text-emerald-600 group-hover:text-white" /></span>
+            <span><span className="block text-xs font-bold text-neutral-900">WhatsApp</span><span className="block text-[11px] text-neutral-500">Fastest way to reach us</span></span>
           </a>
-          <a href={`tel:${process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+255736766726"}`} className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline shadow-sm transition hover:-translate-y-1 hover:border-[#02b4f5]/40 hover:shadow-md">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02b4f5]/10 transition group-hover:bg-[#02b4f5]"><Phone className="h-4 w-4 text-[#02b4f5] transition group-hover:text-white" /></div>
-            <div><p className="text-xs font-bold text-neutral-900">Call us</p><p className="text-[11px] text-neutral-500">{process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+255 736 766 726"}</p></div>
+          <a href={`tel:${SUPPORT_PHONE}`} className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:border-sky-300">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 transition group-hover:bg-sky-500"><Phone className="h-4 w-4 text-sky-600 group-hover:text-white" /></span>
+            <span><span className="block text-xs font-bold text-neutral-900">Call us</span><span className="block text-[11px] text-neutral-500">{process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+255 736 766 726"}</span></span>
           </a>
-          <a href={`mailto:${process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@nolsaf.com"}`} className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline shadow-sm transition hover:-translate-y-1 hover:border-neutral-300 hover:shadow-md">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-100 transition group-hover:bg-neutral-700"><Mail className="h-4 w-4 text-neutral-600 transition group-hover:text-white" /></div>
-            <div><p className="text-xs font-bold text-neutral-900">Email us</p><p className="text-[11px] text-neutral-500">Replies within 24 hours</p></div>
+          <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`NRMS help: ${state?.property.title ?? selectedProperty?.title ?? "property"}`)}&body=${supportText}`} className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 no-underline transition hover:border-neutral-300">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neutral-100 transition group-hover:bg-neutral-700"><Mail className="h-4 w-4 text-neutral-600 group-hover:text-white" /></span>
+            <span><span className="block text-xs font-bold text-neutral-900">Email us</span><span className="block text-[11px] text-neutral-500">Replies within 24 hours</span></span>
           </a>
         </div>
       </section>

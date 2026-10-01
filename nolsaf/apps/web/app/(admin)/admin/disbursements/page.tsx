@@ -22,6 +22,7 @@ import {
   XCircle,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type PayoutAccountSummary = {
   id?: number;
@@ -201,6 +202,7 @@ function Summary({
 }
 
 function DisbursementsView() {
+  const recordHref = useAdminHref();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -898,7 +900,7 @@ function DisbursementsView() {
                               </span>
                             )}
                             {(item.status === "BATCHED" || item.status === "AUTHORIZED") && item.batchId && (
-                              <Link href={`/admin/disbursements/batches/${item.batchId}`} className={`${actionClass} no-underline`}>
+                              <Link href={recordHref("disbursement-batch", item.batchId)} className={`${actionClass} no-underline`}>
                                 <Layers className="h-4 w-4" />
                                 View batch #{item.batchId}
                               </Link>

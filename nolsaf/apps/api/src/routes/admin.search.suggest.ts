@@ -2,6 +2,7 @@ import { Router } from "express";
 // @ts-ignore - prisma types may be declared in workspace packages
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
 
 export const router = Router();
 router.use(requireAuth as any, requireRole("ADMIN") as any);
@@ -54,8 +55,8 @@ router.get("/suggest", async (req, res) => {
   const [owners, props, invs] = await Promise.all([ownerPromise, propPromise, invPromise]);
 
   const items: any[] = [];
-  (owners as any[]).forEach((o: any) => items.push({ type: "owner", id: o.id, title: o.name || `#${o.id}`, subtitle: o.email || "", href: `/admin/owners/${o.id}` }));
-  (props as any[]).forEach((p: any) => items.push({ type: "property", id: p.id, title: p.title || `#${p.id}`, subtitle: (p.regionName || p.district) || "", href: `/admin/properties/${p.id}` }));
+  (owners as any[]).forEach((o: any) => items.push({ type: "owner", id: o.id, title: o.name || `#${o.id}`, subtitle: o.email || "", href: `/admin/owners/${recordRef("owner", o.id) ?? o.id}` }));
+  (props as any[]).forEach((p: any) => items.push({ type: "property", id: p.id, title: p.title || `#${p.id}`, subtitle: (p.regionName || p.district) || "", href: `/admin/properties/previews?previewId=${recordRef("property", p.id) ?? p.id}` }));
   (invs as any[]).forEach((v: any) => items.push({ type: "invoice", id: v.id, title: v.invoiceNumber || `#${v.id}`, subtitle: "", href: `/admin/revenue?q=${encodeURIComponent(v.invoiceNumber || '')}` }));
 
   res.json({ items: items.slice(0, limit) });

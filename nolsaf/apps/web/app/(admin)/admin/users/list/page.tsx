@@ -9,6 +9,7 @@ import Link from "next/link";
 import Chart from "@/components/Chart";
 import TableRow from "@/components/TableRow";
 import type { ChartData, ChartOptions } from "chart.js";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -69,6 +70,7 @@ type HoldsRoleFilter = {
 };
 
 export default function AdminUsersListPage(){
+  const recordHref = useAdminHref();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [registrationStatus, setRegistrationStatus] = useState("");
@@ -805,7 +807,7 @@ export default function AdminUsersListPage(){
                       // customer profile, same destination as View Details.
                       onDoubleClick={() => {
                         closeActionsMenu();
-                        router.push(`/admin/users/${customer.id}`);
+                        router.push(recordHref("user", customer.id));
                       }}
                       title="Double click to open this customer"
                       className="align-middle cursor-pointer select-none hover:bg-gray-50 transition-colors"
@@ -943,7 +945,7 @@ export default function AdminUsersListPage(){
                                 >
                                   <div className="flex flex-col gap-px bg-gray-100">
                                     <Link
-                                      href={`/admin/users/${customer.id}`}
+                                      href={recordHref("user", customer.id)}
                                       className="w-full bg-white px-4 py-2.5 text-sm flex items-center gap-2 no-underline text-gray-700 hover:bg-gray-50"
                                       onClick={closeActionsMenu}
                                     >

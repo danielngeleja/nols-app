@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, ArrowRight, BarChart3, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, ClipboardList, Clock, Filter, Mail, MapPin, Phone, RefreshCw, Search, ShieldCheck, ShieldOff, Users, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -105,6 +106,7 @@ function DateCell({ iso }: { iso?: string | null }) {
 }
 
 export default function AdminAgentsTourOperatorsPage() {
+  const recordHref = useAdminHref();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<OperatorRow[]>([]);
@@ -679,7 +681,7 @@ export default function AdminAgentsTourOperatorsPage() {
                         )}
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <Link href={`/admin/agents/${r.id}`} title="Open operator" aria-label="Open operator" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 no-underline transition hover:bg-emerald-50 hover:text-emerald-700">
+                        <Link href={recordHref("agent", r.id)} title="Open operator" aria-label="Open operator" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 no-underline transition hover:bg-emerald-50 hover:text-emerald-700">
                           <ChevronRight className="h-4 w-4" aria-hidden />
                         </Link>
                       </td>

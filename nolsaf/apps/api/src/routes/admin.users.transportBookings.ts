@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { prisma } from "@nolsaf/prisma";
+import { adminBookingReference } from "../lib/adminBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -9,6 +10,8 @@ router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unk
 type TransportBookingListItem = {
   kind: "group" | "individual";
   id: number;
+  /** Opaque admin URL reference; individual bookings only. */
+  reference?: string;
   groupType: string;
   toRegion: string;
   toLocation: string | null;
@@ -222,6 +225,7 @@ router.get("/", async (req, res) => {
       return {
         kind: "individual",
         id: Number(b.id),
+        reference: adminBookingReference(Number(b.id)),
         groupType: "individual",
         toRegion: String(b.property?.regionName || ""),
         toLocation: b.property?.title ?? b.property?.city ?? null,

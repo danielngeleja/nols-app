@@ -1,7 +1,23 @@
 "use client";
-import React, { useEffect, useMemo, useState } from 'react';
-import TableRow from "@/components/TableRow";
-import { Receipt, ChevronLeft, ChevronRight, Download, Search, ChevronDown, X, CheckCircle2, Clock, XCircle } from "lucide-react";
+
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  BadgeCheck,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Download,
+  FileText,
+  Loader2,
+  Receipt,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Wallet,
+  X,
+  XCircle,
+} from "lucide-react";
 
 type InvoiceRow = {
   id: number;
@@ -13,25 +29,11 @@ type InvoiceRow = {
   netPayable: number | null;
   status: string;
   ownerId: number;
-  owner?: {
+  owner?: { id: number; name: string | null; email: string | null; phone: string | null; role: string } | null;
+  booking?: {
     id: number;
-    name: string | null;
-    email: string | null;
-    phone: string | null;
-    role: string;
-  } | null;
-  booking?: { 
-    id: number;
-    property?: { 
-      id: number;
-      title: string | null;
-      type: string | null;
-    } | null;
-    user?: {
-      id: number;
-      name: string | null;
-      email: string | null;
-    } | null;
+    property?: { id: number; title: string | null; type: string | null } | null;
+    user?: { id: number; name: string | null; email: string | null } | null;
   } | null;
   verifiedByUser?: { id: number; name: string | null } | null;
   approvedByUser?: { id: number; name: string | null } | null;
@@ -41,422 +43,351 @@ type InvoiceRow = {
   paymentRef?: string | null;
 };
 
-export default function InvoicesManagementPage(){
-  const apiBase = typeof window === 'undefined'
-    ? (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000")
-    : '';
+type StatusSummary = { status: string; count: number; total: number; netPayable: number; commission: number };
+
+const PAGE_SIZE = 25;
+
+/** The invoice lifecycle, in order. DRAFT is rare and folded into Requested's position only when present. */
+const STAGES: Array<{ key: string; label: string; hint: string; icon: typeof Clock; text: string; bar: string; soft: string; pill: string }> = [
+  { key: "REQUESTED", label: "Requested", hint: "Submitted by the payee", icon: FileText, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
+  { key: "VERIFIED", label: "Verified", hint: "Checked against the booking", icon: ShieldCheck, text: "text-sky-700", bar: "bg-sky-500", soft: "bg-sky-50/70", pill: "bg-sky-50 text-sky-700 ring-sky-200" },
+  { key: "APPROVED", label: "Approved", hint: "Cleared for payout", icon: BadgeCheck, text: "text-indigo-700", bar: "bg-indigo-500", soft: "bg-indigo-50/70", pill: "bg-indigo-50 text-indigo-700 ring-indigo-200" },
+  { key: "PROCESSING", label: "Processing", hint: "Payout on its way", icon: Clock, text: "text-violet-700", bar: "bg-violet-500", soft: "bg-violet-50/70", pill: "bg-violet-50 text-violet-700 ring-violet-200" },
+  { key: "PAID", label: "Paid", hint: "Money sent", icon: CheckCircle2, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50/70", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  { key: "REJECTED", label: "Rejected", hint: "Not payable", icon: XCircle, text: "text-rose-700", bar: "bg-rose-500", soft: "bg-rose-50/70", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
+];
+const AWAITING = new Set(["REQUESTED", "VERIFIED", "APPROVED", "PROCESSING"]);
+
+const heroButton =
+  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
+
+function stageOf(status: string) {
+  return STAGES.find((s) => s.key === String(status || "").toUpperCase()) ?? null;
+}
+
+function tzs(amount: number | null | undefined) {
+  if (amount == null || !Number.isFinite(Number(amount))) return "None";
+  return `TSh ${Number(amount).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function compactTzs(amount: number) {
+  if (amount >= 1_000_000_000) return `TSh ${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount >= 1_000_000) return `TSh ${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 10_000) return `TSh ${Math.round(amount / 1000)}K`;
+  return tzs(amount);
+}
+
+function eatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+}
+
+function eatTime(iso: string) {
+  return `${new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
+}
+
+function humanize(status: string) {
+  const s = String(status || "").toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export default function InvoicesManagementPage() {
   const [items, setItems] = useState<InvoiceRow[]>([]);
+  const [summary, setSummary] = useState<StatusSummary[]>([]);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(25);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Search runs on the server across every invoice, not just this page.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
 
   useEffect(() => {
     let mounted = true;
     setLoading(true);
     (async () => {
       try {
-        const url = `${apiBase.replace(/\/$/, '')}/api/admin/invoices?page=${page}&pageSize=${pageSize}`;
-        const r = await fetch(url);
-        if (!r.ok) throw new Error('fetch failed');
-        const contentType = r.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const j = await r.json();
-          if (!mounted) return;
-          setItems(j.items ?? []);
-          setTotal(j.total ?? 0);
-        } else {
-          throw new Error("Invalid response format");
-        }
-      } catch (e: any) {
-        console.error('invoices fetch', e);
+        const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+        if (status) params.set("status", status);
+        if (search) params.set("q", search);
+        const r = await fetch(`/api/admin/invoices?${params.toString()}`, { credentials: "include" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        if (!mounted) return;
+        setItems(j.items ?? []);
+        setTotal(j.total ?? 0);
+        if (Array.isArray(j.summary)) setSummary(j.summary);
+        setError(null);
+      } catch (e) {
+        console.error("invoices fetch", e);
         if (mounted) {
           setItems([]);
+          setError("Could not load invoices. Refresh to try again.");
         }
-      } finally { if (mounted) setLoading(false); }
+      } finally {
+        if (mounted) setLoading(false);
+      }
     })();
     return () => { mounted = false; };
-  }, [page, pageSize, apiBase]);
+  }, [page, status, search, reloadKey]);
 
-  // Manual invoice actions intentionally removed (invoice lifecycle is automatic).
+  const byStatus = useMemo(() => new Map(summary.map((s) => [String(s.status).toUpperCase(), s])), [summary]);
+  const all = summary.reduce((acc, s) => ({ count: acc.count + s.count }), { count: 0 });
+  const paid = byStatus.get("PAID");
+  const awaiting = summary.filter((s) => AWAITING.has(String(s.status).toUpperCase()));
+  const awaitingNet = awaiting.reduce((sum, s) => sum + s.netPayable, 0);
+  const awaitingCount = awaiting.reduce((sum, s) => sum + s.count, 0);
+  const otherStatuses = summary.filter((s) => !stageOf(s.status));
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  function downloadReceipt(inv: InvoiceRow) {
-    const url = `${apiBase.replace(/\/$/, '')}/api/admin/invoices/${inv.id}/receipt.png`;
-    window.open(url, '_blank');
-  }
+  const facts = [
+    { label: "Invoices", value: summary.length ? all.count.toLocaleString() : loading ? "..." : total.toLocaleString(), detail: "from owners and drivers", tone: "text-white" },
+    { label: "Paid out", value: paid ? compactTzs(paid.netPayable) : summary.length ? "TSh 0" : "...", detail: paid ? `${paid.count} invoices settled` : "nothing paid yet", tone: "text-emerald-300" },
+    { label: "Waiting for payout", value: summary.length ? compactTzs(awaitingNet) : "...", detail: `${awaitingCount} requested, verified, approved or processing`, tone: awaitingCount ? "text-amber-300" : "text-white" },
+    { label: "Commission earned", value: paid ? compactTzs(paid.commission) : summary.length ? "TSh 0" : "...", detail: "kept by NoLSAF on paid invoices", tone: "text-white" },
+  ];
 
-  function getStatusIcon(status: string) {
-    const statusLower = status.toLowerCase();
-    if (statusLower.includes('paid')) {
-      return { Icon: CheckCircle2, className: "h-4 w-4 text-emerald-600" };
-    }
-    if (statusLower.includes('approved')) {
-      return { Icon: CheckCircle2, className: "h-4 w-4 text-blue-600" };
-    }
-    if (statusLower.includes('pending') || statusLower.includes('requested') || statusLower.includes('unpaid')) {
-      return { Icon: Clock, className: "h-4 w-4 text-amber-600" };
-    }
-    if (statusLower.includes('cancel') || statusLower.includes('reject')) {
-      return { Icon: XCircle, className: "h-4 w-4 text-rose-600" };
-    }
-    return { Icon: Clock, className: "h-4 w-4 text-slate-500" };
-  }
+  const pickStatus = (key: string) => {
+    setStatus((current) => (current === key ? null : key));
+    setPage(1);
+  };
 
-  function formatCurrency(amount: number) {
-    return new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2
-    }).format(amount);
-  }
+  const clearFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setStatus(null);
+    setPage(1);
+  };
 
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return items.filter((inv) => {
-      if (statusFilter !== 'ALL' && inv.status !== statusFilter) return false;
-      if (!q) return true;
-      const haystack = [
-        inv.invoiceNumber,
-        inv.receiptNumber,
-        String(inv.id),
-        inv.owner?.name,
-        inv.owner?.email,
-        inv.owner?.phone,
-        inv.booking?.property?.title,
-        inv.booking?.property?.type,
-        inv.status,
-      ]
-        .filter(Boolean)
-        .join(' | ')
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [items, searchQuery, statusFilter]);
-
-  const statusOptions = useMemo(() => {
-    const unique = new Set<string>();
-    items.forEach(i => unique.add(i.status));
-    return ['ALL', ...Array.from(unique).sort()];
-  }, [items]);
-
-  const paidOnPage = useMemo(() => filteredItems.filter(i => i.status?.toLowerCase().includes('paid')).length, [filteredItems]);
-  const pendingOnPage = useMemo(() => filteredItems.filter(i => {
-    const s = i.status?.toLowerCase() ?? '';
-    return s.includes('pending') || s.includes('unpaid');
-  }).length, [filteredItems]);
-  const approvedOnPage = useMemo(() => filteredItems.filter(i => i.status?.toLowerCase().includes('approved')).length, [filteredItems]);
-
-  function applyQuickFilter(kind: 'ALL' | 'PAID' | 'APPROVED' | 'PENDING') {
-    if (kind === 'ALL') {
-      setSearchQuery('');
-      setStatusFilter('ALL');
-      return;
-    }
-
-    const candidates = statusOptions.filter(s => s !== 'ALL');
-    const pick = (predicate: (s: string) => boolean) => candidates.find(s => predicate(s.toLowerCase()));
-
-    const selected =
-      kind === 'PAID'
-        ? pick((s) => s.includes('paid'))
-        : kind === 'APPROVED'
-          ? pick((s) => s.includes('approved'))
-          : pick((s) => s.includes('pending') || s.includes('unpaid'));
-
-    setSearchQuery('');
-    if (selected) {
-      setStatusFilter(selected);
-    } else {
-      setStatusFilter('ALL');
-      setSearchQuery(kind === 'PAID' ? 'paid' : kind === 'APPROVED' ? 'approved' : 'pending');
-    }
-  }
+  const activeStage = status ? stageOf(status) : null;
 
   return (
-    <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#02665e]/8 via-white to-sky-50" />
-        <div className="relative p-6 sm:p-8">
-          <div className="flex flex-col gap-5">
-            <div className="flex flex-col items-center text-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#02665e]/10 ring-1 ring-inset ring-[#02665e]/20">
-                <Receipt className="h-6 w-6 text-[#02665e]" />
-              </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
-                  All Invoices
-                </h1>
-                <p className="mt-1 text-sm text-slate-600 max-w-2xl mx-auto">
-                  All invoices from owners and drivers across the platform.
-                </p>
-              </div>
+    <div className="w-full min-w-0 space-y-5">
+      {/* Header */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Payouts</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Invoices</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Every payout invoice from property owners and drivers. Each one moves from requested to paid on its own; this page is for tracking and receipts.</p>
             </div>
+            <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <button
-                type="button"
-                onClick={() => applyQuickFilter('ALL')}
-                className="group relative overflow-hidden text-left rounded-2xl border border-slate-200/80 bg-white/70 p-4 backdrop-blur transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:border-[#02665e]/25 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-[#02665e]/10 before:via-white/0 before:to-sky-50 before:opacity-0 before:transition-opacity before:duration-300 group-hover:before:opacity-100"
-                aria-label="Show all invoices"
-              >
-                <div className="relative z-10 text-xs font-medium text-slate-600">Total invoices</div>
-                <div className="relative z-10 mt-1 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{total.toLocaleString()}</div>
-                <div className="relative z-10 mt-3 inline-flex w-fit items-center rounded-full border border-slate-200/80 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors duration-300 group-hover:bg-white/80 group-hover:text-slate-700">Clear filters</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyQuickFilter('PAID')}
-                className="group relative overflow-hidden text-left rounded-2xl border border-slate-200/80 bg-white/70 p-4 backdrop-blur transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:border-emerald-300/70 focus:outline-none focus:ring-2 focus:ring-emerald-300/40 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-emerald-400/10 before:via-white/0 before:to-emerald-50 before:opacity-0 before:transition-opacity before:duration-300 group-hover:before:opacity-100"
-                aria-label="Filter paid invoices"
-              >
-                <div className="relative z-10 text-xs font-medium text-slate-600">Paid (this page)</div>
-                <div className="relative z-10 mt-1 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{paidOnPage.toLocaleString()}</div>
-                <div className="relative z-10 mt-3 inline-flex w-fit items-center rounded-full border border-slate-200/80 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors duration-300 group-hover:bg-white/80 group-hover:text-slate-700">Filter list</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyQuickFilter('APPROVED')}
-                className="group relative overflow-hidden text-left rounded-2xl border border-slate-200/80 bg-white/70 p-4 backdrop-blur transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:border-sky-300/70 focus:outline-none focus:ring-2 focus:ring-sky-300/40 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-sky-400/10 before:via-white/0 before:to-sky-50 before:opacity-0 before:transition-opacity before:duration-300 group-hover:before:opacity-100"
-                aria-label="Filter approved invoices"
-              >
-                <div className="relative z-10 text-xs font-medium text-slate-600">Approved (this page)</div>
-                <div className="relative z-10 mt-1 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{approvedOnPage.toLocaleString()}</div>
-                <div className="relative z-10 mt-3 inline-flex w-fit items-center rounded-full border border-slate-200/80 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors duration-300 group-hover:bg-white/80 group-hover:text-slate-700">Filter list</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => applyQuickFilter('PENDING')}
-                className="group relative overflow-hidden text-left rounded-2xl border border-slate-200/80 bg-white/70 p-4 backdrop-blur transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:border-amber-300/70 focus:outline-none focus:ring-2 focus:ring-amber-300/40 before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-br before:from-amber-400/10 before:via-white/0 before:to-amber-50 before:opacity-0 before:transition-opacity before:duration-300 group-hover:before:opacity-100"
-                aria-label="Filter pending or unpaid invoices"
-              >
-                <div className="relative z-10 text-xs font-medium text-slate-600">Pending/Unpaid (this page)</div>
-                <div className="relative z-10 mt-1 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">{pendingOnPage.toLocaleString()}</div>
-                <div className="relative z-10 mt-3 inline-flex w-fit items-center rounded-full border border-slate-200/80 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors duration-300 group-hover:bg-white/80 group-hover:text-slate-700">Filter list</div>
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200/80 bg-white/70 shadow-sm backdrop-blur overflow-hidden focus-within:ring-2 focus-within:ring-[#02665e]/20 focus-within:border-[#02665e]/30">
-              <div className="flex flex-col sm:flex-row items-stretch overflow-hidden">
-                <div className="relative flex-1 min-w-0">
-                  <label htmlFor="invoiceSearch" className="sr-only">Search invoices</label>
-                  <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <input
-                    id="invoiceSearch"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by invoice #, receipt, owner, property, status…"
-                    className="w-full min-w-0 border-0 bg-transparent py-3.5 pl-11 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:ring-0"
-                  />
-                </div>
-
-                <div className="flex min-w-0 items-stretch border-t border-slate-200/80 sm:border-t-0 sm:border-l">
-                  <div className="relative w-full min-w-0 sm:w-64">
-                    <label htmlFor="statusFilter" className="sr-only">Filter by status</label>
-                    <select
-                      id="statusFilter"
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="h-full w-full min-w-0 !appearance-none !bg-none border-0 bg-transparent px-4 py-3.5 pr-10 text-sm font-medium text-slate-900 outline-none focus:ring-0"
-                    >
-                      {statusOptions.map((s) => (
-                        <option key={s} value={s}>{s === 'ALL' ? 'All statuses' : s}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  </div>
-
-                  {(searchQuery.trim() || statusFilter !== 'ALL') ? (
-                    <button
-                      type="button"
-                      onClick={() => { setSearchQuery(''); setStatusFilter('ALL'); }}
-                      className="inline-flex shrink-0 items-center justify-center border-l border-slate-200/80 bg-white/40 px-3 text-slate-500 transition hover:bg-white/70 hover:text-slate-700 focus:outline-none"
-                      aria-label="Clear filters"
-                      title="Clear filters"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </div>
+          <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
+            {facts.map((fact, index) => (
+              <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
+                <dd className={`m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums ${fact.tone}`}>{fact.value}</dd>
+                <dd className="m-0 mt-1 truncate text-xs text-white/50">{fact.detail}</dd>
               </div>
-            </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
+          <X className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Lifecycle, doubling as the status filter */}
+      <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          {STAGES.map((stage) => {
+            const Icon = stage.icon;
+            const s = byStatus.get(stage.key);
+            const n = s?.count ?? 0;
+            const share = all.count ? Math.round((n / all.count) * 100) : 0;
+            const selected = status === stage.key;
+            return (
+              <button
+                key={stage.key}
+                type="button"
+                onClick={() => pickStatus(stage.key)}
+                aria-pressed={selected}
+                className={`min-w-0 rounded-xl border border-solid p-3.5 text-left transition-all ${selected ? `border-neutral-900 ${stage.soft}` : "border-transparent bg-neutral-50 ring-1 ring-inset ring-neutral-200 hover:bg-white"}`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${stage.text}`}><Icon className="h-3.5 w-3.5" /> {stage.label}</span>
+                  <span className="text-[11px] tabular-nums text-neutral-400">{share}%</span>
+                </span>
+                <span className="mt-2 block text-2xl font-bold tabular-nums leading-none text-neutral-900">{summary.length ? n : "..."}</span>
+                <span className="mt-1 block truncate text-[11px] text-neutral-500">{n ? `${compactTzs(s!.netPayable)} net` : stage.hint}</span>
+                <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-neutral-200/70">
+                  <span className={`block h-full rounded-full ${stage.bar}`} style={{ width: `${n > 0 ? Math.max(share, 4) : 0}%` }} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {otherStatuses.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 px-1.5 pb-1 text-[11px] text-neutral-500">
+            Also:
+            {otherStatuses.map((s) => (
+              <button key={s.status} type="button" onClick={() => pickStatus(String(s.status).toUpperCase())} className={`inline-flex h-7 items-center gap-1 rounded-full border border-solid px-2.5 font-semibold ${status === String(s.status).toUpperCase() ? "border-neutral-900 bg-neutral-100 text-neutral-900" : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50"}`}>
+                {humanize(s.status)} <span className="tabular-nums text-neutral-400">{s.count}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Directory */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">{activeStage ? `${activeStage.label} invoices` : status ? `${humanize(status)} invoices` : "All invoices"}</h2>
+            <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? "Loading..." : `${total.toLocaleString()} ${total === 1 ? "invoice" : "invoices"}${search ? ` matching "${search}"` : ""}, newest first`}</p>
+          </div>
+          {(status || search) && (
+            <button type="button" onClick={clearFilters} className="inline-flex h-7 items-center gap-1 rounded-full border-0 bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200">
+              <X className="h-3 w-3" /> Clear filters
+            </button>
+          )}
+          <div className="relative ml-auto w-full min-w-0 sm:w-96">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Invoice or receipt number, owner, email or property"
+              aria-label="Search invoices"
+              className="box-border h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white pl-9 pr-9 text-sm text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+            {searchInput && (
+              <button type="button" onClick={() => setSearchInput("")} aria-label="Clear search" className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
-      </div>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50 sticky top-0 z-10">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">ID</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Invoice</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Owner</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Property</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Issued</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Total</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Net</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Receipt</th>
+          <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="text-[11px] text-neutral-400">
+                <th className="px-4 py-2.5 font-semibold sm:px-5">Invoice</th>
+                <th className="px-3 py-2.5 font-semibold">Payee</th>
+                <th className="px-3 py-2.5 font-semibold">Property</th>
+                <th className="px-3 py-2.5 font-semibold">Issued</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Total</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Commission</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Net payout</th>
+                <th className="px-3 py-2.5 font-semibold">Status</th>
+                <th className="px-4 py-2.5 text-right font-semibold sm:px-5">Receipt</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-slate-100">
-              {loading ? (
-                Array.from({ length: 8 }).map((_, idx) => (
-                  <TableRow key={`sk-${idx}`} hover={false}>
-                    <td colSpan={10} className="px-4 py-4">
-                      <div className="h-10 w-full rounded-xl bg-slate-100 animate-pulse" />
-                    </td>
-                  </TableRow>
+            <tbody>
+              {loading && items.length === 0 ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-0 border-t border-solid border-neutral-200">
+                    <td colSpan={9} className="px-5 py-4"><div className="h-3 w-3/4 animate-pulse rounded-full bg-neutral-200/80" /></td>
+                  </tr>
                 ))
-              ) : filteredItems.length === 0 ? (
-                <TableRow hover={false}>
-                  <td colSpan={10} className="px-4 py-10 text-center">
-                    <div className="mx-auto max-w-md">
-                      <div className="text-sm font-medium text-slate-900">No invoices match your filters</div>
-                      <div className="mt-1 text-sm text-slate-600">Try clearing search or switching the status filter.</div>
-                      <div className="mt-4 flex justify-center gap-2">
-                        <button
-                          className="px-3 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition"
-                          onClick={() => { setSearchQuery(''); setStatusFilter('ALL'); }}
-                        >
-                          Clear filters
-                        </button>
+              ) : items.length === 0 ? (
+                <tr className="border-0 border-t border-solid border-neutral-200">
+                  <td colSpan={9} className="px-5 py-8">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><Receipt className="h-5 w-5" /></span>
+                      <div className="min-w-0 flex-1">
+                        <p className="m-0 text-sm font-semibold text-neutral-900">{status || search ? "No invoices match" : "No invoices yet"}</p>
+                        <p className="m-0 mt-0.5 text-xs text-neutral-500">{status || search ? "Try another search or clear the filters." : "Invoices appear here once owners or drivers request a payout."}</p>
                       </div>
+                      {(status || search) && (
+                        <button type="button" onClick={clearFilters} className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50">Clear filters</button>
+                      )}
                     </div>
                   </td>
-                </TableRow>
+                </tr>
               ) : (
-                filteredItems.map(i => {
-                  const invoiceType = i.owner?.role === 'DRIVER' ? 'Driver' : 'Owner';
+                items.map((inv) => {
+                  const isDriver = inv.owner?.role === "DRIVER";
+                  const stage = stageOf(inv.status);
                   return (
-                  <TableRow key={i.id}>
-                    <td className="px-4 py-3 text-sm text-slate-900 whitespace-nowrap font-semibold tabular-nums">
-                      #{i.id.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                        invoiceType === 'Driver' 
-                          ? 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200' 
-                          : 'bg-[#02665e]/10 text-[#02665e] ring-1 ring-inset ring-[#02665e]/20'
-                      }`}>
-                        {invoiceType}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-900">{i.invoiceNumber ?? '—'}</div>
-                      {i.receiptNumber && (
-                        <div className="text-xs text-slate-500">Receipt: <span className="tabular-nums">{i.receiptNumber}</span></div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-900">{i.owner?.name ?? `Owner #${i.ownerId}`}</div>
-                      {i.owner?.email && (
-                        <div className="text-xs text-slate-500 truncate max-w-[260px]">{i.owner.email}</div>
-                      )}
-                      {i.owner?.phone && (
-                        <div className="text-xs text-slate-500 tabular-nums">{i.owner.phone}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-700">
-                      <div className="font-medium text-slate-900">{i.booking?.property?.title ?? '—'}</div>
-                      {i.booking?.property?.type && (
-                        <div className="text-xs text-slate-500">{i.booking.property.type}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-700 whitespace-nowrap">
-                      <div className="tabular-nums text-slate-900 font-medium">{new Date(i.issuedAt).toLocaleDateString()}</div>
-                      <div className="text-xs text-slate-500 tabular-nums">{new Date(i.issuedAt).toLocaleTimeString()}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-900 text-right whitespace-nowrap font-semibold tabular-nums">
-                      {formatCurrency(Number(i.total))}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-900 text-right whitespace-nowrap">
-                      <div className="font-semibold tabular-nums">{i.netPayable ? formatCurrency(Number(i.netPayable)) : '—'}</div>
-                      {i.commissionAmount && (
-                        <div className="text-xs text-slate-500 tabular-nums">Commission: {formatCurrency(Number(i.commissionAmount))}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex items-center">
-                        {(() => {
-                          const { Icon, className } = getStatusIcon(i.status);
-                          return (
-                            <span title={i.status}>
-                              <Icon className={className} />
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      {i.paidAt && (
-                        <div className="text-xs text-slate-500 mt-1.5 tabular-nums">
-                          Paid: {new Date(i.paidAt).toLocaleDateString()}
+                    <tr key={inv.id} className="border-0 border-t border-solid border-neutral-200 align-top transition-colors hover:bg-neutral-50/80">
+                      <td className="px-4 py-3 sm:px-5">
+                        <div className="font-mono text-[13px] font-semibold text-neutral-900">{inv.invoiceNumber || "No number"}</div>
+                        <div className="mt-0.5 text-[11px] text-neutral-400">#{inv.id}{inv.receiptNumber ? <> · Receipt <span className="font-mono">{inv.receiptNumber}</span></> : null}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate font-semibold text-neutral-900">{inv.owner?.name || `Payee #${inv.ownerId}`}</span>
+                          <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${isDriver ? "bg-cyan-50 text-cyan-700" : "bg-sky-50 text-sky-700"}`}>{isDriver ? "Driver" : "Owner"}</span>
                         </div>
-                      )}
-                      {i.paymentMethod && (
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {i.paymentMethod}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex justify-center">
-                        {i.receiptNumber ? (
-                          <button
-                            className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all duration-200 hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-700 active:border-sky-400 active:text-sky-800"
-                            onClick={() => downloadReceipt(i)}
-                          >
-                            <Download className="h-3 w-3" />
-                            Receipt
-                          </button>
+                        {inv.owner?.email && <div className="max-w-[240px] truncate text-xs text-neutral-400">{inv.owner.email}</div>}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="max-w-[220px] truncate text-neutral-800">{inv.booking?.property?.title || (isDriver ? "Transport trip" : "Not linked")}</div>
+                        {inv.booking?.property?.type && <div className="text-xs text-neutral-400">{humanize(inv.booking.property.type)}</div>}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3">
+                        <div className="tabular-nums text-neutral-800">{eatDate(inv.issuedAt)}</div>
+                        <div className="text-xs tabular-nums text-neutral-400">{eatTime(inv.issuedAt)}</div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-neutral-700">{tzs(Number(inv.total))}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-neutral-500">{inv.commissionAmount ? tzs(Number(inv.commissionAmount)) : "None"}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-neutral-900">{inv.netPayable != null ? tzs(Number(inv.netPayable)) : "Not set"}</td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${stage?.pill ?? "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>
+                          {stage ? <stage.icon className="h-3 w-3" /> : null}
+                          {stage?.label ?? humanize(inv.status)}
+                        </span>
+                        {inv.paidAt && <div className="mt-1 text-[11px] tabular-nums text-neutral-500">Paid {eatDate(inv.paidAt)}{inv.paymentMethod ? ` · ${inv.paymentMethod}` : ""}</div>}
+                        {!inv.paidAt && inv.approvedByUser?.name && <div className="mt-1 text-[11px] text-neutral-400">Approved by {inv.approvedByUser.name}</div>}
+                      </td>
+                      <td className="px-4 py-3 text-right sm:px-5">
+                        {inv.receiptNumber ? (
+                          <a href={`/api/admin/invoices/${inv.id}/receipt.png`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-xs font-semibold text-neutral-700 no-underline transition-colors hover:bg-neutral-50 hover:no-underline">
+                            <Download className="h-3.5 w-3.5" /> Receipt
+                          </a>
                         ) : (
-                          <span className="text-xs text-slate-400">—</span>
+                          <span className="text-xs text-neutral-400">{inv.status === "PAID" ? "Pending" : "After payment"}</span>
                         )}
-                      </div>
-                    </td>
-                  </TableRow>
-                );
+                      </td>
+                    </tr>
+                  );
                 })
               )}
             </tbody>
           </table>
         </div>
-      </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-        <div className="flex gap-2">
-          <button 
-            className="p-2 border border-slate-200 rounded-xl hover:border-[#02665e]/40 hover:text-[#02665e] transition-all duration-200 active:border-[#02665e] active:text-[#02665e] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center bg-white"
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1 || loading}
-            aria-label="Previous page"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <button 
-            className="p-2 border border-slate-200 rounded-xl hover:border-[#02665e]/40 hover:text-[#02665e] transition-all duration-200 active:border-[#02665e] active:text-[#02665e] touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center bg-white"
-            onClick={() => setPage(p => p + 1)}
-            disabled={items.length < pageSize || loading || (page * pageSize >= total)}
-            aria-label="Next page"
-          >
-            <ChevronRight className="h-5 w-5" />
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-t border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <span className="text-xs text-neutral-500">
+            {total === 0 ? "No invoices" : <>Showing <span className="font-semibold tabular-nums text-neutral-900">{(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, total)}</span> of <span className="font-semibold tabular-nums text-neutral-900">{total.toLocaleString()}</span></>}
+          </span>
+          <div className="flex items-center gap-2">
+            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />}
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading} aria-label="Previous page" className="grid h-8 w-8 place-items-center rounded-lg border border-solid border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 disabled:opacity-40">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-xs tabular-nums text-neutral-500">Page <span className="font-semibold text-neutral-900">{page}</span> of <span className="font-semibold text-neutral-900">{totalPages}</span></span>
+            <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages || loading} aria-label="Next page" className="grid h-8 w-8 place-items-center rounded-lg border border-solid border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50 disabled:opacity-40">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-        <div className="text-sm text-slate-600">
-          Page <span className="font-semibold text-slate-900 tabular-nums">{page}</span>
-          {total > 0 && (
-            <span className="ml-2 text-slate-500 tabular-nums">
-              (Total: {total.toLocaleString()})
-            </span>
-          )}
-        </div>
-      </div>
+      </section>
 
-      {/* Manual invoice actions intentionally removed (invoice lifecycle is automatic). */}
+      <p className="m-0 flex items-center gap-1.5 text-[11px] text-neutral-400">
+        <Wallet className="h-3.5 w-3.5" /> Amounts in Tanzanian shillings. Approving and paying invoices happens in Revenue and Payments, not here.
+      </p>
     </div>
   );
 }

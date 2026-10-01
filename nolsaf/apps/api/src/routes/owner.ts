@@ -29,6 +29,7 @@ import ownerNrmsSalesChannelsRouter from "./owner.nrms.salesChannels";
 import ownerNrmsSalesPerformanceRouter from "./owner.nrms.salesPerformance";
 import ownerNrmsFinanceRouter from "./owner.nrms.finance";
 import ownerNrmsFiscalRouter from "./owner.nrms.fiscal";
+import ownerNrmsGuideRouter from "./owner.nrms.guide";
 import ownerNrmsChannelsRouter from "./owner.nrms.channels";
 import ownerNrmsMarketReadinessRouter from "./owner.nrms.market-readiness";
 import ownerNrmsInquiriesRouter from "./owner.nrms.inquiries";
@@ -85,6 +86,7 @@ export function registerOwnerBusinessRoutes(app: Express): void {
   app.use("/api/owner/nrms/sales-performance", ownerNrmsSalesPerformanceRouter as RequestHandler);
   app.use("/api/owner/nrms/finance", ownerNrmsFinanceRouter as RequestHandler);
   app.use("/api/owner/nrms/fiscal", ownerNrmsFiscalRouter as RequestHandler);
+  app.use("/api/owner/nrms/guide", ownerNrmsGuideRouter as RequestHandler);
   app.use("/api/owner/nrms/channels", ownerNrmsChannelsRouter as RequestHandler);
   app.use("/api/owner/nrms/market-readiness", ownerNrmsMarketReadinessRouter as RequestHandler);
   app.use("/api/owner/nrms/inquiries", ownerNrmsInquiriesRouter as RequestHandler);

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Eye, DollarSign, MapPin, Clock, CheckCircle, XCircle, AlertCircle, FileX } from "lucide-react";
 import TableRow from "../TableRow";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type CancellationRow = {
   id: number;
@@ -52,11 +53,12 @@ function getStatusIcon(status: string) {
 }
 
 export default function CancellationTableRow({ row: r, onRowClick }: Props) {
+  const recordHref = useAdminHref();
   const handleRowClick = () => {
     if (onRowClick) {
       onRowClick(r.id);
     } else {
-      window.location.href = `/admin/cancellations/${r.id}`;
+      window.location.href = recordHref("cancellation", r.id);
     }
   };
 
@@ -66,7 +68,7 @@ export default function CancellationTableRow({ row: r, onRowClick }: Props) {
       <td className="px-6 py-4 whitespace-nowrap">
         <Link
           className="no-underline text-[#02665e] hover:text-[#014d47] hover:underline font-semibold"
-          href={`/admin/cancellations/${r.id}`}
+          href={recordHref("cancellation", r.id)}
           onClick={(e) => e.stopPropagation()}
         >
           #{r.id}
@@ -140,7 +142,7 @@ export default function CancellationTableRow({ row: r, onRowClick }: Props) {
       {/* Actions */}
       <td className="px-6 py-4 whitespace-nowrap text-right">
         <Link
-          href={`/admin/cancellations/${r.id}`}
+          href={recordHref("cancellation", r.id)}
           onClick={(e) => e.stopPropagation()}
           className="group relative inline-flex items-center justify-center rounded-lg bg-[#02665e] p-2 text-white hover:bg-[#014d47] transition-all shadow-sm hover:shadow-md active:scale-[0.98]"
         >

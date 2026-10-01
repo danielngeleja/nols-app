@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import PropertyPreview from "@/components/PropertyPreview";
 import { Loader2, ScanEye, MapPin, Star, Search, X, ChevronDown, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import Image from "next/image";
 import { 
   getPropertyCommission, 
@@ -159,6 +160,29 @@ export default function PropertyPreviewsPage() {
   const [loadingOwners, setLoadingOwners] = useState(false);
   // Kept separately: the search results change as you type, the choice should not
   const [selectedOwner, setSelectedOwner] = useState<{ id: number; name: string | null; email: string } | null>(null);
+
+  // Links from other pages open a property (?previewId=pp_...) or filter to an
+  // owner (?ownerId=ow_...). Both carry references, never row ids.
+  const [linked, setLinked] = useState<{ property: string | null; propertyParam: string; owner: string | null }>({ property: null, propertyParam: "previewId", owner: null });
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const propertyParam = query.has("previewId") ? "previewId" : "propertyId";
+    setLinked({ property: query.get(propertyParam), propertyParam, owner: query.get("ownerId") });
+  }, []);
+  const linkedPropertyId = useAdminQueryId("property", linked.property, linked.propertyParam);
+  const linkedOwnerId = useAdminQueryId("owner", linked.owner, "ownerId");
+  useEffect(() => {
+    if (linkedPropertyId) setSelectedPropertyId(linkedPropertyId);
+  }, [linkedPropertyId]);
+  useEffect(() => {
+    if (!linkedOwnerId) return;
+    setOwnerFilter(String(linkedOwnerId));
+    setStatusFilter("ALL");
+    api
+      .get<{ owner?: { id: number; name: string | null; email: string } }>(`/api/admin/owners/${linkedOwnerId}`)
+      .then((r) => { if (r.data?.owner) setSelectedOwner({ id: r.data.owner.id, name: r.data.owner.name, email: r.data.owner.email }); })
+      .catch(() => undefined);
+  }, [linkedOwnerId]);
 
   // Debounce typing so the API is not hit on every keystroke
   useEffect(() => {

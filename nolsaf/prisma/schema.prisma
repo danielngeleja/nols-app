@@ -2231,6 +2231,20 @@ model SystemSetting {
   /// Alert on suspicious activity
   alertOnSuspiciousActivity Boolean? @default(false)
 
+  // ==================== Payout Safeguards ====================
+  /// A single payout at or above this amount (TZS) is held in SECURITY_REVIEW
+  /// at batch formation, whatever the payee's history. Null turns it off.
+  payoutReviewThresholdTzs Int?
+
+  /// Total paid or in flight to one payee in a rolling 24 hours, including
+  /// the payout being batched, above which it is held for review (TZS).
+  /// Null turns it off.
+  payoutDailyCapPerPayeeTzs Int?
+
+  /// Hours after a payout destination is created or changed during which
+  /// riskScoring treats it as RECENT_ACCOUNT_CHANGE. Clamped to 24..336.
+  payoutRecentChangeHours Int? @default(72)
+
   // ==================== Business Configuration Fields ====================
   /// Referral credit percentage as decimal (e.g., 0.0035 for 0.35%)
   referralCreditPercent Decimal? @default(0.0035) @db.Decimal(10, 6)
@@ -8679,6 +8693,17 @@ model Disbursement {
   /// Why this payout is sitting in SECURITY_REVIEW — fingerprint mismatch,
   /// risk score, or a rejected bulk re-verification. Cleared when resolved.
   securityReviewReason String? @db.VarChar(300)
+
+  /// Set when a second admin clears this payout from SECURITY_REVIEW.
+  /// securityClearedFingerprint freezes the approval fingerprint they cleared:
+  /// while it still matches, batch formation records the risk score but does
+  /// not hold the payout again for the same unchanged risk. Any change to the
+  /// payout or its destination breaks the match and the hold applies again.
+  /// No FK on securityClearedById: the clearing admin is also captured in the
+  /// append-only DisbursementEvent and admin audit rows.
+  securityClearedAt          DateTime?
+  securityClearedById        Int?
+  securityClearedFingerprint String?   @db.VarChar(64)
 
   batchId Int?
 

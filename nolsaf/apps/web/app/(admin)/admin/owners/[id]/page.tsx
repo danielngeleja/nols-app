@@ -5,6 +5,8 @@ import { io, Socket } from "socket.io-client";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import { ArrowLeft, User, Building2, FileText, DollarSign, Mail, Phone, Calendar, CheckCircle2, XCircle, Clock, Eye, Shield, Ban, Copy, MapPin, ImageIcon, Bell, Send, X, History, Activity, Home, Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, FileX, RefreshCw, Check, ExternalLink, Radar, Wallet, Handshake, Briefcase, Users, Printer } from "lucide-react";
 import VerifiedIcon from "@/components/VerifiedIcon";
 import TableRow from "@/components/TableRow";
@@ -137,8 +139,15 @@ type Property = {
 
 export default function OwnerDetailPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const ownerId = Number(idParam);
+  return (
+    <AdminRecordGate kind="owner" param={routeParams?.id} backHref="/admin/owners">
+      {(ownerId) => <OwnerDetail ownerId={ownerId} />}
+    </AdminRecordGate>
+  );
+}
+
+function OwnerDetail({ ownerId }: { ownerId: number }) {
+  const recordHref = useAdminHref();
   const [owner, setOwner] = useState<Owner|null>(null);
   const [snap, setSnap] = useState<Snapshot|null>(null);
   const [caps, setCaps] = useState<Capabilities|null>(null);
@@ -829,7 +838,7 @@ export default function OwnerDetailPage() {
                 {/* A printable record of everything this owner did, for the
                     case where they come back disputing a payment. */}
                 <Link
-                  href={`/admin/owners/${ownerId}/statement`}
+                  href={recordHref("owner", ownerId, { suffix: "/statement" })}
                   className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-xs font-medium text-gray-700 no-underline ring-1 ring-gray-300 hover:bg-gray-50 hover:text-brand transition-colors"
                   title="Open a printable statement for this owner"
                 >
@@ -938,7 +947,7 @@ export default function OwnerDetailPage() {
                   </div>
                   <div className="mt-6 text-center">
                     <Link
-                      href={`/admin/properties/previews?ownerId=${ownerId}`}
+                      href={`/admin/properties/previews?ownerId=${adminRefOrId("owner", ownerId)}`}
                       className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-brand bg-brand/5 rounded-lg hover:bg-brand/10 hover:text-brand transition-all duration-300 no-underline hover:no-underline group"
                       style={{ textDecoration: 'none' }}
                     >
@@ -952,7 +961,7 @@ export default function OwnerDetailPage() {
                   <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                   <p className="text-gray-600 mb-4">No properties found for this owner</p>
                   <Link
-                    href={`/admin/properties/previews?ownerId=${ownerId}`}
+                    href={`/admin/properties/previews?ownerId=${adminRefOrId("owner", ownerId)}`}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors duration-200 no-underline hover:no-underline"
                     style={{ textDecoration: 'none' }}
                   >
@@ -1397,7 +1406,7 @@ export default function OwnerDetailPage() {
                               <td className="px-3 sm:px-4 py-3 text-sm">
                                 <div className="flex justify-center">
                                   <Link
-                                    href={`/admin/management/bookings/${b.id}`}
+                                    href={`/admin/management/bookings/${b.reference ?? b.id}`}
                                     className="p-2 rounded-lg text-brand hover:bg-brand/10 transition-all duration-200"
                                     title="View booking details"
                                   >
@@ -1475,7 +1484,7 @@ export default function OwnerDetailPage() {
                               <div className="text-xs text-gray-500 mt-0.5">{getStatusBadge()}</div>
                             </div>
                             <Link
-                              href={`/admin/management/bookings/${b.id}`}
+                              href={`/admin/management/bookings/${b.reference ?? b.id}`}
                               className="p-2 rounded-lg text-brand hover:bg-brand/10 transition-all"
                             >
                               <Eye className="h-5 w-5" />
@@ -2365,6 +2374,7 @@ function CapabilityTile({
 }
 
 function PropertyCard({ property }: { property: Property }) {
+  useAdminHref();
   const location = [property.ward, property.district, property.regionName].filter(Boolean).join(", ") || "Location not specified";
   const price = property.basePrice 
     ? fmt(property.basePrice)
@@ -2422,7 +2432,7 @@ function PropertyCard({ property }: { property: Property }) {
 
   return (
     <Link
-      href={`/admin/properties/previews?previewId=${property.id}`}
+      href={`/admin/properties/previews?previewId=${adminRefOrId("property", property.id)}`}
       className="group no-underline text-slate-900"
       aria-label={`View ${property.title}`}
     >

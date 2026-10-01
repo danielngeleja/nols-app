@@ -72,6 +72,7 @@ import adminUpdatesRouter from "./admin.updates";
 import adminUsersSummaryRouter from "./admin.users.summary";
 import adminUsersTransportBookingsRouter from "./admin.users.transportBookings";
 import adminUsersRouter from "./admin.users";
+import adminRecordRefsRouter from "./admin.recordRefs.js";
 import adminTrustVerificationRouter from "./admin.trustVerification.js";
 
 export function registerAdminGuards(app: Express): void {
@@ -164,6 +165,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/users", adminUsersRouter);
   app.use("/api/admin/trust-verification", adminTrustVerificationRouter as RequestHandler);
   app.use("/api/admin/users", adminUsersRouter as RequestHandler);
+  // Opaque references for admin page URLs (no row ids in the address bar).
+  app.use("/api/admin/record-refs", adminRecordRefsRouter as RequestHandler);
   app.use("/admin/help-owners", adminHelpOwnersRouter);
   app.use("/api/admin/help-owners", adminHelpOwnersRouter as RequestHandler);
   app.use("/admin/bonuses", adminBonusesRouter);

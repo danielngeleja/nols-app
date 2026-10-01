@@ -32,7 +32,6 @@ function requireManager(access: FinanceAccess, res: Response): boolean {
   return false;
 }
 
-const openShiftSchema = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), openingFloat: z.number().min(0) });
 const closeShiftSchema = z.object({ declaredCash: z.number().min(0), closeNote: z.string().trim().max(300).optional().nullable() });
 const closeDaySchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -473,11 +472,20 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const closeTime = active.property.nrmsNightAuditCloseTime;
     const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.businessDate ?? "")) ? String(req.query.businessDate) : dayKey(new Date());
     const month = /^\d{4}-\d{2}$/.test(String(req.query.month ?? "")) ? String(req.query.month) : businessDate.slice(0, 7);
-    const requestedView = ["audit", "cashiers", "expenses", "ledger", "tax", "nbs"].includes(String(req.query.view ?? "")) ? String(req.query.view) : "audit";
-    const needsCashiers = requestedView === "cashiers";
+    // "report" is the Reports page's consolidated export: shifts, ledger, tax
+    // and NBS in one payload. Without it the page fell back to "audit", which
+    // loads none of those, and sealed reports stated "Ledger balanced: No",
+    // "Tax entries: 0" and "Cashier shifts: 0" regardless of the real books.
+    const requestedView = ["audit", "cashiers", "expenses", "ledger", "tax", "nbs", "report"].includes(String(req.query.view ?? "")) ? String(req.query.view) : "audit";
+    // Front desk runs Night Audit and cashier shifts only. The workspace hides
+    // the accounting views from them; this enforces it at the API as well.
+    if (active.role === "FRONT_DESK" && requestedView !== "audit" && requestedView !== "cashiers") {
+      return res.status(403).json({ error: "Only an owner or manager can view the accounting records." });
+    }
+    const needsCashiers = requestedView === "cashiers" || requestedView === "report";
     const needsAudit = requestedView === "audit";
-    const needsLedger = requestedView === "ledger" || requestedView === "tax";
-    const needsNbs = requestedView === "nbs";
+    const needsLedger = requestedView === "ledger" || requestedView === "tax" || requestedView === "report";
+    const needsNbs = requestedView === "nbs" || requestedView === "report";
     const reportMonthRange = monthRange(month);
     const reportMonthLastDay = dayKey(new Date(reportMonthRange.end.getTime() - 1));
     const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from ?? "")) ? String(req.query.from) : needsLedger ? `${month}-01` : businessDate;
@@ -604,38 +612,23 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in", room: order.reservation ? (order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room") : "Walk-in" })),
       ledger: { loaded: needsLedger, accounts: [...accountMap.values()], transactions, balanced: transactions.length > 0 && transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },
-      nightAudits: day?.nightAudits ?? [],
+      // The report pack lists every Night Audit run across its whole period,
+      // with the business date each one closed; other views keep the runs of
+      // the selected date only.
+      nightAudits: requestedView === "report"
+        ? await db.nrmsNightAuditRun.findMany({
+          where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } },
+          select: { id: true, reportNumber: true, status: true, startedAt: true, completedAt: true, businessDay: { select: { businessDate: true } } },
+          orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+          take: 400,
+        })
+        : day?.nightAudits ?? [],
       nbs,
       stock: { tracked: stockBalances.length > 0, value: stockValue },
     });
   } catch (error) {
     console.error("Failed to load NRMS financial control", error);
     res.status(500).json({ error: "Unable to load financial control records" });
-  }
-}) as RequestHandler);
-
-router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res: Response) => {
-  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
-  if (!active) return;
-  const parsed = openShiftSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Enter a valid business date and opening float" });
-  const currency = active.property.currency?.toUpperCase();
-  if (!currency) return res.status(409).json({ error: "Set the property currency before opening a cashier shift" });
-  try {
-    const shift = await db.$transaction(async (tx: any) => {
-      await lockPropertyInventory(tx, active.property.id);
-      const existing = await tx.nrmsCashierShift.findFirst({ where: { propertyId: active.property.id, userId: req.user!.id, status: "OPEN" } });
-      if (existing) throw new Error("SHIFT_ALREADY_OPEN");
-      const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
-      if (day.status !== "OPEN") throw new Error("BUSINESS_DAY_CLOSED");
-      return tx.nrmsCashierShift.create({ data: { propertyId: active.property.id, businessDayId: day.id, userId: req.user!.id, businessDate: day.businessDate, currency, openingFloat: parsed.data.openingFloat } });
-    }, { maxWait: 10_000, timeout: 15_000 });
-    res.status(201).json({ shift });
-  } catch (error) {
-    const code = error instanceof Error ? error.message : "";
-    if (code === "SHIFT_ALREADY_OPEN") return res.status(409).json({ error: "Close your current cashier shift before opening another." });
-    if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closed and cannot accept a new shift." });
-    throw error;
   }
 }) as RequestHandler);
 

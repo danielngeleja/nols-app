@@ -11,6 +11,7 @@ import { authenticator } from "otplib";
 import { decrypt } from "../lib/crypto.js";
 import { verifyTotp } from "../lib/totp.js";
 import { audit } from "../lib/audit.js";
+import { raiseSecurityAlert } from "../lib/securityAlerts.js";
 import { hashCode } from "../lib/otp.js";
 import { getRedis } from "../lib/redis.js";
 import { sendSms } from "../lib/sms.js";
@@ -183,9 +184,16 @@ async function loadRequestChallenge(req: Request, res: Response): Promise<{ id: 
   return { id, challenge };
 }
 
-async function recordFailure(id: string, challenge: AdminMfaChallenge, res: Response): Promise<boolean> {
+async function recordFailure(id: string, challenge: AdminMfaChallenge, res: Response, req: Request): Promise<boolean> {
   challenge.failures += 1;
   if (challenge.failures >= MAX_VERIFY_FAILURES) {
+    // Password was right but the second factor kept failing: a strong sign the
+    // admin password is known to someone else.
+    void raiseSecurityAlert("security_admin_mfa_locked", String(challenge.userId), {
+      userId: challenge.userId,
+      ip: req.ip,
+      attempts: challenge.failures,
+    });
     await removeChallenge(id);
     clearChallengeCookie(res);
     res.status(429).json({ error: "Too many failed verification attempts. Sign in again.", code: "ADMIN_MFA_LOCKED" });
@@ -333,7 +341,7 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
     where: { userId: loaded.challenge.userId, credentialId },
   }) : null;
   if (!stored) {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Passkey does not belong to this administrator.", code: "ADMIN_MFA_INVALID" });
   }
 
@@ -358,7 +366,7 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
     }
     await completeAdminLogin(req, res, loaded.id, "passkey");
   } catch {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Passkey verification failed.", code: "ADMIN_MFA_INVALID" });
   }
 });
@@ -384,7 +392,7 @@ adminMfaRouter.post("/admin-mfa/totp/verify", async (req, res) => {
     verified = false;
   }
   if (!verified) {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Authenticator code is invalid.", code: "ADMIN_MFA_INVALID" });
   }
   if (loaded.challenge.passkeyCount === 0) {
@@ -437,7 +445,7 @@ adminMfaRouter.post("/admin-mfa/bootstrap/verify", limitOtpVerify, async (req, r
     crypto.timingSafeEqual(Buffer.from(hashCode(code), "hex"), Buffer.from(expected, "hex")),
   );
   if (!valid) {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Security code is invalid or expired.", code: "ADMIN_MFA_INVALID" });
   }
   loaded.challenge.bootstrapVerified = true;
@@ -506,7 +514,7 @@ adminMfaRouter.post("/admin-mfa/passkey/register/verify", async (req, res) => {
     await putChallenge(loaded.id, loaded.challenge);
     await completeAdminLogin(req, res, loaded.id, "passkey");
   } catch {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Passkey registration failed.", code: "ADMIN_MFA_INVALID" });
   }
 });

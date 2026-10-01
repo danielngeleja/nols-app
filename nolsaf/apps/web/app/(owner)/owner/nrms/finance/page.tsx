@@ -54,6 +54,8 @@ type FinanceData = {
   stock?: { tracked: boolean; value: number };
 };
 
+const JOURNAL_PAGE_SIZE = 25;
+
 /** Food and beverage revenue against its cost (stock control milestone 5). */
 const FNB_REVENUE_CODES = ["4200", "4210", "4220"];
 const COGS_CODES = ["5010", "5020"];
@@ -107,6 +109,8 @@ function shiftRowTone(shift: Shift): string {
 }
 
 const ACCOUNT_TYPE_ORDER = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
+/** Account types whose balance normally sits on the debit side. */
+const DEBIT_NORMAL_TYPES = ["ASSET", "EXPENSE"];
 const ACCOUNT_TYPE_STYLE: Record<string, { label: string; dot: string; border: string }> = {
   ASSET: { label: "Assets", dot: "bg-blue-500", border: "shadow-[inset_3px_0_0_0_#60a5fa]" },
   LIABILITY: { label: "Liabilities", dot: "bg-amber-500", border: "shadow-[inset_3px_0_0_0_#fbbf24]" },
@@ -196,6 +200,11 @@ export default function FinanceControlPage() {
   const [editingAuditTime, setEditingAuditTime] = useState(false);
   const [auditTimeDraft, setAuditTimeDraft] = useState("20:00");
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  // The journal holds the whole reporting month, which can run to hundreds of
+  // transactions, so it is paged on the client. Back to page 1 on a new scope.
+  const [journalPage, setJournalPage] = useState(1);
+  useEffect(() => { setJournalPage(1); }, [month, selectedPropertyId]);
+
   // Drives the "Night Audit in 3h 12m" countdown; minute precision is enough.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -314,6 +323,10 @@ export default function FinanceControlPage() {
   const unclosedBusinessDays = data?.unclosedBusinessDays ?? [];
   const oldestUnclosedDay = unclosedBusinessDays[0] ?? null;
   const isDayScoped = tab === "audit" || tab === "cashiers";
+  const journalTotal = data?.ledger.transactions.length ?? 0;
+  const journalPageCount = Math.max(1, Math.ceil(journalTotal / JOURNAL_PAGE_SIZE));
+  // Clamped so a refresh that shortens the list never strands you past the end.
+  const journalPageSafe = Math.min(journalPage, journalPageCount);
   const closeShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Cashier shift closed and its variance has been recorded.");
   const reconcileShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/reconcile`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Physical cash count recorded. Review and sign off this shift.");
   const signOffShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/sign-off`), "Shift sales acknowledged and signed off.");
@@ -437,10 +450,10 @@ export default function FinanceControlPage() {
           return { label: loading && !data ? "..." : "No record", tone: "none" };
         };
         const tileSkin = {
-          closed: "bg-white text-neutral-900 ring-1 ring-neutral-200 hover:ring-emerald-300",
-          due: "bg-amber-50 text-amber-950 ring-1 ring-amber-300 hover:ring-amber-400",
+          closed: "border-0 bg-white text-neutral-900 ring-1 ring-neutral-200 hover:ring-emerald-300",
+          due: "border-0 bg-amber-50 text-amber-950 ring-1 ring-amber-300 hover:ring-amber-400",
           trading: "border border-dashed border-neutral-300 bg-white text-neutral-900 hover:border-emerald-400",
-          none: "bg-transparent text-neutral-400 ring-1 ring-neutral-200 hover:bg-white",
+          none: "border-0 bg-transparent text-neutral-400 ring-1 ring-neutral-200 hover:bg-white",
         };
         const tileStatusText = { closed: "text-emerald-700", due: "text-amber-700", trading: "text-sky-700", none: "text-neutral-400" };
         const stepButton = "flex h-full min-h-[64px] w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent";
@@ -501,25 +514,34 @@ export default function FinanceControlPage() {
                 <div className="absolute inset-0 opacity-0 [&>*]:!h-full [&_button]:!h-full [&_button]:!w-full [&_button]:!min-w-0 [&_button]:!cursor-pointer [&_button]:!p-0"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
               </div>
             </> : <>
-              <button type="button" aria-label="Earlier months" onClick={() => setMonth(shiftMonth(month, -6))} className={stepButton}><ChevronLeft className="h-4 w-4" /></button>
+              {/* One light track, the selected month raised in brand green. The
+                  old tiles never reset the browser's button border, which with
+                  preflight off drew a thick grey outset frame round each one. */}
+              <button type="button" aria-label="Earlier months" onClick={() => setMonth(shiftMonth(month, -6))} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800"><ChevronLeft className="h-4 w-4" /></button>
               <div className="min-w-0 flex-1 overflow-x-auto">
-                <div className="grid min-w-[440px] grid-cols-6 gap-1.5">
+                <div role="tablist" aria-label="Reporting month" className="grid min-w-[480px] grid-cols-6 gap-1 rounded-2xl bg-white p-1 ring-1 ring-neutral-200">
                   {stripMonths.map((value) => {
                     const on = value === month;
                     const [y, m] = value.split("-").map(Number);
-                    const label = new Date(Date.UTC(y!, m! - 1, 1, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", month: "short" });
+                    const label = new Date(Date.UTC(y!, m! - 1, 1, 12)).toLocaleDateString("en-US", { timeZone: "UTC", month: "short" });
+                    const daysInMonth = new Date(Date.UTC(y!, m!, 0)).getUTCDate();
+                    const current = value === thisMonth;
+                    const sub = current ? `Day ${Number(today.slice(8, 10))} of ${daysInMonth}` : `${daysInMonth} days`;
                     return (
-                      <button key={value} type="button" onClick={() => setMonth(value)} aria-current={on ? "date" : undefined}
-                        className={`flex min-h-[64px] appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : "bg-white text-neutral-900 ring-1 ring-neutral-200 hover:ring-emerald-300"}`}>
-                        <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{y}</span>
-                        <span className="mt-0.5 text-base font-extrabold leading-none">{label}</span>
-                        <span className={`mt-1 text-[10px] font-bold ${on ? "text-emerald-200" : value === thisMonth ? "text-sky-700" : "text-neutral-400"}`}>{value === thisMonth ? "To date" : "Full month"}</span>
+                      <button key={value} type="button" role="tab" aria-selected={on} onClick={() => setMonth(value)}
+                        className={`relative flex h-14 appearance-none flex-col items-center justify-center rounded-xl border-0 px-1 text-center transition ${on ? "bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)]" : "bg-transparent text-neutral-700 hover:bg-neutral-100"}`}>
+                        <span className="flex items-center gap-1.5 text-sm font-extrabold leading-none">
+                          {label}<span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{y}</span>
+                        </span>
+                        <span className={`mt-1.5 flex items-center gap-1 text-[10px] font-semibold tabular-nums ${on ? "text-emerald-200" : current ? "text-emerald-700" : "text-neutral-400"}`}>
+                          {current && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-300" : "bg-emerald-500"}`} />}{sub}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
               </div>
-              <button type="button" aria-label="Later months" disabled={month >= thisMonth} onClick={() => setMonth([shiftMonth(month, 6), thisMonth].sort()[0]!)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
+              <button type="button" aria-label="Later months" disabled={month >= thisMonth} onClick={() => setMonth([shiftMonth(month, 6), thisMonth].sort()[0]!)} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
             </>}
           </div>
         </>;
@@ -859,27 +881,86 @@ export default function FinanceControlPage() {
           {grossProfit.length === 0 && <p className="m-0 text-[11px] text-neutral-500">No stock has posted in this range yet. Cost of goods sold appears after the Night Audit that follows the first stock sale.</p>}
         </div>
       </div>}
-      <div className="space-y-5">
-        {accountGroups.map((group) => {
-          const style = ACCOUNT_TYPE_STYLE[group.type] ?? { label: group.type, dot: "bg-neutral-400", border: "shadow-[inset_3px_0_0_0_#d4d4d4]" };
-          return (
-            <div key={group.type}>
-              <div className="mb-2.5 flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${style.dot}`} /><p className="m-0 text-[13px] font-bold text-neutral-900">{style.label}</p><span className="text-[11px] text-neutral-400">{group.accounts.length} account{group.accounts.length === 1 ? "" : "s"}</span></div>
-              <div className="grid gap-3 md:grid-cols-3">
-                {group.accounts.map((account) => (
-                  <div key={`${account.accountCode}-${account.currency}`} className={`min-w-0 rounded-xl bg-white p-4 ring-1 ring-neutral-200 ${style.border}`}>
-                    <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{account.accountCode} · {account.accountName}</p>
-                    <p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{cash(Math.abs(account.balance), account.currency)}</p>
-                    <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{cash(account.debit, account.currency)} debit · {cash(account.credit, account.currency)} credit</p>
+      {/* Account cards, grouped by type. Each card reads its balance on the
+          type's normal side (assets and expenses as debit, the rest as credit),
+          shows debit against credit as a split bar, and says in words when the
+          balance sits on the wrong side. The old cards used Math.abs, which made
+          a cash drawer 19M short read as 19M in hand. */}
+      {accountGroups.length > 0 && (() => {
+        const normalBalance = (type: string, debit: number, credit: number) => (DEBIT_NORMAL_TYPES.includes(type) ? debit - credit : credit - debit);
+        return (
+          <div className="space-y-6">
+            {accountGroups.map((group) => {
+              const style = ACCOUNT_TYPE_STYLE[group.type] ?? { label: codeLabel(group.type), dot: "bg-neutral-400", border: "" };
+              const debitNormal = DEBIT_NORMAL_TYPES.includes(group.type);
+              const accounts = group.accounts.map((account) => ({ ...account, normal: normalBalance(group.type, account.debit, account.credit) }));
+              const active = accounts.filter((account) => account.normal !== 0);
+              const settled = accounts.filter((account) => account.normal === 0);
+              const totals = new Map<string, number>();
+              for (const account of accounts) totals.set(account.currency, (totals.get(account.currency) ?? 0) + account.normal);
+              const flagged = accounts.filter((account) => account.normal < 0).length;
+              return (
+                <div key={group.type}>
+                  <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className={`h-2.5 w-2.5 self-center rounded-full ${style.dot}`} />
+                    <h4 className="m-0 text-sm font-bold text-neutral-900">{style.label}</h4>
+                    <span className="text-[11px] text-neutral-400">{accounts.length} account{accounts.length === 1 ? "" : "s"}</span>
+                    {flagged > 0 && <span className="inline-flex items-center gap-1 self-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"><AlertTriangle className="h-3 w-3" />{flagged} to check</span>}
+                    <span className="ml-auto flex flex-wrap gap-x-3 text-right">
+                      {[...totals.entries()].map(([currency, total]) => <span key={currency} className={`text-sm font-extrabold tabular-nums ${total < 0 ? "text-amber-700" : "text-neutral-900"}`}>{total < 0 ? "-" : ""}{cash(Math.abs(total), currency)}</span>)}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {active.map((account) => {
+                      const wrongSide = account.normal < 0;
+                      const flow = account.debit + account.credit;
+                      const debitShare = flow > 0 ? Math.round((account.debit / flow) * 100) : 50;
+                      return (
+                        <div key={`${account.accountCode}-${account.currency}`} className={`box-border flex min-w-0 flex-col rounded-2xl border border-solid bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_14px_30px_-22px_rgba(15,23,42,0.45)] ${wrongSide ? "border-amber-300" : "border-neutral-200"}`}>
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500">{account.accountCode}</span>
+                            <p className="m-0 min-w-0 flex-1 truncate text-[13px] font-semibold text-neutral-800" title={account.accountName}>{account.accountName}</p>
+                            {wrongSide ? <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-label="Needs checking" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Normal balance" />}
+                          </div>
+
+                          <p className={`mb-0 mt-3 truncate text-2xl font-extrabold tabular-nums tracking-tight ${wrongSide ? "text-amber-700" : "text-neutral-950"}`}>{wrongSide ? "-" : ""}{cash(Math.abs(account.normal), account.currency)}</p>
+
+                          {/* Debit against credit, so the direction of money is visible. */}
+                          <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden="true">
+                            <span className="h-full bg-blue-500" style={{ width: `${debitShare}%` }} />
+                            <span className="h-full bg-violet-400" style={{ width: `${100 - debitShare}%` }} />
+                          </div>
+                          <div className="mt-1.5 flex justify-between gap-2 text-[10px] tabular-nums">
+                            <span className="text-blue-700"><span className="font-semibold">Debit</span> {cash(account.debit, account.currency)}</span>
+                            <span className="text-violet-700"><span className="font-semibold">Credit</span> {cash(account.credit, account.currency)}</span>
+                          </div>
+
+                          {wrongSide && (
+                            <p className="mb-0 mt-3 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-4 text-amber-900">
+                              {debitNormal ? "Credits exceed debits. Check the postings on this account." : "Debits exceed credits. Check the postings on this account."}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {settled.map((account) => (
+                      <div key={`${account.accountCode}-${account.currency}`} className="box-border flex min-w-0 items-center gap-2 self-start rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3">
+                        <span className="shrink-0 rounded-md bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-400">{account.accountCode}</span>
+                        <p className="m-0 min-w-0 flex-1 truncate text-xs font-semibold text-neutral-500">{account.accountName}</p>
+                        <span className="shrink-0 text-[10px] font-bold text-neutral-400">Settled · {cash(0, account.currency)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       <div className="overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm">
-        <div className="shadow-[inset_0_-1px_0_0_#e5e5e5] p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction &mdash; that balance is what makes the ledger correct.</p></div>
+        <div className="shadow-[inset_0_-1px_0_0_#e5e5e5] p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction. That balance is what makes the ledger correct.</p></div>
         <div className="overflow-x-auto overscroll-x-contain">
           <table className="min-w-[900px] border-collapse text-left text-xs">
             <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">
@@ -890,7 +971,7 @@ export default function FinanceControlPage() {
               <th className="bg-blue-50/70 p-3 text-right text-blue-800 shadow-[inset_1px_0_0_0_#dbeafe,inset_0_-1px_0_0_#dbeafe]">Debit</th>
               <th className="bg-violet-50/70 p-3 text-right text-violet-800 shadow-[inset_1px_0_0_0_#ede9fe,inset_0_-1px_0_0_#ede9fe]">Credit</th>
             </tr></thead>
-            <tbody>{data?.ledger.transactions.map((transaction) => <tr key={transaction.id} className="group shadow-[inset_0_1px_0_0_#f5f5f5] align-top transition-colors hover:bg-neutral-50/70">
+            <tbody>{(data?.ledger.transactions ?? []).slice((journalPageSafe - 1) * JOURNAL_PAGE_SIZE, journalPageSafe * JOURNAL_PAGE_SIZE).map((transaction) => <tr key={transaction.id} className="group shadow-[inset_0_1px_0_0_#f5f5f5] align-top transition-colors hover:bg-neutral-50/70">
               <td className="sticky left-0 z-10 whitespace-nowrap bg-white p-3 shadow-[inset_-1px_0_0_0_#e5e5e5] font-bold text-neutral-900 transition-colors group-hover:bg-neutral-50">{transaction.transactionNumber}<small className="mt-1 block font-normal text-neutral-400">{time(transaction.occurredAt)}</small></td>
               <td className="whitespace-nowrap p-3 text-neutral-500">{transaction.sourceType.replaceAll("_", " ")}</td>
               <td className="min-w-[180px] max-w-[280px] p-3 text-neutral-700">{transaction.description}</td>
@@ -900,6 +981,26 @@ export default function FinanceControlPage() {
             </tr>)}{!data?.ledger.transactions.length && <tr><td colSpan={6} className="p-10 text-center text-neutral-400">The ledger is posted when Night Audit closes this business date.</td></tr>}</tbody>
           </table>
         </div>
+        {journalTotal > JOURNAL_PAGE_SIZE && (() => {
+          const first = (journalPageSafe - 1) * JOURNAL_PAGE_SIZE + 1;
+          const last = Math.min(journalPageSafe * JOURNAL_PAGE_SIZE, journalTotal);
+          // Page numbers around the current one, with the ends always shown.
+          const pages = [...new Set([1, journalPageSafe - 1, journalPageSafe, journalPageSafe + 1, journalPageCount])].filter((page) => page >= 1 && page <= journalPageCount).sort((a, b) => a - b);
+          const pageButton = "inline-flex h-8 min-w-8 appearance-none items-center justify-center rounded-lg border-0 px-2 text-xs font-semibold tabular-nums transition disabled:cursor-not-allowed disabled:opacity-40";
+          return (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-[inset_0_1px_0_0_#e5e5e5]">
+              <p className="m-0 text-xs text-neutral-500">Showing <strong className="font-semibold tabular-nums text-neutral-800">{first} to {last}</strong> of <strong className="font-semibold tabular-nums text-neutral-800">{journalTotal}</strong> transactions</p>
+              <nav aria-label="Journal pages" className="flex items-center gap-1">
+                <button type="button" aria-label="Previous page" disabled={journalPageSafe <= 1} onClick={() => setJournalPage(journalPageSafe - 1)} className={`${pageButton} bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50`}><ChevronLeft className="h-4 w-4" /></button>
+                {pages.map((page, index) => <span key={page} className="flex items-center gap-1">
+                  {index > 0 && page - pages[index - 1]! > 1 && <span className="px-1 text-xs text-neutral-400" aria-hidden="true">…</span>}
+                  <button type="button" aria-current={page === journalPageSafe ? "page" : undefined} onClick={() => setJournalPage(page)} className={`${pageButton} ${page === journalPageSafe ? "bg-[#073c35] text-white" : "bg-transparent text-neutral-600 hover:bg-neutral-100"}`}>{page}</button>
+                </span>)}
+                <button type="button" aria-label="Next page" disabled={journalPageSafe >= journalPageCount} onClick={() => setJournalPage(journalPageSafe + 1)} className={`${pageButton} bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50`}><ChevronRight className="h-4 w-4" /></button>
+              </nav>
+            </div>
+          );
+        })()}
       </div>
     </section>}
 

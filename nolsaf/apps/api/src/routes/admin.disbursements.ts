@@ -866,7 +866,16 @@ router.post(
     const cleared = await prisma.$transaction(async (tx) => {
       const updated = await tx.disbursement.update({
         where: { id },
-        data: { status: "APPROVED", batchId: null, securityReviewReason: null },
+        data: {
+          status: "APPROVED",
+          batchId: null,
+          securityReviewReason: null,
+          // Lets the next batch formation accept this payout despite the same
+          // risk score, for as long as nothing about it changes.
+          securityClearedAt: new Date(),
+          securityClearedById: req.user!.id,
+          securityClearedFingerprint: current.approvalFingerprint,
+        },
       });
       // Append-only: the hold and its clearance both stay readable on the
       // detail view after securityReviewReason has been wiped from the row.

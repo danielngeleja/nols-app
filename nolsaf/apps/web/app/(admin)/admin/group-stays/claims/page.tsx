@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import TablePagination from "@/components/TablePagination";
@@ -140,13 +141,7 @@ type AuditItem = {
 export default function AdminGroupStaysClaimsPage() {
   const searchParams = useSearchParams();
   const didAutoOpenRef = useRef(false);
-  const focusedBookingId = (() => {
-    const bookingIdParam = searchParams?.get("bookingId");
-    if (!bookingIdParam) return null;
-    const bookingId = Number(bookingIdParam);
-    if (!Number.isFinite(bookingId) || bookingId <= 0) return null;
-    return bookingId;
-  })();
+  const focusedBookingId = useAdminQueryId("group-stay", searchParams?.get("bookingId"), "bookingId");
   const [status, setStatus] = useState<string>("");
   const [q, setQ] = useState("");
   const [list, setList] = useState<ClaimRow[]>([]);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import apiClient from "@/lib/apiClient";
 import { AlertTriangle, ArrowLeft, BedDouble, Building2, CalendarClock, CheckCircle2, ChevronDown, ClipboardList, FileText, Loader2, MapPin, QrCode, Search, ShieldAlert, Store, UsersRound, WalletCards } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader } from "../_components/CommercialUi";
@@ -111,7 +112,14 @@ function zoneStripeColor(key: string): string {
 
 export default function AdminNrmsPropertyPage() {
   const params = useParams();
-  const propertyId = Number(params?.propertyId);
+  return (
+    <AdminRecordGate kind="property" param={params?.propertyId} backHref="/admin/nrms">
+      {(propertyId) => <AdminNrmsProperty propertyId={propertyId} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminNrmsProperty({ propertyId }: { propertyId: number }) {
   const [data, setData] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

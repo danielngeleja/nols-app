@@ -12,6 +12,8 @@ function authify() {}
 
 type Row = {
   id: number;
+  /** Opaque id for the booking URL. */
+  reference?: string;
   status: string;
   checkIn: string;
   checkOut: string;
@@ -751,7 +753,7 @@ export default function UserBookingsPage() {
                         )}
                         <div className="pt-2">
                           <ActionButton
-                            href={`/admin/bookings/${b.id}`}
+                            href={`/admin/bookings/${b.reference ?? b.id}`}
                             variant="primary"
                             size="sm"
                             icon={<ExternalLink className="h-3.5 w-3.5" />}
@@ -861,7 +863,7 @@ export default function UserBookingsPage() {
                       <td className="px-4 py-3 align-top">
                         <div className="flex items-center gap-2">
                           <ActionButton
-                            href={`/admin/bookings/${b.id}`}
+                            href={`/admin/bookings/${b.reference ?? b.id}`}
                             variant="primary"
                             size="sm"
                             icon={<ExternalLink className="h-3.5 w-3.5" />}

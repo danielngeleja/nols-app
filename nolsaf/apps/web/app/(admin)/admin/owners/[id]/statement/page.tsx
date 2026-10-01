@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 import Link from "next/link";
 import { ArrowLeft, Printer, Calendar, FileText, Building2, Wallet, Radar, Handshake } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
@@ -202,8 +204,15 @@ function detailText(details: any): string {
 
 export default function OwnerStatementPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const ownerId = Number(idParam);
+  return (
+    <AdminRecordGate kind="owner" param={routeParams?.id} backHref="/admin/owners">
+      {(ownerId) => <OwnerStatement ownerId={ownerId} />}
+    </AdminRecordGate>
+  );
+}
+
+function OwnerStatement({ ownerId }: { ownerId: number }) {
+  const recordHref = useAdminHref();
 
   const [data, setData] = useState<Statement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -667,7 +676,7 @@ export default function OwnerStatementPage() {
         </div>
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           <Link
-            href={`/admin/owners/${ownerId}`}
+            href={recordHref("owner", ownerId)}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-sm font-medium text-neutral-700 no-underline ring-1 ring-neutral-200 transition hover:bg-neutral-50"
           >
             <ArrowLeft className="h-4 w-4" />

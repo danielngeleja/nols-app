@@ -18,7 +18,6 @@ import {
   Route,
   Save,
   Shield,
-  Sparkles,
   ToggleLeft,
   ToggleRight,
   TrendingUp,
@@ -85,7 +84,7 @@ function EditableField({
   const safeValue = value ?? (type === "number" ? 0 : "");
   return (
     <div>
-      <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">
+      <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">
         {label}
       </label>
       <div className="flex items-center gap-1">
@@ -95,10 +94,10 @@ function EditableField({
           value={safeValue}
           onChange={(e) => !disabled && onChange(e.target.value)}
           disabled={disabled}
-          className={`w-full text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none ${
+          className={`w-full text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none border-solid ${
             disabled
-              ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed"
-              : "border-slate-200 focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e]"
+              ? "border-neutral-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+              : "border-neutral-300 focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e]"
           }`}
         />
       </div>
@@ -109,10 +108,10 @@ function EditableField({
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full  ${
         active
-          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-          : "bg-slate-100 text-slate-500 border border-slate-200"
+          ? "bg-emerald-50 text-emerald-700 border border-emerald-200 border-solid"
+          : "bg-slate-100 text-slate-500 border border-neutral-300 border-solid"
       }`}
     >
       {active ? <CheckCircle2 className="w-3 h-3" /> : <X className="w-3 h-3" />}
@@ -133,7 +132,7 @@ function SaveBar({
   onCancel: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 pt-2 border-t border-slate-100 mt-3">
+    <div className="border-0 flex items-center gap-2 pt-2 border-t border-neutral-200 mt-3 border-solid">
       {error && (
         <span className="flex items-center gap-1 text-xs text-red-600 flex-1">
           <AlertTriangle className="w-3.5 h-3.5" /> {error}
@@ -142,7 +141,7 @@ function SaveBar({
       <div className="flex items-center gap-2 ml-auto">
         <button
           onClick={onCancel}
-          className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+          className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid"
         >
           Cancel
         </button>
@@ -194,7 +193,7 @@ function HistoryPanel({ entity, entityId, label, onClose }: { entity: string; en
   }
 
   return (
-    <div className="border-t border-slate-100 bg-slate-50/80 px-4 py-4">
+    <div className="border-0 border-t border-neutral-200 bg-slate-50/80 px-4 py-4 border-solid">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <History className="w-4 h-4 text-[#02665e]" />
@@ -222,7 +221,7 @@ function HistoryPanel({ entity, entityId, label, onClose }: { entity: string; en
             const after = log.afterJson ?? {};
             const categoryLabel = after.category ?? after.transportType ?? after.seasonName ?? null;
             return (
-              <div key={String(log.id)} className={`bg-white border rounded-xl p-3 shadow-sm ${isCreate ? "border-emerald-200" : "border-slate-100"}`}>
+              <div key={String(log.id)} className={`bg-white border rounded-xl p-3 shadow-sm border-solid ${isCreate ? "border-emerald-200" : "border-neutral-200"}`}>
                 {/* meta row */}
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   {isCreate ? (
@@ -434,12 +433,12 @@ function ActivitiesTab() {
           placeholder="Search activities…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="flex-1 min-w-[160px] text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30"
+          className="flex-1 min-w-[160px] text-sm border border-neutral-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid"
         />
         <select
           value={destFilter}
           onChange={(e) => setDestFilter(e.target.value)}
-          className="text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30"
+          className="text-sm border border-neutral-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid"
         >
           <option value="">All destinations</option>
           {destinations.map((d) => <option key={d}>{d}</option>)}
@@ -447,7 +446,7 @@ function ActivitiesTab() {
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-[#02665e] text-white rounded-xl hover:bg-[#015a52]">
           <Plus className="w-4 h-4" /> Add activity
         </button>
-        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-slate-200 rounded-xl">
+        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-neutral-300 rounded-xl border-solid">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -456,24 +455,24 @@ function ActivitiesTab() {
 
       {/* add form */}
       {showAdd && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-          <h4 className="text-sm font-bold text-emerald-900">New Activity</h4>
+        <div className="bg-white border border-solid border-neutral-300 rounded-xl p-4 space-y-3 shadow-sm">
+          <h4 className="text-sm font-bold text-neutral-900">New Activity</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <EditableField label="Activity Code (unique slug)" value={newRow.activityCode} onChange={(v) => setNewRow((p) => ({ ...p, activityCode: v }))} />
             <EditableField label="Activity Name" value={newRow.activityName} onChange={(v) => setNewRow((p) => ({ ...p, activityName: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Destination</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Destination</label>
               <div className="flex items-center gap-1">
                 <input list="dest-list" value={newRow.destination} onChange={(e) => setNewRow((p) => ({ ...p, destination: e.target.value }))}
-                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30" />
+                  className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid" />
               </div>
               <datalist id="dest-list">{destinations.map((d) => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Category</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Category</label>
               <div className="flex items-center gap-1">
                 <select value={newRow.category} onChange={(e) => setNewRow((p) => ({ ...p, category: e.target.value }))}
-                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                  className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                   {["safari","water-sports","cultural","adventure","wellness","dining"].map((c) => <option key={c}>{c}</option>)}
                 </select>
               </div>
@@ -487,7 +486,7 @@ function ActivitiesTab() {
             <EditableField label="Description" value={newRow.description} onChange={(v) => setNewRow((p) => ({ ...p, description: v }))} />
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid">Cancel</button>
             <button onClick={addNew} disabled={adding} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-[#02665e] text-white rounded-lg hover:bg-[#015a52] disabled:opacity-50">
               {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Create
             </button>
@@ -496,49 +495,49 @@ function ActivitiesTab() {
       )}
 
       {/* rows */}
-      <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-solid border-neutral-300 bg-white">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+            <tr className="border-0 border-b border-solid border-neutral-300 bg-neutral-50">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("activity")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Activity {renderSortIcon("activity")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("category")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Category {renderSortIcon("category")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("destination")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Destination {renderSortIcon("destination")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("min")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Min {renderSortIcon("min")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("avg")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Avg {renderSortIcon("avg")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("max")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Max {renderSortIcon("max")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-center text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Status {renderSortIcon("status")}
                 </button>
               </th>
-              <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">Actions</th>
+              <th className="px-3 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
             {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">No activities found</td>
@@ -546,7 +545,7 @@ function ActivitiesTab() {
             )}
             {pagedRows.map((row) => (
               <React.Fragment key={row.id}>
-                <tr className="hover:bg-slate-50/60 transition-colors">
+                <tr className="hover:bg-neutral-50 transition-colors">
                   <td className="px-4 py-3">
                     <div className="font-semibold text-slate-800 leading-tight">{row.activityName}</div>
                     <div className="text-[10px] text-slate-400 font-mono mt-0.5">{row.activityCode}</div>
@@ -575,16 +574,16 @@ function ActivitiesTab() {
                 </tr>
                 {expanded === row.id && draft && (
                   <tr>
-                    <td colSpan={8} className="p-0 border-t border-slate-100">
-                      <div className="px-4 py-4 bg-slate-50/60 overflow-hidden">
+                    <td colSpan={8} className="border-0 p-0 border-t border-neutral-200 border-solid">
+                      <div className="px-4 py-4 bg-neutral-50 overflow-hidden">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                           <EditableField label="Activity Name" value={draft.activityName} onChange={(v) => setDraft((p: any) => ({ ...p, activityName: v }))} />
                           <EditableField label="Destination" value={draft.destination} onChange={(v) => setDraft((p: any) => ({ ...p, destination: v }))} />
                           <div>
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Category</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Category</label>
                             <div className="flex items-center gap-1">
                               <select value={draft.category} onChange={(e) => setDraft((p: any) => ({ ...p, category: e.target.value }))}
-                                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                 {["safari","water-sports","cultural","adventure","wellness","dining"].map((c) => <option key={c}>{c}</option>)}
                               </select>
                             </div>
@@ -602,9 +601,9 @@ function ActivitiesTab() {
                           <EditableField label="Provider" value={draft.provider ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, provider: v }))} />
                           <EditableField label="Popularity (1–100)" value={draft.popularity ?? 0} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, popularity: v }))} />
                           <div className="md:col-start-2 min-w-0">
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                             <textarea rows={2} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                              className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                           </div>
                         </div>
                         <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -624,14 +623,14 @@ function ActivitiesTab() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-slate-100 rounded-xl px-3 py-2 bg-white">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-solid border-neutral-300 rounded-xl px-3 py-2 bg-white">
         <span className="text-xs text-slate-500">Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}</span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Previous</button>
           <span className="text-xs font-semibold text-slate-600">Page {safePage} of {totalPages}</span>
           <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Next</button>
         </div>
       </div>
     </div>
@@ -755,23 +754,23 @@ function ParkFeesTab() {
           <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-[#02665e] text-white rounded-xl hover:bg-[#015a52]">
             <Plus className="w-4 h-4" /> Add park
           </button>
-          <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-slate-200 rounded-xl"><RefreshCw className="w-4 h-4" /></button>
+          <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-neutral-300 rounded-xl border-solid"><RefreshCw className="w-4 h-4" /></button>
         </div>
       </div>
 
       {/* add form */}
       {showAdd && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-          <h4 className="text-sm font-bold text-emerald-900">New Park / Conservation Area</h4>
+        <div className="bg-white border border-solid border-neutral-300 rounded-xl p-4 space-y-3 shadow-sm">
+          <h4 className="text-sm font-bold text-neutral-900">New Park / Conservation Area</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <EditableField label="Park Code (unique)" value={newRow.parkCode} onChange={(v) => setNewRow((p) => ({ ...p, parkCode: v }))} />
             <EditableField label="Park Name" value={newRow.parkName} onChange={(v) => setNewRow((p) => ({ ...p, parkName: v }))} />
             <EditableField label="Region" value={newRow.region} onChange={(v) => setNewRow((p) => ({ ...p, region: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Category</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Category</label>
               <div className="flex items-center gap-1">
                 <select value={newRow.category} onChange={(e) => setNewRow((p) => ({ ...p, category: e.target.value }))}
-                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                  className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                   {["national-park","conservation-area","marine-park","game-reserve"].map((c) => <option key={c}>{c}</option>)}
                 </select>
               </div>
@@ -784,51 +783,51 @@ function ParkFeesTab() {
             <EditableField label="Description" value={newRow.description} onChange={(v) => setNewRow((p) => ({ ...p, description: v }))} />
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid">Cancel</button>
             <button onClick={addNew} disabled={adding} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-[#02665e] text-white rounded-lg hover:bg-[#015a52] disabled:opacity-50">
               {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Create
             </button>
           </div>
         </div>
       )}
-      <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-solid border-neutral-300 bg-white">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+            <tr className="border-0 border-b border-solid border-neutral-300 bg-neutral-50">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("park")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Park {renderSortIcon("park")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("region")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Region {renderSortIcon("region")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("adultIntl")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Adult (intl) {renderSortIcon("adultIntl")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("adultRes")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Adult (res.) {renderSortIcon("adultRes")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("vehicle")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Vehicle {renderSortIcon("vehicle")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-center text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Status {renderSortIcon("status")}
                 </button>
               </th>
-              <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">Actions</th>
+              <th className="px-3 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
             {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">No park fee records found</td>
@@ -836,13 +835,13 @@ function ParkFeesTab() {
             )}
             {pagedRows.map((row) => (
               <React.Fragment key={row.id}>
-                <tr className="hover:bg-slate-50/60 transition-colors">
+                <tr className="hover:bg-neutral-50 transition-colors">
                   <td className="px-4 py-3">
                     <div className="font-semibold text-slate-800 leading-tight">{row.parkName}</div>
                     <div className="text-[10px] text-slate-400 font-mono mt-0.5">{row.parkCode}</div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full whitespace-nowrap">{row.region}</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full whitespace-nowrap border-solid">{row.region}</span>
                   </td>
                   <td className="px-4 py-3 text-right text-xs font-semibold text-slate-800 whitespace-nowrap">{fmtUSD(Number(row.adultForeignerFee))}/day</td>
                   <td className="px-4 py-3 text-right text-xs text-slate-500 whitespace-nowrap">{fmtUSD(Number(row.adultResidentFee))}/day</td>
@@ -861,8 +860,8 @@ function ParkFeesTab() {
                 </tr>
                 {expanded === row.id && draft && (
                   <tr>
-                    <td colSpan={7} className="p-0 border-t border-slate-100">
-                      <div className="px-4 py-4 bg-slate-50/60 overflow-hidden">
+                    <td colSpan={7} className="border-0 p-0 border-t border-neutral-200 border-solid">
+                      <div className="px-4 py-4 bg-neutral-50 overflow-hidden">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                           <EditableField label="Adult foreigner fee/day (USD)" value={draft.adultForeignerFee} type="number" prefix="$" onChange={(v) => setDraft((p: any) => ({ ...p, adultForeignerFee: v }))} />
                           <EditableField label="Adult resident fee/day (USD)" value={draft.adultResidentFee} type="number" prefix="$" onChange={(v) => setDraft((p: any) => ({ ...p, adultResidentFee: v }))} />
@@ -873,19 +872,19 @@ function ParkFeesTab() {
                           <EditableField label="Guide fee (USD)" value={draft.guideFee ?? 0} type="number" prefix="$" onChange={(v) => setDraft((p: any) => ({ ...p, guideFee: v }))} />
                           <EditableField label="Min days" value={draft.minimumDays ?? 1} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, minimumDays: v }))} />
                           <div>
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Active</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Active</label>
                             <div className="flex items-center gap-1">
                               <select value={String(draft.isActive)} onChange={(e) => setDraft((p: any) => ({ ...p, isActive: e.target.value === "true" }))}
-                                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                 <option value="true">Active</option>
                                 <option value="false">Inactive</option>
                               </select>
                             </div>
                           </div>
                           <div className="md:col-start-2 min-w-0">
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                             <textarea rows={2} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                              className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                           </div>
                         </div>
                         <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -905,14 +904,14 @@ function ParkFeesTab() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-slate-100 rounded-xl px-3 py-2 bg-white">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-solid border-neutral-300 rounded-xl px-3 py-2 bg-white">
         <span className="text-xs text-slate-500">Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}</span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Previous</button>
           <span className="text-xs font-semibold text-slate-600">Page {safePage} of {totalPages}</span>
           <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Next</button>
         </div>
       </div>
     </div>
@@ -1038,96 +1037,96 @@ function VisaFeesTab() {
     <div className="space-y-3">
       <div className="flex gap-2 items-center">
         <input placeholder="Search nationality…" value={filter} onChange={(e) => setFilter(e.target.value)}
-          className="flex-1 min-w-[160px] text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30" />
+          className="flex-1 min-w-[160px] text-sm border border-neutral-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid" />
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-[#02665e] text-white rounded-xl hover:bg-[#015a52]">
           <Plus className="w-4 h-4" /> Add country
         </button>
-        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-slate-200 rounded-xl"><RefreshCw className="w-4 h-4" /></button>
+        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-neutral-300 rounded-xl border-solid"><RefreshCw className="w-4 h-4" /></button>
       </div>
       <p className="text-xs text-slate-400">{sortedRows.length} of {rows.length} visa fee rules</p>
 
       {/* add form */}
       {showAdd && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-          <h4 className="text-sm font-bold text-emerald-900">New Visa Fee Rule</h4>
+        <div className="bg-white border border-solid border-neutral-300 rounded-xl p-4 space-y-3 shadow-sm">
+          <h4 className="text-sm font-bold text-neutral-900">New Visa Fee Rule</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Nationality Code (ISO 2)</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Nationality Code (ISO 2)</label>
               <input value={newRow.nationality} onChange={(e) => setNewRow((p) => ({ ...p, nationality: e.target.value.toUpperCase().slice(0,2) }))}
                 placeholder="e.g. GB" maxLength={2}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 font-mono uppercase" />
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 font-mono uppercase border-solid" />
             </div>
             <EditableField label="Fee (USD)" value={newRow.amount} type="number" prefix="$" onChange={(v) => setNewRow((p) => ({ ...p, amount: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Visa Type</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Visa Type</label>
               <select value={newRow.visaType} onChange={(e) => setNewRow((p) => ({ ...p, visaType: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                 {["tourist","business","multiple-entry","transit","visa-free"].map((t) => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Entries</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Entries</label>
               <select value={newRow.entries} onChange={(e) => setNewRow((p) => ({ ...p, entries: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                 {["single","double","multiple"].map((e) => <option key={e}>{e}</option>)}
               </select>
             </div>
             <EditableField label="Duration (days)" value={newRow.durationDays} type="number" onChange={(v) => setNewRow((p) => ({ ...p, durationDays: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Processing</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Processing</label>
               <select value={newRow.processingTime} onChange={(e) => setNewRow((p) => ({ ...p, processingTime: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                 {["on-arrival","e-visa","embassy","visa-free"].map((p) => <option key={p}>{p}</option>)}
               </select>
             </div>
             <EditableField label="Description" value={newRow.description} onChange={(v) => setNewRow((p) => ({ ...p, description: v }))} />
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid">Cancel</button>
             <button onClick={addNew} disabled={adding || !newRow.nationality} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-[#02665e] text-white rounded-lg hover:bg-[#015a52] disabled:opacity-50">
               {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Create
             </button>
           </div>
         </div>
       )}
-      <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-solid border-neutral-300 bg-white">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+            <tr className="border-0 border-b border-solid border-neutral-300 bg-neutral-50">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("code")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Code {renderSortIcon("code")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("fee")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Fee (USD) {renderSortIcon("fee")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("type")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Type {renderSortIcon("type")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("entries")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Entries {renderSortIcon("entries")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("processing")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Processing {renderSortIcon("processing")}
                 </button>
               </th>
-              <th className="px-4 py-2.5 text-center text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Status {renderSortIcon("status")}
                 </button>
               </th>
-              <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">Actions</th>
+              <th className="px-3 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
             {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">No visa fee rules found</td>
@@ -1135,7 +1134,7 @@ function VisaFeesTab() {
             )}
             {pagedRows.map((row) => (
               <React.Fragment key={row.id}>
-                <tr className="hover:bg-slate-50/60 transition-colors">
+                <tr className="hover:bg-neutral-50 transition-colors">
                   <td className="px-4 py-3">
                     <span className="text-sm font-bold text-slate-800 font-mono">{row.nationality}</span>
                   </td>
@@ -1157,27 +1156,27 @@ function VisaFeesTab() {
                 </tr>
                 {expanded === row.id && draft && (
                   <tr>
-                    <td colSpan={7} className="p-0 border-t border-slate-100">
-                      <div className="px-4 py-4 bg-slate-50/60 overflow-hidden">
+                    <td colSpan={7} className="border-0 p-0 border-t border-neutral-200 border-solid">
+                      <div className="px-4 py-4 bg-neutral-50 overflow-hidden">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                           <EditableField label="Fee (USD)" value={draft.amount} type="number" prefix="$" onChange={(v) => setDraft((p: any) => ({ ...p, amount: v }))} />
                           <EditableField label="Entries" value={draft.entries ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, entries: v }))} />
                           <EditableField label="Duration (days)" value={draft.durationDays ?? 90} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, durationDays: v }))} />
                           <EditableField label="Processing time" value={draft.processingTime ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, processingTime: v }))} />
                           <div>
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Active</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Active</label>
                             <div className="flex items-center gap-1">
                               <select value={String(draft.isActive)} onChange={(e) => setDraft((p: any) => ({ ...p, isActive: e.target.value === "true" }))}
-                                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                 <option value="true">Active</option>
                                 <option value="false">Inactive</option>
                               </select>
                             </div>
                           </div>
                           <div className="md:col-start-2 min-w-0">
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                             <textarea rows={2} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                              className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                           </div>
                         </div>
                         <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -1197,14 +1196,14 @@ function VisaFeesTab() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-slate-100 rounded-xl px-3 py-2 bg-white">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-solid border-neutral-300 rounded-xl px-3 py-2 bg-white">
         <span className="text-xs text-slate-500">Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}</span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Previous</button>
           <span className="text-xs font-semibold text-slate-600">Page {safePage} of {totalPages}</span>
           <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Next</button>
         </div>
       </div>
     </div>
@@ -1330,28 +1329,28 @@ function TransportTab() {
     <div className="space-y-3">
       <div className="flex gap-2 items-center flex-wrap">
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-          className="text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+          className="text-sm border border-neutral-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
           <option value="">All types</option>
           {types.map((t) => <option key={t}>{t}</option>)}
         </select>
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-[#02665e] text-white rounded-xl hover:bg-[#015a52]">
           <Plus className="w-4 h-4" /> Add route
         </button>
-        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-slate-200 rounded-xl"><RefreshCw className="w-4 h-4" /></button>
+        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-neutral-300 rounded-xl border-solid"><RefreshCw className="w-4 h-4" /></button>
         <p className="text-xs text-slate-400">{sortedRows.length} routes</p>
       </div>
 
       {/* add form */}
       {showAdd && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-          <h4 className="text-sm font-bold text-emerald-900">New Transport Route</h4>
+        <div className="bg-white border border-solid border-neutral-300 rounded-xl p-4 space-y-3 shadow-sm">
+          <h4 className="text-sm font-bold text-neutral-900">New Transport Route</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             <EditableField label="From" value={newRow.fromLocation} onChange={(v) => setNewRow((p) => ({ ...p, fromLocation: v }))} />
             <EditableField label="To" value={newRow.toLocation} onChange={(v) => setNewRow((p) => ({ ...p, toLocation: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Transport Type</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Transport Type</label>
               <select value={newRow.transportType} onChange={(e) => setNewRow((p) => ({ ...p, transportType: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                 {["flight","bus","ferry","private-car","shared-taxi","train"].map((t) => <option key={t}>{t}</option>)}
               </select>
             </div>
@@ -1365,45 +1364,45 @@ function TransportTab() {
             <EditableField label="Description" value={newRow.description} onChange={(v) => setNewRow((p) => ({ ...p, description: v }))} />
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid">Cancel</button>
             <button onClick={addNew} disabled={adding || !newRow.fromLocation || !newRow.toLocation} className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold bg-[#02665e] text-white rounded-lg hover:bg-[#015a52] disabled:opacity-50">
               {adding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Create
             </button>
           </div>
         </div>
       )}
-      <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-solid border-neutral-300 bg-white">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+            <tr className="border-0 border-b border-solid border-neutral-300 bg-neutral-50">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("from")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">From {renderSortIcon("from")}</button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("to")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">To {renderSortIcon("to")}</button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("type")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Type {renderSortIcon("type")}</button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("min")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Min {renderSortIcon("min")}</button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("avg")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Avg {renderSortIcon("avg")}</button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("max")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Max {renderSortIcon("max")}</button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("provider")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Provider {renderSortIcon("provider")}</button>
               </th>
-              <th className="px-4 py-2.5 text-center text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Status {renderSortIcon("status")}</button>
               </th>
-              <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">Actions</th>
+              <th className="px-3 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
             {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-400">No transport routes found</td>
@@ -1411,7 +1410,7 @@ function TransportTab() {
             )}
             {pagedRows.map((row) => (
               <React.Fragment key={row.id}>
-                <tr className="hover:bg-slate-50/60 transition-colors">
+                <tr className="hover:bg-neutral-50 transition-colors">
                   <td className="px-4 py-3">
                     <span className="font-semibold text-slate-800 whitespace-nowrap">{row.fromLocation}</span>
                   </td>
@@ -1419,7 +1418,7 @@ function TransportTab() {
                     <span className="font-semibold text-slate-800 whitespace-nowrap">{row.toLocation}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full capitalize whitespace-nowrap">{row.transportType}</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full capitalize whitespace-nowrap border-solid">{row.transportType}</span>
                   </td>
                   <td className="px-4 py-3 text-right text-xs text-slate-500">{fmtUSD(Number(row.minCost))}</td>
                   <td className="px-4 py-3 text-right text-xs font-semibold text-slate-800">{fmtUSD(Number(row.averageCost))}</td>
@@ -1439,8 +1438,8 @@ function TransportTab() {
                 </tr>
                 {expanded === row.id && draft && (
                   <tr>
-                    <td colSpan={9} className="p-0 border-t border-slate-100">
-                      <div className="px-4 py-4 bg-slate-50/60 overflow-hidden">
+                    <td colSpan={9} className="border-0 p-0 border-t border-neutral-200 border-solid">
+                      <div className="px-4 py-4 bg-neutral-50 overflow-hidden">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                           <EditableField label="Min cost (USD)" value={draft.minCost} type="number" prefix="$" onChange={(v) => setDraft((p: any) => { const min = Number(v); const max = Number(p.maxCost); return { ...p, minCost: v, averageCost: String(Math.round((min + max) / 2 * 100) / 100) }; })} />
                           <div className="relative">
@@ -1454,19 +1453,19 @@ function TransportTab() {
                           <EditableField label="Provider" value={draft.provider ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, provider: v }))} />
                           <EditableField label="Frequency" value={draft.frequency ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, frequency: v }))} />
                           <div>
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Active</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Active</label>
                             <div className="flex items-center gap-1">
                               <select value={String(draft.isActive)} onChange={(e) => setDraft((p: any) => ({ ...p, isActive: e.target.value === "true" }))}
-                                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                 <option value="true">Active</option>
                                 <option value="false">Inactive</option>
                               </select>
                             </div>
                           </div>
                           <div className="md:col-start-2 min-w-0">
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                             <textarea rows={2} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                              className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                           </div>
                         </div>
                         <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -1486,14 +1485,14 @@ function TransportTab() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-slate-100 rounded-xl px-3 py-2 bg-white">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-solid border-neutral-300 rounded-xl px-3 py-2 bg-white">
         <span className="text-xs text-slate-500">Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}</span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Previous</button>
           <span className="text-xs font-semibold text-slate-600">Page {safePage} of {totalPages}</span>
           <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Next</button>
         </div>
       </div>
     </div>
@@ -1604,31 +1603,31 @@ function SeasonalTab() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-400">{sortedRows.length} pricing rules</p>
-        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-slate-200 rounded-xl"><RefreshCw className="w-4 h-4" /></button>
+        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-neutral-300 rounded-xl border-solid"><RefreshCw className="w-4 h-4" /></button>
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-solid border-neutral-300 bg-white">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+            <tr className="border-0 border-b border-solid border-neutral-300 bg-neutral-50">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("season")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Season {renderSortIcon("season")}</button>
               </th>
-              <th className="px-4 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("multiplier")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Multiplier {renderSortIcon("multiplier")}</button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("months")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Months {renderSortIcon("months")}</button>
               </th>
-              <th className="px-4 py-2.5 text-left text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("destination")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Destination {renderSortIcon("destination")}</button>
               </th>
-              <th className="px-4 py-2.5 text-center text-[10px] font-bold text-[#02665e] uppercase tracking-wider">
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">Status {renderSortIcon("status")}</button>
               </th>
-              <th className="px-3 py-2.5 text-right text-[10px] font-bold text-[#02665e] uppercase tracking-wider">Actions</th>
+              <th className="px-3 py-2.5 text-right text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
             {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No pricing rules found</td>
@@ -1639,13 +1638,13 @@ function SeasonalTab() {
               const monthRange = sm && em ? `${MONTHS[sm-1]} – ${MONTHS[em-1]}` : "—";
               return (
                 <React.Fragment key={row.id}>
-                  <tr className="hover:bg-slate-50/60 transition-colors">
+                  <tr className="hover:bg-neutral-50 transition-colors">
                     <td className="px-4 py-3">
                       <div className="font-semibold text-slate-800">{row.seasonName}</div>
                       {row.description && <div className="text-[10px] text-slate-400 mt-0.5 max-w-[200px] truncate">{row.description}</div>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-full whitespace-nowrap">{Number(row.priceMultiplier)}× rate</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-full whitespace-nowrap border-solid">{Number(row.priceMultiplier)}× rate</span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{monthRange}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{row.destination ?? <span className="text-slate-300 italic">all</span>}</td>
@@ -1663,27 +1662,27 @@ function SeasonalTab() {
                   </tr>
                   {expanded === row.id && draft && (
                     <tr>
-                      <td colSpan={6} className="p-0 border-t border-slate-100">
-                        <div className="px-4 py-4 bg-slate-50/60 overflow-hidden">
+                      <td colSpan={6} className="border-0 p-0 border-t border-neutral-200 border-solid">
+                        <div className="px-4 py-4 bg-neutral-50 overflow-hidden">
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                             <EditableField label="Season name" value={draft.seasonName} onChange={(v) => setDraft((p: any) => ({ ...p, seasonName: v }))} />
                             <EditableField label="Price multiplier" value={draft.priceMultiplier} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, priceMultiplier: v }))} />
                             <EditableField label="Priority" value={draft.priority ?? 0} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, priority: v }))} />
                             <div>
-                              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Start month</label>
+                              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Start month</label>
                               <div className="flex items-center gap-1">
                                 <select value={draft.startMonth ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, startMonth: e.target.value }))}
-                                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                  className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                   <option value="">—</option>
                                   {MONTHS.map((m, i) => <option key={m} value={i+1}>{m}</option>)}
                                 </select>
                               </div>
                             </div>
                             <div>
-                              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">End month</label>
+                              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">End month</label>
                               <div className="flex items-center gap-1">
                                 <select value={draft.endMonth ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, endMonth: e.target.value }))}
-                                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                  className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                   <option value="">—</option>
                                   {MONTHS.map((m, i) => <option key={m} value={i+1}>{m}</option>)}
                                 </select>
@@ -1691,19 +1690,19 @@ function SeasonalTab() {
                             </div>
                             <EditableField label="Destination (blank = all)" value={draft.destination ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, destination: v }))} />
                             <div>
-                              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Active</label>
+                              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Active</label>
                               <div className="flex items-center gap-1">
                                 <select value={String(draft.isActive)} onChange={(e) => setDraft((p: any) => ({ ...p, isActive: e.target.value === "true" }))}
-                                  className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white">
+                                  className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 bg-white border-solid">
                                   <option value="true">Active</option>
                                   <option value="false">Inactive</option>
                                 </select>
                               </div>
                             </div>
                             <div className="md:col-start-2 min-w-0">
-                              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                               <textarea rows={2} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                             </div>
                           </div>
                           <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -1724,14 +1723,14 @@ function SeasonalTab() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-slate-100 rounded-xl px-3 py-2 bg-white">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-solid border-neutral-300 rounded-xl px-3 py-2 bg-white">
         <span className="text-xs text-slate-500">Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}</span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Previous</button>
           <span className="text-xs font-semibold text-slate-600">Page {safePage} of {totalPages}</span>
           <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid">Next</button>
         </div>
       </div>
     </div>
@@ -1892,12 +1891,12 @@ function DestinationsTab() {
           placeholder="Search destinations…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="flex-1 min-w-[160px] text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30"
+          className="flex-1 min-w-[160px] text-sm border border-neutral-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid"
         />
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30"
+          className="text-sm border border-neutral-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid"
         >
           <option value="">All types</option>
           {destTypes.map((t) => <option key={t}>{t}</option>)}
@@ -1905,7 +1904,7 @@ function DestinationsTab() {
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-[#02665e] text-white rounded-xl hover:bg-[#015a52]">
           <Plus className="w-4 h-4" /> Add destination
         </button>
-        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-slate-200 rounded-xl">
+        <button onClick={load} className="p-2 text-slate-400 hover:text-[#02665e] border border-neutral-300 rounded-xl border-solid">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -1914,16 +1913,16 @@ function DestinationsTab() {
 
       {/* add form */}
       {showAdd && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-          <h4 className="text-sm font-bold text-emerald-900">New Destination</h4>
+        <div className="bg-white border border-solid border-neutral-300 rounded-xl p-4 space-y-3 shadow-sm">
+          <h4 className="text-sm font-bold text-neutral-900">New Destination</h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <EditableField label="Destination Code (unique, e.g. SERENP)" value={newRow.destinationCode} onChange={(v) => setNewRow((p) => ({ ...p, destinationCode: v.toUpperCase() }))} />
             <EditableField label="Destination Name" value={newRow.destinationName} onChange={(v) => setNewRow((p) => ({ ...p, destinationName: v }))} />
             <EditableField label="Display Name (optional, full name)" value={newRow.displayName} onChange={(v) => setNewRow((p) => ({ ...p, displayName: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Type</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Type</label>
               <select value={newRow.destinationType} onChange={(e) => setNewRow((p) => ({ ...p, destinationType: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                 {DEST_TYPES.map((t) => <option key={t}>{t}</option>)}
               </select>
             </div>
@@ -1931,9 +1930,9 @@ function DestinationsTab() {
             <EditableField label="Nearest City" value={newRow.nearestCity} onChange={(v) => setNewRow((p) => ({ ...p, nearestCity: v }))} />
             <EditableField label="Main Airport" value={newRow.mainAirport} onChange={(v) => setNewRow((p) => ({ ...p, mainAirport: v }))} />
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Access Difficulty</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Access Difficulty</label>
               <select value={newRow.accessDifficulty} onChange={(e) => setNewRow((p) => ({ ...p, accessDifficulty: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                 {["easy","moderate","difficult"].map((v) => <option key={v}>{v}</option>)}
               </select>
             </div>
@@ -1942,64 +1941,64 @@ function DestinationsTab() {
             <EditableField label="Avg Stay Days" value={newRow.avgStayDays} type="number" onChange={(v) => setNewRow((p) => ({ ...p, avgStayDays: v }))} />
           </div>
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
             <textarea rows={2} value={newRow.description} onChange={(e) => setNewRow((p) => ({ ...p, description: e.target.value }))}
-              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+              className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
           </div>
           <div className="flex gap-2">
             <button onClick={addNew} disabled={adding || !newRow.destinationCode || !newRow.destinationName || !newRow.region}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-[#02665e] text-white rounded-xl disabled:opacity-50">
               {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Save destination
             </button>
-            <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm text-slate-600 border border-neutral-300 rounded-xl hover:bg-slate-50 border-solid">Cancel</button>
           </div>
         </div>
       )}
 
       {/* table */}
-      <div className="overflow-x-auto rounded-2xl border border-slate-100 shadow-sm">
-        <table className="w-full text-sm min-w-[700px]">
+      <div className="overflow-x-auto rounded-2xl border border-neutral-200 shadow-sm border-solid">
+        <table className="w-full text-sm min-w-[700px] border-collapse">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-100 text-left">
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <tr className="border-0 bg-slate-50 border-b border-neutral-200 text-left border-solid">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("code")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Code {renderSortIcon("code")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("name")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Name {renderSortIcon("name")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("type")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Type {renderSortIcon("type")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("region")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Region {renderSortIcon("region")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("acc")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Acc.× {renderSortIcon("acc")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("pop")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Pop. {renderSortIcon("pop")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">
                 <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                   Status {renderSortIcon("status")}
                 </button>
               </th>
-              <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+              <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
             {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">No destinations found</td>
@@ -2007,7 +2006,7 @@ function DestinationsTab() {
             )}
             {pagedRows.map((row) => (
               <React.Fragment key={row.id}>
-                <tr className={`group transition-colors ${!row.isActive ? "opacity-50" : "hover:bg-slate-50/60"}`}>
+                <tr className={`group transition-colors  ${!row.isActive ? "opacity-50" : "hover:bg-slate-50/60"}`}>
                   <td className="px-4 py-3">
                     <span className="font-mono text-[11px] font-bold text-[#02665e] bg-[#02665e]/8 px-1.5 py-0.5 rounded">{row.destinationCode}</span>
                   </td>
@@ -2025,7 +2024,7 @@ function DestinationsTab() {
                   <td className="px-4 py-3 text-xs text-slate-600">{row.popularity}</td>
                   <td className="px-4 py-3">
                     <button onClick={() => toggleActive(row)}
-                      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full  ${
                         row.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
                       }`}>
                       {row.isActive ? <ToggleRight className="w-3 h-3" /> : <ToggleLeft className="w-3 h-3" />}
@@ -2052,9 +2051,9 @@ function DestinationsTab() {
                         <EditableField label="Destination Name" value={draft.destinationName} onChange={(v) => setDraft((p: any) => ({ ...p, destinationName: v }))} />
                         <EditableField label="Display Name" value={draft.displayName ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, displayName: v }))} />
                         <div>
-                          <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Type</label>
+                          <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Type</label>
                           <select value={draft.destinationType} onChange={(e) => setDraft((p: any) => ({ ...p, destinationType: e.target.value }))}
-                            className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                            className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                             {DEST_TYPES.map((t) => <option key={t}>{t}</option>)}
                           </select>
                         </div>
@@ -2062,9 +2061,9 @@ function DestinationsTab() {
                         <EditableField label="Nearest City" value={draft.nearestCity ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, nearestCity: v }))} />
                         <EditableField label="Main Airport" value={draft.mainAirport ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, mainAirport: v }))} />
                         <div>
-                          <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Access Difficulty</label>
+                          <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Access Difficulty</label>
                           <select value={draft.accessDifficulty} onChange={(e) => setDraft((p: any) => ({ ...p, accessDifficulty: e.target.value }))}
-                            className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30">
+                            className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 border-solid">
                             {["easy","moderate","difficult"].map((v) => <option key={v}>{v}</option>)}
                           </select>
                         </div>
@@ -2074,9 +2073,9 @@ function DestinationsTab() {
                         <EditableField label="Official Website" value={draft.officialWebsite ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, officialWebsite: v }))} />
                         <EditableField label="Image URL" value={draft.imageUrl ?? ""} onChange={(v) => setDraft((p: any) => ({ ...p, imageUrl: v }))} />
                         <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                          <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                           <textarea rows={3} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                            className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                            className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                         </div>
                       </div>
                       <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -2095,7 +2094,7 @@ function DestinationsTab() {
           </tbody>
         </table>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-slate-100 rounded-xl px-3 py-2 bg-white">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border border-solid border-neutral-300 rounded-xl px-3 py-2 bg-white">
         <span className="text-xs text-slate-500">
           Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}
         </span>
@@ -2104,7 +2103,7 @@ function DestinationsTab() {
             type="button"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={safePage <= 1}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid"
           >
             Previous
           </button>
@@ -2113,7 +2112,7 @@ function DestinationsTab() {
             type="button"
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={safePage >= totalPages}
-            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid"
           >
             Next
           </button>
@@ -2284,11 +2283,11 @@ function TourismSitesTab() {
             placeholder="Search by name or country…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full text-sm border border-slate-200 rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e]"
+            className="w-full text-sm border border-neutral-300 rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e] border-solid"
           />
           <MapPin className="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
         </div>
-        <button onClick={load} className="p-2 text-slate-500 hover:text-[#02665e] hover:bg-[#02665e]/8 rounded-xl border border-slate-200 transition-colors">
+        <button onClick={load} className="p-2 text-slate-500 hover:text-[#02665e] hover:bg-[#02665e]/8 rounded-xl border border-neutral-300 transition-colors border-solid">
           <RefreshCw className="w-4 h-4" />
         </button>
         <button
@@ -2301,7 +2300,7 @@ function TourismSitesTab() {
 
       {/* create form */}
       {showCreate && (
-        <div className="bg-white border border-[#02665e]/20 rounded-2xl p-5 shadow-sm">
+        <div className="bg-white border border-[#02665e]/20 rounded-2xl p-5 shadow-sm border-solid">
           <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Plus className="w-4 h-4 text-[#02665e]" /> New Tourism Site
           </h3>
@@ -2313,9 +2312,9 @@ function TourismSitesTab() {
             <EditableField label="Latitude" value={newRow.latitude} type="number" onChange={(v) => setNewRow((p) => ({ ...p, latitude: v }))} />
             <EditableField label="Longitude" value={newRow.longitude} type="number" onChange={(v) => setNewRow((p) => ({ ...p, longitude: v }))} />
             <div className="sm:col-span-2">
-              <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+              <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
               <textarea rows={3} value={newRow.description} onChange={(e) => setNewRow((p) => ({ ...p, description: e.target.value }))}
-                className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
             </div>
           </div>
           {createError && (
@@ -2324,7 +2323,7 @@ function TourismSitesTab() {
             </p>
           )}
           <div className="flex items-center justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+            <button onClick={() => setShowCreate(false)} className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid">Cancel</button>
             <button
               onClick={create}
               disabled={creating || !newRow.name.trim()}
@@ -2360,7 +2359,7 @@ function TourismSitesTab() {
             </p>
             {deleteError && <p className="text-xs text-red-600 mb-3 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />{deleteError}</p>}
             <div className="flex items-center justify-end gap-2">
-              <button onClick={() => { setDeleteId(null); setDeleteError(""); }} className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+              <button onClick={() => { setDeleteId(null); setDeleteError(""); }} className="px-3 py-1.5 text-xs font-medium text-slate-600 border border-neutral-300 rounded-lg hover:bg-slate-50 border-solid">Cancel</button>
               <button
                 onClick={confirmDelete}
                 disabled={deleting || deleteTarget.propertyCount > 0}
@@ -2384,44 +2383,44 @@ function TourismSitesTab() {
           <AlertTriangle className="w-4 h-4" /> {error}
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+        <div className="bg-white rounded-xl border border-solid border-neutral-300 overflow-hidden">
+          <div className="border-0 px-4 py-3 border-b border-neutral-200 flex items-center justify-between border-solid">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               {sortedRows.length} site{sortedRows.length !== 1 ? "s" : ""}
             </span>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-100">
+          <table className="w-full text-sm border-collapse">
+            <thead className="border-0 bg-slate-50 border-b border-neutral-200 border-solid">
               <tr>
-                <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-left">
+                <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] text-left">
                   <button type="button" onClick={() => handleSort("name")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                     Name {renderSortIcon("name")}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-left">
+                <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] text-left">
                   <button type="button" onClick={() => handleSort("slug")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                     Slug {renderSortIcon("slug")}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-left">
+                <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] text-left">
                   <button type="button" onClick={() => handleSort("country")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                     Country {renderSortIcon("country")}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-left">
+                <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] text-left">
                   <button type="button" onClick={() => handleSort("properties")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                     Properties {renderSortIcon("properties")}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-left">
+                <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] text-left">
                   <button type="button" onClick={() => handleSort("coordinates")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 hover:text-slate-700">
                     Coordinates {renderSortIcon("coordinates")}
                   </button>
                 </th>
-                <th className="px-4 py-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+                <th className="px-4 py-3 text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em]">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="[&>*]:border-0 [&>*]:border-t [&>*]:border-solid [&>*]:border-neutral-200 [&>*:first-child]:border-t-0">
               {sortedRows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
@@ -2431,7 +2430,7 @@ function TourismSitesTab() {
               )}
               {pagedRows.map((row) => (
                 <React.Fragment key={row.id}>
-                  <tr className="group hover:bg-slate-50/60 transition-colors">
+                  <tr className="group hover:bg-neutral-50 transition-colors">
                     <td className="px-4 py-3">
                       <p className="font-semibold text-slate-800 text-xs leading-tight">{row.name}</p>
                       {row.description && (
@@ -2443,9 +2442,9 @@ function TourismSitesTab() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">{row.country}</td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full  ${
                         row.propertyCount > 0
-                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200 border-solid"
                           : "bg-slate-100 text-slate-500"
                       }`}>
                         {row.propertyCount}
@@ -2487,9 +2486,9 @@ function TourismSitesTab() {
                           <EditableField label="Latitude" value={draft.latitude ?? ""} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, latitude: v === "" ? null : v }))} />
                           <EditableField label="Longitude" value={draft.longitude ?? ""} type="number" onChange={(v) => setDraft((p: any) => ({ ...p, longitude: v === "" ? null : v }))} />
                           <div className="sm:col-span-2">
-                            <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Description</label>
+                            <label className="block text-[10px] font-semibold text-neutral-500 uppercase tracking-[0.12em] mb-1">Description</label>
                             <textarea rows={3} value={draft.description ?? ""} onChange={(e) => setDraft((p: any) => ({ ...p, description: e.target.value }))}
-                              className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none" />
+                              className="w-full text-sm border border-neutral-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 resize-none border-solid" />
                           </div>
                         </div>
                         <SaveBar saving={saving} error={saveError} onSave={save} onCancel={closeEdit} />
@@ -2500,7 +2499,7 @@ function TourismSitesTab() {
               ))}
             </tbody>
           </table>
-          <div className="px-4 py-3 border-t border-slate-100 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="border-0 px-4 py-3 border-t border-neutral-200 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-solid">
             <span className="text-xs text-slate-500">
               Showing {sortedRows.length === 0 ? 0 : start + 1}-{Math.min(end, sortedRows.length)} of {sortedRows.length}
             </span>
@@ -2509,7 +2508,7 @@ function TourismSitesTab() {
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={safePage <= 1}
-                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid"
               >
                 Previous
               </button>
@@ -2518,7 +2517,7 @@ function TourismSitesTab() {
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={safePage >= totalPages}
-                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-neutral-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed border-solid"
               >
                 Next
               </button>
@@ -2532,77 +2531,168 @@ function TourismSitesTab() {
 
 // ─── ROOT component ───────────────────────────────────────────────────────────
 
+type SectionCount = { total: number; active: number } | null;
+
+type EstimateStats = {
+  totalEstimates: number;
+  convertedToBooking: number;
+  conversionRate: number;
+  avgTotalCost: number | null;
+  topDestinations: Array<{ destination: string; count: number }>;
+};
+
+/** Where each tab's records live, and the key the list comes back under. */
+const SECTION_SOURCES: Record<Tab, { path: string; key: string }> = {
+  "destinations":  { path: "/api/admin/nolscope/destinations",     key: "destinations" },
+  "tourism-sites": { path: "/api/admin/nolscope/tourism-sites",    key: "tourismSites" },
+  "activities":    { path: "/api/admin/nolscope/activities",       key: "activities" },
+  "park-fees":     { path: "/api/admin/nolscope/park-fees",        key: "parkFees" },
+  "visa-fees":     { path: "/api/admin/nolscope/visa-fees",        key: "visaFees" },
+  "transport":     { path: "/api/admin/nolscope/transport-routes", key: "routes" },
+  "seasonal":      { path: "/api/admin/nolscope/pricing-rules",    key: "pricingRules" },
+};
+
 export default function NolScopeAdminClient() {
   const [tab, setTab] = useState<Tab>("destinations");
+  const [counts, setCounts] = useState<Partial<Record<Tab, SectionCount>>>({});
+  const [stats, setStats] = useState<EstimateStats | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+
+  // One pass over every section for the tab counts, plus estimator usage for
+  // the header. Each tab still loads and owns its own data when opened.
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true);
+    const entries = await Promise.all(
+      (Object.keys(SECTION_SOURCES) as Tab[]).map(async (id) => {
+        try {
+          const data = await apiFetch(SECTION_SOURCES[id].path);
+          const rows: any[] = Array.isArray(data?.[SECTION_SOURCES[id].key]) ? data[SECTION_SOURCES[id].key] : [];
+          const active = rows.filter((r) => r?.isActive !== false).length;
+          return [id, { total: rows.length, active }] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      }),
+    );
+    setCounts(Object.fromEntries(entries));
+    try {
+      setStats(await apiFetch("/api/admin/nolscope/estimates/stats"));
+    } catch {
+      setStats(null);
+    }
+    setSummaryLoading(false);
+  }, []);
+
+  useEffect(() => { void loadSummary(); }, [loadSummary]);
+
+  const totalRecords = Object.values(counts).reduce((sum, c) => sum + (c?.total ?? 0), 0);
+  const inactiveRecords = Object.values(counts).reduce((sum, c) => sum + (c ? c.total - c.active : 0), 0);
+  const topDestination = stats?.topDestinations?.[0];
+
+  const facts = [
+    {
+      label: "Estimates made",
+      value: stats ? stats.totalEstimates.toLocaleString() : summaryLoading ? "..." : "Unavailable",
+      detail: stats ? `${stats.convertedToBooking.toLocaleString()} became bookings` : "trip estimates by travellers",
+      tone: "text-white",
+    },
+    {
+      label: "Conversion",
+      value: stats ? `${stats.conversionRate}%` : summaryLoading ? "..." : "Unavailable",
+      detail: "estimates that turned into a booking",
+      tone: stats && stats.conversionRate > 0 ? "text-emerald-300" : "text-white",
+    },
+    {
+      label: "Average trip",
+      value: stats?.avgTotalCost != null ? fmtUSD(stats.avgTotalCost) : summaryLoading ? "..." : "None yet",
+      detail: topDestination ? `Most estimated: ${topDestination.destination}` : "per estimate, in USD",
+      tone: "text-white",
+    },
+    {
+      label: "Rate records",
+      value: summaryLoading && !totalRecords ? "..." : totalRecords.toLocaleString(),
+      detail: inactiveRecords ? `${inactiveRecords} switched off, left out of estimates` : "all active in estimates",
+      tone: inactiveRecords ? "text-amber-300" : "text-white",
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-4 sm:p-6">
-      {/* header */}
-      <div className="mb-6 rounded-2xl overflow-hidden shadow-md">
-        {/* main banner */}
-        <div className="relative bg-gradient-to-r from-[#02665e] via-[#027a71] to-[#02b4f5] px-6 py-6">
-          {/* decorative blobs */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute -top-8 -right-8 w-48 h-48 rounded-full bg-white/5" />
-            <div className="absolute top-4 right-24 w-24 h-24 rounded-full bg-[#02b4f5]/20" />
-            <div className="absolute -bottom-10 -left-6 w-36 h-36 rounded-full bg-[#02665e]/40" />
-          </div>
+    <div id="nolscope-admin" className="w-full min-w-0 space-y-5">
+      {/* With preflight off a bare "border" class draws nothing; give the full-border
+          controls in this workspace a solid style. One-sided borders (border-t etc.)
+          do not carry the bare "border" token, so they are untouched. */}
+      <style>{`
+        #nolscope-admin :is(input, select, textarea, button)[class~="border"] { border-style: solid; }
+        #nolscope-admin :is(input, select, textarea) { box-sizing: border-box; }
+      `}</style>
 
-          <div className="relative flex items-center gap-4">
-            {/* icon */}
-            <div className="shrink-0 w-14 h-14 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 flex items-center justify-center shadow-lg">
-              <Sparkles className="w-7 h-7 text-white" />
+      {/* Header: what the estimator is doing, and the rate sections as tabs */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">NoLScope estimator</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Rate manager</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">The costs NoLScope uses to price trips. Every change applies to the next estimate a traveller makes.</p>
             </div>
-
-            {/* text */}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold text-white tracking-tight leading-none mb-1">
-                NoLScope Rate Manager
-              </h1>
-              <p className="text-sm text-white/75 leading-snug">
-                Update estimator data. Changes apply immediately to all new estimates
-              </p>
-            </div>
-
-            {/* stat badge */}
-            <div className="hidden sm:flex shrink-0 items-center gap-1.5 bg-white/10 border border-white/20 rounded-xl px-3 py-2 backdrop-blur-sm">
-              <TrendingUp className="w-4 h-4 text-white/80" />
-              <span className="text-xs font-semibold text-white/90">Live Rates</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-emerald-400/30 bg-emerald-400/10 px-3 text-xs font-semibold text-emerald-200">
+                <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" /></span>
+                Edits go live immediately
+              </span>
+              <button type="button" onClick={() => void loadSummary()} disabled={summaryLoading} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-solid border-white/15 bg-white/[0.06] text-white/85 transition-colors hover:bg-white/[0.12] disabled:opacity-60" aria-label="Refresh summary" title="Refresh">
+                <RefreshCw className={`h-3.5 w-3.5 ${summaryLoading ? "animate-spin" : ""}`} />
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* notice strip */}
-        <div className="flex items-start gap-3 bg-[#02665e]/8 border-t border-[#02665e]/15 px-6 py-3">
-          <Shield className="w-4 h-4 text-[#02665e] shrink-0 mt-0.5" />
-          <p className="text-xs text-slate-700 leading-relaxed">
-            <span className="font-semibold text-[#02665e]">Live pricing:</span>{" "}
-            Changes take effect immediately. Deactivating a record removes it from all future estimates. Always verify rates against official sources before saving.
-          </p>
+          <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
+            {facts.map((fact, index) => (
+              <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
+                <dd className={`m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums ${fact.tone}`}>{fact.value}</dd>
+                <dd className="m-0 mt-1 truncate text-xs text-white/50">{fact.detail}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-5 flex gap-1 overflow-x-auto [scrollbar-width:none]" role="tablist" aria-label="Rate sections">
+            {TABS.map(({ id, label, Icon }) => {
+              const c = counts[id];
+              const selected = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setTab(id)}
+                  className={`relative inline-flex h-11 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${selected ? "text-white" : "text-white/50 hover:text-white/80"}`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                  {c && (
+                    <span className={`rounded-full px-1.5 text-[11px] tabular-nums ${selected ? "bg-emerald-400/20 text-emerald-200" : "bg-white/10 text-white/60"}`} title={c.total - c.active ? `${c.active} active of ${c.total}` : `${c.total} records`}>
+                      {c.total - c.active ? `${c.active}/${c.total}` : c.total}
+                    </span>
+                  )}
+                  {selected && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
+                </button>
+              );
+            })}
+          </div>
         </div>
+      </section>
+
+      {/* Guidance, kept short and next to the data it is about */}
+      <div className="flex items-start gap-2.5 rounded-xl border border-solid border-amber-200 bg-amber-50/60 px-4 py-2.5 text-xs text-amber-900">
+        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+        <span>Check rates against the official source before saving. Switching a record off removes it from every future estimate; it is not deleted.</span>
       </div>
 
-      {/* tabs */}
-      <div className="flex flex-wrap gap-1.5 mb-5 bg-white border border-slate-100 rounded-2xl p-1.5 shadow-sm">
-        {TABS.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            onClick={() => setTab(id)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-              tab === id
-                ? "bg-[#02665e] text-white shadow-sm"
-                : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{label}</span>
-            <span className="sm:hidden">{label.split(" ")[0]}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* tab content */}
-      <div>
+      {/* Active section */}
+      <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-4 shadow-sm sm:p-5">
         {tab === "destinations"  && <DestinationsTab  />}
         {tab === "tourism-sites" && <TourismSitesTab  />}
         {tab === "activities"    && <ActivitiesTab    />}
@@ -2610,7 +2700,7 @@ export default function NolScopeAdminClient() {
         {tab === "visa-fees"     && <VisaFeesTab      />}
         {tab === "transport"     && <TransportTab     />}
         {tab === "seasonal"      && <SeasonalTab      />}
-      </div>
+      </section>
     </div>
   );
 }

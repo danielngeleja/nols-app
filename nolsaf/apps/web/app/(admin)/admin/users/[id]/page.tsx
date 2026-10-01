@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback, useMemo, Fragment, type ComponentType, type ReactNode } from "react";
 import { useRouter, useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
+import { adminRecordRef, useAdminHref } from "@/lib/adminRecordRefs";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import TableRow from "@/components/TableRow";
@@ -44,6 +46,8 @@ type UserDetail = {
 type CustomerActivity = {
   type: string;
   id: number;
+  /** Opaque id for the record URL (bookings). */
+  routeRef?: string;
   reference?: string | null;
   title: string;
   status: string;
@@ -392,8 +396,8 @@ const ACTIVITY_DETAIL_ACCENTS: Record<string, { header: string; tile: string; ey
  * eye button opens the detail panel on this page instead.
  */
 function activityRecordHref(item: CustomerActivity): string | null {
-  if (item.type === "ACCOMMODATION_BOOKING") return `/admin/bookings/${item.id}`;
-  if (item.type === "CANCELLATION_REQUEST") return `/admin/cancellations/${item.id}`;
+  if (item.type === "ACCOMMODATION_BOOKING") return `/admin/bookings/${item.routeRef ?? item.id}`;
+  if (item.type === "CANCELLATION_REQUEST") return `/admin/cancellations/${adminRecordRef("cancellation", item.id) ?? item.id}`;
   return null;
 }
 
@@ -857,6 +861,8 @@ const ACTIVITY_TAB_COLUMNS: Record<ActivityTabKey, ActivityColumn[]> = {
 
 type Booking = {
   id: number;
+  /** Opaque id for the booking URL. */
+  reference?: string;
   status: string;
   checkIn: string;
   checkOut: string;
@@ -945,8 +951,15 @@ type BookingSortKey = "property" | "propertyType" | "region" | "district" | "che
 
 export default function AdminUserDetailPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const userId = Number(idParam);
+  return (
+    <AdminRecordGate kind="user" param={routeParams?.id} backHref="/admin/users/list">
+      {(userId) => <AdminUserDetail userId={userId} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminUserDetail({ userId }: { userId: number }) {
+  const recordHref = useAdminHref();
   const isValidUserId = Number.isFinite(userId) && userId > 0;
   const router = useRouter();
   const [data, setData] = useState<UserDetailResponse | null>(null);
@@ -1458,7 +1471,7 @@ export default function AdminUserDetailPage() {
               {user.email && <a href={`mailto:${user.email}`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><Mail className="h-3.5 w-3.5 text-blue-600" />Email</a>}
               {/* A printable record of everything this customer has used and
                   paid for, for the case where they come back disputing it. */}
-              <Link href={`/admin/users/${userId}/statement`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><FileText className="h-3.5 w-3.5 text-violet-600" />Statement</Link>
+              <Link href={recordHref("user", userId, { suffix: "/statement" })} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><FileText className="h-3.5 w-3.5 text-violet-600" />Statement</Link>
               {user.suspendedAt ? (
                 <button onClick={handleUnsuspendClick} disabled={actionLoading} className="col-span-2 inline-flex h-9 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 sm:col-span-1"><UserCheck className="h-3.5 w-3.5" />Unsuspend</button>
               ) : (
@@ -2933,7 +2946,7 @@ export default function AdminUserDetailPage() {
                                   {sharing.referredBy ? (
                                     <>
                                       Brought in by{" "}
-                                      <Link href={`/admin/users/${sharing.referredBy.id}`} className="font-semibold text-emerald-700 no-underline hover:underline">
+                                      <Link href={recordHref("user", sharing.referredBy.id)} className="font-semibold text-emerald-700 no-underline hover:underline">
                                         {sharing.referredBy.name || sharing.referredBy.email || `User #${sharing.referredBy.id}`}
                                       </Link>
                                       {sharing.referredBy.codeUsed ? ` using ${sharing.referredBy.codeUsed}` : ""}
@@ -3014,7 +3027,7 @@ export default function AdminUserDetailPage() {
                                     {sharing.referredUsers.slice(0, 6).map((referred) => (
                                       <Link
                                         key={referred.id}
-                                        href={`/admin/users/${referred.id}`}
+                                        href={recordHref("user", referred.id)}
                                         className="flex flex-wrap items-center justify-between gap-3 bg-white px-1 py-2.5 no-underline transition hover:bg-slate-50"
                                       >
                                         <div className="min-w-0">
@@ -3341,7 +3354,7 @@ export default function AdminUserDetailPage() {
                               <div className="mt-1 font-mono text-xs font-bold text-slate-500">ID {booking.id}</div>
                             </div>
                             <Link
-                              href={`/admin/bookings/${booking.id}`}
+                              href={`/admin/bookings/${booking.reference ?? booking.id}`}
                               aria-label="View booking"
                               title="View"
                               className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm transition-colors hover:bg-emerald-700 no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
@@ -3504,9 +3517,9 @@ export default function AdminUserDetailPage() {
                               <TableRow
                                 key={booking.id}
                                 hover={false}
-                                onDoubleClick={() => router.push(`/admin/bookings/${booking.id}`)}
+                                onDoubleClick={() => router.push(`/admin/bookings/${booking.reference ?? booking.id}`)}
                                 onKeyDown={(event) => {
-                                  if (event.key === "Enter") router.push(`/admin/bookings/${booking.id}`);
+                                  if (event.key === "Enter") router.push(`/admin/bookings/${booking.reference ?? booking.id}`);
                                 }}
                                 tabIndex={0}
                                 title="Double-click to open booking"
@@ -3579,7 +3592,7 @@ export default function AdminUserDetailPage() {
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   <Link
-                                    href={`/admin/bookings/${booking.id}`}
+                                    href={`/admin/bookings/${booking.reference ?? booking.id}`}
                                     aria-label="View booking"
                                     title="View"
                                     className="group relative inline-flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-emerald-600 text-white no-underline shadow-sm transition duration-150 hover:-translate-y-0.5 hover:bg-emerald-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"

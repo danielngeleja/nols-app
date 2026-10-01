@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
 
 export const router = Router();
 // Protect this route for admins only
@@ -52,11 +53,11 @@ router.get("/", async (req, res) => {
     ]);
 
     const suggestions = [
-      ...owners.map((o) => ({ label: o.name ? `${o.name}${o.email ? ` — ${o.email}` : ''}` : `Owner ${o.id}`, href: `/admin/owners/${o.id}`, type: "Owner", meta: { email: o.email, phone: o.phone } })),
-      ...drivers.map((d) => ({ label: d.name ? `${d.name}${d.email ? ` — ${d.email}` : ''}` : `Driver ${d.id}`, href: `/admin/drivers/${d.id}`, type: "Driver", meta: { email: d.email, phone: d.phone } })),
-      ...users.map((u) => ({ label: u.name ? `${u.name}${u.email ? ` — ${u.email}` : ''}` : `User ${u.id}`, href: `/admin/users/${u.id}`, type: "User", meta: { email: u.email, phone: u.phone } })),
-      ...properties.map((p) => ({ label: p.title ? `${p.title}${p.owner?.name ? ` — ${p.owner.name}` : p.regionName ? ` — ${p.regionName}` : p.district ? ` — ${p.district}` : ''}` : `Property ${p.id}`, href: `/admin/properties/${p.id}`, type: "Property", meta: { regionName: p.regionName, district: p.district, owner: p.owner } })),
-      ...bookings.map((b) => ({ label: b.guestName ? `${b.guestName} — ${b.property?.title ?? 'Booking'}${b.code?.codeVisible ? ` (#${b.code.codeVisible})` : ''}` : `Booking ${b.id}`, href: `/admin/bookings/${b.id}`, type: "Booking", meta: { code: b.code?.codeVisible, property: b.property } })),
+      ...owners.map((o) => ({ label: o.name ? `${o.name}${o.email ? ` — ${o.email}` : ''}` : `Owner ${o.id}`, href: `/admin/owners/${recordRef("owner", o.id) ?? o.id}`, type: "Owner", meta: { email: o.email, phone: o.phone } })),
+      ...drivers.map((d) => ({ label: d.name ? `${d.name}${d.email ? ` — ${d.email}` : ''}` : `Driver ${d.id}`, href: `/admin/drivers/audit/${recordRef("driver", d.id) ?? d.id}`, type: "Driver", meta: { email: d.email, phone: d.phone } })),
+      ...users.map((u) => ({ label: u.name ? `${u.name}${u.email ? ` — ${u.email}` : ''}` : `User ${u.id}`, href: `/admin/users/${recordRef("user", u.id) ?? u.id}`, type: "User", meta: { email: u.email, phone: u.phone } })),
+      ...properties.map((p) => ({ label: p.title ? `${p.title}${p.owner?.name ? ` — ${p.owner.name}` : p.regionName ? ` — ${p.regionName}` : p.district ? ` — ${p.district}` : ''}` : `Property ${p.id}`, href: `/admin/properties/previews?previewId=${recordRef("property", p.id) ?? p.id}`, type: "Property", meta: { regionName: p.regionName, district: p.district, owner: p.owner } })),
+      ...bookings.map((b) => ({ label: b.guestName ? `${b.guestName} — ${b.property?.title ?? 'Booking'}${b.code?.codeVisible ? ` (#${b.code.codeVisible})` : ''}` : `Booking ${b.id}`, href: `/admin/bookings/${recordRef("booking", b.id) ?? b.id}`, type: "Booking", meta: { code: b.code?.codeVisible, property: b.property } })),
     ];
 
     return res.json(suggestions);

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { Users, Search, X, MapPin, User, UsersRound, Globe, TrendingUp, Calendar, Phone, Hash, ExternalLink, Loader2, SlidersHorizontal } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref, useAdminQueryId } from "@/lib/adminRecordRefs";
 import TablePagination from "@/components/TablePagination";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
@@ -124,7 +125,17 @@ const inputCls =
   "h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 export default function AdminGroupStaysPassengersPage() {
+  useAdminHref();
   const [bookingId, setBookingId] = useState<string>("");
+  // A link from a booking (?bookingId=gs_...) opens this list filtered to it.
+  const [linkedBooking, setLinkedBooking] = useState<string | null>(null);
+  useEffect(() => {
+    setLinkedBooking(new URLSearchParams(window.location.search).get("bookingId"));
+  }, []);
+  const linkedBookingId = useAdminQueryId("group-stay", linkedBooking, "bookingId");
+  useEffect(() => {
+    if (linkedBookingId) setBookingId(String(linkedBookingId));
+  }, [linkedBookingId]);
   const [groupType, setGroupType] = useState<string>("");
   const [gender, setGender] = useState<string>("");
   const [nationality, setNationality] = useState<string>("");
@@ -751,7 +762,7 @@ export default function AdminGroupStaysPassengersPage() {
                 </button>
                 {p.booking?.id ? (
                   <Link
-                    href={`/admin/group-stays/bookings?bookingId=${p.booking.id}`}
+                    href={`/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", p.booking.id)}`}
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 text-sm font-semibold text-white no-underline transition-colors hover:bg-emerald-700 hover:no-underline"
                   >
                     Open booking <ExternalLink className="h-3.5 w-3.5" />

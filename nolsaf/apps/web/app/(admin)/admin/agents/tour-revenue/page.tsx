@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -137,6 +138,7 @@ function formatTokenRemaining(expiresAt: string | null | undefined, nowMs: numbe
 }
 
 export default function AdminTourRevenueOverview() {
+  const recordHref = useAdminHref();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<RevenueStatus | "ALL">("ALL");
@@ -725,7 +727,7 @@ export default function AdminTourRevenueOverview() {
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-center">
                         <Link
-                          href={`/admin/agents/tour-revenue/${revenue.id}`}
+                          href={recordHref("tour", revenue.id)}
                           className="inline-flex items-center gap-1 text-xs font-medium text-[#02665e] hover:text-emerald-700"
                           aria-label={`View ${revenue.bookingCode}`}
                           title="View details"

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "@nolsaf/prisma";
 import ipaddr from "ipaddr.js";
+import { raiseSecurityAlert } from "../lib/securityAlerts.js";
 
 const CACHE_TTL_MS = 30_000;
 let cachedList: string[] | null = null;
@@ -64,7 +65,10 @@ export async function adminAllowlist(req: Request, res: Response, next: NextFunc
       const normalized = normalizeIp(ip);
       const ok: boolean = list.some((cidrStr: string): boolean => cidrContains(cidrStr, normalized));
 
-      if (!ok) return res.status(403).json({ error: "IP not allowed" });
+      if (!ok) {
+        void raiseSecurityAlert("security_admin_ip_blocked", normalized, { ip: normalized, path: req.originalUrl });
+        return res.status(403).json({ error: "IP not allowed" });
+      }
       return next();
     }
 
@@ -77,7 +81,10 @@ export async function adminAllowlist(req: Request, res: Response, next: NextFunc
 
     const list: string[] =
       ((s as SystemSetting | null)?.ipAllowlist
-      ?.split(",")
+      // Entries may be separated by commas or new lines (the IP allowlist page
+      // saves one per line); splitting on commas alone merged them into one
+      // unparseable entry and locked every admin out.
+      ?.split(/[s,]+/)
       .map((x: string) => x.trim())
       .filter((v: string) => v !== "")) || [];
 
@@ -93,7 +100,10 @@ export async function adminAllowlist(req: Request, res: Response, next: NextFunc
     const normalized = normalizeIp(ip);
     const ok: boolean = list.some((cidrStr: string): boolean => cidrContains(cidrStr, normalized));
 
-    if (!ok) return res.status(403).json({ error: "IP not allowed" });
+    if (!ok) {
+      void raiseSecurityAlert("security_admin_ip_blocked", normalized, { ip: normalized, path: req.originalUrl });
+      return res.status(403).json({ error: "IP not allowed" });
+    }
     next();
   } catch (err: any) {
     if (process.env.NODE_ENV !== "test") {

@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import TablePagination from "@/components/TablePagination";
 import {
   AlertCircle,
@@ -113,6 +114,7 @@ function stayProgress(e: { checkIn: string | null; checkOut: string | null; chec
 }
 
 export default function AdminGroupStayEarningsPage() {
+  useAdminHref();
   const [filter, setFilter] = useState<"CHECKED_IN" | "ALL">("CHECKED_IN");
   const [ownerId, setOwnerId] = useState("");
   const [owners, setOwners] = useState<Array<{ id: number; name: string; count: number }>>([]);
@@ -517,7 +519,7 @@ export default function AdminGroupStayEarningsPage() {
                               </div>
                               <div className="mt-2.5 flex justify-end">
                                 <Link
-                                  href={`/admin/group-stays/bookings?bookingId=${earning.id}`}
+                                  href={`/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", earning.id)}`}
                                   className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition-colors hover:bg-neutral-50 hover:no-underline"
                                 >
                                   Open booking <ExternalLink className="h-3.5 w-3.5" />

@@ -581,106 +581,135 @@ router.get("/invoices/by-reference/:reference", getAdminRevenueInvoice);
 router.get("/invoices/:reference(\\d+)", getAdminRevenueInvoice);
 
 /**
- * GET /admin/revenue/invoices/:id/receipt.html
- * Admin-only receipt template (matches the legacy "Booking Reservation" PDF layout).
- *
- * Returns HTML intended for printing or client-side PDF generation.
+ * Builds a booking invoice's printable document on the shared customer
+ * template (lib/pdfGenerator.ts), the same one tour, group-stay and booking
+ * receipts use. `kind` decides the wording: a receipt confirms payment, an
+ * invoice shows what was billed and whether it is still owed.
  */
-router.get("/invoices/:id(\\d+)/receipt.html", async (req, res) => {
-  try {
-    const invoiceId = Number(req.params.id);
-    if (!invoiceId || Number.isNaN(invoiceId)) return res.status(400).json({ error: "Invalid invoice ID" });
-    const inv = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: {
-        booking: {
-          include: {
-            property: {
-              select: adminInvoicePropertySelect,
-            },
-            code: true,
-            user: true,
-          } as any,
+async function renderAdminInvoiceDocument(invoiceId: number, kind: "receipt" | "invoice") {
+  const inv = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      booking: {
+        include: {
+          property: {
+            select: adminInvoicePropertySelect,
+          },
+          code: true,
+          user: true,
         } as any,
       } as any,
-    });
-    if (!inv) return res.status(404).json({ error: "Invoice not found" });
-    const booking: any = (inv as any).booking;
-    if (!booking) return res.status(404).json({ error: "Booking not found" });
+    } as any,
+  });
+  if (!inv) return { status: 404 as const, error: "Invoice not found" };
+  const booking: any = (inv as any).booking;
+  if (!booking) return { status: 404 as const, error: "Booking not found" };
 
-    const bookingCode = booking?.code?.codeVisible || booking?.code?.code || booking?.code?.codeHash || "BOOKING";
+  const bookingCode = booking?.code?.codeVisible || booking?.code?.code || booking?.code?.codeHash || "BOOKING";
+  const invoiceStatus = String((inv as any).status || "").toUpperCase();
+  const paid = invoiceStatus === "PAID" || invoiceStatus === "CUSTOMER_PAID" || Boolean((inv as any).paidAt);
+  const total = Number((inv as any).total || booking.totalAmount || 0);
+  const invoiceNumber = (inv as any).invoiceNumber || `#${(inv as any).id}`;
+  const issuedAt = (inv as any).issuedAt ? new Date((inv as any).issuedAt) : null;
+  const issuedLabel = issuedAt && Number.isFinite(+issuedAt)
+    ? issuedAt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT"
+    : null;
 
-    const bookingDetails: any = {
-      bookingId: booking.id,
-      bookingCode: String(bookingCode),
-      guestName: booking.guestName || booking.user?.name || "Guest",
-      guestPhone: booking.guestPhone || booking.user?.phone || undefined,
-      nationality: booking.nationality || undefined,
-      property: {
-        title: booking.property?.title || "Property",
-        type: booking.property?.type || "Property",
-        regionName: booking.property?.regionName || undefined,
-        district: booking.property?.district || undefined,
-        city: booking.property?.city || undefined,
-        country: booking.property?.country || "Tanzania",
-      },
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      roomType: (booking as any).roomType || booking.roomCode || undefined,
-      rooms: (booking as any).rooms || undefined,
-      totalAmount: Number((inv as any).total || booking.totalAmount || 0),
-      services: (booking as any).services || undefined,
-      invoice: {
-        invoiceNumber: (inv as any).invoiceNumber || undefined,
-        receiptNumber: (inv as any).receiptNumber || undefined,
-        paidAt: (inv as any).paidAt || undefined,
-      },
-      nights: undefined,
-    };
+  const bookingDetails: any = {
+    bookingId: booking.id,
+    bookingCode: String(bookingCode),
+    guestName: booking.guestName || booking.user?.name || "Guest",
+    guestPhone: booking.guestPhone || booking.user?.phone || undefined,
+    nationality: booking.nationality || undefined,
+    property: {
+      title: booking.property?.title || "Property",
+      type: booking.property?.type || "Property",
+      regionName: booking.property?.regionName || undefined,
+      district: booking.property?.district || undefined,
+      city: booking.property?.city || undefined,
+      country: booking.property?.country || "Tanzania",
+    },
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    roomType: (booking as any).roomType || booking.roomCode || undefined,
+    rooms: (booking as any).rooms || undefined,
+    totalAmount: total,
+    services: (booking as any).services || undefined,
+    invoice: {
+      invoiceNumber: (inv as any).invoiceNumber || undefined,
+      receiptNumber: (inv as any).receiptNumber || undefined,
+      paidAt: (inv as any).paidAt || undefined,
+    },
+    nights: undefined,
+  };
 
-    // Compute nights if dates are valid; otherwise let the HTML generator fall back safely.
-    try {
-      const ci = booking?.checkIn ? new Date(booking.checkIn) : null;
-      const co = booking?.checkOut ? new Date(booking.checkOut) : null;
-      const validCi = ci && !Number.isNaN(ci.getTime()) ? ci : null;
-      const validCo = co && !Number.isNaN(co.getTime()) ? co : null;
-      if (validCi && validCo) {
-        const diffDays = Math.ceil((validCo.getTime() - validCi.getTime()) / (1000 * 60 * 60 * 24));
-        bookingDetails.nights = Number.isFinite(diffDays) && diffDays > 0 ? diffDays : 1;
-      }
-    } catch {
-      // Ignore date parsing issues; downstream HTML generation handles placeholders.
+  // Compute nights if dates are valid; otherwise let the HTML generator fall back safely.
+  try {
+    const ci = booking?.checkIn ? new Date(booking.checkIn) : null;
+    const co = booking?.checkOut ? new Date(booking.checkOut) : null;
+    if (ci && co && !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime())) {
+      const diffDays = Math.ceil((co.getTime() - ci.getTime()) / (1000 * 60 * 60 * 24));
+      bookingDetails.nights = Number.isFinite(diffDays) && diffDays > 0 ? diffDays : 1;
     }
-
-    const { html } = await generateBookingPDF(bookingDetails);
-    
-    if (!html || typeof html !== 'string') {
-      throw new Error('Failed to generate HTML: invalid response from generateBookingPDF');
-    }
-    
-    const filename = `Booking Reservation - ${String(bookingCode)}.pdf`;
-
-    // Set headers before sending
-    res.status(200);
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // Escape filename for Content-Disposition header to prevent issues with special characters
-    const safeFilename = filename.replace(/"/g, '\\"');
-    res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
-    res.setHeader("X-NoLSAF-Filename", safeFilename);
-    
-    // Check if response has already been sent
-    if (res.headersSent) {
-      return;
-    }
-
-    res.send(html);
-    return;
-  } catch (err: any) {
-    console.error("Error in GET /admin/revenue/invoices/:id/receipt.html", err);
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(500).json({ error: "Failed to generate receipt template", message: err?.message || "Unknown error" });
+  } catch {
+    // Ignore date parsing issues; downstream HTML generation handles placeholders.
   }
-});
+
+  if (kind === "invoice") {
+    bookingDetails.document = {
+      title: "INVOICE",
+      documentNumber: invoiceNumber,
+      dateLine: issuedLabel ? `Issued ${issuedLabel}` : "Issued",
+      amountLabel: paid ? "Amount paid" : "Amount due",
+      balanceDue: paid ? 0 : total,
+      confirmationTitle: paid ? "Paid in full" : "Payment due",
+      confirmationCopy: paid
+        ? `This invoice was settled${(inv as any).receiptNumber ? ` under receipt ${(inv as any).receiptNumber}` : ""}. This document is not a fiscal tax receipt.`
+        : "Pay this invoice to confirm the reservation. The check-in code is issued once payment clears. This document is not a fiscal tax receipt.",
+    };
+  }
+
+  const { html } = await generateBookingPDF(bookingDetails);
+  if (!html || typeof html !== "string") {
+    throw new Error("Failed to generate HTML: invalid response from generateBookingPDF");
+  }
+  const filename = kind === "invoice"
+    ? `Invoice - ${invoiceNumber}.pdf`
+    : `Booking Receipt - ${(inv as any).receiptNumber || String(bookingCode)}.pdf`;
+  return { status: 200 as const, html, filename };
+}
+
+function sendAdminInvoiceDocument(kind: "receipt" | "invoice") {
+  return async (req: any, res: any) => {
+    try {
+      const invoiceId = Number(req.params.id);
+      if (!invoiceId || Number.isNaN(invoiceId)) return res.status(400).json({ error: "Invalid invoice ID" });
+      const out = await renderAdminInvoiceDocument(invoiceId, kind);
+      if (out.status !== 200) return res.status(out.status).json({ error: out.error });
+      const safeFilename = out.filename.replace(/"/g, '\\"');
+      res.status(200);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
+      res.setHeader("X-NoLSAF-Filename", safeFilename);
+      res.setHeader("Cache-Control", "private, no-store");
+      if (res.headersSent) return;
+      return res.send(out.html);
+    } catch (err: any) {
+      console.error(`Error in GET /admin/revenue/invoices/:id/${kind}.html`, err);
+      res.setHeader("Content-Type", "application/json");
+      return res.status(500).json({ error: `Failed to generate ${kind} template`, message: err?.message || "Unknown error" });
+    }
+  };
+}
+
+/**
+ * GET /admin/revenue/invoices/:id/receipt.html
+ * GET /admin/revenue/invoices/:id/invoice.html
+ * Admin copies of a booking's receipt and invoice, on the same template every
+ * customer document uses. Returned as HTML for printing or client-side PDF.
+ */
+router.get("/invoices/:id(\\d+)/receipt.html", sendAdminInvoiceDocument("receipt"));
+router.get("/invoices/:id(\\d+)/invoice.html", sendAdminInvoiceDocument("invoice"));
 
 /** POST /admin/invoices/:id/verify { notes? } */
 router.post("/invoices/:id/verify", async (req, res) => {

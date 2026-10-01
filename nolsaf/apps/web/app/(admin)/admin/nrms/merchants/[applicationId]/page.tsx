@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import {
   AlertTriangle, ArrowLeft, Building2, Check, CheckCircle2, Clock3,
   ExternalLink, FileText, Fingerprint, Globe2, Hash, Loader2, Mail, Phone,
@@ -72,7 +73,14 @@ function documentFileUrl(view: DocumentView): string { return `/api/admin/paymen
 
 export default function MerchantApplicationDetailPage() {
   const params = useParams<{ applicationId: string }>();
-  const applicationId = Number(params?.applicationId || 0);
+  return (
+    <AdminRecordGate kind="merchant-application" param={params?.applicationId} backHref="/admin/nrms/merchants">
+      {(applicationId) => <MerchantApplicationDetail applicationId={applicationId} />}
+    </AdminRecordGate>
+  );
+}
+
+function MerchantApplicationDetail({ applicationId }: { applicationId: number }) {
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

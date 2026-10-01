@@ -12,6 +12,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useParams,
   useSearchParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import {
   ArrowLeft,
   Phone,
@@ -44,6 +45,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import TableRow from "@/components/TableRow";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -454,9 +456,16 @@ function SubmittedProfileCard({
 
 export default function AdminAgentDetailPage() {
   const params = useParams<{ id?: string | string[] }>();
+  return (
+    <AdminRecordGate kind="agent" param={params?.id} backHref="/admin/agents">
+      {(agentId) => <AdminAgentDetail agentId={agentId} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminAgentDetail({ agentId }: { agentId: number }) {
+  const recordHref = useAdminHref();
   const searchParams = useSearchParams();
-  const idParam = Array.isArray(params?.id) ? params?.id[0] : params?.id;
-  const agentId = Number(idParam);
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1009,7 +1018,7 @@ export default function AdminAgentDetailPage() {
   const submittedProfileSlug = String(
     submittedProfileRaw.profileSlug || slugifyProfile(String(submittedProfileRaw.companyName || companyName || "operator-profile"), agent?.id),
   );
-  const submittedProfileReviewHref = agent?.id ? `/admin/agents/${agent.id}/submitted-profile/${submittedProfileSlug}` : "#";
+  const submittedProfileReviewHref = agent?.id ? recordHref("agent", agent.id, { suffix: `/submitted-profile/${submittedProfileSlug}` }) : "#";
   const accommodationCapability = agent?.accommodationCapability;
   const accommodationEligible = agent?.status === "ACTIVE"
     && submittedProfileReviewStatus === "APPROVED"

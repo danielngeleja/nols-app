@@ -50,10 +50,10 @@ import {
 } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 
-type ReportKey = "manager" | "revenue" | "payments" | "balances" | "occupancy" | "outlets" | "commercial" | "audit";
+type ReportKey = "manager" | "revenue" | "profit" | "payments" | "balances" | "receivables" | "occupancy" | "outlets" | "fnb" | "commercial" | "tax" | "audit";
 type RangePreset = "today" | "month" | "90d" | "year";
 type IconType = ComponentType<{ className?: string }>;
-type PdfSectionKey = "operations" | "reconciliation" | "channels" | "occupancy" | "balances" | "outlets" | "commercial" | "payments" | "audit" | "nightAudit" | "cashiers" | "ledger" | "tax" | "nbs" | "assurance" | "certification";
+type PdfSectionKey = "operations" | "reconciliation" | "profit" | "receivables" | "fnb" | "fiscal" | "channels" | "occupancy" | "balances" | "outlets" | "commercial" | "payments" | "audit" | "nightAudit" | "cashiers" | "ledger" | "tax" | "nbs" | "assurance" | "certification";
 type PdfPackKey = "current" | "full" | "executive" | "finance" | "operations" | "custom";
 type PdfPackSelection = { key: PdfPackKey; label: string; sections: PdfSectionKey[] };
 
@@ -248,6 +248,9 @@ type ReportsResponse = {
   expenses: { rows: ExpenseReportRow[] };
   profitLoss: ProfitLossRow[];
   staffPerformance: StaffPerformanceRow[];
+  receivablesAging?: ReceivablesAgingRow[];
+  foodAndBeverage?: FoodAndBeverageReport | null;
+  fiscal?: FiscalReport | null;
   /**
    * How the property sold, where every block above says how it ran. Optional
    * so a cached response written before this section existed still renders the
@@ -301,6 +304,24 @@ type CommercialReportData = {
 type ExpenseReportRow = { id: number; category: string; description: string; amount: number; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null };
 type ProfitLossRow = { currency: string; totalRevenue: number; totalExpenses: number; netProfit: number; expensesByCategory: Array<{ category: string; amount: number }> };
 type StaffPerformanceRow = { staffId: number; name: string; role: string; currency: string; orders: number; sales: number; tips: number };
+type AgeBucketKey = "current" | "d1_30" | "d31_60" | "d61_90" | "d90plus";
+type AgeBuckets = Record<AgeBucketKey, number>;
+type ReceivablesAgingRow = { currency: string; guest: AgeBuckets; agency: AgeBuckets; rows: Array<{ kind: "GUEST" | "AGENCY"; name: string; reference: string; dueSince: string | null; bucket: AgeBucketKey; amount: number }> };
+type FoodAndBeverageReport = {
+  byCurrency: Array<{ currency: string; revenue: number; cogs: number; grossProfit: number; marginPercent: number | null; losses: number; lossesByAccount: Array<{ name: string; amount: number }>; afterLosses: number }>;
+  stockValue: number;
+  payables: { total: number; buckets: AgeBuckets; rows: Array<{ supplier: string; invoiceNumber: string; invoiceDate: string; dueDate: string | null; bucket: AgeBucketKey; amount: number }> };
+};
+type FiscalReport = { mode: string; status: string; tin: string | null; vrn: string | null; inRange: { total: number; byStatus: Record<string, number>; confirmedGross: number; confirmedTax: number } | null; backlog: Record<string, number> };
+
+const AGE_BUCKETS: Array<{ key: AgeBucketKey; label: string }> = [
+  { key: "current", label: "Not yet due" },
+  { key: "d1_30", label: "1 to 30 days" },
+  { key: "d31_60", label: "31 to 60 days" },
+  { key: "d61_90", label: "61 to 90 days" },
+  { key: "d90plus", label: "Over 90 days" },
+];
+const sumBuckets = (buckets: AgeBuckets) => AGE_BUCKETS.reduce((sum, bucket) => sum + (buckets[bucket.key] ?? 0), 0);
 
 type FinanceControlResponse = {
   range: { from: string; to: string };
@@ -322,21 +343,28 @@ type FinanceControlResponse = {
 const REPORTS: Array<{ key: ReportKey; label: string; description: string; icon: IconType }> = [
   { key: "manager", label: "Daily manager", description: "One view of today’s operation", icon: ClipboardCheck },
   { key: "revenue", label: "Revenue", description: "Rooms, folios and outlets", icon: TrendingUp },
+  { key: "profit", label: "Profit and loss", description: "Revenue, expenses and net result", icon: Banknote },
   { key: "payments", label: "Payments & cashiers", description: "Collections and accountability", icon: WalletCards },
   { key: "balances", label: "Guest balances", description: "Folio settlement control", icon: ReceiptText },
+  { key: "receivables", label: "Receivables aging", description: "Who owes money and for how long", icon: History },
   { key: "occupancy", label: "Occupancy", description: "ADR, RevPAR and room use", icon: BedDouble },
   { key: "outlets", label: "Outlet sales", description: "Restaurant and bar history", icon: ShoppingBasket },
+  { key: "fnb", label: "F&B cost and stock", description: "Cost of sales, losses, stock and suppliers", icon: Store },
   { key: "commercial", label: "Sales & groups", description: "Group business, agencies and production", icon: Handshake },
+  { key: "tax", label: "Tax and fiscal", description: "Tax register and TRA receipts", icon: BookOpenCheck },
   { key: "audit", label: "Audit & voids", description: "Who changed what and when", icon: ShieldCheck },
 ];
 
 const PDF_SECTION_OPTIONS: Array<{ key: PdfSectionKey; label: string; description: string; icon: IconType; required?: boolean }> = [
   { key: "operations", label: "Operations at a glance", description: "Arrivals, departures, in-house guests and open orders", icon: ClipboardCheck },
   { key: "reconciliation", label: "Financial reconciliation", description: "Revenue, collections, timing and departments", icon: TrendingUp },
+  { key: "profit", label: "Profit and loss", description: "Revenue less operating expenses, by category, with staff sales", icon: Banknote },
   { key: "channels", label: "Reservation source mix", description: "NoLSAF, OTAs, direct, phone and walk-in production", icon: BarChart3 },
   { key: "occupancy", label: "Room and occupancy", description: "Available nights, sold nights, ADR and RevPAR basis", icon: BedDouble },
   { key: "balances", label: "Guest folio balances", description: "Charges, collections and outstanding guest balances", icon: ReceiptText },
+  { key: "receivables", label: "Receivables aging", description: "Guest and agency balances by age, plus supplier payables", icon: History },
   { key: "outlets", label: "Outlet sales", description: "Restaurant, bar and service order settlement", icon: Store },
+  { key: "fnb", label: "F&B cost and stock", description: "Cost of goods sold, gross margin, losses and stock on hand", icon: ShoppingBasket },
   { key: "commercial", label: "Sales and group business", description: "Group blocks, inquiry conversion, agencies and production by person", icon: Handshake },
   { key: "payments", label: "Payment register", description: "Payment method, operator, reference and status", icon: WalletCards },
   { key: "audit", label: "Audit and exceptions", description: "Voids, corrections, reasons and responsible users", icon: History },
@@ -344,6 +372,7 @@ const PDF_SECTION_OPTIONS: Array<{ key: PdfSectionKey; label: string; descriptio
   { key: "cashiers", label: "Cashier shift variance", description: "Expected cash, declared cash, overages and shortages", icon: WalletCards },
   { key: "ledger", label: "Accounting ledger", description: "Balanced journal transactions and account totals", icon: BookOpenCheck },
   { key: "tax", label: "Tax register", description: "Separately captured tax payable and its transaction basis", icon: ReceiptText },
+  { key: "fiscal", label: "TRA fiscal receipts", description: "Receipts issued, pending and failed for the period", icon: ShieldCheck },
   { key: "nbs", label: "NBS accommodation statistics", description: "Beds, bed-nights, occupancy and visitor origin", icon: BedDouble },
   { key: "assurance", label: "Control assurance", description: "Automated reconciliation and data-quality checks", icon: ShieldCheck, required: true },
   { key: "certification", label: "Certification and sign-off", description: "Disclaimer, verification QR and authorization signatures", icon: BookOpenCheck, required: true },
@@ -351,9 +380,9 @@ const PDF_SECTION_OPTIONS: Array<{ key: PdfSectionKey; label: string; descriptio
 
 const PDF_PACKS: Array<PdfPackSelection & { description: string }> = [
   { key: "full", label: "Full property pack", description: "Complete management, finance, operations and audit record", sections: PDF_SECTION_OPTIONS.map((section) => section.key) },
-  { key: "executive", label: "Executive pack", description: "Headline operation, performance, channels and controls", sections: ["operations", "reconciliation", "channels", "occupancy", "commercial", "assurance", "certification"] },
-  { key: "finance", label: "Finance and control pack", description: "Revenue, cashiers, ledgers, tax, Night Audit and assurance", sections: ["reconciliation", "balances", "payments", "cashiers", "ledger", "tax", "nightAudit", "audit", "assurance", "certification"] },
-  { key: "operations", label: "Operations pack", description: "Front desk, rooms, channels and outlet performance", sections: ["operations", "channels", "occupancy", "outlets", "commercial", "assurance", "certification"] },
+  { key: "executive", label: "Executive pack", description: "Headline operation, performance, channels and controls", sections: ["operations", "reconciliation", "profit", "channels", "occupancy", "commercial", "assurance", "certification"] },
+  { key: "finance", label: "Finance and control pack", description: "Revenue, cashiers, ledgers, tax, Night Audit and assurance", sections: ["reconciliation", "profit", "balances", "receivables", "fnb", "payments", "cashiers", "ledger", "tax", "fiscal", "nightAudit", "audit", "assurance", "certification"] },
+  { key: "operations", label: "Operations pack", description: "Front desk, rooms, channels and outlet performance", sections: ["operations", "channels", "occupancy", "outlets", "fnb", "commercial", "assurance", "certification"] },
 ];
 
 const REQUIRED_PDF_SECTIONS: PdfSectionKey[] = ["assurance", "certification"];
@@ -367,6 +396,10 @@ const CURRENT_REPORT_PDF_SECTIONS: Record<ReportKey, PdfSectionKey[]> = {
   outlets: ["outlets", "assurance", "certification"],
   commercial: ["commercial", "assurance", "certification"],
   audit: ["audit", "assurance", "certification"],
+  profit: ["profit", "assurance", "certification"],
+  receivables: ["receivables", "assurance", "certification"],
+  fnb: ["fnb", "assurance", "certification"],
+  tax: ["tax", "fiscal", "assurance", "certification"],
 };
 
 const LABELS: Record<string, string> = {
@@ -779,6 +812,25 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
         </div>
       </PdfSection>}
 
+      {hasSection("profit") && (() => {
+        const pl = data.profitLoss.find((row) => row.currency === currencyReport.currency);
+        const staff = data.staffPerformance.filter((row) => row.currency === currencyReport.currency);
+        const expenses = data.expenses.rows.filter((row) => row.currency === currencyReport.currency && !row.voidedAt);
+        return <PdfSection number={sectionNumber("profit")} title="Profit and loss" description="Operating revenue less the operating expenses recorded for the period.">
+          <div className="pdf-summary" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <PdfMetric label="Operating revenue" value={money(pl?.totalRevenue ?? summary.totalRevenue)} detail="Rooms, folio extras and outlet-paid sales" tone="green" />
+            <PdfMetric label="Operating expenses" value={money(pl?.totalExpenses ?? 0)} detail={`${expenses.length} ${expenses.length === 1 ? "expense" : "expenses"} recorded`} tone="amber" />
+            <PdfMetric label={(pl?.netProfit ?? 0) >= 0 ? "Net profit" : "Net loss"} value={money(pl?.netProfit ?? summary.totalRevenue)} detail="Before stock cost and depreciation" tone={(pl?.netProfit ?? 0) >= 0 ? "green" : "amber"} />
+          </div>
+          <div className="pdf-grid-2" style={{ marginTop: 9 }}>
+            <div className="pdf-panel"><h3>Expenses by category</h3>{(pl?.expensesByCategory ?? []).map((row) => <div className="pdf-list-row" key={row.category}><span>{label(row.category)}</span><strong>{money(row.amount)}</strong></div>)}{!(pl?.expensesByCategory.length) && <div className="pdf-list-row"><span>No operating expenses recorded</span><strong>{money(0)}</strong></div>}</div>
+            <div className="pdf-panel"><h3>Staff sales performance</h3>{staff.map((row) => <div className="pdf-list-row" key={`${row.staffId}-${row.currency}`}><span>{row.name}<small>{row.orders} orders · tips {money(row.tips)}</small></span><strong>{money(row.sales)}</strong></div>)}{!staff.length && <div className="pdf-list-row"><span>No staff-settled outlet sales</span><strong>{money(0)}</strong></div>}</div>
+          </div>
+          <div className="pdf-table-wrap" style={{ marginTop: 9 }}><table className="pdf-table"><thead><tr><th>Date</th><th>Category</th><th style={{ width: "34%" }}>Description</th><th>Paid by</th><th>Recorded by</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead><tbody>{expenses.map((row) => <tr key={row.id}><td>{shortDate(row.incurredAt)}</td><td>{label(row.category)}</td><td><b>{row.description}</b></td><td>{row.paymentMethod ? label(row.paymentMethod) : "Not recorded"}</td><td>{row.recordedBy}</td><td className="num">{money(row.amount)}</td></tr>)}{!expenses.length && <PdfEmptyRow columns={6} text="No expenses were recorded in this period." />}</tbody></table></div>
+          <div className="pdf-note"><b>Scope.</b> Stock cost of sales appears in the F&B cost and stock section. Depreciation is not tracked, so this is an operating result rather than a full statutory profit and loss.</div>
+        </PdfSection>;
+      })()}
+
       {hasSection("channels") && <PdfSection number={sectionNumber("channels")} title="Reservation source and platform mix" description="Active stays arriving in the period, attributed to the channel that supplied each reservation.">
         <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "18%" }}>Platform / source</th><th>Reservations</th><th>Reservation share</th><th>Room nights</th><th style={{ textAlign: "right" }}>Booked stay value</th><th>Value share</th><th style={{ textAlign: "right" }}>Folio collected</th><th>Cancelled</th><th>No-show</th></tr></thead><tbody>
           {reservationSources.map((row) => <tr className={`pdf-source-row ${sourceRowClass(row.source)}`} key={`${row.source}-${row.currency}`}><td><b>{label(row.source)}</b></td><td>{row.reservations}</td><td>{row.reservationShare.toFixed(1)}%</td><td>{row.roomNights}</td><td className="num">{money(row.roomRevenue)}</td><td>{row.revenueShare.toFixed(1)}%</td><td className="num">{money(row.folioCollected)}</td><td>{row.cancellations}</td><td>{row.noShows}</td></tr>)}
@@ -801,6 +853,19 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
         </tbody></table></div>
       </PdfSection>}
 
+      {hasSection("receivables") && (() => {
+        const aging = data.receivablesAging?.find((row) => row.currency === currencyReport.currency);
+        const payables = data.foodAndBeverage?.payables;
+        const agingRow = (name: string, buckets: AgeBuckets) => <tr key={name}><td><b>{name}</b></td>{AGE_BUCKETS.map((bucket) => <td key={bucket.key} className="num">{money(buckets[bucket.key] ?? 0)}</td>)}<td className="num"><b>{money(sumBuckets(buckets))}</b></td></tr>;
+        return <PdfSection number={sectionNumber("receivables")} title="Receivables and payables aging" description="Money owed to the hotel, aged from checkout, and money the hotel owes suppliers, aged from due date.">
+          <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "18%" }}>Balance</th>{AGE_BUCKETS.map((bucket) => <th key={bucket.key} style={{ textAlign: "right" }}>{bucket.label}</th>)}<th style={{ textAlign: "right" }}>Total</th></tr></thead><tbody>
+            {aging ? <>{agingRow("Guest folios", aging.guest)}{agingRow("Agency folios", aging.agency)}</> : <PdfEmptyRow columns={7} text="No money is owed for stays in this period." />}
+            {payables && agingRow("Supplier payables", payables.buckets)}
+          </tbody></table></div>
+          <div className="pdf-table-wrap" style={{ marginTop: 9 }}><table className="pdf-table"><thead><tr><th style={{ width: "28%" }}>Owed by</th><th>Type</th><th>Reference</th><th>Due since</th><th>Age</th><th style={{ textAlign: "right" }}>Amount</th></tr></thead><tbody>{(aging?.rows ?? []).map((row, index) => <tr key={`${row.kind}-${row.reference}-${index}`}><td><b>{row.name}</b></td><td>{row.kind === "GUEST" ? "Guest" : "Agency"}</td><td>{row.reference}</td><td>{row.dueSince ? shortDate(row.dueSince) : "Not recorded"}</td><td><span className={`pdf-status ${row.bucket === "d61_90" || row.bucket === "d90plus" ? "pdf-status-danger" : row.bucket !== "current" ? "pdf-status-warn" : ""}`}>{AGE_BUCKETS.find((bucket) => bucket.key === row.bucket)?.label}</span></td><td className="num">{money(row.amount)}</td></tr>)}{!aging?.rows.length && <PdfEmptyRow columns={6} text="No open guest or agency balances." />}</tbody></table></div>
+        </PdfSection>;
+      })()}
+
       {hasSection("outlets") && <PdfSection number={sectionNumber("outlets")} title="Outlet sales and settlement" description="Restaurant, bar and service orders linked to the selected report period.">
         <div className="pdf-outlet-legend"><span><i style={{ background: "#7653b8" }} />Bar</span><span><i style={{ background: "#dc762c" }} />Restaurant</span><span><i style={{ background: "#2d7ea8" }} />Other services</span></div>
         <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th style={{ width: "17%" }}>Order</th><th style={{ width: "15%" }}>Outlet</th><th style={{ width: "15%" }}>Guest / room</th><th style={{ width: "21%" }}>Items</th><th>Settlement</th><th>Completed</th><th style={{ textAlign: "right" }}>Amount</th><th>Status</th></tr></thead><tbody>
@@ -808,6 +873,26 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
           {!outlets.length && <PdfEmptyRow columns={8} text="No outlet orders were recorded in this period." />}
         </tbody></table></div>
       </PdfSection>}
+
+      {hasSection("fnb") && (() => {
+        const fnb = data.foodAndBeverage;
+        const row = fnb?.byCurrency.find((item) => item.currency === currencyReport.currency);
+        return <PdfSection number={sectionNumber("fnb")} title="F&B cost and stock" description="Food and beverage revenue against the cost of goods sold, then losses and stock on hand.">
+          {!fnb ? <div className="pdf-note"><b>Unavailable.</b> The stock section could not be loaded when this pack was generated.</div> : <>
+            <div className="pdf-summary" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+              <PdfMetric label="F&B revenue" value={money(row?.revenue ?? 0)} detail="Restaurant, bar and room service" tone="green" />
+              <PdfMetric label="Cost of goods sold" value={money(row?.cogs ?? 0)} detail="Stock consumed by sales" tone="amber" />
+              <PdfMetric label="Gross profit" value={money(row?.grossProfit ?? 0)} detail={row?.marginPercent == null ? "No F&B revenue posted" : `${row.marginPercent.toFixed(1)}% gross margin`} tone={(row?.grossProfit ?? 0) >= 0 ? "green" : "amber"} />
+              <PdfMetric label="Stock on hand" value={money(fnb.stockValue)} detail="At average cost, when generated" />
+            </div>
+            <div className="pdf-grid-2" style={{ marginTop: 9 }}>
+              <div className="pdf-panel"><h3>Losses after gross profit</h3>{(row?.lossesByAccount ?? []).map((loss) => <div className="pdf-list-row" key={loss.name}><span>{loss.name}</span><strong>{money(loss.amount)}</strong></div>)}<div className="pdf-list-row"><span><b>Result after losses</b></span><strong>{money(row?.afterLosses ?? 0)}</strong></div></div>
+              <div className="pdf-panel"><h3>Supplier balances</h3><div className="pdf-list-row"><span>Owed to suppliers</span><strong>{money(fnb.payables.total)}</strong></div><div className="pdf-list-row"><span>Over 60 days</span><strong>{money(fnb.payables.buckets.d61_90 + fnb.payables.buckets.d90plus)}</strong></div></div>
+            </div>
+            <div className="pdf-note"><b>Timing.</b> Cost of goods sold and losses post at Night Audit, so business dates still open are not included.</div>
+          </>}
+        </PdfSection>;
+      })()}
 
       {/* Counted by agreement date, so this section will not tie to occupancy
           or to the master folio totals elsewhere in the pack. The note at the
@@ -873,6 +958,23 @@ function ConsolidatedPdfReport({ data, finance, currencyReport, identity, money,
         <div className="pdf-table-wrap"><table className="pdf-table"><thead><tr><th>Transaction</th><th>Date and time</th><th>Tax basis</th><th style={{ textAlign: "right" }}>Tax payable</th></tr></thead><tbody>{taxRows.map((row) => <tr key={row.transactionNumber}><td><b>{row.transactionNumber}</b></td><td>{dateTime(row.occurredAt)}</td><td>{row.description}</td><td className="num"><b>{money(row.tax)}</b></td></tr>)}{!taxRows.length && <PdfEmptyRow columns={4} text="No separately captured tax was posted in this period." />}</tbody></table></div>
         <div className="pdf-note"><b>Tax scope.</b> {finance.tax.note}</div>
       </PdfSection>}
+
+      {hasSection("fiscal") && (() => {
+        const fiscal = data.fiscal;
+        const on = fiscal && fiscal.mode !== "OFF";
+        const backlog = fiscal ? Object.values(fiscal.backlog).reduce((sum, count) => sum + count, 0) : 0;
+        return <PdfSection number={sectionNumber("fiscal")} title="TRA fiscal receipts" description="Fiscal receipts issued for sales in this period and any not yet accepted by TRA.">
+          {!on ? <div className="pdf-note"><b>Not active.</b> TRA fiscal receipting is switched off for this property. It is required only for VAT-registered businesses.</div> : <>
+            <div className="pdf-summary" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+              <PdfMetric label="Receipt mode" value={fiscal!.mode === "ALWAYS" ? "Every payment" : "On request"} detail={`${label(fiscal!.status)}${fiscal!.tin ? ` · TIN ${fiscal!.tin}` : ""}${fiscal!.vrn ? ` · VRN ${fiscal!.vrn}` : ""}`} />
+              <PdfMetric label="Confirmed" value={String(fiscal!.inRange?.byStatus.CONFIRMED ?? 0)} detail={`${money(fiscal!.inRange?.confirmedGross ?? 0)} gross`} tone="green" />
+              <PdfMetric label="Tax on receipts" value={money(fiscal!.inRange?.confirmedTax ?? 0)} detail="Confirmed receipts less credit notes" tone="green" />
+              <PdfMetric label="Not yet at TRA" value={String(backlog)} detail="Pending or failed, all dates" tone={backlog ? "amber" : "green"} />
+            </div>
+            <div className="pdf-panel" style={{ marginTop: 9 }}><h3>Receipts in period by status</h3>{["CONFIRMED", "PENDING", "SENDING", "FAILED", "DEAD_LETTER", "BURNED"].map((status) => <div className="pdf-list-row" key={status}><span>{label(status)}</span><strong>{fiscal!.inRange?.byStatus[status] ?? 0}</strong></div>)}</div>
+          </>}
+        </PdfSection>;
+      })()}
 
       {hasSection("nbs") && <PdfSection number={sectionNumber("nbs")} title="NBS monthly accommodation statistics" description={`Aggregate accommodation indicators for ${finance.nbs.month}; no guest-identifying details are included.`}>
         <div className="pdf-operations">{[["Physical beds", finance.nbs.bedsAvailable], ["Reporting days", finance.nbs.reportingDays], ["Bed-nights available", finance.nbs.bedNightsAvailable], ["Bed-nights occupied", finance.nbs.bedNightsOccupied], ["Domestic bed-nights", finance.nbs.domesticBedNights], ["International bed-nights", finance.nbs.internationalBedNights]].map(([name, value]) => <div className="pdf-operation" key={name}><strong>{value}</strong><span>{name}</span></div>)}</div>
@@ -954,7 +1056,7 @@ export default function NrmsReportsPage() {
     try {
       const [response, financeResponse] = await Promise.all([
         apiClient.get<ReportsResponse>(`/api/owner/nrms/reports/property/${selectedPropertyId}`, { params: range }),
-        apiClient.get<FinanceControlResponse>(`/api/owner/nrms/finance/property/${selectedPropertyId}`, { params: { businessDate: range.to, from: range.from, to: range.to, month: range.to.slice(0, 7) } }),
+        apiClient.get<FinanceControlResponse>(`/api/owner/nrms/finance/property/${selectedPropertyId}`, { params: { view: "report", businessDate: range.to, from: range.from, to: range.to, month: range.to.slice(0, 7) } }),
       ]);
       setData(response.data);
       setFinanceData(financeResponse.data);
@@ -1198,19 +1300,33 @@ export default function NrmsReportsPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-[1500px] space-y-4 pb-10 print:max-w-none">
-      <header className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-neutral-200 bg-white px-4 py-4 shadow-sm sm:px-5 print:border-0 print:shadow-none">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#073c35] text-white"><FileText className="h-[18px] w-[18px]" /></span>
-          <div className="min-w-0">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS reports</p>
-            <h1 className="mb-0 mt-1 text-xl font-bold tracking-tight text-neutral-950">Property reporting centre</h1>
-            <p className="mb-0 mt-1 text-xs text-neutral-500">Operational, financial and audit reports for {selectedProperty?.title ?? "the selected property"}.</p>
+    <main id="nrms-reports" className="mx-auto w-full max-w-[1500px] space-y-4 pb-10 print:max-w-none">
+      {/* Preflight is off: without these, `border` alone draws nothing and
+          w-full controls overflow their columns. Same fix the admin NRMS pages
+          carry in admin-soft-ui.css, scoped to this page. */}
+      <style>{`#nrms-reports, #nrms-reports * { box-sizing: border-box; } #nrms-reports [class~="border"] { border-style: solid; }`}</style>
+
+      {/* Hero in the admin NRMS style: identity, the period the numbers cover,
+          and the export actions. */}
+      <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-5 text-white shadow-sm sm:p-6 print:border-0 print:bg-none print:p-0 print:text-neutral-900 print:shadow-none">
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-emerald-200 print:hidden"><FileText className="h-5 w-5" /></span>
+            <div className="min-w-0">
+              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200 print:text-emerald-700">NRMS reports</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl print:text-neutral-950">Property reporting centre</h1>
+              <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-slate-200 print:text-neutral-500">
+                <span className="font-semibold text-white print:text-neutral-800">{selectedProperty?.title ?? "Selected property"}</span>
+                <span aria-hidden="true" className="text-slate-400">·</span>
+                <span className="tabular-nums">{shortDate(`${range.from}T00:00:00+03:00`)} to {shortDate(`${range.to}T00:00:00+03:00`)}</span>
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2 print:hidden">
-          <button type="button" onClick={() => void exportWorkbook()} disabled={!data || !financeData || loading || exportBusy} title="Multi-sheet Excel workbook arranged on USALI lines, with STR performance statistics and charts" className="inline-flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-40">{exportBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5" />}{exportBusy ? "Building" : "Export Excel"}</button>
-          <button type="button" onClick={() => setPrintDialogOpen(true)} disabled={!data || loading || pdfBusy} className="inline-flex h-9 min-w-[116px] items-center justify-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-[11px] font-bold text-neutral-700 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-40">{pdfBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}{pdfBusy ? "Preparing PDF" : "Print / PDF"}</button>
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <button type="button" onClick={() => void loadReports()} disabled={loading} aria-label="Refresh reports" title="Refresh report data" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/25 bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
+            <button type="button" onClick={() => void exportWorkbook()} disabled={!data || !financeData || loading || exportBusy} title="Multi-sheet Excel workbook arranged on USALI lines, with STR performance statistics and charts" className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-3.5 text-xs font-bold text-white transition hover:bg-white/20 disabled:opacity-50">{exportBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}{exportBusy ? "Building" : "Export Excel"}</button>
+            <button type="button" onClick={() => setPrintDialogOpen(true)} disabled={!data || loading || pdfBusy} className="inline-flex h-10 min-w-[124px] items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-300 px-3.5 text-xs font-bold text-emerald-950 transition hover:bg-emerald-200 disabled:opacity-50">{pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}{pdfBusy ? "Preparing PDF" : "Print / PDF"}</button>
+          </div>
         </div>
       </header>
 
@@ -1225,76 +1341,50 @@ export default function NrmsReportsPage() {
 
       <PrintPackDialog open={printDialogOpen} busy={pdfBusy} currentReport={activeReport} onClose={() => setPrintDialogOpen(false)} onGenerate={(selection) => void generatePdf(selection)} />
 
-      <section className="overflow-x-auto rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 shadow-sm print:hidden" aria-label="Report controls">
-        <div className="mx-auto flex w-max min-w-max items-center justify-center gap-2">
-          <ReportSelector value={activeReport} onChange={setActiveReport} />
+      {/* One control bar that wraps instead of scrolling sideways: what to
+          report, over which period, then run. Run only lights up when the
+          dates on screen differ from the report being shown. */}
+      <section className="flex flex-wrap items-center gap-2.5 rounded-2xl border border-neutral-200 bg-white p-2.5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] print:hidden" aria-label="Report controls">
+        <ReportSelector value={activeReport} onChange={setActiveReport} />
 
-          <span className="h-7 w-px shrink-0 bg-neutral-200" aria-hidden />
-
-          <div className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-xl bg-neutral-100 p-1" aria-label="Quick report periods">
-            {([[
-              "today", "Today",
-            ], ["month", "This month"], ["90d", "90 days"], ["year", "This year"]] as Array<[RangePreset, string]>).map(([key, text]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => applyPreset(key)}
-                aria-pressed={activePreset === key}
-                className={`h-8 rounded-lg border-0 px-2 text-[10px] font-bold transition ${activePreset === key ? "bg-emerald-100 text-emerald-900 shadow-sm" : "bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-900"}`}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
-
-          <span className="hidden h-7 w-px bg-neutral-200 xl:block" aria-hidden />
-
-          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50/70 p-1">
-            <div className="flex h-10 items-center gap-1">
-              <span className="pl-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">From</span>
-              <div className="w-[138px]">
-                <DatePickerField
-                  label="Report start date"
-                  value={draftRange.from}
-                  max={draftRange.to}
-                  onChangeAction={(next) => {
-                    setActivePreset(null);
-                    setDraftRange((current) => ({ ...current, from: next }));
-                  }}
-                  widthClassName="!w-full"
-                  size="sm"
-                  twoMonths={false}
-                  allowPast
-                />
-              </div>
-            </div>
-            <span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden />
-            <div className="flex h-10 items-center gap-1">
-              <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">To</span>
-              <div className="w-[138px]">
-                <DatePickerField
-                  label="Report end date"
-                  value={draftRange.to}
-                  min={draftRange.from}
-                  onChangeAction={(next) => {
-                    setActivePreset(null);
-                    setDraftRange((current) => ({ ...current, to: next }));
-                  }}
-                  widthClassName="!w-full"
-                  size="sm"
-                  twoMonths={false}
-                  allowPast
-                />
-              </div>
-            </div>
-          </div>
-
-          <button type="button" onClick={() => setRange(draftRange)} disabled={!draftRange.from || !draftRange.to || draftRange.from > draftRange.to || loading} className="inline-flex h-10 items-center gap-2 rounded-xl border-0 bg-[#073c35] px-3.5 text-[11px] font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:bg-neutral-300 disabled:shadow-none"><CalendarCheck2 className="h-4 w-4" />Run report</button>
-
-          {data && data.currencies.length > 1 && <label className="inline-flex"><span className="sr-only">Currency</span><select value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="box-border h-10 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10">{data.currencies.map((item) => <option key={item.currency}>{item.currency}</option>)}</select></label>}
-
-          <button type="button" onClick={() => void loadReports()} disabled={loading} aria-label="Refresh reports" title="Refresh report data" className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /></button>
+        <div className="inline-flex h-10 shrink-0 items-center gap-0.5 rounded-xl bg-neutral-100 p-1" aria-label="Quick report periods">
+          {([["today", "Today"], ["month", "This month"], ["90d", "90 days"], ["year", "This year"]] as Array<[RangePreset, string]>).map(([key, text]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => applyPreset(key)}
+              aria-pressed={activePreset === key}
+              className={`h-8 rounded-lg border-0 px-2.5 text-[11px] font-bold transition ${activePreset === key ? "bg-white text-emerald-800 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-900"}`}
+            >
+              {text}
+            </button>
+          ))}
         </div>
+
+        <div className="flex h-10 shrink-0 items-stretch overflow-hidden rounded-xl bg-white ring-1 ring-neutral-200 focus-within:ring-emerald-300">
+          <span className="flex items-center pl-3 pr-1 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">From</span>
+          <div className="w-[132px] [&_button]:!h-10 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold">
+            <DatePickerField label="Report start date" value={draftRange.from} max={draftRange.to} onChangeAction={(next) => { setActivePreset(null); setDraftRange((current) => ({ ...current, from: next })); }} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+          </div>
+          <span className="flex items-center px-1 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400 shadow-[inset_1px_0_0_0_#e5e5e5]">&nbsp;To</span>
+          <div className="w-[132px] [&_button]:!h-10 [&_button]:!rounded-none [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!shadow-none [&_button]:!text-[13px] [&_button]:!font-semibold">
+            <DatePickerField label="Report end date" value={draftRange.to} min={draftRange.from} onChangeAction={(next) => { setActivePreset(null); setDraftRange((current) => ({ ...current, to: next })); }} widthClassName="!w-full" size="sm" twoMonths={false} allowPast />
+          </div>
+        </div>
+
+        {data && data.currencies.length > 1 && <label className="inline-flex"><span className="sr-only">Currency</span><select value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="h-10 rounded-xl border border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10">{data.currencies.map((item) => <option key={item.currency}>{item.currency}</option>)}</select></label>}
+
+        {(() => {
+          const invalid = !draftRange.from || !draftRange.to || draftRange.from > draftRange.to;
+          const pending = draftRange.from !== range.from || draftRange.to !== range.to;
+          return (
+            <button type="button" onClick={() => setRange(draftRange)} disabled={invalid || !pending || loading}
+              className={`ml-auto inline-flex h-10 items-center gap-2 rounded-xl border-0 px-4 text-xs font-bold transition ${pending && !invalid ? "bg-[#073c35] text-white shadow-sm hover:bg-emerald-800" : "bg-neutral-100 text-neutral-400"}`}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : pending ? <CalendarCheck2 className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+              {invalid ? "Check dates" : pending ? "Run report" : "Up to date"}
+            </button>
+          );
+        })()}
       </section>
 
       {error && <div role="alert" className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertCircle className="h-4 w-4 shrink-0" /><span className="flex-1">{error}</span><button type="button" onClick={() => void loadReports()} className="rounded-lg border-0 bg-red-100 px-3 py-1.5 text-xs font-bold text-red-800">Try again</button></div>}
@@ -1306,6 +1396,10 @@ export default function NrmsReportsPage() {
               <div className="hidden items-center justify-between border-b border-neutral-200 pb-3 print:flex"><div><strong className="text-base">{REPORTS.find((report) => report.key === activeReport)?.label}</strong><p className="m-0 text-xs text-neutral-500">{data.property.title} · {data.range.from} to {data.range.to}</p></div><span className="text-xs font-bold text-neutral-500">{currency}</span></div>
               {activeReport === "manager" && <ManagerReport data={data} currencyReport={currencyReport} money={money} />}
               {activeReport === "revenue" && <RevenueReport data={data} currencyReport={currencyReport} money={money} />}
+              {activeReport === "profit" && <ProfitReport data={data} currencyReport={currencyReport} money={money} />}
+              {activeReport === "receivables" && <ReceivablesReport data={data} currency={currencyReport.currency} money={money} />}
+              {activeReport === "fnb" && <FnbReport data={data} currency={currencyReport.currency} money={money} />}
+              {activeReport === "tax" && (financeData ? <TaxReport data={data} finance={financeData} currency={currencyReport.currency} money={money} /> : <EmptyReport title="Tax register unavailable" text="The finance records could not be loaded. Refresh to try again." />)}
               {activeReport === "payments" && <PaymentsReport data={data} rows={filteredPayments} currencyReport={currencyReport} money={money} />}
               {activeReport === "balances" && <BalancesReport rows={filteredBalances} currencyReport={currencyReport} money={money} />}
               {activeReport === "occupancy" && <OccupancyReport data={data} />}
@@ -1470,6 +1564,122 @@ function ManagerReport({ data, currencyReport, money }: { data: ReportsResponse;
     <section className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6"><Metric label="Arrivals" value={manager.arrivals} icon={CalendarDays} /><Metric label="Departures" value={manager.departures} icon={ArrowUpRight} /><Metric label="In house now" value={manager.inHouse} icon={Users} tone="emerald" /><Metric label="Open orders" value={manager.openOrders} icon={Clock3} tone={manager.openOrders ? "amber" : "neutral"} /><Metric label="Cancellations" value={manager.cancellations} icon={XCircle} tone={manager.cancellations ? "red" : "neutral"} /><Metric label="No-shows" value={manager.noShows} icon={AlertCircle} tone={manager.noShows ? "red" : "neutral"} /></section>
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MoneyMetric label="Total hotel revenue" value={money(summary.totalRevenue)} note="Rooms, folio extras and outlet-paid sales" icon={TrendingUp} tone="emerald" /><MoneyMetric label="Total collected" value={money(summary.totalCollected)} note="Guest, agency and outlet collections" icon={WalletCards} tone="blue" /><MoneyMetric label="Outstanding folios" value={money(summary.amountDue)} note={`${dueGuests} guest · ${summary.agencyFoliosDue} agency ${summary.agencyFoliosDue === 1 ? "folio" : "folios"} due`} icon={ReceiptText} tone={summary.amountDue > 0 ? "amber" : "emerald"} /><MoneyMetric label="Outlet-paid revenue" value={money(summary.outletPaidRevenue)} note="Collected directly by restaurant and bar" icon={Store} tone="violet" /></section>
     <section className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]"><Panel title="Room position" description="Current physical room availability"><div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200 sm:grid-cols-5"><SmallStat label="All rooms" value={manager.rooms.total} /><SmallStat label="Operational" value={manager.rooms.active} /><SmallStat label="Occupied" value={manager.rooms.occupiedNow} /><SmallStat label="Available" value={manager.rooms.availableNow} good /><SmallStat label="Out of service" value={manager.rooms.outOfService} warning={manager.rooms.outOfService > 0} /></div></Panel><Panel title="Management attention" description="Items that should be reviewed before closing the day"><div className="space-y-2"><AttentionRow ok={data.control.status === "BALANCED"} text={data.control.status === "BALANCED" ? "Automated report reconciliation is balanced." : `${data.control.warnings.length} report data-quality items require review.`} /><AttentionRow ok={summary.amountDue <= 0.005} text={summary.amountDue > 0 ? `${dueGuests} folios still have an outstanding balance.` : "All report-period folios are settled."} /><AttentionRow ok={manager.openOrders === 0} text={manager.openOrders ? `${manager.openOrders} outlet orders are still open.` : "No restaurant or bar orders are waiting."} /><AttentionRow ok={manager.rooms.outOfService === 0} text={manager.rooms.outOfService ? `${manager.rooms.outOfService} rooms are unavailable for sale.` : "All configured rooms are operational."} /></div></Panel></section>
+  </>;
+}
+
+function ProfitReport({ data, currencyReport, money }: { data: ReportsResponse; currencyReport: CurrencyReport; money: (value: number) => string }) {
+  const pl = data.profitLoss.find((row) => row.currency === currencyReport.currency) ?? { currency: currencyReport.currency, totalRevenue: currencyReport.summary.totalRevenue, totalExpenses: 0, netProfit: currencyReport.summary.totalRevenue, expensesByCategory: [] };
+  const expenses = data.expenses.rows.filter((row) => row.currency === currencyReport.currency && !row.voidedAt);
+  const staff = data.staffPerformance.filter((row) => row.currency === currencyReport.currency);
+  const margin = pl.totalRevenue > 0 ? (pl.netProfit / pl.totalRevenue) * 100 : null;
+  return <>
+    <ReportTitle icon={Banknote} eyebrow="Financial performance" title="Profit and loss" text="Operating revenue for the period less the operating expenses recorded against it." />
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MoneyMetric label="Operating revenue" value={money(pl.totalRevenue)} note="Rooms, folio extras and outlet-paid sales" icon={TrendingUp} tone="emerald" />
+      <MoneyMetric label="Operating expenses" value={money(pl.totalExpenses)} note={`${expenses.length} ${expenses.length === 1 ? "expense" : "expenses"} recorded`} icon={ReceiptText} tone="amber" />
+      <MoneyMetric label={pl.netProfit >= 0 ? "Net profit" : "Net loss"} value={money(pl.netProfit)} note={margin == null ? "No revenue in this period" : `${margin.toFixed(1)}% of revenue`} icon={Banknote} tone={pl.netProfit >= 0 ? "emerald" : "amber"} />
+      <MoneyMetric label="Staff-settled sales" value={money(staff.reduce((sum, row) => sum + row.sales, 0))} note={`${staff.length} outlet ${staff.length === 1 ? "person" : "people"} · tips ${money(staff.reduce((sum, row) => sum + row.tips, 0))}`} icon={Users} tone="blue" />
+    </section>
+    <section className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr]">
+      <Panel title="Expenses by category" description="Where the money went, largest first">
+        <DataTable headers={["Category", "Share", "Amount"]}>{pl.expensesByCategory.map((row) => { const share = pl.totalExpenses > 0 ? row.amount / pl.totalExpenses * 100 : 0; return <tr key={row.category}><Cell strong>{label(row.category)}</Cell><Cell><div className="flex min-w-[120px] items-center gap-2"><div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-100"><div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.min(100, share)}%` }} /></div><span className="w-9 text-right text-[10px] font-bold text-neutral-500">{share.toFixed(0)}%</span></div></Cell><Cell align="right" strong>{money(row.amount)}</Cell></tr>; })}</DataTable>
+        {!pl.expensesByCategory.length && <TableEmpty text="No operating expenses were recorded in this period." />}
+      </Panel>
+      <Panel title="Staff sales performance" description="Outlet orders settled by each person, with tips">
+        <DataTable headers={["Person", "Role", "Orders", "Sales", "Tips"]}>{staff.map((row) => <tr key={`${row.staffId}-${row.currency}`}><Cell strong>{row.name}</Cell><Cell>{label(row.role)}</Cell><Cell>{row.orders}</Cell><Cell align="right" strong>{money(row.sales)}</Cell><Cell align="right">{money(row.tips)}</Cell></tr>)}</DataTable>
+        {!staff.length && <TableEmpty text="No outlet sales were settled by staff in this period." />}
+      </Panel>
+    </section>
+    <Panel title="Expense register" description="Every expense recorded for the period">
+      <DataTable headers={["Date", "Category", "Description", "Paid by", "Recorded by", "Amount"]}>{expenses.map((row) => <tr key={row.id}><Cell>{shortDate(row.incurredAt)}</Cell><Cell>{label(row.category)}</Cell><Cell strong>{row.description}</Cell><Cell>{row.paymentMethod ? label(row.paymentMethod) : "Not recorded"}</Cell><Cell>{row.recordedBy}</Cell><Cell align="right" strong>{money(row.amount)}</Cell></tr>)}</DataTable>
+      {!expenses.length && <TableEmpty text="No expenses were recorded in this period." />}
+    </Panel>
+    <p className="m-0 px-1 text-[10px] leading-4 text-neutral-400">Stock cost of sales is shown in F&B cost and stock; depreciation is not tracked, so this is an operating result, not a full statutory profit and loss.</p>
+  </>;
+}
+
+function AgingTable({ rows, money }: { rows: Array<{ name: string; buckets: AgeBuckets }>; money: (value: number) => string }) {
+  return <DataTable headers={["", ...AGE_BUCKETS.map((bucket) => bucket.label), "Total"]}>
+    {rows.map((row) => <tr key={row.name}><Cell strong>{row.name}</Cell>{AGE_BUCKETS.map((bucket) => <Cell key={bucket.key} align="right" className={bucket.key === "d61_90" || bucket.key === "d90plus" ? (row.buckets[bucket.key] > 0 ? "font-bold text-red-700" : "") : ""}>{money(row.buckets[bucket.key] ?? 0)}</Cell>)}<Cell align="right" strong>{money(sumBuckets(row.buckets))}</Cell></tr>)}
+  </DataTable>;
+}
+
+function ReceivablesReport({ data, currency, money }: { data: ReportsResponse; currency: string; money: (value: number) => string }) {
+  const aging = data.receivablesAging?.find((row) => row.currency === currency) ?? null;
+  const guestTotal = aging ? sumBuckets(aging.guest) : 0;
+  const agencyTotal = aging ? sumBuckets(aging.agency) : 0;
+  const overdue60 = aging ? aging.guest.d61_90 + aging.guest.d90plus + aging.agency.d61_90 + aging.agency.d90plus : 0;
+  const payables = data.foodAndBeverage?.payables ?? null;
+  return <>
+    <ReportTitle icon={History} eyebrow="Credit control" title="Receivables aging" text="Money owed to the hotel, grouped by how long it has been outstanding since the stay ended." />
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MoneyMetric label="Total receivable" value={money(guestTotal + agencyTotal)} note={`${aging?.rows.length ?? 0} open ${(aging?.rows.length ?? 0) === 1 ? "balance" : "balances"}`} icon={WalletCards} tone="blue" />
+      <MoneyMetric label="Guests owe" value={money(guestTotal)} note="Guest folios still unpaid" icon={Users} tone="violet" />
+      <MoneyMetric label="Agencies owe" value={money(agencyTotal)} note="Agency master folios still unpaid" icon={Handshake} tone="violet" />
+      <MoneyMetric label="Over 60 days" value={money(overdue60)} note={overdue60 > 0 ? "Chase these first" : "Nothing seriously overdue"} icon={AlertCircle} tone={overdue60 > 0 ? "amber" : "emerald"} />
+    </section>
+    <Panel title="Aging summary" description="Aged from checkout. Not yet due means the guest or group is still in house.">
+      {aging ? <AgingTable money={money} rows={[{ name: "Guest folios", buckets: aging.guest }, { name: "Agency folios", buckets: aging.agency }]} /> : <TableEmpty text="No money is owed for stays in this period." />}
+    </Panel>
+    <Panel title="Open balances" description="Every unpaid guest and agency balance, largest first">
+      <DataTable headers={["Owed by", "Type", "Reference", "Due since", "Age", "Amount"]}>{(aging?.rows ?? []).map((row, index) => <tr key={`${row.kind}-${row.reference}-${index}`}><Cell strong>{row.name}</Cell><Cell>{row.kind === "GUEST" ? "Guest" : "Agency"}</Cell><Cell>{row.reference}</Cell><Cell>{row.dueSince ? shortDate(row.dueSince) : "Not recorded"}</Cell><Cell><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${row.bucket === "d61_90" || row.bucket === "d90plus" ? "bg-red-50 text-red-700" : row.bucket === "current" ? "bg-neutral-100 text-neutral-600" : "bg-amber-50 text-amber-800"}`}>{AGE_BUCKETS.find((bucket) => bucket.key === row.bucket)?.label}</span></Cell><Cell align="right" strong>{money(row.amount)}</Cell></tr>)}</DataTable>
+      {!aging?.rows.length && <TableEmpty text="No open guest or agency balances." />}
+    </Panel>
+    {payables && <Panel title="Supplier payables" description="What the hotel owes suppliers, oldest invoices settled first and aged from their due date">
+      <AgingTable money={money} rows={[{ name: "Suppliers", buckets: payables.buckets }]} />
+      {payables.rows.length > 0 && <div className="mt-3"><DataTable headers={["Supplier", "Invoice", "Invoice date", "Due", "Age", "Open amount"]}>{payables.rows.map((row, index) => <tr key={`${row.invoiceNumber}-${index}`}><Cell strong>{row.supplier}</Cell><Cell>{row.invoiceNumber}</Cell><Cell>{shortDate(row.invoiceDate)}</Cell><Cell>{row.dueDate ? shortDate(row.dueDate) : "On receipt"}</Cell><Cell>{AGE_BUCKETS.find((bucket) => bucket.key === row.bucket)?.label}</Cell><Cell align="right" strong>{money(row.amount)}</Cell></tr>)}</DataTable></div>}
+    </Panel>}
+  </>;
+}
+
+function FnbReport({ data, currency, money }: { data: ReportsResponse; currency: string; money: (value: number) => string }) {
+  const fnb = data.foodAndBeverage ?? null;
+  const row = fnb?.byCurrency.find((item) => item.currency === currency) ?? null;
+  return <>
+    <ReportTitle icon={Store} eyebrow="Cost control" title="F&B cost and stock" text="Food and beverage revenue against what the goods cost when they left the shelf, then losses, stock on hand and supplier balances." />
+    {!fnb ? <EmptyReport title="Stock figures unavailable" text="The stock section could not be loaded for this report. Refresh to try again." /> : <>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MoneyMetric label="F&B revenue" value={money(row?.revenue ?? 0)} note="Restaurant, bar and room service" icon={TrendingUp} tone="emerald" />
+        <MoneyMetric label="Cost of goods sold" value={money(row?.cogs ?? 0)} note="Stock consumed by sales" icon={ShoppingBasket} tone="amber" />
+        <MoneyMetric label="Gross profit" value={money(row?.grossProfit ?? 0)} note={row?.marginPercent == null ? "No F&B revenue posted" : `${row.marginPercent.toFixed(1)}% gross margin`} icon={Banknote} tone={(row?.grossProfit ?? 0) >= 0 ? "emerald" : "amber"} />
+        <MoneyMetric label="Stock on hand" value={money(fnb.stockValue)} note="Today, at average cost" icon={Store} tone="blue" />
+      </section>
+      <section className="grid gap-3 xl:grid-cols-2">
+        <Panel title="Losses after gross profit" description="Wastage, staff meals, complimentary items and count differences">
+          <div className="space-y-2">{(row?.lossesByAccount ?? []).map((loss) => <div key={loss.name} className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2.5 text-xs"><span className="font-semibold text-neutral-700">{loss.name}</span><span className="font-bold tabular-nums text-neutral-900">{money(loss.amount)}</span></div>)}{!(row?.lossesByAccount.length) && <TableEmpty text="No stock losses were posted in this period." />}</div>
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2.5 text-xs"><span className="font-bold text-neutral-800">Result after losses</span><span className={`font-bold tabular-nums ${(row?.afterLosses ?? 0) < 0 ? "text-red-700" : "text-neutral-950"}`}>{money(row?.afterLosses ?? 0)}</span></div>
+        </Panel>
+        <Panel title="Supplier balances" description="Unpaid supplier invoices as of the report end">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200">{[{ key: "total", text: "Owed to suppliers", value: fnb.payables.total }, { key: "old", text: "Over 60 days", value: fnb.payables.buckets.d61_90 + fnb.payables.buckets.d90plus }].map((item) => <div key={item.key} className="bg-white px-3 py-3"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{item.text}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${item.key === "old" && item.value > 0 ? "text-red-700" : "text-neutral-900"}`}>{money(item.value)}</p></div>)}</div>
+          <p className="mb-0 mt-3 text-[11px] text-neutral-500">The full invoice list is in Receivables aging.</p>
+        </Panel>
+      </section>
+      <p className="m-0 px-1 text-[10px] leading-4 text-neutral-400">Cost of goods sold and losses post at Night Audit, so days still open are not included yet.</p>
+    </>}
+  </>;
+}
+
+function TaxReport({ data, finance, currency, money }: { data: ReportsResponse; finance: FinanceControlResponse; currency: string; money: (value: number) => string }) {
+  const rows = finance.tax.rows.filter((row) => row.currency === currency);
+  const fiscal = data.fiscal ?? null;
+  const on = fiscal && fiscal.mode !== "OFF";
+  const backlog = fiscal ? Object.values(fiscal.backlog).reduce((sum, count) => sum + count, 0) : 0;
+  return <>
+    <ReportTitle icon={BookOpenCheck} eyebrow="Statutory" title="Tax and fiscal" text="Tax captured in the ledger for the period, and the TRA receipts issued for its sales." />
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <MoneyMetric label="Tax payable captured" value={money(rows.reduce((sum, row) => sum + row.tax, 0))} note={`Account 2200 · ${rows.length} ${rows.length === 1 ? "entry" : "entries"}`} icon={ReceiptText} tone="emerald" />
+      <MoneyMetric label="TRA receipting" value={on ? (fiscal!.mode === "ALWAYS" ? "Every payment" : "On request") : "Off"} note={on ? `${label(fiscal!.status)}${fiscal!.tin ? ` · TIN ${fiscal!.tin}` : ""}` : "Not required below the VAT threshold"} icon={ShieldCheck} tone="blue" />
+      <MoneyMetric label="Receipts confirmed" value={on && fiscal!.inRange ? String(fiscal!.inRange.byStatus.CONFIRMED ?? 0) : "None"} note={on && fiscal!.inRange ? `${money(fiscal!.inRange.confirmedGross)} gross · ${money(fiscal!.inRange.confirmedTax)} tax` : "No fiscal receipts"} icon={CheckCircle2} tone="emerald" />
+      <MoneyMetric label="Not yet at TRA" value={String(backlog)} note={backlog ? "Pending or failed receipts, all dates" : "Nothing waiting"} icon={AlertCircle} tone={backlog ? "amber" : "emerald"} />
+    </section>
+    {on && fiscal!.inRange && <Panel title="Receipts by status" description="Fiscal receipts for sales in this period">
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-neutral-200 sm:grid-cols-5">{["CONFIRMED", "PENDING", "SENDING", "FAILED", "DEAD_LETTER"].map((status) => <div key={status} className="bg-white px-3 py-3"><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">{label(status)}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${(status === "FAILED" || status === "DEAD_LETTER") && (fiscal!.inRange!.byStatus[status] ?? 0) > 0 ? "text-red-700" : "text-neutral-900"}`}>{fiscal!.inRange!.byStatus[status] ?? 0}</p></div>)}</div>
+    </Panel>}
+    <Panel title="Tax register" description="Tax separately captured in the accounting ledger">
+      <DataTable headers={["Transaction", "Date and time", "Tax basis", "Tax payable"]}>{rows.map((row) => <tr key={row.transactionNumber}><Cell strong>{row.transactionNumber}</Cell><Cell>{shortDate(row.occurredAt)}</Cell><Cell>{row.description}</Cell><Cell align="right" strong>{money(row.tax)}</Cell></tr>)}</DataTable>
+      {!rows.length && <TableEmpty text="No separately captured tax was posted in this period." />}
+      <p className="mb-0 mt-3 text-[11px] leading-4 text-neutral-500">{finance.tax.note}</p>
+    </Panel>
   </>;
 }
 
@@ -1955,12 +2165,15 @@ function AuditReport({ rows }: { rows: AuditRow[] }) {
 }
 
 function ReportTitle({ icon: Icon, eyebrow, title, text }: { icon: IconType; eyebrow: string; title: string; text: string }) {
-  return <header className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-3.5 shadow-sm"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white"><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 text-[9px] font-bold uppercase tracking-[0.15em] text-emerald-700">{eyebrow}</p><h2 className="mb-0 mt-0.5 text-base font-bold text-neutral-950">{title}</h2><p className="mb-0 mt-0.5 text-[11px] leading-4 text-neutral-500">{text}</p></div></header>;
+  return <header className="flex items-center gap-3 px-1 pt-1"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700"><Icon className="h-[18px] w-[18px]" /></span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">{eyebrow}</p><h2 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950">{title}</h2><p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">{text}</p></div></header>;
 }
 
 function Metric({ label: text, value, icon: Icon, tone = "neutral" }: { label: string; value: string | number; icon: IconType; tone?: "neutral" | "emerald" | "amber" | "red" }) {
-  const colors = { neutral: "bg-neutral-100 text-neutral-600", emerald: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", red: "bg-red-50 text-red-700" };
-  return <article className="flex min-w-0 items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${colors[tone]}`}><Icon className="h-3.5 w-3.5" /></span><div className="min-w-0"><p className="m-0 truncate text-[10px] font-semibold text-neutral-500">{text}</p><p className="mb-0 mt-0.5 text-lg font-bold tabular-nums text-neutral-950">{value}</p></div></article>;
+  const colors = { neutral: "bg-slate-100 text-slate-600", emerald: "bg-emerald-50 text-emerald-700", amber: "bg-amber-50 text-amber-700", red: "bg-red-50 text-red-700" };
+  // Admin NRMS metric card: tinted icon tile, small caps label, bold figure.
+  // A non-zero warning figure picks up its tone so it reads before the label.
+  const figure = tone === "amber" ? "text-amber-700" : tone === "red" ? "text-red-700" : "text-slate-950";
+  return <article className="flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colors[tone]}`}><Icon className="h-4 w-4" /></span><div className="min-w-0"><p className="m-0 truncate text-[10px] font-bold uppercase tracking-wide text-slate-500">{text}</p><p className={`mb-0 mt-1 text-lg font-bold tabular-nums ${figure}`}>{value}</p></div></article>;
 }
 
 function MoneyMetric({ label: text, value, note, icon: Icon, tone }: { label: string; value: string; note: string; icon: IconType; tone: "emerald" | "blue" | "violet" | "amber" }) {

@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { UserPlus, Truck, Search, ExternalLink, X, MapPin, Eye, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import TableRow from "@/components/TableRow";
 import { useSearchParams } from "next/navigation";
 
@@ -62,6 +63,7 @@ type SortType = "name_asc" | "name_desc" | "newest" | "oldest";
 
 export default function AdminDriversReferralsPage() {
   const searchParams = useSearchParams();
+  const queryDriverId = useAdminQueryId("driver", searchParams?.get("driverId"), "driverId");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
   const [referralData, setReferralData] = useState<ReferralData | null>(null);
@@ -97,15 +99,14 @@ export default function AdminDriversReferralsPage() {
   }, []);
 
   useEffect(() => {
-    const raw = searchParams?.get("driverId") || "";
-    const id = Number(raw);
+    const id = queryDriverId ?? 0;
     if (!Number.isFinite(id) || id <= 0) return;
     if (!drivers.length) return;
     if (selectedDriver === id) return;
     const exists = drivers.some((d) => d.id === id);
     if (!exists) return;
     void loadDriverReferrals(id);
-  }, [searchParams, drivers, selectedDriver]);
+  }, [queryDriverId, drivers, selectedDriver]);
 
   async function loadDrivers() {
     setLoading(true);

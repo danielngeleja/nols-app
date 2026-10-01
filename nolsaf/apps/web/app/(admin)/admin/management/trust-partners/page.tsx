@@ -1,16 +1,28 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
-import { AlertTriangle, Award, Plus, Edit, Trash2, Image as ImageIcon, ExternalLink, X, Loader2, Upload, Link2, Hash, Eye, EyeOff, Camera } from "lucide-react";
-import axios from "axios";import apiClient from "@/lib/apiClient";
 
-// Use same-origin for HTTP calls so Next.js rewrites proxy to the API
+import { useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
+import {
+  ArrowDown,
+  ArrowUp,
+  Award,
+  Camera,
+  CheckCircle2,
+  Edit,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Image as ImageIcon,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
+import apiClient from "@/lib/apiClient";
+
+// Same-origin so Next.js rewrites proxy to the API with the session cookie.
 const api = apiClient;
-function authify() {}
-
-// Helper to get API path with /api prefix
-function getApiPath(path: string): string {
-  return path.startsWith('/api/') ? path : `/api${path}`;
-}
 
 type TrustPartner = {
   id: number;
@@ -23,45 +35,36 @@ type TrustPartner = {
   updatedAt: string;
 };
 
-function replaceWithLogoPlaceholder(parent: HTMLElement) {
-  try {
-    parent.replaceChildren();
+const EMPTY_FORM = { name: "", logoUrl: "", href: "", displayOrder: 0, isActive: true };
 
-    const wrap = document.createElement("div");
-    wrap.className = "h-full w-full bg-gray-100 rounded flex items-center justify-center";
+const heroButton =
+  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
+const fieldClass =
+  "box-border w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+const sectionLabel = "m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400";
 
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "h-6 w-6 text-gray-400");
-    svg.setAttribute("fill", "none");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("stroke", "currentColor");
-
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("stroke-linecap", "round");
-    path.setAttribute("stroke-linejoin", "round");
-    path.setAttribute("stroke-width", "2");
-    path.setAttribute(
-      "d",
-      "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-    );
-    svg.appendChild(path);
-    wrap.appendChild(svg);
-    parent.appendChild(wrap);
-  } catch {
-    // ignore
-  }
+function domainOf(href: string | null) {
+  return href ? href.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "") : "";
 }
 
-function replaceWithInvalidImageText(parent: HTMLElement) {
-  try {
-    parent.replaceChildren();
-    const wrap = document.createElement("div");
-    wrap.className = "h-full w-full flex items-center justify-center text-red-500 text-xs";
-    wrap.textContent = "Invalid image";
-    parent.appendChild(wrap);
-  } catch {
-    // ignore
+function errorText(err: any, fallback: string) {
+  return err?.response?.data?.error || err?.response?.data?.message || fallback;
+}
+
+function Logo({ partner, broken, onBroken, className }: { partner: Pick<TrustPartner, "name" | "logoUrl">; broken: boolean; onBroken: () => void; className: string }) {
+  if (!partner.logoUrl || broken) {
+    return (
+      <span className={`grid place-items-center text-neutral-300 ${className}`}>
+        <ImageIcon className="h-5 w-5" />
+      </span>
+    );
   }
+  return (
+    <span className={`flex items-center justify-center ${className}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={partner.logoUrl} alt={`${partner.name} logo`} onError={onBroken} className="max-h-full max-w-full object-contain" />
+    </span>
+  );
 }
 
 export default function AdminTrustPartnersPage() {
@@ -70,27 +73,25 @@ export default function AdminTrustPartnersPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingPartner, setEditingPartner] = useState<TrustPartner | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TrustPartner | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [brokenLogos, setBrokenLogos] = useState<Set<string>>(() => new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [formData, setFormData] = useState({
-    name: "",
-    logoUrl: "",
-    href: "",
-    displayOrder: 0,
-    isActive: true,
-  });
 
   async function load() {
     setLoading(true);
     try {
-      authify();
-      const r = await api.get<{ items: TrustPartner[] }>(getApiPath("/admin/trust-partners"));
+      const r = await api.get<{ items: TrustPartner[] }>("/api/admin/trust-partners");
       setPartners(r.data?.items ?? []);
     } catch (err) {
       console.error("Failed to load trust partners", err);
+      setError("Could not load trust partners.");
       setPartners([]);
     } finally {
       setLoading(false);
@@ -98,146 +99,155 @@ export default function AdminTrustPartnersPage() {
   }
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
 
-  const handleOpenModal = (partner?: TrustPartner) => {
-    if (partner) {
-      setEditingPartner(partner);
-      setFormData({
-        name: partner.name,
-        logoUrl: partner.logoUrl || "",
-        href: partner.href || "",
-        displayOrder: partner.displayOrder,
-        isActive: partner.isActive,
-      });
-    } else {
-      setEditingPartner(null);
-      setFormData({
-        name: "",
-        logoUrl: "",
-        href: "",
-        displayOrder: partners.length,
-        isActive: true,
-      });
-    }
+  useEffect(() => {
+    if (!showModal && !deleteTarget) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (deleteTarget && !deleting) setDeleteTarget(null);
+      else if (showModal && !submitting) setShowModal(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showModal, deleteTarget, deleting, submitting]);
+
+  const ordered = useMemo(() => [...partners].sort((a, b) => a.displayOrder - b.displayOrder || a.id - b.id), [partners]);
+  const active = ordered.filter((p) => p.isActive);
+  const missingLogo = partners.filter((p) => !p.logoUrl || brokenLogos.has(p.logoUrl)).length;
+  const lastChanged = partners.reduce<string>((max, p) => (p.updatedAt > max ? p.updatedAt : max), "");
+
+  const markBroken = (url: string | null) => () => {
+    if (!url) return;
+    setBrokenLogos((current) => (current.has(url) ? current : new Set(current).add(url)));
+  };
+
+  const flash = (message: string) => {
+    setSuccess(message);
+    window.setTimeout(() => setSuccess((current) => (current === message ? null : current)), 4000);
+  };
+
+  const openModal = (partner?: TrustPartner) => {
+    setEditingPartner(partner ?? null);
+    setFormData(
+      partner
+        ? { name: partner.name, logoUrl: partner.logoUrl || "", href: partner.href || "", displayOrder: partner.displayOrder, isActive: partner.isActive }
+        : { ...EMPTY_FORM, displayOrder: ordered.length ? ordered[ordered.length - 1].displayOrder + 1 : 1 },
+    );
+    setFormError(null);
     setShowModal(true);
   };
 
-  const handleCloseModal = () => {
+  const closeModal = () => {
     setShowModal(false);
     setEditingPartner(null);
-    setFormData({
-      name: "",
-      logoUrl: "",
-      href: "",
-      displayOrder: 0,
-      isActive: true,
-    });
+    setFormData(EMPTY_FORM);
+    setFormError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
+    setFormError(null);
     try {
-      authify();
-      if (editingPartner) {
-        await api.patch(getApiPath(`/admin/trust-partners/${editingPartner.id}`), formData);
-      } else {
-        await api.post(getApiPath("/admin/trust-partners"), formData);
-      }
+      if (editingPartner) await api.patch(`/api/admin/trust-partners/${editingPartner.id}`, formData);
+      else await api.post("/api/admin/trust-partners", formData);
+      const name = formData.name;
+      const wasEditing = Boolean(editingPartner);
+      closeModal();
+      flash(wasEditing ? `${name} saved.` : `${name} added${formData.isActive ? " to the homepage" : ""}.`);
       await load();
-      handleCloseModal();
     } catch (err: any) {
-      console.error("Failed to save trust partner", err);
-      alert(err.response?.data?.error || "Failed to save trust partner");
+      setFormError(errorText(err, "Failed to save trust partner"));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const requestDelete = (partner: TrustPartner) => {
-    setDeleteTarget(partner);
-  };
-
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setDeletingId(deleteTarget.id);
+    setDeleting(true);
     try {
-      authify();
-      await api.delete(getApiPath(`/admin/trust-partners/${deleteTarget.id}`));
-      await load();
+      await api.delete(`/api/admin/trust-partners/${deleteTarget.id}`);
+      flash(`${deleteTarget.name} removed.`);
       setDeleteTarget(null);
-    } catch (err: any) {
-      console.error("Failed to delete trust partner", err);
-      alert(err.response?.data?.error || "Failed to delete trust partner");
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleToggleActive = async (partner: TrustPartner) => {
-    try {
-      authify();
-      await api.patch(getApiPath(`/admin/trust-partners/${partner.id}`), {
-        isActive: !partner.isActive,
-      });
       await load();
     } catch (err: any) {
-      console.error("Failed to toggle partner status", err);
-      alert(err.response?.data?.error || "Failed to update partner status");
+      setDeleteTarget(null);
+      setError(errorText(err, "Failed to delete trust partner"));
+    } finally {
+      setDeleting(false);
     }
   };
 
-  // Upload logo to Cloudinary
+  const toggleActive = async (partner: TrustPartner) => {
+    setBusyId(partner.id);
+    try {
+      await api.patch(`/api/admin/trust-partners/${partner.id}`, { isActive: !partner.isActive });
+      flash(partner.isActive ? `${partner.name} hidden from the homepage.` : `${partner.name} is showing on the homepage.`);
+      await load();
+    } catch (err: any) {
+      setError(errorText(err, "Failed to update partner status"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Swaps display order with the neighbour. Orders are renumbered 1..n first so
+  // duplicate or gapped values (common after manual edits) still move cleanly.
+  const move = async (partner: TrustPartner, direction: -1 | 1) => {
+    const index = ordered.findIndex((p) => p.id === partner.id);
+    const neighbour = ordered[index + direction];
+    if (!neighbour) return;
+    setBusyId(partner.id);
+    try {
+      const sequence = ordered.map((p) => p.id);
+      [sequence[index], sequence[index + direction]] = [sequence[index + direction], sequence[index]];
+      const updates = sequence
+        .map((id, i) => ({ id, order: i + 1 }))
+        .filter(({ id, order }) => partners.find((p) => p.id === id)?.displayOrder !== order);
+      for (const { id, order } of updates) {
+        await api.patch(`/api/admin/trust-partners/${id}`, { displayOrder: order });
+      }
+      await load();
+    } catch (err: any) {
+      setError(errorText(err, "Could not change the order"));
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleLogoUpload = async (file: File) => {
     setUploadingLogo(true);
+    setFormError(null);
     try {
-      authify();
-      // 1) Get Cloudinary signature from our API (requires auth)
       let sigData: any;
       try {
-        // Use `/api/*` so Next rewrites proxy to the API server and cookies/session auth apply.
-        const sig = await api.get(getApiPath(`/uploads/cloudinary/sign?folder=trust-partners`));
+        const sig = await api.get(`/api/uploads/cloudinary/sign?folder=trust-partners`);
         sigData = sig.data;
       } catch (err: any) {
-        console.error("Failed to get Cloudinary signature", err);
-        const msg = err?.response?.data?.error || err?.response?.data?.message || err?.message || "Unauthorized";
-        alert(`Failed to get upload signature (${err?.response?.status ?? "?"}). ${msg}`);
+        setFormError(`Could not get an upload signature (${err?.response?.status ?? "?"}). ${errorText(err, err?.message || "Unauthorized")}`);
         return;
       }
-
-      // Create form data for Cloudinary
       const fd = new FormData();
       fd.append("file", file);
       fd.append("api_key", sigData.apiKey);
       fd.append("timestamp", String(sigData.timestamp));
       fd.append("folder", sigData.folder);
-      // Must match the signed params on the server (see apps/api/src/routes/uploads.cloudinary.ts)
+      // Must match the params signed on the server (apps/api/src/routes/uploads.cloudinary.ts).
       fd.append("overwrite", "true");
       fd.append("signature", sigData.signature);
-
-      // 2) Upload to Cloudinary (does NOT use our session cookies)
-      let uploadRes: any;
       try {
-        uploadRes = await axios.post(`https://api.cloudinary.com/v1_1/${sigData.cloudName}/auto/upload`, fd);
+        // Direct to Cloudinary: no session cookies involved.
+        const uploadRes = await axios.post(`https://api.cloudinary.com/v1_1/${sigData.cloudName}/auto/upload`, fd);
+        const uploadedUrl = uploadRes.data.secure_url;
+        setFormData((prev) => ({ ...prev, logoUrl: uploadedUrl }));
       } catch (err: any) {
-        console.error("Cloudinary upload failed", err);
-        const cloudMsg =
-          err?.response?.data?.error?.message ||
-          err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Upload failed";
-        alert(`Cloudinary upload failed (${err?.response?.status ?? "?"}). ${cloudMsg}`);
-        return;
+        const cloudMsg = err?.response?.data?.error?.message || err?.response?.data?.error || err?.message || "Upload failed";
+        setFormError(`Logo upload failed (${err?.response?.status ?? "?"}). ${cloudMsg}`);
       }
-
-      const uploadedUrl = uploadRes.data.secure_url;
-      setFormData({ ...formData, logoUrl: uploadedUrl });
-    } catch (err: any) {
-      console.error("Failed to upload logo", err);
-      alert(err.response?.data?.error || "Failed to upload logo. Please try again.");
     } finally {
       setUploadingLogo(false);
     }
@@ -245,497 +255,285 @@ export default function AdminTrustPartnersPage() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      alert("Please select an image file (PNG, JPG, etc.)");
-      return;
-    }
-
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert("Image size must be less than 5MB");
-      return;
-    }
-
-    handleLogoUpload(file);
+    if (!file.type.startsWith("image/")) return setFormError("Choose an image file (PNG, JPG, GIF or WebP).");
+    if (file.size > 5 * 1024 * 1024) return setFormError("The logo must be smaller than 5 MB.");
+    void handleLogoUpload(file);
   };
 
-  return (
-    <div className="space-y-6 w-full min-w-0">
-      {/* Header */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center">
-              <Award className="h-6 w-6 text-emerald-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Trust Partners</h1>
-              <p className="text-sm text-gray-500 mt-1">Manage partners displayed in the "Trusted by" section</p>
-            </div>
-          </div>
-          <button
-            onClick={() => handleOpenModal()}
-            className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add Partner
-          </button>
-        </div>
-      </div>
+  const facts = [
+    { label: "Partners", value: loading ? "..." : String(partners.length), detail: "in the Trusted by list", tone: "text-white" },
+    { label: "On the homepage", value: loading ? "..." : String(active.length), detail: partners.length - active.length ? `${partners.length - active.length} hidden` : "all showing", tone: active.length ? "text-emerald-300" : "text-white" },
+    { label: "Missing logo", value: loading ? "..." : String(missingLogo), detail: missingLogo ? "show as a blank tile" : "every logo loads", tone: missingLogo ? "text-amber-300" : "text-white" },
+    {
+      label: "Last change",
+      value: loading ? "..." : lastChanged ? new Date(lastChanged).toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: "Africa/Dar_es_Salaam" }) : "None",
+      detail: lastChanged ? `${new Date(lastChanged).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` : "nothing added yet",
+      tone: "text-white",
+    },
+  ];
 
-      {/* Partners List */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="px-6 py-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-emerald-600"></div>
-            <p className="mt-3 text-sm text-gray-500">Loading partners...</p>
-          </div>
-        ) : partners.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <Award className="h-8 w-8 text-gray-400" />
+  return (
+    <div className="w-full min-w-0 space-y-5">
+      {/* Header */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Homepage</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Trust partners</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">The logos in the Trusted by row on the public homepage, shown left to right in the order below.</p>
             </div>
-            <p className="text-sm font-medium text-gray-900 mb-1">No trust partners yet</p>
-            <p className="text-xs text-gray-500 mb-4">Get started by adding your first trust partner</p>
-            <button
-              onClick={() => handleOpenModal()}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center gap-2 mx-auto"
-            >
-              <Plus className="h-4 w-4" />
-              Add Your First Partner
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => openModal()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-emerald-400 px-3 text-xs font-semibold text-[#0b2420] transition-colors hover:bg-emerald-300">
+                <Plus className="h-3.5 w-3.5" /> Add partner
+              </button>
+              <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
+
+          <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
+            {facts.map((fact, index) => (
+              <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
+                <dd className={`m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums ${fact.tone}`}>{fact.value}</dd>
+                <dd className="m-0 mt-1 truncate text-xs text-white/50">{fact.detail}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
+          <X className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <span className="flex-1">{success}</span>
+          <button type="button" onClick={() => setSuccess(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* What visitors see */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">On the homepage now</h2>
+            <p className="m-0 text-xs text-neutral-400">The Trusted by row as visitors see it. Hidden partners are left out.</p>
+          </div>
+        </div>
+        {active.length === 0 ? (
+          <p className="m-0 px-4 py-5 text-sm text-neutral-500 sm:px-5">{loading ? "Loading..." : "Nothing is showing. Add a partner or switch one on below."}</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-4 bg-neutral-50/60 px-4 py-5 sm:px-6">
+            <span className="text-[11px] font-semibold text-neutral-400">Trusted by</span>
+            {active.map((p) => (
+              <Logo key={p.id} partner={p} broken={Boolean(p.logoUrl && brokenLogos.has(p.logoUrl))} onBroken={markBroken(p.logoUrl)} className="h-9 w-28" />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Directory */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">All partners</h2>
+            <p className="m-0 text-xs text-neutral-400">Use the arrows to change the order on the homepage.</p>
+          </div>
+        </div>
+
+        {loading && partners.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 py-14 text-sm text-neutral-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading partners
+          </div>
+        ) : ordered.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-3 px-4 py-5 sm:px-5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><Award className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-semibold text-neutral-900">No trust partners yet</p>
+              <p className="m-0 mt-0.5 text-xs text-neutral-500">Add the payment providers and brands you work with to build trust with visitors.</p>
+            </div>
+            <button type="button" onClick={() => openModal()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white hover:bg-[#12342f]">
+              <Plus className="h-3.5 w-3.5" /> Add partner
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    <div className="flex items-center gap-2">
-                      <Hash className="h-4 w-4" />
-                      Order
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    <div className="flex items-center gap-2">
-                      <ImageIcon className="h-4 w-4" />
-                      Logo
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Partner Name</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    <div className="flex items-center gap-2">
-                      <Link2 className="h-4 w-4" />
-                      Website
-                    </div>
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-100">
-                {partners.map((partner, index) => (
-                  <tr 
-                    key={partner.id} 
-                    className={`hover:bg-emerald-50/30 transition-all duration-150 ${
-                      index % 2 === 0 ? "bg-white" : "bg-gray-50/50"
-                    }`}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 text-sm font-semibold">
-                          {partner.displayOrder}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {partner.logoUrl ? (
-                        <div className="group relative">
-                          {partner.href ? (
-                            <a
-                              href={partner.href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="block"
-                            >
-                              <div className="h-16 w-40 bg-white border border-gray-200 rounded-lg p-3 flex items-center justify-center hover:border-emerald-500 transition-colors">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={partner.logoUrl}
-                                  alt={`${partner.name} logo`}
-                                  className="h-full w-full object-contain"
-                                  style={{ maxHeight: "100%", maxWidth: "100%" }}
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = "none";
-                                    const parent = (e.target as HTMLImageElement).parentElement;
-                                    if (parent) replaceWithLogoPlaceholder(parent);
-                                  }}
-                                />
-                              </div>
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                                {partner.name}
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
-                              </div>
-                            </a>
-                          ) : (
-                            <div className="relative">
-                              <div className="h-16 w-40 bg-white border border-gray-200 rounded-lg p-3 flex items-center justify-center">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={partner.logoUrl}
-                                  alt={`${partner.name} logo`}
-                                  className="h-full w-full object-contain"
-                                  style={{ maxHeight: "100%", maxWidth: "100%" }}
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = "none";
-                                    const parent = (e.target as HTMLImageElement).parentElement;
-                                    if (parent) replaceWithLogoPlaceholder(parent);
-                                  }}
-                                />
-                              </div>
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                                {partner.name}
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="h-16 w-40 bg-gray-100 border border-gray-200 rounded-lg flex items-center justify-center">
-                          <ImageIcon className="h-5 w-5 text-gray-400" />
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">{partner.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+          <div>
+            {ordered.map((partner, idx) => {
+              const busy = busyId === partner.id;
+              const broken = Boolean(partner.logoUrl && brokenLogos.has(partner.logoUrl));
+              return (
+                <article key={partner.id} className={`flex min-w-0 items-center gap-3 px-4 py-3 sm:gap-4 sm:px-5 ${idx ? "border-0 border-t border-solid border-neutral-200" : ""} ${partner.isActive ? "" : "bg-neutral-50/60"}`}>
+                  <span className="flex shrink-0 flex-col items-center gap-0.5">
+                    <button type="button" onClick={() => void move(partner, -1)} disabled={idx === 0 || busyId !== null} aria-label={`Move ${partner.name} up`} className="grid h-6 w-6 place-items-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-30">
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="text-[11px] font-semibold tabular-nums text-neutral-500">{busy ? <Loader2 className="h-3 w-3 animate-spin" /> : idx + 1}</span>
+                    <button type="button" onClick={() => void move(partner, 1)} disabled={idx === ordered.length - 1 || busyId !== null} aria-label={`Move ${partner.name} down`} className="grid h-6 w-6 place-items-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-30">
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+
+                  <Logo partner={partner} broken={broken} onBroken={markBroken(partner.logoUrl)} className={`h-14 w-32 shrink-0 rounded-lg bg-white p-2 ring-1 ring-inset ring-neutral-200 ${partner.isActive ? "" : "opacity-50 grayscale"}`} />
+
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 truncate text-sm font-semibold text-neutral-900">{partner.name}</p>
+                    <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-neutral-400">
                       {partner.href ? (
-                        <a
-                          href={partner.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1.5 group max-w-xs"
-                        >
-                          <span className="truncate text-sm">{partner.href.replace(/^https?:\/\//, '')}</span>
-                          <ExternalLink className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <a href={partner.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-neutral-600 no-underline hover:text-emerald-700">
+                          {domainOf(partner.href)} <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : (
-                        <span className="text-sm text-gray-400 italic">No website link</span>
+                        <span>No website link</span>
                       )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleToggleActive(partner)}
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
-                          partner.isActive
-                            ? "bg-green-100 text-green-700 hover:bg-green-200 shadow-sm"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        }`}
-                      >
-                        {partner.isActive ? (
-                          <>
-                            <Eye className="h-3.5 w-3.5" />
-                            Active
-                          </>
-                        ) : (
-                          <>
-                            <EyeOff className="h-3.5 w-3.5" />
-                            Inactive
-                          </>
-                        )}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleOpenModal(partner)}
-                          className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Edit Partner"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => requestDelete(partner)}
-                          disabled={deletingId === partner.id}
-                          className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Delete Partner"
-                        >
-                          {deletingId === partner.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      {(!partner.logoUrl || broken) && <span className="font-semibold text-amber-700">{partner.logoUrl ? "Logo does not load" : "No logo"}</span>}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void toggleActive(partner)}
+                    disabled={busyId !== null}
+                    className={`hidden h-8 shrink-0 items-center gap-1.5 rounded-full border-0 px-2.5 text-xs font-semibold transition-colors disabled:opacity-60 sm:inline-flex ${partner.isActive ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}
+                    title={partner.isActive ? "Hide from the homepage" : "Show on the homepage"}
+                  >
+                    {partner.isActive ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                    {partner.isActive ? "Showing" : "Hidden"}
+                  </button>
+
+                  <span className="flex shrink-0 items-center gap-1">
+                    <button type="button" onClick={() => openModal(partner)} title="Edit" aria-label={`Edit ${partner.name}`} className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900">
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button type="button" onClick={() => setDeleteTarget(partner)} title="Delete" aria-label={`Delete ${partner.name}`} className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-500 transition-colors hover:bg-rose-50 hover:text-rose-600">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </span>
+                </article>
+              );
+            })}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Add/Edit Modal */}
+      {/* Add / edit dialog */}
       {showModal && (
-        <>
-          <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={handleCloseModal} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-              {/* Modal Header */}
-              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {editingPartner ? "Edit Trust Partner" : "Add Trust Partner"}
-                </h2>
-                <button
-                  onClick={handleCloseModal}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <X className="h-6 w-6" />
-                </button>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={editingPartner ? "Edit partner" : "Add partner"} onClick={() => !submitting && closeModal()}>
+          <form onSubmit={handleSubmit} onClick={(e) => e.stopPropagation()} className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
+            <div className="flex items-center gap-3 border-0 border-b border-solid border-neutral-200 px-5 py-3.5">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#0b2420] text-emerald-300"><Award className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">{editingPartner ? `Edit ${editingPartner.name}` : "Add partner"}</h2>
+                <p className="m-0 text-xs text-neutral-400">{formData.isActive ? "Shows in the Trusted by row once saved." : "Saved but hidden from the homepage."}</p>
+              </div>
+              <button type="button" onClick={closeModal} disabled={submitting} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {formError && (
+                <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-xs text-rose-800">
+                  <X className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span className="flex-1">{formError}</span>
+                </div>
+              )}
+
+              <div className="space-y-4 px-5 py-4">
+                <label className="block">
+                  <span className={sectionLabel}>Partner name</span>
+                  <input type="text" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="For example: M-Pesa" className={`${fieldClass} mt-1.5 h-10 font-semibold`} />
+                </label>
+                <label className="block">
+                  <span className={sectionLabel}>Website</span>
+                  <input type="url" value={formData.href} onChange={(e) => setFormData({ ...formData, href: e.target.value })} placeholder="https://example.com (optional)" className={`${fieldClass} mt-1.5 h-9`} />
+                </label>
               </div>
 
-              {/* Modal Body */}
-              <form id="trust-partner-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
-                <div className="space-y-4">
-                  {/* Partner Name */}
-                  <div className="w-full">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Partner Name <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm box-border"
-                      placeholder="e.g., M-Pesa, Airtel Money"
-                    />
+              <div className="border-0 border-t border-solid border-neutral-200 px-5 py-4">
+                <p className={sectionLabel}>Logo</p>
+                <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" onChange={handleFileSelect} className="hidden" />
+                <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="relative flex h-20 w-full shrink-0 items-center justify-center rounded-lg bg-neutral-50 p-3 ring-1 ring-inset ring-neutral-200 sm:w-48">
+                    {formData.logoUrl ? (
+                      <>
+                        <Logo partner={{ name: formData.name || "Partner", logoUrl: formData.logoUrl }} broken={brokenLogos.has(formData.logoUrl)} onBroken={markBroken(formData.logoUrl)} className="h-full w-full" />
+                        <button type="button" onClick={() => setFormData({ ...formData, logoUrl: "" })} aria-label="Remove logo" className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full border-0 bg-black/60 text-white hover:bg-black/75">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-[11px] text-neutral-400">No logo yet</span>
+                    )}
                   </div>
-
-                  {/* Logo Upload */}
-                  <div className="w-full">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Logo
-                    </label>
-                    <div className="space-y-3">
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
-                        onChange={handleFileSelect}
-                        className="hidden"
-                      />
-                      <div className="flex items-start gap-4">
-                        {/* Upload Button */}
-                        <div className="flex-shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={uploadingLogo}
-                            className="px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-emerald-500 hover:bg-emerald-50 transition-colors flex items-center gap-2 text-sm font-medium text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {uploadingLogo ? (
-                              <>
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Uploading...
-                              </>
-                            ) : (
-                              <>
-                                <Camera className="h-4 w-4" />
-                                Upload Logo
-                              </>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Logo Preview - Display next to uploader */}
-                        {formData.logoUrl && (
-                          <div className="flex-1">
-                            <div className="border-2 border-gray-200 rounded-lg p-4 bg-white">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-medium text-gray-600">Preview</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setFormData({ ...formData, logoUrl: "" })}
-                                  className="text-gray-400 hover:text-red-600 transition-colors"
-                                  title="Remove logo"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
-                              <div className="h-16 w-48 bg-gray-50 border border-gray-200 rounded flex items-center justify-center overflow-hidden">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={formData.logoUrl}
-                                  alt="Logo preview"
-                                  className="h-full w-full object-contain"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = "none";
-                                    const parent = (e.target as HTMLImageElement).parentElement;
-                                    if (parent) {
-                                      replaceWithInvalidImageText(parent);
-                                    }
-                                  }}
-                                />
-                              </div>
-                              <p className="mt-2 text-xs text-gray-500">Logo will be displayed at consistent dimensions</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* URL Input - Show if no logo uploaded */}
-                        {!formData.logoUrl && (
-                          <div className="flex-1">
-                            <input
-                              type="url"
-                              value={formData.logoUrl}
-                              onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm box-border"
-                              placeholder="Or enter logo URL manually"
-                            />
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500">Upload PNG, JPG, or GIF (max 5MB). Logos will be displayed at consistent dimensions.</p>
-                    </div>
-                  </div>
-
-                  {/* Website Link */}
-                  <div className="w-full">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Website Link
-                    </label>
-                    <input
-                      type="url"
-                      value={formData.href}
-                      onChange={(e) => setFormData({ ...formData, href: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm box-border"
-                      placeholder="https://example.com"
-                    />
-                    <p className="mt-1.5 text-xs text-gray-500">Optional link to partner's website</p>
-                  </div>
-
-                  {/* Display Order and Status - Same Line */}
-                  <div className="grid grid-cols-2 gap-4 w-full">
-                    <div className="w-full min-w-0">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Display Order
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={formData.displayOrder}
-                        onChange={(e) => setFormData({ ...formData, displayOrder: parseInt(e.target.value, 10) || 0 })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm box-border"
-                      />
-                      <p className="mt-1.5 text-xs text-gray-500">Lower numbers appear first</p>
-                    </div>
-
-                    <div className="w-full min-w-0">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Status
-                      </label>
-                      <select
-                        value={formData.isActive ? "active" : "inactive"}
-                        onChange={(e) => setFormData({ ...formData, isActive: e.target.value === "active" })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm bg-white box-border"
-                      >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                    </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingLogo} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">
+                      {uploadingLogo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                      {uploadingLogo ? "Uploading" : formData.logoUrl ? "Replace logo" : "Upload logo"}
+                    </button>
+                    <input type="url" value={formData.logoUrl} onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })} placeholder="Or paste a logo URL" className={`${fieldClass} h-9`} />
+                    <p className="m-0 text-[11px] text-neutral-400">PNG, JPG, GIF or WebP up to 5 MB. A transparent background looks best.</p>
+                    {formData.logoUrl && brokenLogos.has(formData.logoUrl) && <p className="m-0 text-[11px] font-medium text-amber-700">This logo address does not load.</p>}
                   </div>
                 </div>
-              </form>
+              </div>
 
-              {/* Modal Footer */}
-              <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  form="trust-partner-form"
-                  disabled={submitting}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-4 w-4" />
-                      {editingPartner ? "Update Partner" : "Add Partner"}
-                    </>
-                  )}
-                </button>
+              <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 sm:grid-cols-2">
+                <label className="block min-w-0 px-5 py-4">
+                  <span className={sectionLabel}>Position</span>
+                  <input type="number" min={0} value={formData.displayOrder} onChange={(e) => setFormData({ ...formData, displayOrder: parseInt(e.target.value, 10) || 0 })} className={`${fieldClass} mt-1.5 h-9 tabular-nums`} />
+                  <span className="mt-1 block text-[11px] text-neutral-400">Lower numbers show first.</span>
+                </label>
+                <div className="min-w-0 border-0 border-t border-solid border-neutral-200 px-5 py-4 sm:border-l sm:border-t-0">
+                  <p className={sectionLabel}>On the homepage</p>
+                  <div className="mt-1.5 inline-flex rounded-lg bg-neutral-100 p-0.5" role="radiogroup" aria-label="Visibility">
+                    {([[true, "Showing", Eye], [false, "Hidden", EyeOff]] as const).map(([value, label, Icon]) => (
+                      <button key={label} type="button" role="radio" aria-checked={formData.isActive === value} onClick={() => setFormData({ ...formData, isActive: value })} className={`inline-flex h-8 items-center gap-1.5 rounded-md border-0 px-3 text-xs font-semibold ${formData.isActive === value ? "bg-white text-neutral-900 shadow-sm ring-1 ring-neutral-300" : "bg-transparent text-neutral-500 hover:text-neutral-900"}`}>
+                        <Icon className="h-3.5 w-3.5" /> {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </>
+
+            <div className="flex items-center justify-end gap-2 border-0 border-t border-solid border-neutral-200 bg-neutral-50/80 px-5 py-3">
+              <button type="button" onClick={closeModal} disabled={submitting} className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+              <button type="submit" disabled={submitting || uploadingLogo || !formData.name.trim()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#12342f] disabled:opacity-50">
+                {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {editingPartner ? "Save changes" : "Add partner"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
+      {/* Delete confirmation */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
-          <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm" onClick={() => setDeleteTarget(null)} />
-          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-start gap-4 border-b border-slate-100 px-6 py-5">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-                <AlertTriangle className="h-5 w-5" aria-hidden />
-              </div>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Confirm delete" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 px-5 py-4">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><Trash2 className="h-4 w-4" /></span>
               <div className="min-w-0">
-                <h2 className="text-lg font-black tracking-tight text-slate-950">Delete trust partner?</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  This will remove <span className="font-bold text-slate-900">{deleteTarget.name}</span> from the Trusted by section.
+                <h2 className="m-0 text-sm font-bold text-neutral-900">Delete {deleteTarget.name}?</h2>
+                <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">
+                  It comes out of the Trusted by row{deleteTarget.isActive ? " straight away" : ""}. To keep it for later, hide it instead. This cannot be undone.
                 </p>
               </div>
             </div>
-
-            <div className="px-6 py-4">
-              <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-800">
-                This action cannot be undone from this screen.
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deletingId === deleteTarget.id}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deletingId === deleteTarget.id}
-                className="inline-flex h-10 items-center justify-center rounded-xl bg-red-600 px-4 text-sm font-bold text-white shadow-[0_8px_22px_-10px_rgba(220,38,38,0.8)] transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {deletingId === deleteTarget.id ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                    Deleting...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-                    Delete partner
-                  </>
-                )}
+            <div className="flex justify-end gap-2 border-0 border-t border-solid border-neutral-200 bg-neutral-50/80 px-5 py-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting} className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => void handleDelete()} disabled={deleting} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60">
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete
               </button>
             </div>
           </div>
@@ -744,4 +542,3 @@ export default function AdminTrustPartnersPage() {
     </div>
   );
 }
-
