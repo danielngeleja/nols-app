@@ -1,41 +1,72 @@
 import { prisma } from '@nolsaf/prisma';
 import { SeriesResponse, BreakdownResponse } from '../types/stats.js';
+import { moneyStageOf, MONEY_STAGES } from '../lib/invoiceMoneyStage.js';
+import { GUEST_MONEY_IN, OWED_TO_PAYEE, indexMoneyStages, loadOwnerInvoiceDisbursements } from '../lib/invoiceMoneyStageIndex.js';
 
 const TZ_OFFSET_MS = 3 * 60 * 60 * 1000; // EAT UTC+3
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-const toLocalStartUtc = (d: Date) => {
-  const shifted = new Date(d.getTime() + TZ_OFFSET_MS);
-  shifted.setUTCHours(0, 0, 0, 0);
-  return new Date(shifted.getTime() - TZ_OFFSET_MS);
-};
+/** Calendar day in Dar es Salaam (YYYY-MM-DD). API hosts run UTC, so never use the host date. */
+const eatDayKey = (d: Date) => new Date(d.getTime() + TZ_OFFSET_MS).toISOString().slice(0, 10);
+
+/** Every EAT day from `from` to `to`, inclusive. */
+function eatDayLabels(fromDate: Date, toDate: Date): string[] {
+  const labels: string[] = [];
+  const last = eatDayKey(toDate);
+  let cursor = new Date(`${eatDayKey(fromDate)}T00:00:00Z`);
+  while (cursor.toISOString().slice(0, 10) <= last) {
+    labels.push(cursor.toISOString().slice(0, 10));
+    cursor = new Date(cursor.getTime() + DAY_MS);
+  }
+  return labels;
+}
+
+/** Booking invoices only: an OINV- owner claim restates a booking already invoiced to the guest. */
+const BOOKING_INVOICE = { OR: [{ invoiceNumber: null }, { NOT: { invoiceNumber: { startsWith: 'OINV-' } } }] };
+
+/**
+ * Guest money received in the window: booking invoices whose money stage shows
+ * the guest has paid, dated by when they paid (issue date as a fallback for
+ * older rows without paidAt). Owner claims are excluded so a booking is never
+ * counted twice.
+ */
+async function guestMoneyInvoices(fromDate: Date, toDate: Date, region?: string) {
+  const window = { gte: fromDate, lte: toDate };
+  const rows = await prisma.invoice.findMany({
+    where: {
+      AND: [
+        BOOKING_INVOICE,
+        { OR: [{ paidAt: window }, { paidAt: null, issuedAt: window }] },
+        ...(region && region !== 'ALL' ? [{ booking: { property: { regionId: String(region) } } }] : []),
+      ],
+    } as any,
+    select: {
+      id: true,
+      status: true,
+      invoiceNumber: true,
+      total: true,
+      paidAt: true,
+      issuedAt: true,
+      booking: { select: { property: { select: { type: true, regionName: true } } } },
+    },
+  });
+  const disbursements = await loadOwnerInvoiceDisbursements(rows.map((r) => r.id));
+  return rows.filter((row) => GUEST_MONEY_IN.has(moneyStageOf(row, disbursements.get(row.id) ?? []).stage));
+}
 
 export async function getRevenueSeries(from?: string, to?: string, region?: string): Promise<SeriesResponse> {
   const toDate = to ? new Date(String(to)) : new Date();
-  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 30 * DAY_MS);
 
-  const where: any = { issuedAt: { gte: fromDate, lte: toDate }, status: { in: ['APPROVED', 'PAID'] } };
-  if (region && region !== 'ALL') where.booking = { property: { regionId: String(region) } };
+  const labels = eatDayLabels(fromDate, toDate);
+  const dataMap: Record<string, number> = Object.fromEntries(labels.map((l) => [l, 0]));
+  const add = (when: Date, amount: number) => {
+    const k = eatDayKey(when);
+    if (dataMap[k] !== undefined) dataMap[k] += amount;
+  };
 
-  const invs: Array<{ total?: number; issuedAt: Date }> = await prisma.invoice.findMany({ where, select: { total: true, issuedAt: true } }) as any;
-
-  // bucket by day (UTC ISO labels)
-  const labels: string[] = [];
-  const dataMap: Record<string, number> = {};
-  const cur = new Date(fromDate);
-  cur.setHours(0, 0, 0, 0);
-  const end = new Date(toDate);
-  end.setHours(0, 0, 0, 0);
-  while (cur <= end) {
-    const key = cur.toISOString().slice(0, 10);
-    labels.push(key);
-    dataMap[key] = 0;
-    cur.setDate(cur.getDate() + 1);
-  }
-
-  for (const inv of invs) {
-    const k = (inv.issuedAt as Date).toISOString().slice(0, 10);
-    if (dataMap[k] === undefined) dataMap[k] = 0;
-    dataMap[k] += Number(inv.total ?? 0);
+  for (const inv of await guestMoneyInvoices(fromDate, toDate, region)) {
+    add((inv.paidAt ?? inv.issuedAt) as Date, Number(inv.total ?? 0));
   }
 
   // Fold in transport (money movement) when not filtering by region. Transport
@@ -51,10 +82,7 @@ export async function getRevenueSeries(from?: string, to?: string, region?: stri
         select: { grossAmount: true, paidAt: true, createdAt: true },
       });
       for (const p of payouts) {
-        const when = ((p as any).paidAt ?? (p as any).createdAt) as Date;
-        const k = new Date(when).toISOString().slice(0, 10);
-        if (dataMap[k] === undefined) dataMap[k] = 0;
-        dataMap[k] += Number((p as any).grossAmount ?? 0);
+        add(new Date(((p as any).paidAt ?? (p as any).createdAt) as Date), Number((p as any).grossAmount ?? 0));
       }
     } catch (err) {
       console.warn('getRevenueSeries: transport series skipped:', (err as any)?.message || err);
@@ -65,51 +93,51 @@ export async function getRevenueSeries(from?: string, to?: string, region?: stri
   return { labels, data };
 }
 
+/**
+ * Approved properties on the platform at the end of each EAT day. A property's
+ * approval time is not stored, so its listing date (createdAt) stands in for
+ * when it went live. Better than the flat line this used to return.
+ */
 export async function getActivePropertiesSeries(from?: string, to?: string, region?: string): Promise<SeriesResponse> {
   const toDate = to ? new Date(String(to)) : new Date();
-  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 30 * DAY_MS);
 
-  // Count all APPROVED properties (active properties)
   const where: any = { status: 'APPROVED' };
-  if (region && region !== 'ALL') {
-    where.regionId = String(region);
-  }
-  const totalApprovedCount = await prisma.property.count({ where });
+  if (region && region !== 'ALL') where.regionId = String(region);
+  const listed = await prisma.property.findMany({ where, select: { createdAt: true } });
+  const listedDays = listed.map((p) => eatDayKey(p.createdAt)).sort();
 
-  // Build labels for the date range
-  const labels: string[] = [];
-  let cur = new Date(fromDate);
-  cur.setHours(0, 0, 0, 0);
-  const end = new Date(toDate);
-  end.setHours(0, 0, 0, 0);
-  while (cur <= end) {
-    labels.push(cur.toISOString().slice(0, 10));
-    cur.setDate(cur.getDate() + 1);
-  }
-
-  // Return the same count for all days (all APPROVED properties are "active" throughout the period)
-  const data = labels.map(() => totalApprovedCount);
-
+  const labels = eatDayLabels(fromDate, toDate);
+  let index = 0;
+  const data = labels.map((day) => {
+    while (index < listedDays.length && listedDays[index] <= day) index += 1;
+    return index;
+  });
   return { labels, data };
 }
 
-export async function getRevenueByType(from?: string, to?: string, region?: string): Promise<SeriesResponse> {
+/** Guest money received in the window, grouped by property type or region. */
+export async function getRevenueByType(from?: string, to?: string, region?: string, groupBy: string = 'propertyType'): Promise<SeriesResponse> {
   const toDate = to ? new Date(String(to)) : new Date();
-  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 365 * 24 * 3600 * 1000);
-
-  const invs: Array<any> = await prisma.invoice.findMany({
-    where: { issuedAt: { gte: fromDate, lte: toDate }, status: { in: ['APPROVED', 'PAID'] }, ...(region && region !== 'ALL' ? { booking: { property: { regionId: String(region) } } } : {}) },
-    select: { total: true, booking: { select: { property: { select: { type: true } } } } },
-  }) as any;
+  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 365 * DAY_MS);
 
   const map: Record<string, number> = {};
-  for (const inv of invs) {
-    const t = inv.booking?.property?.type || 'Other';
-    map[t] = (map[t] || 0) + Number(inv.total ?? 0);
+  for (const inv of await guestMoneyInvoices(fromDate, toDate, region)) {
+    const property = inv.booking?.property;
+    const key = groupBy === 'region' ? property?.regionName || 'Unknown' : property?.type || 'Other';
+    map[key] = (map[key] || 0) + Number(inv.total ?? 0);
   }
-  const labels = Object.keys(map);
+  const labels = Object.keys(map).sort((a, b) => map[b] - map[a]);
   const data = labels.map((l: string) => Math.round((map[l] || 0) * 100) / 100);
   return { labels, data };
+}
+
+/** Invoices issued in the window, by money stage (see lib/invoiceMoneyStage.ts). */
+export async function getInvoiceStages(from?: string, to?: string) {
+  const toDate = to ? new Date(String(to)) : new Date();
+  const fromDate = from ? new Date(String(from)) : new Date(Date.now() - 365 * DAY_MS);
+  const { totals } = await indexMoneyStages({ issuedAt: { gte: fromDate, lte: toDate } });
+  return { stages: MONEY_STAGES.map((s) => s.key), totals };
 }
 
 export async function getActivePropertiesBreakdown(groupBy = 'propertyType', region?: string): Promise<BreakdownResponse> {
@@ -229,6 +257,15 @@ export async function getOverview() {
     console.warn("getOverview: transport commission skipped:", (err as any)?.message || err);
   }
 
+  // 6. Owner payouts by money stage: what NoLSAF owes payees now, and what
+  //    has been confirmed delivered. Status alone mixes guest and payout
+  //    payments, so these read the disbursement records.
+  const stageTotals = (await indexMoneyStages()).totals;
+  const owed = stageTotals.filter((t) => OWED_TO_PAYEE.has(t.stage));
+  const owedToPayees = owed.reduce((sum, t) => sum + t.netPayable, 0);
+  const owedToPayeesCount = owed.reduce((sum, t) => sum + t.count, 0);
+  const disbursedToPayees = stageTotals.find((t) => t.stage === "DISBURSED")?.netPayable ?? 0;
+
   // TZS company revenue = Property + Transport (both TZS). Tour (USD) is kept
   // separate and never added here.
   const companyRevenue = companyRevenueProperty + companyRevenueTransport;
@@ -249,6 +286,9 @@ export async function getOverview() {
     companyRevenueTransport,
     companyRevenueTour,
     companyRevenueTourCurrency,
+    owedToPayees,
+    owedToPayeesCount,
+    disbursedToPayees,
     lastUpdated: new Date().toISOString(),
   };
 }

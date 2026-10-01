@@ -2,6 +2,14 @@ import { escapeAttr, escapeHtml } from "@/utils/html";
 
 export type AdminReportPrintOrientation = "portrait" | "landscape";
 
+/**
+ * Escapes text and keeps the brand as "NoLSAF" inside labels that the report
+ * styles in capitals (eyebrows, the watermark): the brand is never uppercased.
+ */
+function escapeWithBrand(text: string) {
+  return escapeHtml(text).replace(/NoLSAF/g, '<span class="brandName">NoLSAF</span>');
+}
+
 type ReportHeaderOptions = {
   logoUrl: string;
   eyebrow: string;
@@ -132,6 +140,8 @@ export function adminReportPrintStyles(orientation: AdminReportPrintOrientation)
     .reportWatermark div span { display: block; font-size: 15px; font-weight: 700; letter-spacing: 2.5px; }
     .reportWatermark div code { display: block; font-family: Consolas, "Courier New", monospace; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: none; }
     .reportDocument { position: relative; z-index: 1; }
+    /* Inline, inheriting size and weight, so it also survives the watermark span rules. */
+    .brandName, .reportWatermark div .brandName { display: inline; font-size: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: none; }
     @media screen {
       body { background: #eef2f0; }
       .reportPage { max-width: ${orientation === "landscape" ? "1123px" : "794px"}; margin: 18px auto; background: #fff; box-shadow: 0 24px 70px rgba(7, 60, 53, .14); }
@@ -161,8 +171,8 @@ export function buildAdminReportWatermark(options: {
   return `
     <div class="reportWatermark" aria-hidden="true">
       <div>
-        ${escapeHtml(options.classification || "NoLSAF confidential")}
-        <span>Printed by ${escapeHtml(who)} · ${escapeHtml(options.printedAt)}</span>
+        ${escapeWithBrand(options.classification || "NoLSAF confidential")}
+        <span>Printed by ${escapeWithBrand(who)} · ${escapeHtml(options.printedAt)}</span>
         <code>${escapeHtml(options.reportRef)}</code>
       </div>
     </div>`;
@@ -177,7 +187,7 @@ export function buildAdminReportHeader(options: ReportHeaderOptions) {
         <div class="reportBrand">
           <img class="reportLogo" src="${escapeAttr(options.logoUrl)}" alt="NoLSAF" />
           <div class="reportBrandCopy">
-            <p class="reportEyebrow">${escapeHtml(options.eyebrow)}</p>
+            <p class="reportEyebrow">${escapeWithBrand(options.eyebrow)}</p>
             <h1>${escapeHtml(options.title)}</h1>
             <p class="reportDescription">${escapeHtml(options.description)}</p>
             <div class="reportReference">

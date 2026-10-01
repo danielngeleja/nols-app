@@ -6,8 +6,9 @@
 // Three states, told apart by the ring around the NoLSAF mark (the mark itself
 // always stays brand green):
 //   blue, dashed   offline. Only when the device truly has no connection: the
-//                  browser reports offline, or a no-cache request to this site's
-//                  own origin also fails. If the site answers, it is our server.
+//                  browser reports offline, or the error is a network failure
+//                  (chunk or fetch) and a no-cache request to this site's own
+//                  origin also fails. A code error is never shown as offline.
 //   amber, timer   our server. Retries by itself after a countdown.
 //   red            still failing after 3 automatic tries in a short window.
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
@@ -31,6 +32,16 @@ function readTries(): Tries {
 }
 function writeTries(tries: Tries) {
   try { sessionStorage.setItem(TRIES_KEY, JSON.stringify(tries)); } catch { /* ignore */ }
+}
+
+/**
+ * Whether the error itself is a failure to load something over the network
+ * (a code chunk or a fetch), the only kind a lost connection can cause. A code
+ * error such as a ReferenceError or TypeError is ours, whatever the connection.
+ */
+function isNetworkError(error: Error | undefined): boolean {
+  const text = `${error?.name ?? ""} ${error?.message ?? ""}`;
+  return /ChunkLoadError|Loading (CSS )?chunk|Failed to fetch|NetworkError|Load failed|network error|Importing a module script failed|error loading dynamically imported module/i.test(text);
 }
 
 /** True only when the device genuinely cannot reach the internet. */
@@ -73,16 +84,28 @@ export default function GlobalError({
     window.location.reload();
   }, []);
 
-  // Decide which state this is.
+  // Decide which state this is. Offline is only possible when the browser says
+  // so, or when the error is a network failure and the site really cannot be
+  // reached. A slow probe (a busy or restarting server) must not turn a code
+  // error into "You're offline".
   useEffect(() => {
     let cancelled = false;
+    const ours = () => setState(readTries().count >= MAX_TRIES ? "down" : "retrying");
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setState("offline");
+      return;
+    }
+    if (!isNetworkError(error)) {
+      ours();
+      return;
+    }
     void reallyOffline().then((offline) => {
       if (cancelled) return;
       if (offline) setState("offline");
-      else setState(readTries().count >= MAX_TRIES ? "down" : "retrying");
+      else ours();
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [error]);
 
   // Offline: carry on by itself the moment the connection returns.
   useEffect(() => {

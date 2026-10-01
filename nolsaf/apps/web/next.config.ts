@@ -106,7 +106,9 @@ const nextConfig: NextConfig = {
           // Proxy legacy /admin/* routes to the API backend.
           // Keep both legacy numeric URLs and opaque page references out of this proxy.
           source:
-            '/admin/:path((?!cancellations/tours/\\d+|cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/(?:\\d+|iv_[A-Za-z0-9_-]{22})|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|nrms/merchants/\\d+|nrms/integrity/\\d+|nrms/\\d+|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
+            // Any segment shaped like a record reference (xx_ + 22 chars, see
+            // lib/adminRecordRefs.ts) is a detail page, whatever section it sits in.
+            '/admin/:path((?!cancellations/tours/\\d+|cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/(?:\\d+|iv_[A-Za-z0-9_-]{22})|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|nrms/merchants/\\d+|nrms/integrity/\\d+|nrms/\\d+|disbursements/batches/\\d+|(?:[^/]+/)*[a-z]{2}_[A-Za-z0-9_-]{22}(?:/|$)|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
           // NOTE: removed trailing $ anchors so RSC sub-paths like /owners/3.segments/... are also excluded
           destination: `${apiOrigin}/admin/:path*`,
         },

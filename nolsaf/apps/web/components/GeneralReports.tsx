@@ -1,595 +1,531 @@
 "use client";
-import React, { useRef, useState, useEffect } from "react";
-import { Download, RefreshCw, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, BarChart3, Download, FileImage, FileSpreadsheet, Printer, RefreshCw } from "lucide-react";
 import Chart from "@/components/Chart";
-import { REGIONS } from '@/lib/tzRegions';
+import { REGIONS } from "@/lib/tzRegions";
 import { escapeAttr, escapeHtml } from "@/utils/html";
+
+/**
+ * Admin home reports. Figures come from /admin/stats/*:
+ * - Revenue is guest money received (booking invoices the guest has paid, by
+ *   paid date, in EAT days) plus paid transport. Owner claims are not added on
+ *   top, so a booking is counted once.
+ * - Payouts use money stages, so guest payments are never shown as payouts.
+ */
+
+type Timeframe = "24h" | "7d" | "30d" | "12m";
+type Series = { labels: string[]; data: number[] };
+type StageTotal = { stage: string; label: string; count: number; total: number; netPayable: number; commission: number };
+
+const TIMEFRAMES: Array<{ key: Timeframe; label: string; long: string; days: number }> = [
+  { key: "24h", label: "24h", long: "Last 24 hours", days: 1 },
+  { key: "7d", label: "7 days", long: "Last 7 days", days: 7 },
+  { key: "30d", label: "30 days", long: "Last 30 days", days: 30 },
+  { key: "12m", label: "12 months", long: "Last 12 months", days: 365 },
+];
+
+/** Money stage colours, matching the Invoices page and the printed report. */
+const STAGE_COLORS: Record<string, string> = {
+  AWAITING_GUEST: "#a3a3a3",
+  GUEST_PAID: "#0ea5e9",
+  IN_REVIEW: "#f59e0b",
+  DISBURSING: "#8b5cf6",
+  ON_HOLD: "#f97316",
+  FAILED: "#fb7185",
+  DISBURSED: "#10b981",
+  REJECTED: "#be123c",
+  OTHER: "#d4d4d4",
+};
+const BAR_PALETTE = ["#02665e", "#0ea5e9", "#f59e0b", "#8b5cf6", "#10b981", "#f97316", "#64748b", "#ec4899"];
+
+const AXIS_STYLE = {
+  grid: { color: "rgba(0,0,0,0.05)" },
+  ticks: { font: { size: 11 }, color: "#a3a3a3" },
+  border: { display: false },
+};
+const TOOLTIP_STYLE = { backgroundColor: "#0b2420", titleColor: "#a7f3d0", bodyColor: "#ffffff", padding: 10, cornerRadius: 8 };
+
+const menuItemClass =
+  "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2.5 py-2 text-left text-xs font-medium text-neutral-700 hover:bg-neutral-100";
+const fieldClass =
+  "box-border h-9 min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 
 function fmtK(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return String(Math.round(n));
 }
-function fmtTFLabel(tf: string) {
-  return tf === '24h' ? 'Last 24 hours' : tf === '7d' ? 'Last 7 days' : tf === '30d' ? 'Last 30 days' : 'Last 12 months';
+function tzs(n: number) {
+  return `TSh ${Math.round(n).toLocaleString("en-US")}`;
+}
+function humanize(label: string) {
+  const v = String(label || "").replaceAll("_", " ").toLowerCase();
+  return v ? v.charAt(0).toUpperCase() + v.slice(1) : "";
+}
+/** "2026-10-01" as "1 Oct". The labels are already EAT calendar days. */
+function dayLabel(iso: string) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+function rangeFor(tf: Timeframe) {
+  const days = TIMEFRAMES.find((t) => t.key === tf)?.days ?? 7;
+  return { from: new Date(Date.now() - days * 86_400_000).toISOString(), to: new Date().toISOString() };
 }
 
-const AXIS_STYLE = {
-  grid: { color: 'rgba(0,0,0,0.04)' },
-  ticks: { font: { size: 11 }, color: '#94a3b8' },
-  border: { display: false },
-};
+/**
+ * Whole-number y axis that never shows "1, 1, 1, 0": with all-zero data the
+ * axis runs 0 to 1, and fractional ticks are not drawn.
+ */
+function yAxis(format: (v: number) => string, data: number[]) {
+  const allZero = !data.some((v) => Number(v) > 0);
+  return { ...AXIS_STYLE, beginAtZero: true, ...(allZero ? { suggestedMax: 1 } : {}), ticks: { ...AXIS_STYLE.ticks, precision: 0, callback: (v: any) => format(Number(v)) } };
+}
 
-const TOOLTIP_STYLE = {
-  backgroundColor: '#1e293b',
-  titleColor: '#94a3b8',
-  bodyColor: '#f1f5f9',
-  padding: 12,
-  cornerRadius: 10,
-};
+function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: Array<{ key: T; label: string }>; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="inline-flex rounded-lg bg-neutral-100 p-0.5" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          onClick={() => onChange(o.key)}
+          aria-pressed={value === o.key}
+          className={`h-8 rounded-md border-0 px-2.5 text-xs font-semibold transition ${value === o.key ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Panel({ title, subtitle, children, aside }: { title: string; subtitle: string; children: React.ReactNode; aside?: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-solid border-neutral-200 bg-white p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-bold text-neutral-900">{title}</p>
+          <p className="m-0 mt-0.5 text-xs text-neutral-500">{subtitle}</p>
+        </div>
+        {aside}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 export default function GeneralReports() {
-  const [activeTab, setActiveTab] = useState<'financial'|'invoices'>('financial');
-  const [region, setRegion] = useState('ALL');
-  // default timeframe for admins when they login
-  const [timeframe, setTimeframe] = useState<'24h'|'7d'|'30d'|'12m'>('7d');
-  const [groupBy, setGroupBy] = useState<'region'|'propertyType'>('propertyType');
+  const [activeTab, setActiveTab] = useState<"financial" | "payouts">("financial");
+  const [region, setRegion] = useState("ALL");
+  const [timeframe, setTimeframe] = useState<Timeframe>("7d");
+  const [groupBy, setGroupBy] = useState<"propertyType" | "region">("propertyType");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const revenueAreaCanvas = useRef<HTMLCanvasElement | null>(null);
-  const propertyTypeCanvas = useRef<HTMLCanvasElement | null>(null);
-  const activePropsCanvas = useRef<HTMLCanvasElement | null>(null);
-  const invoiceDonutCanvas = useRef<HTMLCanvasElement | null>(null);
-  const invoiceBarCanvas = useRef<HTMLCanvasElement | null>(null);
-
-  // Unified export: CSV (all sections), PNG (all canvases), PDF (print-friendly page)
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const exportMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
-  // Close export menu when clicking outside
-  React.useEffect(() => {
-    function onDocClick(e: MouseEvent) {
-      const el = exportMenuRef.current;
-      if (!el) return;
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        setExportMenuOpen(false);
-      }
-    }
-    if (exportMenuOpen) document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+  const revenueCanvas = useRef<HTMLCanvasElement | null>(null);
+  const breakdownCanvas = useRef<HTMLCanvasElement | null>(null);
+  const propertiesCanvas = useRef<HTMLCanvasElement | null>(null);
+  const stagesCanvas = useRef<HTMLCanvasElement | null>(null);
+
+  const [revenueSeries, setRevenueSeries] = useState<Series>({ labels: [], data: [] });
+  const [propertiesSeries, setPropertiesSeries] = useState<Series>({ labels: [], data: [] });
+  const [revenueBreakdown, setRevenueBreakdown] = useState<Series>({ labels: [], data: [] });
+  const [propertiesBreakdown, setPropertiesBreakdown] = useState<Series>({ labels: [], data: [] });
+  const [stageTotals, setStageTotals] = useState<StageTotal[]>([]);
+
+  // Property region ids are the numeric region codes (property.regionId).
+  const regionOptions = [{ id: "ALL", name: "All regions" }, ...REGIONS.map((r) => ({ id: r.code ?? r.id, name: r.name }))];
+  const regionName = regionOptions.find((r) => r.id === region)?.name ?? region;
+  const timeframeLong = TIMEFRAMES.find((t) => t.key === timeframe)?.long ?? "";
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (exportMenuRef.current && e.target instanceof Node && !exportMenuRef.current.contains(e.target)) setExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
   }, [exportMenuOpen]);
 
-  function downloadDataUrl(dataUrl: string, filename: string) {
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-
-  function exportAllPNGs() {
-    try {
-      const canvases: Array<{c: HTMLCanvasElement | null; name: string}> = [
-        { c: revenueAreaCanvas.current, name: `revenue-trend-${region}-${timeframe}.png` },
-        { c: propertyTypeCanvas.current, name: `property-type-${region}-${timeframe}.png` },
-        { c: activePropsCanvas.current, name: `active-properties-${region}-${timeframe}.png` },
-        { c: invoiceDonutCanvas.current, name: `invoice-status-${region}-${timeframe}.png` },
-      ];
-      canvases.forEach(({c, name}) => {
-        if (!c) return;
-        const url = c.toDataURL('image/png');
-        downloadDataUrl(url, name);
-      });
-    } catch (e) {
-      console.error('PNG export failed', e);
-    } finally {
-      setExportMenuOpen(false);
-    }
-  }
-
-  function exportAllCSV() {
-    try {
-      // Unified CSV: single table with a 'section' column and common metric columns.
-      const header = ['section','label','revenue_tzs','active_properties','count'];
-      const rows: string[][] = [header];
-
-      // Revenue Trend rows
-      const labels = (Array.isArray(revenueSeries?.labels) && revenueSeries.labels.length) ? revenueSeries.labels : (Array.isArray(activePropsSeries?.labels) ? activePropsSeries.labels : []);
-      (labels || []).forEach((lab, i) => {
-        rows.push([
-          'Revenue Trend',
-          String(lab),
-          String((revenueSeries.data && revenueSeries.data[i]) ?? ''),
-          String((activePropsSeries.data && activePropsSeries.data[i]) ?? ''),
-          ''
-        ]);
-      });
-
-      // Property Type rows
-      const typeLabels = (Array.isArray(revenueByType?.labels) && revenueByType.labels.length) ? revenueByType.labels : (Array.isArray(activePropsBreakdown?.labels) ? activePropsBreakdown.labels : []);
-      (typeLabels || []).forEach((t, i) => {
-        rows.push([
-          'Property Type Performance',
-          String(t),
-          String((revenueByType.data && revenueByType.data[i]) ?? ''),
-          String((activePropsBreakdown.data && activePropsBreakdown.data[i]) ?? ''),
-          ''
-        ]);
-      });
-
-      // Invoice rows
-      Object.entries(invoiceStatusCounts || {}).forEach(([label, count]) => {
-        rows.push(['Invoice Status', String(label), '', '', String(count ?? '')]);
-      });
-
-      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `general-reports-${region}-${timeframe}-${new Date().toISOString()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error('CSV export failed', e);
-    } finally {
-      setExportMenuOpen(false);
-    }
-  }
-
-  function exportAllPDF() {
-    try {
-      const canvases: Array<{c: HTMLCanvasElement | null; title: string}> = [
-        { c: revenueAreaCanvas.current, title: 'Revenue Trend' },
-        { c: propertyTypeCanvas.current, title: 'Revenue by Property Type' },
-        { c: activePropsCanvas.current, title: 'Active Properties Trend' },
-        { c: invoiceDonutCanvas.current, title: 'Invoice Status Distribution' },
-      ];
-      const imgs = canvases.map(({c, title}) => ({ title, dataUrl: c ? c.toDataURL('image/png') : null }));
-
-      // Open a new window with images and trigger print (user can save as PDF)
-      const w = window.open('', '_blank');
-      if (!w) {
-        alert('Unable to open export window - please allow popups');
-        return;
-      }
-      const htmlParts: string[] = ['<html><head><title>General Reports Export</title></head><body>'];
-      htmlParts.push(`<h1>General Reports - ${escapeHtml(region)} - ${escapeHtml(timeframe)}</h1>`);
-      imgs.forEach(im => {
-        htmlParts.push(`<h2 style="font-family: sans-serif;">${escapeHtml(im.title)}</h2>`);
-        if (im.dataUrl) htmlParts.push(`<img src="${escapeAttr(im.dataUrl)}" style="max-width:100%;height:auto;margin-bottom:24px;border:1px solid #ddd;"/>`);
-        else htmlParts.push('<p style="font-family: sans-serif;color:#666;">(chart not available)</p>');
-      });
-      htmlParts.push('</body></html>');
-      w.document.write(htmlParts.join(''));
-      w.document.close();
-      // Give the new window a moment to render then print
-      setTimeout(() => { w.focus(); w.print(); }, 500);
-    } catch (e) {
-      console.error('PDF export failed', e);
-    } finally {
-      setExportMenuOpen(false);
-    }
-  }
-
-  // Choose regions from shared list
-  // Use numeric code (e.g. "11") as id — matches what the DB stores in property.regionId
-  const regionOptions = [{ id: 'ALL', name: 'All Regions' }, ...REGIONS.map(r => ({ id: r.code ?? r.id, name: r.name }))];
-
-  // State for API-driven datasets
-  const [revenueSeries, setRevenueSeries] = useState<{ labels: string[]; data: number[] }>({ labels: [], data: [] });
-  const [activePropsSeries, setActivePropsSeries] = useState<{ labels: string[]; data: number[] }>({ labels: [], data: [] });
-  const [revenueByType, setRevenueByType] = useState<{ labels: string[]; data: number[] }>({ labels: [], data: [] });
-  const [activePropsBreakdown, setActivePropsBreakdown] = useState<{ labels: string[]; data: number[] }>({ labels: [], data: [] });
-  const [invoiceStatusCounts, setInvoiceStatusCounts] = useState<Record<string, number>>({});
-
-  function timeframeToRange(tf: string) {
-    const to = new Date();
-    let from = new Date();
-    if (tf === '24h') from = new Date(Date.now() - 24 * 3600 * 1000);
-    if (tf === '7d') from = new Date(Date.now() - 7 * 24 * 3600 * 1000);
-    if (tf === '30d') from = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-    if (tf === '12m') from = new Date(Date.now() - 365 * 24 * 3600 * 1000);
-    return { from: from.toISOString(), to: to.toISOString() };
-  }
-
-  // Fetch from API when region/timeframe/group change
   useEffect(() => {
-    const { from, to } = timeframeToRange(timeframe as string);
-    const base = '';
+    let cancelled = false;
+    const { from, to } = rangeFor(timeframe);
+    const qs = `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&region=${encodeURIComponent(region)}`;
+    const getJson = async (url: string) => {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`Could not load ${url.split("?")[0].split("/").pop()} (${res.status})`);
+      return res.json();
+    };
     setLoading(true);
     setError(null);
-
-    async function load() {
-      try {
-        const qs = `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&region=${encodeURIComponent(region)}`;
-
-        const safeJsonParse = async (response: Response) => {
-          if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`HTTP ${response.status}: ${text.substring(0, 100)}`);
-          }
-          const contentType = response.headers.get('content-type');
-          if (!contentType || !contentType.includes('application/json')) {
-            const text = await response.text();
-            throw new Error(`Expected JSON but got ${contentType}: ${text.substring(0, 100)}`);
-          }
-          return response.json();
-        };
-
-        const [rev, ap, rbt, apb, invs] = await Promise.all([
-          fetch(`${base}/admin/stats/revenue-series${qs}`, { credentials: 'include' }).then(safeJsonParse),
-          fetch(`${base}/admin/stats/active-properties-series${qs}`, { credentials: 'include' }).then(safeJsonParse),
-          fetch(`${base}/admin/stats/revenue-by-type${qs}`, { credentials: 'include' }).then(safeJsonParse),
-          fetch(`${base}/admin/stats/active-properties-breakdown?groupBy=${encodeURIComponent(groupBy)}&region=${encodeURIComponent(region)}`, { credentials: 'include' }).then(safeJsonParse),
-          fetch(`${base}/admin/stats/invoice-status?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { credentials: 'include' }).then(safeJsonParse),
-        ]);
-
-        setRevenueSeries(rev || { labels: [], data: [] });
-        setActivePropsSeries(ap || { labels: [], data: [] });
-        setRevenueByType(rbt || { labels: [], data: [] });
-        setActivePropsBreakdown(apb || { labels: [], data: [] });
-        setInvoiceStatusCounts(invs || {});
-      } catch (err: any) {
-        console.error('Failed to load reports', err);
-        setError(err?.message || 'Failed to load report data');
+    Promise.all([
+      getJson(`/admin/stats/revenue-series${qs}`),
+      getJson(`/admin/stats/active-properties-series${qs}`),
+      getJson(`/admin/stats/revenue-by-type${qs}&groupBy=${groupBy}`),
+      getJson(`/admin/stats/active-properties-breakdown?groupBy=${groupBy}&region=${encodeURIComponent(region)}`),
+      getJson(`/admin/stats/invoice-stages?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    ])
+      .then(([rev, props, revBreak, propsBreak, stages]) => {
+        if (cancelled) return;
+        setRevenueSeries(rev ?? { labels: [], data: [] });
+        setPropertiesSeries(props ?? { labels: [], data: [] });
+        setRevenueBreakdown(revBreak ?? { labels: [], data: [] });
+        setPropertiesBreakdown(propsBreak ?? { labels: [], data: [] });
+        setStageTotals(Array.isArray(stages?.totals) ? stages.totals : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setError(err?.message || "Could not load the report data.");
         setRevenueSeries({ labels: [], data: [] });
-        setActivePropsSeries({ labels: [], data: [] });
-        setRevenueByType({ labels: [], data: [] });
-        setActivePropsBreakdown({ labels: [], data: [] });
-        setInvoiceStatusCounts({});
-      } finally {
-        setLoading(false);
-      }
-    }
-    void load();
+        setPropertiesSeries({ labels: [], data: [] });
+        setRevenueBreakdown({ labels: [], data: [] });
+        setPropertiesBreakdown({ labels: [], data: [] });
+        setStageTotals([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [region, timeframe, groupBy]);
 
-  // ── Derived chart data ────────────────────────────────────────────────────
-  const trendLabels = revenueSeries.labels.length ? revenueSeries.labels : activePropsSeries.labels;
+  // ── Derived figures ────────────────────────────────────────────────────
+  const revenueTotal = revenueSeries.data.reduce((s, v) => s + Number(v || 0), 0);
+  const bestDay = revenueSeries.data.reduce((best, v, i) => (Number(v) > best.value ? { value: Number(v), label: revenueSeries.labels[i] } : best), { value: 0, label: "" });
+  const propertiesNow = propertiesSeries.data.length ? propertiesSeries.data[propertiesSeries.data.length - 1] : 0;
+  const propertiesStart = propertiesSeries.data.length ? propertiesSeries.data[0] : 0;
 
-  // Revenue area chart (smooth gradient line)
-  const revenueAreaData = {
-    labels: trendLabels,
+  // Bars and the properties line share one label list, matched by name. The
+  // two endpoints return their groups in different orders, so pairing by
+  // position would put a hotel's revenue next to a lodge's property count.
+  const breakdown = useMemo(() => {
+    const revenue = new Map(revenueBreakdown.labels.map((l, i) => [l, Number(revenueBreakdown.data[i] || 0)]));
+    const properties = new Map(propertiesBreakdown.labels.map((l, i) => [l, Number(propertiesBreakdown.data[i] || 0)]));
+    const labels = [...new Set([...revenue.keys(), ...properties.keys()])].sort(
+      (a, b) => (revenue.get(b) ?? 0) - (revenue.get(a) ?? 0) || (properties.get(b) ?? 0) - (properties.get(a) ?? 0),
+    );
+    return { labels, revenue: labels.map((l) => revenue.get(l) ?? 0), properties: labels.map((l) => properties.get(l) ?? 0) };
+  }, [revenueBreakdown, propertiesBreakdown]);
+
+  const stageByKey = new Map(stageTotals.map((s) => [s.stage, s]));
+  const stagesPresent = stageTotals.filter((s) => s.count > 0);
+  const invoicesIssued = stageTotals.reduce((s, t) => s + t.count, 0);
+  const pick = (...keys: string[]) => ({
+    count: keys.reduce((s, k) => s + (stageByKey.get(k)?.count ?? 0), 0),
+    net: keys.reduce((s, k) => s + (stageByKey.get(k)?.netPayable ?? 0), 0),
+  });
+  const disbursed = pick("DISBURSED");
+  const owed = pick("GUEST_PAID", "IN_REVIEW", "DISBURSING", "ON_HOLD", "FAILED");
+  const blocked = pick("ON_HOLD", "FAILED");
+
+  // ── Chart configs ──────────────────────────────────────────────────────
+  const revenueChart = {
+    labels: revenueSeries.labels.map(dayLabel),
     datasets: [{
-      label: 'Revenue (TZS)',
-      data: revenueSeries.data || [],
-      borderColor: '#6366f1',
-      backgroundColor: 'rgba(99,102,241,0.12)',
+      label: "Guest money received (TZS)",
+      data: revenueSeries.data,
+      borderColor: "#02665e",
+      backgroundColor: "rgba(2,102,94,0.10)",
       fill: true,
-      tension: 0.45,
-      pointRadius: 3,
-      pointHoverRadius: 6,
-      pointBackgroundColor: '#6366f1',
-      borderWidth: 2.5,
+      tension: 0.35,
+      pointRadius: revenueSeries.labels.length > 40 ? 0 : 3,
+      pointHoverRadius: 5,
+      pointBackgroundColor: "#02665e",
+      borderWidth: 2,
     }],
   } as any;
+  const revenueOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" as const, intersect: false },
+    plugins: { legend: { display: false }, tooltip: { ...TOOLTIP_STYLE, callbacks: { label: (c: any) => ` ${tzs(Number(c.raw || 0))}` } } },
+    scales: { x: { ...AXIS_STYLE, ticks: { ...AXIS_STYLE.ticks, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } }, y: yAxis(fmtK, revenueSeries.data) },
+  };
 
-  // Active properties smooth line
-  const activePropsData = {
-    labels: trendLabels,
-    datasets: [{
-      label: 'Active Properties',
-      data: activePropsSeries.data || [],
-      borderColor: '#10b981',
-      backgroundColor: 'rgba(16,185,129,0.10)',
-      fill: true,
-      tension: 0.45,
-      pointRadius: 3,
-      pointHoverRadius: 6,
-      pointBackgroundColor: '#10b981',
-      borderWidth: 2.5,
-    }],
-  } as any;
-
-  // Property type bar chart (horizontal for readability)
-  const propTypeLabels = revenueByType.labels.length ? revenueByType.labels : activePropsBreakdown.labels;
-  const propertyTypeData = {
-    labels: propTypeLabels,
+  const breakdownChart = {
+    labels: breakdown.labels.map(humanize),
     datasets: [
       {
-        label: 'Revenue (TZS)',
-        data: revenueByType.data || [],
-        backgroundColor: propTypeLabels.map((_, i) => [
-          'rgba(99,102,241,0.80)', 'rgba(16,185,129,0.80)', 'rgba(245,158,11,0.80)',
-          'rgba(239,68,68,0.80)', 'rgba(14,165,233,0.80)', 'rgba(168,85,247,0.80)',
-        ][i % 6]),
+        label: "Revenue (TZS)",
+        data: breakdown.revenue,
+        backgroundColor: breakdown.labels.map((_, i) => BAR_PALETTE[i % BAR_PALETTE.length]),
         borderRadius: 6,
-        yAxisID: 'y',
+        yAxisID: "y",
+        order: 2,
       },
       {
-        label: 'Active Properties',
-        data: activePropsBreakdown.data || [],
-        backgroundColor: 'rgba(0,0,0,0)',
-        borderColor: '#f59e0b',
+        label: "Live properties",
+        data: breakdown.properties,
+        type: "line" as any,
+        borderColor: "#0b2420",
+        backgroundColor: "#0b2420",
         borderWidth: 2,
-        type: 'line' as any,
+        pointRadius: 4,
         tension: 0.3,
-        pointRadius: 5,
-        pointBackgroundColor: '#f59e0b',
-        yAxisID: 'y1',
+        yAxisID: "y1",
+        order: 1,
       },
     ],
   } as any;
-
-  // Invoice donut
-  const invoiceLabels = Object.keys(invoiceStatusCounts || {});
-  const invoiceValues = invoiceLabels.map(l => invoiceStatusCounts[l] ?? 0);
-  const INVOICE_COLORS: Record<string, string> = {
-    PAID: '#10b981', APPROVED: '#6366f1', RECEIVED: '#14b8a6',
-    REQUESTED: '#f59e0b', REJECTED: '#ef4444', PENDING: '#94a3b8',
-  };
-  const invoiceDonutData = {
-    labels: invoiceLabels,
-    datasets: [{
-      data: invoiceValues,
-      backgroundColor: invoiceLabels.map(l => INVOICE_COLORS[l] ?? '#94a3b8'),
-      borderWidth: 0,
-      hoverOffset: 8,
-    }],
-  } as any;
-
-  // Invoice bar (horizontal)
-  const invoiceBarData = {
-    labels: invoiceLabels,
-    datasets: [{
-      label: 'Count',
-      data: invoiceValues,
-      backgroundColor: invoiceLabels.map(l => INVOICE_COLORS[l] ?? '#94a3b8'),
-      borderRadius: 6,
-    }],
-  } as any;
-
-  // KPI totals
-  const totalInvoices = invoiceValues.reduce((s, v) => s + v, 0);
-  const paidInvoices = invoiceStatusCounts['PAID'] ?? 0;
-  const conversionRate = totalInvoices ? Math.round((paidInvoices / totalInvoices) * 100) : 0;
-
-  // Shared chart option helpers
-  const lineOpts = (_ytitle: string) => ({
+  const breakdownOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    interaction: { mode: 'index' as const, intersect: false },
-    plugins: { legend: { display: false }, tooltip: TOOLTIP_STYLE },
+    interaction: { mode: "index" as const, intersect: false },
+    plugins: { legend: { position: "bottom" as const, labels: { font: { size: 11 }, color: "#737373", boxWidth: 10, padding: 12 } }, tooltip: TOOLTIP_STYLE },
     scales: {
-      x: { ...AXIS_STYLE },
-      y: {
-        ...AXIS_STYLE,
-        beginAtZero: true,
-        title: { display: false },
-        ticks: { ...AXIS_STYLE.ticks, callback: (v: any) => fmtK(Number(v)) },
-      },
+      x: { ...AXIS_STYLE, ticks: { ...AXIS_STYLE.ticks, maxRotation: 0, autoSkip: true } },
+      y: yAxis(fmtK, breakdown.revenue),
+      y1: { ...yAxis((v) => String(v), breakdown.properties), position: "right" as const, grid: { drawOnChartArea: false } },
     },
-  });
+  };
+
+  const propertiesChart = {
+    labels: propertiesSeries.labels.map(dayLabel),
+    datasets: [{
+      label: "Live properties",
+      data: propertiesSeries.data,
+      borderColor: "#0ea5e9",
+      backgroundColor: "rgba(14,165,233,0.10)",
+      fill: true,
+      stepped: true,
+      pointRadius: 0,
+      borderWidth: 2,
+    }],
+  } as any;
+  const propertiesOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" as const, intersect: false },
+    plugins: { legend: { display: false }, tooltip: TOOLTIP_STYLE },
+    scales: { x: { ...AXIS_STYLE, ticks: { ...AXIS_STYLE.ticks, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } }, y: yAxis((v) => String(v), propertiesSeries.data) },
+  };
+
+  const stagesChart = {
+    labels: stagesPresent.map((s) => s.label),
+    datasets: [{ data: stagesPresent.map((s) => s.count), backgroundColor: stagesPresent.map((s) => STAGE_COLORS[s.stage] ?? "#a3a3a3"), borderWidth: 0, hoverOffset: 6 }],
+  } as any;
+
+  // ── Export ─────────────────────────────────────────────────────────────
+  const fileStem = `nolsaf-reports-${region === "ALL" ? "all-regions" : regionName.replace(/\s+/g, "-").toLowerCase()}-${timeframe}`;
+
+  function exportCsv() {
+    const rows: string[][] = [["section", "label", "revenue_tzs", "live_properties", "invoices", "net_payable_tzs"]];
+    revenueSeries.labels.forEach((day, i) => rows.push(["Guest money by day", day, String(revenueSeries.data[i] ?? 0), String(propertiesSeries.data[i] ?? ""), "", ""]));
+    breakdown.labels.forEach((l, i) => rows.push([groupBy === "region" ? "By region" : "By property type", humanize(l), String(breakdown.revenue[i]), String(breakdown.properties[i]), "", ""]));
+    stageTotals.forEach((s) => rows.push(["Payout invoices by money stage", s.label, "", "", String(s.count), String(Math.round(s.netPayable))]));
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${fileStem}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportMenuOpen(false);
+  }
+
+  function chartImages() {
+    return [
+      { c: revenueCanvas.current, title: "Guest money received" },
+      { c: breakdownCanvas.current, title: groupBy === "region" ? "Revenue by region" : "Revenue by property type" },
+      { c: propertiesCanvas.current, title: "Live properties" },
+      { c: stagesCanvas.current, title: "Payout invoices by money stage" },
+    ].map(({ c, title }) => ({ title, url: c ? c.toDataURL("image/png") : null }));
+  }
+
+  function exportPngs() {
+    chartImages().forEach(({ title, url }) => {
+      if (!url) return;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileStem}-${title.toLowerCase().replace(/\s+/g, "-")}.png`;
+      a.click();
+    });
+    setExportMenuOpen(false);
+  }
+
+  function exportPrint() {
+    setExportMenuOpen(false);
+    const w = window.open("", "_blank");
+    if (!w) {
+      setError("The print window could not open. Please allow popups for this site.");
+      return;
+    }
+    const sections = chartImages()
+      .map(({ title, url }) => `<h2>${escapeHtml(title)}</h2>${url ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(title)}"/>` : "<p>Chart not available.</p>"}`)
+      .join("");
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>${escapeHtml(fileStem)}</title><style>body{font-family:"Trebuchet MS",Arial,sans-serif;color:#171717;margin:24px}h1{font-size:18px;margin:0}p.meta{color:#737373;font-size:12px;margin:4px 0 16px}h2{font-size:13px;margin:18px 0 6px}img{max-width:100%;border:1px solid #e5e5e5;border-radius:6px}</style></head><body><h1>Platform reports</h1><p class="meta">${escapeHtml(timeframeLong)} · ${escapeHtml(regionName)}</p>${sections}</body></html>`);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 400);
+  }
 
   return (
-    <div id="general-reports-page" className="page-content">
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-
-        {/* ── Header bar ─────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-slate-100 flex-wrap">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">General Reports</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{fmtTFLabel(timeframe)} · {regionOptions.find(r => r.id === region)?.name ?? region}</p>
-          </div>
-
-          {/* Tab toggle */}
-          <div className="flex items-center rounded-xl bg-slate-100 p-1 gap-1">
-            {(['financial', 'invoices'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${activeTab === tab ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>
-                {tab === 'financial' ? 'Financial' : 'Invoices'}
-              </button>
-            ))}
-          </div>
-
-          {/* Controls */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Region */}
-            <select value={region} onChange={e => setRegion(e.target.value)}
-              className="h-8 px-3 text-xs rounded-lg border border-slate-200 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300">
-              {regionOptions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-
-            {/* Timeframe pills */}
-            <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
-              {(['24h','7d','30d','12m'] as const).map(tf => (
-                <button key={tf} onClick={() => setTimeframe(tf)}
-                  className={`h-8 px-3 text-xs font-semibold border-r border-slate-200 last:border-0 transition-colors ${timeframe === tf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-                  {tf}
-                </button>
-              ))}
-            </div>
-
-            {/* Group pills (Financial only) */}
-            {activeTab === 'financial' && (
-              <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
-                {([['propertyType','By Type'],['region','By Region']] as const).map(([v, label]) => (
-                  <button key={v} onClick={() => setGroupBy(v)}
-                    className={`h-8 px-3 text-xs font-semibold border-r border-slate-200 last:border-0 transition-colors ${groupBy === v ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Export */}
-            <div className="relative" ref={exportMenuRef}>
-              <button onMouseDown={e => e.preventDefault()} onClick={() => setExportMenuOpen(o => !o)}
-                className="h-8 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors">
-                <Download className="h-3.5 w-3.5" />
-                Export
-              </button>
-              {exportMenuOpen && (
-                <div className="absolute right-0 mt-1 w-40 bg-white rounded-xl border border-slate-200 shadow-lg z-20 overflow-hidden">
-                  {([['CSV', exportAllCSV], ['PNGs', exportAllPNGs], ['PDF', exportAllPDF]] as [string, () => void][]).map(([label, fn]) => (
-                    <button key={label} onMouseDown={e => e.preventDefault()} onClick={() => fn()}
-                      className="block w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
-                      Export {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {loading && <RefreshCw className="h-4 w-4 text-slate-400 animate-spin" />}
-          </div>
+    <section id="general-reports-page" className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#0b2420] text-emerald-300"><BarChart3 className="h-4 w-4" /></span>
+        <div className="mr-auto min-w-0">
+          <h2 className="m-0 text-sm font-bold text-neutral-900">Platform reports</h2>
+          <p className="m-0 text-xs text-neutral-500">{timeframeLong} · {regionName} · days in EAT</p>
         </div>
-
-        {/* ── Error banner ───────────────────────────────────────────────── */}
-        {error && (
-          <div className="mx-6 mt-4 flex items-center gap-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3">
-            <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
-            <p className="text-sm text-red-700">{error}</p>
-          </div>
-        )}
-
-        <div className="p-6 space-y-6">
-
-          {/* ── FINANCIAL TAB ──────────────────────────────────────────── */}
-          {activeTab === 'financial' && (
-            <>
-              {/* Revenue area chart — full width */}
-              <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <div className="text-sm font-bold text-slate-800">Revenue Trend</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{fmtTFLabel(timeframe)}</div>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-indigo-500 font-semibold bg-indigo-50 px-3 py-1 rounded-full">
-                    <span className="h-2 w-2 rounded-full bg-indigo-500 inline-block" /> TZS
-                  </div>
-                </div>
-                <div style={{ height: 260 }}>
-                  <Chart type="line" height={260} data={revenueAreaData} options={lineOpts('Revenue')} onCanvas={c => { revenueAreaCanvas.current = c; }} />
-                </div>
-              </div>
-
-              {/* Property type + Active properties side by side */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {/* Property type bar+line */}
-                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <div className="text-sm font-bold text-slate-800">{groupBy === 'propertyType' ? 'Revenue by Property Type' : 'Revenue by Region'}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">Revenue bars · Properties line</div>
-                    </div>
-                  </div>
-                  <div style={{ height: 260 }}>
-                    <Chart type="bar" height={260} data={propertyTypeData}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                          legend: { position: 'bottom', labels: { font: { size: 11 }, color: '#64748b', boxWidth: 12, padding: 14 } },
-                          tooltip: TOOLTIP_STYLE,
-                        },
-                        scales: {
-                          x: { ...AXIS_STYLE },
-                          y: { ...AXIS_STYLE, title: { display: false }, ticks: { ...AXIS_STYLE.ticks, callback: (v: any) => fmtK(Number(v)) } },
-                          y1: { ...AXIS_STYLE, position: 'right', grid: { drawOnChartArea: false }, title: { display: false }, ticks: { ...AXIS_STYLE.ticks, callback: (v: any) => String(v) } },
-                        },
-                      }}
-                      onCanvas={c => { propertyTypeCanvas.current = c; }} />
-                  </div>
-                </div>
-
-                {/* Active properties area */}
-                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <div className="text-sm font-bold text-slate-800">Active Properties</div>
-                      <div className="text-xs text-slate-400 mt-0.5">{fmtTFLabel(timeframe)}</div>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold bg-emerald-50 px-3 py-1 rounded-full">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" /> Count
-                    </div>
-                  </div>
-                  <div style={{ height: 260 }}>
-                    <Chart type="line" height={260} data={activePropsData}
-                      options={{ ...lineOpts('Properties'), scales: { ...lineOpts('Properties').scales, y: { ...lineOpts('Properties').scales.y, ticks: { ...AXIS_STYLE.ticks, callback: (v: any) => String(Math.round(Number(v))) } } } }}
-                      onCanvas={c => { activePropsCanvas.current = c; }} />
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ── INVOICES TAB ───────────────────────────────────────────── */}
-          {activeTab === 'invoices' && (
-            <>
-              {/* KPI tiles */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: 'Total Invoices', value: totalInvoices, color: 'text-slate-800', bg: 'bg-slate-50' },
-                  { label: 'Paid', value: invoiceStatusCounts['PAID'] ?? 0, color: 'text-emerald-700', bg: 'bg-emerald-50' },
-                  { label: 'Approved', value: invoiceStatusCounts['APPROVED'] ?? 0, color: 'text-indigo-700', bg: 'bg-indigo-50' },
-                  { label: 'Rejected', value: invoiceStatusCounts['REJECTED'] ?? 0, color: 'text-red-700', bg: 'bg-red-50' },
-                ].map(({ label, value, color, bg }) => (
-                  <div key={label} className={`rounded-2xl border border-slate-100 ${bg} p-5 shadow-sm`}>
-                    <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mb-1">{label}</div>
-                    <div className={`text-3xl font-extrabold ${color}`}>{loading ? '…' : value}</div>
-                    {label === 'Paid' && totalInvoices > 0 && (
-                      <div className="mt-2">
-                        <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                          <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${conversionRate}%` }} />
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1">{conversionRate}% payment rate</div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {/* Donut */}
-                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <div className="text-sm font-bold text-slate-800 mb-1">Status Distribution</div>
-                  <div className="text-xs text-slate-400 mb-4">{fmtTFLabel(timeframe)}</div>
-                  <div style={{ height: 280 }}>
-                    <Chart type="doughnut" height={280} data={invoiceDonutData}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        cutout: '62%',
-                        plugins: {
-                          legend: { position: 'bottom', labels: { font: { size: 11 }, color: '#64748b', boxWidth: 12, padding: 16 } },
-                          tooltip: TOOLTIP_STYLE,
-                        },
-                      }}
-                      onCanvas={c => { invoiceDonutCanvas.current = c; }} />
-                  </div>
-                </div>
-
-                {/* Horizontal bar breakdown */}
-                <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-                  <div className="text-sm font-bold text-slate-800 mb-1">Invoice Counts by Status</div>
-                  <div className="text-xs text-slate-400 mb-4">Absolute volume per status</div>
-                  <div style={{ height: 280 }}>
-                    <Chart type="bar" height={280} data={invoiceBarData}
-                      options={{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        indexAxis: 'y' as const,
-                        plugins: { legend: { display: false }, tooltip: TOOLTIP_STYLE },
-                        scales: {
-                          x: { ...AXIS_STYLE, beginAtZero: true, ticks: { ...AXIS_STYLE.ticks, callback: (v: any) => String(v) } },
-                          y: { ...AXIS_STYLE },
-                        },
-                      }}
-                      onCanvas={c => { invoiceBarCanvas.current = c; }} />
-                  </div>
-                </div>
-              </div>
-            </>
+        <select value={region} onChange={(e) => setRegion(e.target.value)} className={fieldClass} aria-label="Region">
+          {regionOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <Segmented label="Period" value={timeframe} onChange={setTimeframe} options={TIMEFRAMES.map((t) => ({ key: t.key, label: t.label }))} />
+        <div className="relative" ref={exportMenuRef}>
+          <button
+            type="button"
+            onClick={() => setExportMenuOpen((o) => !o)}
+            aria-haspopup="menu"
+            aria-expanded={exportMenuOpen}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
+          >
+            <Download className="h-3.5 w-3.5" /> Export
+          </button>
+          {exportMenuOpen && (
+            <div role="menu" className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-solid border-neutral-200 bg-white p-1 shadow-lg">
+              <button type="button" role="menuitem" onClick={() => exportCsv()} className={menuItemClass}>
+                <FileSpreadsheet className="h-3.5 w-3.5 text-neutral-500" /> Spreadsheet (CSV)
+              </button>
+              <button type="button" role="menuitem" onClick={() => exportPngs()} className={menuItemClass}>
+                <FileImage className="h-3.5 w-3.5 text-neutral-500" /> Chart images (PNG)
+              </button>
+              <button type="button" role="menuitem" onClick={() => exportPrint()} className={menuItemClass}>
+                <Printer className="h-3.5 w-3.5 text-neutral-500" /> Print or save PDF
+              </button>
+            </div>
           )}
         </div>
+        {loading && <RefreshCw className="h-4 w-4 animate-spin text-neutral-400" aria-label="Loading" />}
       </div>
-    </div>
+
+      {/* Tabs */}
+      <div className="flex gap-5 border-0 border-b border-solid border-neutral-200 px-4 sm:px-5" role="tablist">
+        {([["financial", "Revenue and properties"], ["payouts", "Payout invoices"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === key}
+            onClick={() => setActiveTab(key)}
+            className={`-mb-px border-0 border-b-2 border-solid bg-transparent px-0 py-2.5 text-sm font-semibold transition-colors ${activeTab === key ? "border-[#02665e] text-neutral-900" : "border-transparent text-neutral-500 hover:text-neutral-800"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mx-4 mt-4 flex items-center gap-2 rounded-lg border border-solid border-rose-200 bg-rose-50/70 px-3 py-2 text-xs text-rose-800 sm:mx-5">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
+        </div>
+      )}
+
+      <div className="space-y-4 p-4 sm:p-5">
+        {activeTab === "financial" ? (
+          <>
+            <dl className="m-0 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+              {[
+                { label: "Guest money received", value: loading ? "..." : tzs(revenueTotal), detail: `${timeframeLong}, bookings and transport` },
+                { label: "Best day", value: loading ? "..." : bestDay.value ? tzs(bestDay.value) : "None yet", detail: bestDay.label ? dayLabel(bestDay.label) : "No payments in this period" },
+                { label: "Live properties", value: loading ? "..." : propertiesNow.toLocaleString(), detail: propertiesNow - propertiesStart > 0 ? `+${propertiesNow - propertiesStart} in this period` : "No new listings in this period" },
+              ].map((f) => (
+                <div key={f.label} className="min-w-0 bg-white px-4 py-3">
+                  <dt className="text-[11px] text-neutral-500">{f.label}</dt>
+                  <dd className="m-0 mt-0.5 truncate text-lg font-bold tabular-nums text-neutral-900">{f.value}</dd>
+                  <dd className="m-0 truncate text-[11px] text-neutral-400">{f.detail}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <Panel title="Guest money received" subtitle={`${timeframeLong}, by the day the guest paid`} aside={<span className="rounded-full bg-[#02665e]/10 px-2.5 py-1 text-[11px] font-semibold text-[#02665e]">TZS</span>}>
+              <div style={{ height: 240 }}>
+                <Chart type="line" height={240} data={revenueChart} options={revenueOptions as any} onCanvas={(c) => { revenueCanvas.current = c; }} />
+              </div>
+            </Panel>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Panel
+                title={groupBy === "region" ? "Revenue by region" : "Revenue by property type"}
+                subtitle="Bars: guest money · line: live properties"
+                aside={<Segmented label="Group by" value={groupBy} onChange={setGroupBy} options={[{ key: "propertyType", label: "Type" }, { key: "region", label: "Region" }]} />}
+              >
+                <div style={{ height: 260 }}>
+                  {breakdown.labels.length ? (
+                    <Chart type="bar" height={260} data={breakdownChart} options={breakdownOptions as any} onCanvas={(c) => { breakdownCanvas.current = c; }} />
+                  ) : (
+                    <p className="m-0 grid h-full place-items-center text-xs text-neutral-400">{loading ? "Loading..." : "No revenue or live properties to show."}</p>
+                  )}
+                </div>
+              </Panel>
+              <Panel title="Live properties" subtitle="Approved listings, counted from their listing date">
+                <div style={{ height: 260 }}>
+                  <Chart type="line" height={260} data={propertiesChart} options={propertiesOptions as any} onCanvas={(c) => { propertiesCanvas.current = c; }} />
+                </div>
+              </Panel>
+            </div>
+          </>
+        ) : (
+          <>
+            <dl className="m-0 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 lg:grid-cols-4">
+              {[
+                { label: "Invoices issued", value: loading ? "..." : invoicesIssued.toLocaleString(), detail: timeframeLong, tone: "text-neutral-900" },
+                { label: "Disbursed to payees", value: loading ? "..." : tzs(disbursed.net), detail: `${disbursed.count} confirmed delivered`, tone: "text-emerald-700" },
+                { label: "Owed to payees", value: loading ? "..." : tzs(owed.net), detail: `${owed.count} paid in, not yet delivered`, tone: owed.count ? "text-amber-700" : "text-neutral-900" },
+                { label: "On hold or failed", value: loading ? "..." : blocked.count.toLocaleString(), detail: blocked.count ? tzs(blocked.net) : "Nothing blocked", tone: blocked.count ? "text-rose-700" : "text-neutral-900" },
+              ].map((f) => (
+                <div key={f.label} className="min-w-0 bg-white px-4 py-3">
+                  <dt className="text-[11px] text-neutral-500">{f.label}</dt>
+                  <dd className={`m-0 mt-0.5 truncate text-lg font-bold tabular-nums ${f.tone}`}>{f.value}</dd>
+                  <dd className="m-0 truncate text-[11px] text-neutral-400">{f.detail}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Panel title="Invoices by money stage" subtitle={`Issued in the ${timeframeLong.toLowerCase()}`}>
+                <div style={{ height: 260 }}>
+                  {stagesPresent.length ? (
+                    <Chart
+                      type="doughnut"
+                      height={260}
+                      data={stagesChart}
+                      options={{ responsive: true, maintainAspectRatio: false, cutout: "64%", plugins: { legend: { position: "right", labels: { font: { size: 11 }, color: "#525252", boxWidth: 10, padding: 10 } }, tooltip: TOOLTIP_STYLE } } as any}
+                      onCanvas={(c) => { stagesCanvas.current = c; }}
+                    />
+                  ) : (
+                    <p className="m-0 grid h-full place-items-center text-xs text-neutral-400">{loading ? "Loading..." : "No invoices issued in this period."}</p>
+                  )}
+                </div>
+              </Panel>
+              <Panel title="Net payable by stage" subtitle="What each stage is worth to payees, TZS">
+                <ul className="m-0 list-none p-0">
+                  {stageTotals.length ? stageTotals.map((s) => {
+                    const max = Math.max(1, ...stageTotals.map((t) => t.netPayable));
+                    return (
+                      <li key={s.stage} className="border-0 border-t border-solid border-neutral-100 py-2 first:border-t-0">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="inline-flex min-w-0 items-center gap-2 text-neutral-700">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STAGE_COLORS[s.stage] ?? "#a3a3a3" }} />
+                            <span className="truncate">{s.label}</span>
+                            <span className="tabular-nums text-neutral-400">{s.count}</span>
+                          </span>
+                          <span className="shrink-0 font-semibold tabular-nums text-neutral-900">{tzs(s.netPayable)}</span>
+                        </div>
+                        <span className="mt-1 block h-1 overflow-hidden rounded-full bg-neutral-100">
+                          <span className="block h-full rounded-full" style={{ width: `${s.netPayable > 0 ? Math.max((s.netPayable / max) * 100, 2) : 0}%`, background: STAGE_COLORS[s.stage] ?? "#a3a3a3" }} />
+                        </span>
+                      </li>
+                    );
+                  }) : <li className="py-8 text-center text-xs text-neutral-400">{loading ? "Loading..." : "No invoices issued in this period."}</li>}
+                </ul>
+              </Panel>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

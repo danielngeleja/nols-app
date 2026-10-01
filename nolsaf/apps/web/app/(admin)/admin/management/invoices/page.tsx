@@ -2,22 +2,26 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   BadgeCheck,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
   Download,
-  FileText,
+  Hourglass,
+  Landmark,
   Loader2,
+  PauseCircle,
+  Printer,
   Receipt,
   RefreshCw,
   Search,
-  ShieldCheck,
   Wallet,
   X,
   XCircle,
 } from "lucide-react";
+import InvoiceReportDialog from "./InvoiceReportDialog";
 
 type InvoiceRow = {
   id: number;
@@ -41,28 +45,38 @@ type InvoiceRow = {
   paidAt?: string | null;
   paymentMethod?: string | null;
   paymentRef?: string | null;
+  stage?: string;
+  manualSettlement?: boolean;
 };
 
-type StatusSummary = { status: string; count: number; total: number; netPayable: number; commission: number };
+type StageSummary = { stage: string; label: string; count: number; total: number; netPayable: number; commission: number };
 
 const PAGE_SIZE = 25;
 
-/** The invoice lifecycle, in order. DRAFT is rare and folded into Requested's position only when present. */
+/**
+ * Money stages, in the order money moves (see lib/invoiceMoneyStage.ts on the
+ * API). Invoice status alone mixes "the guest paid NoLSAF" with "NoLSAF paid
+ * the payee"; the stage reads the disbursement records to keep them apart.
+ * DRAFT and unusual states (OTHER) show as an "Also" chip when present.
+ */
 const STAGES: Array<{ key: string; label: string; hint: string; icon: typeof Clock; text: string; bar: string; soft: string; pill: string }> = [
-  { key: "REQUESTED", label: "Requested", hint: "Submitted by the payee", icon: FileText, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
-  { key: "VERIFIED", label: "Verified", hint: "Checked against the booking", icon: ShieldCheck, text: "text-sky-700", bar: "bg-sky-500", soft: "bg-sky-50/70", pill: "bg-sky-50 text-sky-700 ring-sky-200" },
-  { key: "APPROVED", label: "Approved", hint: "Cleared for payout", icon: BadgeCheck, text: "text-indigo-700", bar: "bg-indigo-500", soft: "bg-indigo-50/70", pill: "bg-indigo-50 text-indigo-700 ring-indigo-200" },
-  { key: "PROCESSING", label: "Processing", hint: "Payout on its way", icon: Clock, text: "text-violet-700", bar: "bg-violet-500", soft: "bg-violet-50/70", pill: "bg-violet-50 text-violet-700 ring-violet-200" },
-  { key: "PAID", label: "Paid", hint: "Money sent", icon: CheckCircle2, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50/70", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
-  { key: "REJECTED", label: "Rejected", hint: "Not payable", icon: XCircle, text: "text-rose-700", bar: "bg-rose-500", soft: "bg-rose-50/70", pill: "bg-rose-50 text-rose-700 ring-rose-200" },
+  { key: "AWAITING_GUEST", label: "Awaiting guest", hint: "Guest has not paid", icon: Hourglass, text: "text-neutral-600", bar: "bg-neutral-400", soft: "bg-neutral-100/80", pill: "bg-neutral-100 text-neutral-600 ring-neutral-200" },
+  { key: "GUEST_PAID", label: "Guest paid", hint: "Held by NoLSAF, not sent", icon: Landmark, text: "text-sky-700", bar: "bg-sky-500", soft: "bg-sky-50/70", pill: "bg-sky-50 text-sky-700 ring-sky-200" },
+  { key: "IN_REVIEW", label: "Claim in review", hint: "Requested, verified or approved", icon: BadgeCheck, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70", pill: "bg-amber-50 text-amber-700 ring-amber-200" },
+  { key: "DISBURSING", label: "Disbursing", hint: "Transfer with the provider", icon: Clock, text: "text-violet-700", bar: "bg-violet-500", soft: "bg-violet-50/70", pill: "bg-violet-50 text-violet-700 ring-violet-200" },
+  { key: "ON_HOLD", label: "On hold", hint: "Security review or mismatch", icon: PauseCircle, text: "text-orange-700", bar: "bg-orange-500", soft: "bg-orange-50/70", pill: "bg-orange-50 text-orange-700 ring-orange-200" },
+  { key: "FAILED", label: "Failed", hint: "Transfer must be resent", icon: AlertTriangle, text: "text-rose-600", bar: "bg-rose-400", soft: "bg-rose-50/70", pill: "bg-rose-50 text-rose-600 ring-rose-200" },
+  { key: "DISBURSED", label: "Disbursed", hint: "Delivered to the payee", icon: CheckCircle2, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50/70", pill: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+  { key: "REJECTED", label: "Rejected", hint: "Not payable", icon: XCircle, text: "text-rose-800", bar: "bg-rose-700", soft: "bg-rose-50/70", pill: "bg-rose-100 text-rose-800 ring-rose-200" },
 ];
-const AWAITING = new Set(["REQUESTED", "VERIFIED", "APPROVED", "PROCESSING"]);
+/** Stages where money is owed to the payee: received, not yet delivered. */
+const OWED = new Set(["GUEST_PAID", "IN_REVIEW", "DISBURSING", "ON_HOLD", "FAILED"]);
 
 const heroButton =
   "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
 
-function stageOf(status: string) {
-  return STAGES.find((s) => s.key === String(status || "").toUpperCase()) ?? null;
+function stageOf(stage: string | null | undefined) {
+  return STAGES.find((s) => s.key === String(stage || "").toUpperCase()) ?? null;
 }
 
 function tzs(amount: number | null | undefined) {
@@ -92,7 +106,7 @@ function humanize(status: string) {
 
 export default function InvoicesManagementPage() {
   const [items, setItems] = useState<InvoiceRow[]>([]);
-  const [summary, setSummary] = useState<StatusSummary[]>([]);
+  const [summary, setSummary] = useState<StageSummary[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -101,6 +115,7 @@ export default function InvoicesManagementPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [reportOpen, setReportOpen] = useState(false);
 
   // Search runs on the server across every invoice, not just this page.
   useEffect(() => {
@@ -117,7 +132,7 @@ export default function InvoicesManagementPage() {
     (async () => {
       try {
         const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
-        if (status) params.set("status", status);
+        if (status) params.set("stage", status);
         if (search) params.set("q", search);
         const r = await fetch(`/api/admin/invoices?${params.toString()}`, { credentials: "include" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -125,7 +140,7 @@ export default function InvoicesManagementPage() {
         if (!mounted) return;
         setItems(j.items ?? []);
         setTotal(j.total ?? 0);
-        if (Array.isArray(j.summary)) setSummary(j.summary);
+        if (Array.isArray(j.stages)) setSummary(j.stages);
         setError(null);
       } catch (e) {
         console.error("invoices fetch", e);
@@ -140,20 +155,24 @@ export default function InvoicesManagementPage() {
     return () => { mounted = false; };
   }, [page, status, search, reloadKey]);
 
-  const byStatus = useMemo(() => new Map(summary.map((s) => [String(s.status).toUpperCase(), s])), [summary]);
+  const byStatus = useMemo(() => new Map(summary.map((s) => [String(s.stage).toUpperCase(), s])), [summary]);
   const all = summary.reduce((acc, s) => ({ count: acc.count + s.count }), { count: 0 });
-  const paid = byStatus.get("PAID");
-  const awaiting = summary.filter((s) => AWAITING.has(String(s.status).toUpperCase()));
-  const awaitingNet = awaiting.reduce((sum, s) => sum + s.netPayable, 0);
-  const awaitingCount = awaiting.reduce((sum, s) => sum + s.count, 0);
-  const otherStatuses = summary.filter((s) => !stageOf(s.status));
+  const disbursed = byStatus.get("DISBURSED");
+  const guestPaid = byStatus.get("GUEST_PAID");
+  const owed = summary.filter((s) => OWED.has(String(s.stage).toUpperCase()));
+  const owedNet = owed.reduce((sum, s) => sum + s.netPayable, 0);
+  const owedCount = owed.reduce((sum, s) => sum + s.count, 0);
+  const blockedCount = (byStatus.get("ON_HOLD")?.count ?? 0) + (byStatus.get("FAILED")?.count ?? 0);
+  // Commission is earned once the guest's money is in, whether or not the payee has been paid yet.
+  const earnedCommission = summary.filter((s) => OWED.has(s.stage) || s.stage === "DISBURSED").reduce((sum, s) => sum + s.commission, 0);
+  const otherStatuses = summary.filter((s) => s.count > 0 && !stageOf(s.stage));
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const facts = [
     { label: "Invoices", value: summary.length ? all.count.toLocaleString() : loading ? "..." : total.toLocaleString(), detail: "from owners and drivers", tone: "text-white" },
-    { label: "Paid out", value: paid ? compactTzs(paid.netPayable) : summary.length ? "TSh 0" : "...", detail: paid ? `${paid.count} invoices settled` : "nothing paid yet", tone: "text-emerald-300" },
-    { label: "Waiting for payout", value: summary.length ? compactTzs(awaitingNet) : "...", detail: `${awaitingCount} requested, verified, approved or processing`, tone: awaitingCount ? "text-amber-300" : "text-white" },
-    { label: "Commission earned", value: paid ? compactTzs(paid.commission) : summary.length ? "TSh 0" : "...", detail: "kept by NoLSAF on paid invoices", tone: "text-white" },
+    { label: "Disbursed to payees", value: summary.length ? compactTzs(disbursed?.netPayable ?? 0) : "...", detail: disbursed?.count ? `${disbursed.count} confirmed delivered` : "nothing delivered yet", tone: "text-emerald-300" },
+    { label: "Owed to payees", value: summary.length ? compactTzs(owedNet) : "...", detail: summary.length ? `${owedCount} invoices · ${compactTzs(guestPaid?.netPayable ?? 0)} not yet claimed${blockedCount ? ` · ${blockedCount} held or failed` : ""}` : "", tone: owedCount ? "text-amber-300" : "text-white" },
+    { label: "Commission earned", value: summary.length ? compactTzs(earnedCommission) : "...", detail: "on money received from guests", tone: "text-white" },
   ];
 
   const pickStatus = (key: string) => {
@@ -182,9 +201,14 @@ export default function InvoicesManagementPage() {
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Invoices</h1>
               <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Every payout invoice from property owners and drivers. Each one moves from requested to paid on its own; this page is for tracking and receipts.</p>
             </div>
-            <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" onClick={() => setReportOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-emerald-400 px-3 text-xs font-bold text-[#0b2420] transition-colors hover:bg-emerald-300">
+                <Printer className="h-3.5 w-3.5" /> Print report
+              </button>
+              <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
           </div>
 
           <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
@@ -209,7 +233,7 @@ export default function InvoicesManagementPage() {
 
       {/* Lifecycle, doubling as the status filter */}
       <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {STAGES.map((stage) => {
             const Icon = stage.icon;
             const s = byStatus.get(stage.key);
@@ -241,8 +265,8 @@ export default function InvoicesManagementPage() {
           <div className="mt-2 flex flex-wrap items-center gap-2 px-1.5 pb-1 text-[11px] text-neutral-500">
             Also:
             {otherStatuses.map((s) => (
-              <button key={s.status} type="button" onClick={() => pickStatus(String(s.status).toUpperCase())} className={`inline-flex h-7 items-center gap-1 rounded-full border border-solid px-2.5 font-semibold ${status === String(s.status).toUpperCase() ? "border-neutral-900 bg-neutral-100 text-neutral-900" : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50"}`}>
-                {humanize(s.status)} <span className="tabular-nums text-neutral-400">{s.count}</span>
+              <button key={s.stage} type="button" onClick={() => pickStatus(s.stage)} className={`inline-flex h-7 items-center gap-1 rounded-full border border-solid px-2.5 font-semibold ${status === s.stage ? "border-neutral-900 bg-neutral-100 text-neutral-900" : "border-neutral-300 bg-white text-neutral-600 hover:bg-neutral-50"}`}>
+                {s.label} <span className="tabular-nums text-neutral-400">{s.count}</span>
               </button>
             ))}
           </div>
@@ -253,7 +277,7 @@ export default function InvoicesManagementPage() {
       <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
         <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
           <div className="min-w-0">
-            <h2 className="m-0 text-sm font-bold text-neutral-900">{activeStage ? `${activeStage.label} invoices` : status ? `${humanize(status)} invoices` : "All invoices"}</h2>
+            <h2 className="m-0 text-sm font-bold text-neutral-900">{activeStage ? `${activeStage.label}` : status ? (summary.find((s) => s.stage === status)?.label ?? "Filtered invoices") : "All invoices"}</h2>
             <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? "Loading..." : `${total.toLocaleString()} ${total === 1 ? "invoice" : "invoices"}${search ? ` matching "${search}"` : ""}, newest first`}</p>
           </div>
           {(status || search) && (
@@ -289,7 +313,7 @@ export default function InvoicesManagementPage() {
                 <th className="px-3 py-2.5 text-right font-semibold">Total</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Commission</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Net payout</th>
-                <th className="px-3 py-2.5 font-semibold">Status</th>
+                <th className="px-3 py-2.5 font-semibold">Money stage</th>
                 <th className="px-4 py-2.5 text-right font-semibold sm:px-5">Receipt</th>
               </tr>
             </thead>
@@ -318,7 +342,7 @@ export default function InvoicesManagementPage() {
               ) : (
                 items.map((inv) => {
                   const isDriver = inv.owner?.role === "DRIVER";
-                  const stage = stageOf(inv.status);
+                  const stage = stageOf(inv.stage);
                   return (
                     <tr key={inv.id} className="border-0 border-t border-solid border-neutral-200 align-top transition-colors hover:bg-neutral-50/80">
                       <td className="px-4 py-3 sm:px-5">
@@ -346,10 +370,11 @@ export default function InvoicesManagementPage() {
                       <td className="px-3 py-3">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${stage?.pill ?? "bg-neutral-100 text-neutral-600 ring-neutral-200"}`}>
                           {stage ? <stage.icon className="h-3 w-3" /> : null}
-                          {stage?.label ?? humanize(inv.status)}
+                          {stage?.label ?? "Draft or other"}
                         </span>
-                        {inv.paidAt && <div className="mt-1 text-[11px] tabular-nums text-neutral-500">Paid {eatDate(inv.paidAt)}{inv.paymentMethod ? ` · ${inv.paymentMethod}` : ""}</div>}
-                        {!inv.paidAt && inv.approvedByUser?.name && <div className="mt-1 text-[11px] text-neutral-400">Approved by {inv.approvedByUser.name}</div>}
+                        <div className="mt-1 text-[11px] text-neutral-400">Status: {humanize(inv.status)}{inv.manualSettlement ? " · recorded manually" : ""}</div>
+                        {inv.paidAt && <div className="text-[11px] tabular-nums text-neutral-500">{inv.stage === "DISBURSED" ? "Disbursed" : "Guest paid"} {eatDate(inv.paidAt)}{inv.paymentMethod ? ` · ${inv.paymentMethod}` : ""}</div>}
+                        {!inv.paidAt && inv.approvedByUser?.name && <div className="text-[11px] text-neutral-400">Approved by {inv.approvedByUser.name}</div>}
                       </td>
                       <td className="px-4 py-3 text-right sm:px-5">
                         {inv.receiptNumber ? (
@@ -357,7 +382,7 @@ export default function InvoicesManagementPage() {
                             <Download className="h-3.5 w-3.5" /> Receipt
                           </a>
                         ) : (
-                          <span className="text-xs text-neutral-400">{inv.status === "PAID" ? "Pending" : "After payment"}</span>
+                          <span className="text-xs text-neutral-400">{inv.stage === "DISBURSED" ? "Pending" : "After payment"}</span>
                         )}
                       </td>
                     </tr>
@@ -385,8 +410,10 @@ export default function InvoicesManagementPage() {
         </div>
       </section>
 
+      <InvoiceReportDialog open={reportOpen} initialStatus={status} onClose={() => setReportOpen(false)} />
+
       <p className="m-0 flex items-center gap-1.5 text-[11px] text-neutral-400">
-        <Wallet className="h-3.5 w-3.5" /> Amounts in Tanzanian shillings. Approving and paying invoices happens in Revenue and Payments, not here.
+        <Wallet className="h-3.5 w-3.5" /> Amounts in Tanzanian shillings. Disbursed only counts money confirmed delivered to the payee; guest payments held by NoLSAF show as Guest paid. Approving and paying invoices happens in Revenue and Payments, not here.
       </p>
     </div>
   );
