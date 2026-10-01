@@ -2245,6 +2245,12 @@ model SystemSetting {
   /// riskScoring treats it as RECENT_ACCOUNT_CHANGE. Clamped to 24..336.
   payoutRecentChangeHours Int? @default(72)
 
+  // ==================== Platform Margin ====================
+  /// Payment gateway fee as a percent of guest money collected, used to
+  /// ESTIMATE gateway costs for a period that has no GATEWAY_FEE entries from
+  /// a settlement statement. Null means no estimate is made.
+  gatewayFeeEstimatePercent Decimal? @db.Decimal(5, 2)
+
   // ==================== Business Configuration Fields ====================
   /// Referral credit percentage as decimal (e.g., 0.0035 for 0.35%)
   referralCreditPercent Decimal? @default(0.0035) @db.Decimal(10, 6)
@@ -9561,4 +9567,62 @@ model MerchantAuditEvent {
   @@index([entityType, entityId, createdAt])
   @@index([actorUserId, createdAt])
   @@map("merchant_audit_event")
+}
+
+/// NoLSAF's own costs, the expense side of the platform margin
+/// (lib/platformMargin.ts). Append-only, like the other money ledgers: a
+/// mistake is corrected with a reversing row that points at the original,
+/// never by editing it, so SUM(amount) over the table is always the position.
+///
+/// Rows come from two places:
+/// - admins, for costs recorded outside the platform (gateway fees from a
+///   settlement statement, SMS and hosting bills, salaries, marketing);
+/// - the platform itself, for costs it creates (a bonus granted to a driver
+///   or owner), keyed by sourceKey so a retry can never record it twice.
+model PlatformExpense {
+  id Int @id @default(autoincrement())
+
+  /// GATEWAY_FEE, PARTNER_BONUS, SMS, EMAIL, HOSTING, STAFF, MARKETING, OTHER.
+  /// GATEWAY_FEE and PARTNER_BONUS are costs of earning revenue and reduce the
+  /// contribution margin; the rest are running costs and reduce net margin.
+  category String @db.VarChar(30)
+
+  description String  @db.VarChar(300)
+  vendor      String? @db.VarChar(120)
+  /// The supplier's invoice or statement number, for matching to paperwork.
+  reference   String? @db.VarChar(120)
+
+  amount   Decimal @db.Decimal(14, 2)
+  currency String  @default("TZS") @db.VarChar(3)
+
+  /// When the cost belongs (the bill's date or the bonus grant), which is the
+  /// date the margin report groups it by.
+  incurredAt DateTime
+  /// Optional service period for bills covering a span (a month of hosting).
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  /// Revenue stream the cost belongs to, when it belongs to one:
+  /// accommodation, tours, transport, groupStay, subscriptions.
+  stream String? @db.VarChar(30)
+
+  /// MANUAL for admin entries, SYSTEM for platform-created rows.
+  origin    String  @default("MANUAL") @db.VarChar(10)
+  /// Idempotency key for platform-created rows, e.g. "BONUS:BON-...".
+  sourceKey String? @unique @db.VarChar(120)
+
+  recordedById Int?
+  note         String? @db.VarChar(500)
+
+  /// Set on an original row when it is reversed; the reversing row carries
+  /// the negative amount and points back through reversesExpenseId.
+  reversedAt        DateTime?
+  reversesExpenseId Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([category, incurredAt])
+  @@index([incurredAt])
+  @@index([reversesExpenseId])
+  @@map("platform_expense")
 }

@@ -16,7 +16,8 @@
 //   Pending        = in the pipeline, not yet realized.
 //
 // Recognition signal per stream (realized):
-//   Accommodation : Invoice.status = PAID              (rev = commissionAmount)
+//   Accommodation : guest has paid the booking invoice (money stage, see
+//                   lib/platformMargin.accommodationTake) (rev = commissionAmount)
 //   Tours         : TourBooking.paymentStatus = PAID   (rev = commissionAmount)
 //   Transport     : TransportBooking.paymentStatus = PAID (rev = commissionAmount)
 //   Group stay    : GroupBooking.depositPaid = true    (rev = totalAmount - ownerAmount)
@@ -33,6 +34,7 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { getFxRates, BASE_CURRENCY } from "../lib/fx.js";
+import { accommodationTake, buildMargin } from "../lib/platformMargin.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -54,6 +56,7 @@ type StreamSummary = {
   realizedCount: number;
   pendingRevenue: number; // platform take in the pipeline, in TZS
   pendingCount: number;
+  takeRatePercent?: number | null; // nolsafRevenue / gmv
   note?: string;
 };
 
@@ -85,32 +88,19 @@ router.get("/overview", async (req, res) => {
     };
 
     // ── Accommodation (Invoice) ─────────────────────────────────────────────
-    const accDate = dateClause();
-    const [accRealized, accPending] = await Promise.all([
-      prisma.invoice.aggregate({
-        where: { status: "PAID", ...(accDate ? { paidAt: accDate } : {}) },
-        _sum: { total: true, commissionAmount: true, netPayable: true },
-        _count: { _all: true },
-      }),
-      prisma.invoice.aggregate({
-        where: {
-          status: { in: ["REQUESTED", "VERIFIED", "APPROVED", "PROCESSING"] },
-          ...(accDate ? { issuedAt: accDate } : {}),
-        },
-        _sum: { commissionAmount: true },
-        _count: { _all: true },
-      }),
-    ]);
-
+    // Realized when the guest has paid, whatever the invoice moved on to as
+    // the owner claimed it. PAID alone also marks owner payouts and missed
+    // paid invoices already in the claim flow.
+    const acc = await accommodationTake(dateClause());
     const accommodation: StreamSummary = {
       key: "accommodation",
       label: "Accommodation",
-      gmv: n(accRealized._sum.total),
-      nolsafRevenue: n(accRealized._sum.commissionAmount),
-      partnerNet: n(accRealized._sum.netPayable),
-      realizedCount: accRealized._count._all,
-      pendingRevenue: n(accPending._sum.commissionAmount),
-      pendingCount: accPending._count._all,
+      gmv: acc.gmv,
+      nolsafRevenue: acc.commission,
+      partnerNet: acc.partnerNet,
+      realizedCount: acc.count,
+      pendingRevenue: acc.pendingCommission,
+      pendingCount: acc.pendingCount,
     };
 
     // ── Tours (TourBooking) — multi-currency, normalize to TZS ───────────────
@@ -305,13 +295,18 @@ router.get("/overview", async (req, res) => {
 
     // round to 2dp for transport
     const round2 = (x: number) => Math.round(x * 100) / 100;
+    const takeRate = (revenue: number, gmv: number) => (gmv > 0 ? Math.round((revenue / gmv) * 1000) / 10 : null);
     const cleanup = (s: StreamSummary): StreamSummary => ({
       ...s,
+      takeRatePercent: takeRate(s.nolsafRevenue, s.gmv),
       gmv: round2(s.gmv),
       nolsafRevenue: round2(s.nolsafRevenue),
       partnerNet: round2(s.partnerNet),
       pendingRevenue: round2(s.pendingRevenue),
     });
+
+    // What it costs NoLSAF to earn that revenue, as far as the platform records it.
+    const margin = await buildMargin({ range: dateClause(), toTzs, gmv: totals.gmv, revenue: totals.nolsafRevenue });
 
     return res.json({
       ok: true,
@@ -324,7 +319,9 @@ router.get("/overview", async (req, res) => {
         realizedCount: totals.realizedCount,
         pendingRevenue: round2(totals.pendingRevenue),
         pendingCount: totals.pendingCount,
+        takeRatePercent: takeRate(totals.nolsafRevenue, totals.gmv),
       },
+      margin,
       streams: streams.map(cleanup),
       generatedAt: new Date().toISOString(),
     });

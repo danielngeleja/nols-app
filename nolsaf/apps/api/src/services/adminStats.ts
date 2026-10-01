@@ -2,6 +2,7 @@ import { prisma } from '@nolsaf/prisma';
 import { SeriesResponse, BreakdownResponse } from '../types/stats.js';
 import { moneyStageOf, MONEY_STAGES } from '../lib/invoiceMoneyStage.js';
 import { GUEST_MONEY_IN, OWED_TO_PAYEE, indexMoneyStages, loadOwnerInvoiceDisbursements } from '../lib/invoiceMoneyStageIndex.js';
+import { accommodationTake } from '../lib/platformMargin.js';
 
 const TZ_OFFSET_MS = 3 * 60 * 60 * 1000; // EAT UTC+3
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -213,11 +214,9 @@ export async function getOverview() {
   //    so we never sum USD into the TZS figure. Each source recognized when the
   //    customer payment is complete.
 
-  // 5a. Property commission: APPROVED + PAID invoices.
-  const companyRevenueProperty = settledInvoices.reduce(
-    (sum, inv) => sum + Number(inv.commissionAmount ?? 0),
-    0
-  );
+  // 5a. Property commission: the same rule as the Finance overview
+  //     (lib/platformMargin.accommodationTake), so both screens agree.
+  const companyRevenueProperty = (await accommodationTake(undefined)).commission;
 
   // 5b. Tour commission: operator-tour commission, recognized when the customer
   //     has paid (paymentStatus = PAID or paidAt set). Defensive against an

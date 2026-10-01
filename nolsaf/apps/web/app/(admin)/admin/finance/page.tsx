@@ -52,7 +52,24 @@ type Overview = {
   range: { from: string | null; to: string | null; allTime: boolean };
   totals: { gmv: number; nolsafRevenue: number; partnerNet: number; realizedCount: number; pendingRevenue: number; pendingCount: number };
   streams: StreamSummary[];
+  margin?: Margin;
   generatedAt: string;
+};
+
+/** NoLSAF's own margin (lib/platformMargin.ts on the API). */
+type Margin = {
+  revenue: number;
+  takeRatePercent: number | null;
+  costs: Array<{ key: string; label: string; amount: number; count: number; basis: "RECORDED" | "STATEMENTS" | "ESTIMATE" | "MISSING"; note?: string }>;
+  recordedCosts: number;
+  contribution: number;
+  contributionMarginPercent: number | null;
+  operating: Array<{ key: string; label: string; amount: number; count: number }>;
+  operatingTotal: number;
+  net: number;
+  netMarginPercent: number | null;
+  atRisk: { payoutRecovery: number; payoutRecoveryCount: number };
+  notRecorded: Array<{ key: string; label: string; detail: string }>;
 };
 
 const STREAM_META: Record<StreamKey, { icon: any; tone: string; color: string; href: string | null }> = {
@@ -213,6 +230,8 @@ export default function AdminFinancePage() {
   }, [totals, streams, previous, prevByKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const periodLabel = PERIODS.find((p) => p.key === period)?.label || "All time";
+  const margin = data?.margin ?? null;
+  const prevMargin = previous?.margin ?? null;
   const range = periodRange(period);
 
   const kpis = [
@@ -464,6 +483,99 @@ export default function AdminFinancePage() {
         </section>
       </div>
 
+      {/* Margin: what NoLSAF keeps after the costs of earning its revenue, then after running costs */}
+      {margin && (
+        <section className="min-w-0 rounded-2xl border border-solid border-white/10 bg-white/[0.03] p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="m-0 text-sm font-semibold text-white">NoLSAF margin</h2>
+              <p className="m-0 mt-0.5 text-[11px] text-slate-500">Revenue less what it costs to earn it, then less running costs · {periodLabel}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              {[
+                { label: "Contribution margin", value: margin.contributionMarginPercent, prev: prevMargin?.contributionMarginPercent },
+                { label: "Net margin", value: margin.netMarginPercent, prev: prevMargin?.netMarginPercent },
+              ].map((m) => (
+                <span key={m.label} className="inline-flex items-center gap-2 text-xs text-slate-400">
+                  {m.label}
+                  <span className={`text-base font-bold tabular-nums ${m.value != null && m.value < 0 ? "text-rose-300" : "text-teal-300"}`}>{pct(m.value)}</span>
+                  {m.value != null && m.prev != null ? (
+                    <span className={`text-[11px] font-semibold tabular-nums ${m.value - m.prev >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                      {m.value - m.prev >= 0 ? "+" : ""}{(m.value - m.prev).toFixed(1)} pts
+                    </span>
+                  ) : null}
+                </span>
+              ))}
+              <Link href="/admin/finance/expenses" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 no-underline transition hover:bg-white/[0.08] hover:text-white hover:no-underline">
+                Expenses <ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+            {/* The arithmetic, line by line */}
+            <dl className="m-0 overflow-hidden rounded-xl border border-solid border-white/10">
+              <div className="flex items-center justify-between gap-3 bg-white/[0.03] px-4 py-2.5">
+                <dt className="text-xs text-slate-300">NoLSAF revenue</dt>
+                <dd className="m-0 text-sm font-semibold tabular-nums text-white">{money(margin.revenue)}</dd>
+              </div>
+              {margin.costs.map((cost) => (
+                <div key={cost.key} className="flex items-center justify-between gap-3 border-0 border-t border-solid border-white/5 px-4 py-2.5">
+                  <dt className="min-w-0 text-xs text-slate-400">
+                    Less {cost.label.toLowerCase()}
+                    {cost.basis === "ESTIMATE" ? <span className="ml-1.5 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200">Estimate</span> : null}
+                    {cost.basis === "MISSING" ? <span className="ml-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">Not recorded</span> : null}
+                    {cost.note ? <span className="block text-[11px] text-slate-600">{cost.note}</span> : null}
+                  </dt>
+                  <dd className="m-0 shrink-0 text-sm tabular-nums text-rose-200">{cost.amount !== 0 ? `- ${money(cost.amount)}` : money(0)}</dd>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-white/15 bg-white/[0.05] px-4 py-2.5">
+                <dt className="text-xs font-semibold text-white">Contribution</dt>
+                <dd className={`m-0 text-sm font-bold tabular-nums ${margin.contribution < 0 ? "text-rose-300" : "text-teal-300"}`}>{money(margin.contribution)}</dd>
+              </div>
+              {margin.operating.filter((c) => c.count > 0 || c.amount !== 0).map((cost) => (
+                <div key={cost.key} className="flex items-center justify-between gap-3 border-0 border-t border-solid border-white/5 px-4 py-2.5">
+                  <dt className="text-xs text-slate-400">Less {cost.label.toLowerCase()}</dt>
+                  <dd className="m-0 text-sm tabular-nums text-rose-200">- {money(cost.amount)}</dd>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-white/15 bg-white/[0.07] px-4 py-3">
+                <dt className="text-xs font-semibold text-white">Net</dt>
+                <dd className={`m-0 text-base font-bold tabular-nums ${margin.net < 0 ? "text-rose-300" : "text-teal-300"}`}>{money(margin.net)}</dd>
+              </div>
+            </dl>
+
+            <div className="min-w-0 space-y-3">
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-solid border-white/10 bg-white/10">
+                <div className="bg-[#0b1128] px-3 py-2.5">
+                  <p className="m-0 text-[11px] text-slate-500">Take rate</p>
+                  <p className="m-0 mt-0.5 text-sm font-bold tabular-nums text-white">{pct(margin.takeRatePercent)}</p>
+                  <p className="m-0 text-[11px] text-slate-500">of GMV kept by NoLSAF</p>
+                </div>
+                <div className="bg-[#0b1128] px-3 py-2.5">
+                  <p className="m-0 text-[11px] text-slate-500">At risk</p>
+                  <p className={`m-0 mt-0.5 text-sm font-bold tabular-nums ${margin.atRisk.payoutRecovery > 0 ? "text-amber-300" : "text-white"}`}>{money(margin.atRisk.payoutRecovery)}</p>
+                  <p className="m-0 truncate text-[11px] text-slate-500">{margin.atRisk.payoutRecoveryCount} tour payout recover{margin.atRisk.payoutRecoveryCount === 1 ? "y" : "ies"} open</p>
+                </div>
+              </div>
+              {margin.notRecorded.length > 0 ? (
+                <div className="rounded-xl border border-dashed border-white/15 px-3 py-2.5">
+                  <p className="m-0 text-[11px] font-semibold text-amber-200">Still missing, so the true figure is lower</p>
+                  <ul className="m-0 mt-1.5 list-none space-y-1 p-0">
+                    {margin.notRecorded.map((item) => (
+                      <li key={item.key} className="text-[11px] text-slate-400"><span className="font-semibold text-slate-300">{item.label}.</span> {item.detail}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="m-0 rounded-xl border border-solid border-white/10 px-3 py-2.5 text-[11px] text-slate-400">Every cost category has entries for this period. Check the Expenses ledger is complete before relying on the net figure.</p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Insights */}
       {insights.length > 0 && (
         <section className="rounded-2xl border border-solid border-teal-400/20 bg-teal-400/[0.05] px-4 py-3 sm:px-5">
@@ -566,7 +678,7 @@ export default function AdminFinancePage() {
         </div>
         <p className="m-0 border-0 border-t border-solid border-white/10 px-4 py-2.5 text-[11px] text-slate-500 sm:px-5">
           Take rate is shown green when a stream beats the blended rate and amber when it falls below. Money of record: {currency}
-          {data ? `. Generated ${new Date(data.generatedAt).toLocaleString("en-GB")}` : ""}.
+          {data ? `. Generated ${new Date(data.generatedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT` : ""}.
         </p>
       </section>
 
