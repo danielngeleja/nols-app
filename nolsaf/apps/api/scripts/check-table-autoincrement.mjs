@@ -15,6 +15,7 @@
 // It runs SHOW CREATE TABLE and reads information_schema. It writes nothing.
 
 import mariadb from "mariadb";
+import { URL } from "node:url";
 
 const DEFAULT_TABLES = ["transportbooking", "booking"];
 

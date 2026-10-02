@@ -162,6 +162,7 @@ export default function SecurePayoutPreferenceCard({
     return false;
   }, [preferred, value]);
   const [editing, setEditing] = useState(!configured);
+  const savedProvider = payoutProviders.find((provider) => provider.value === canonicalPayoutProvider(value.mobileMoneyProvider));
 
   useEffect(() => {
     if (saveSuccess) setEditing(false);
@@ -192,60 +193,45 @@ export default function SecurePayoutPreferenceCard({
   };
 
   return (
-    <section className={`box-border min-w-0 overflow-visible rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}>
-      <div className="box-border flex min-w-0 flex-col gap-2.5 rounded-t-lg border-b border-slate-200 bg-slate-50/60 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <section className={`box-border min-w-0 overflow-visible rounded-2xl border border-solid border-slate-300 bg-white ${className}`}>
+      <div className="box-border flex min-w-0 flex-col gap-2 border-0 border-b border-solid border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-[#02665e]">
-              <ShieldCheck className="h-4 w-4" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <h2 className="m-0 text-sm font-semibold text-slate-800">Secure payout destination</h2>
-              <p className="mb-0 mt-0.5 text-xs leading-5 text-slate-500">Choose where verified earnings are deposited.</p>
-            </div>
-          </div>
+          <h2 className="m-0 text-[15px] font-semibold text-slate-900">Payout destination</h2>
+          <p className="m-0 mt-0.5 text-[13px] text-slate-500">Where your verified earnings are paid.</p>
         </div>
-        <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-emerald-700">
-          <LockKeyhole className="h-3 w-3" aria-hidden /> AzamPay protected
+        <span className="inline-flex w-fit shrink-0 items-center gap-1.5 text-xs font-medium text-slate-500">
+          <LockKeyhole className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Protected by AzamPay
         </span>
       </div>
 
-      <div className="box-border min-w-0 space-y-3 p-4 sm:px-5 sm:py-4">
+      <div className="box-border min-w-0 space-y-4 p-5">
         {!editing && configured ? (
-          <div className="overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50/30">
-            <div className="flex flex-col gap-3 border-b border-emerald-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#02665e] text-white">
-                  {preferred === "BANK" ? <Building2 className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
-                </span>
-                <div className="min-w-0">
-                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Current payout method</p>
-                  <p className="m-0 mt-1 truncate text-sm font-semibold text-slate-800">
-                    {preferred === "BANK" ? value.bankAccountName || "Bank account" : value.mobileMoneyProvider || "Mobile money"}
+          <div className="flex flex-col gap-4 rounded-xl border border-solid border-slate-300 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <span className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
+                {preferred === "BANK" || !savedProvider
+                  ? <Building2 className="h-5 w-5 text-[#02665e]" aria-hidden />
+                  : <ProviderLogo label={savedProvider.label} logo={savedProvider.logo} />}
+              </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="m-0 truncate text-sm font-semibold text-slate-900">
+                    {preferred === "BANK" ? payoutBanks.find((b) => b.value === normalizeBankCode(value.bankName))?.label || value.bankName || "Bank account" : savedProvider?.label || value.mobileMoneyProvider || "Mobile money"}
                   </p>
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                    <CheckCircle2 className="h-3 w-3" aria-hidden />Active
+                  </span>
                 </div>
+                <p className="m-0 mt-1 truncate text-[13px] text-slate-500">
+                  {preferred === "BANK"
+                    ? [value.bankAccountName, `Account ${maskDestination(value.bankAccountNumber)}`, value.bankBranch].filter(Boolean).join(" · ")
+                    : `Wallet ${maskDestination(value.mobileMoneyNumber)} · TZS`}
+                </p>
               </div>
-              <button type="button" onClick={beginChange} disabled={disabled} className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-emerald-200 bg-white px-3 text-xs font-medium text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
-                <Pencil className="h-3.5 w-3.5" /> Change destination
-              </button>
             </div>
-            <dl className="m-0 grid gap-px bg-slate-200/70 sm:grid-cols-2 lg:grid-cols-4">
-              {preferred === "BANK" ? (
-                <>
-                  <Summary label="Bank" value={value.bankName} />
-                  <Summary label="Account holder" value={value.bankAccountName} />
-                  <Summary label="Account number" value={maskDestination(value.bankAccountNumber)} />
-                  <Summary label="Branch" value={value.bankBranch || "Not provided"} />
-                </>
-              ) : (
-                <>
-                  <Summary label="Method" value="Mobile money" />
-                  <Summary label="Provider" value={value.mobileMoneyProvider} />
-                  <Summary label="Wallet number" value={maskDestination(value.mobileMoneyNumber)} />
-                  <Summary label="Currency" value="TZS" />
-                </>
-              )}
-            </dl>
+            <button type="button" onClick={beginChange} disabled={disabled} className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3.5 text-xs font-semibold text-slate-700 transition-colors hover:border-[#02665e]/30 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-50">
+              <Pencil className="h-3.5 w-3.5" aria-hidden /> Change destination
+            </button>
           </div>
         ) : (
           <>
@@ -269,8 +255,8 @@ export default function SecurePayoutPreferenceCard({
             </div>
 
             {preferred === "BANK" && (
-              <div className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-slate-50/40 p-3.5 sm:grid-cols-2 sm:p-4">
-                <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-amber-950 shadow-[inset_3px_0_0_#f59e0b] sm:col-span-2 sm:px-4">
+              <div className="grid min-w-0 gap-3 rounded-xl border border-solid border-slate-300 p-4 sm:grid-cols-2">
+                <div className="flex items-start gap-3 rounded-lg border border-solid border-amber-200 bg-amber-50/80 px-3.5 py-3 text-amber-950 shadow-[inset_3px_0_0_#f59e0b] sm:col-span-2 sm:px-4">
                   <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200">
                     <AlertTriangle className="h-4 w-4" aria-hidden />
                   </span>
@@ -316,7 +302,7 @@ export default function SecurePayoutPreferenceCard({
             )}
 
             {preferred === "MOBILE_MONEY" && (
-              <div className="grid min-w-0 gap-3 rounded-md border border-slate-200 bg-slate-50/40 p-3.5 sm:grid-cols-2 sm:p-4">
+              <div className="grid min-w-0 gap-3 rounded-xl border border-solid border-slate-300 p-4 sm:grid-cols-2">
                 <div className="min-w-0">
                   <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-slate-700">
                     <Phone className="h-4 w-4 text-[#02665e]" />Mobile money provider
@@ -379,21 +365,21 @@ export default function SecurePayoutPreferenceCard({
             )}
 
             {!preferred && (
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+              <div className="flex items-start gap-2 rounded-lg border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Select the destination that should receive your earnings.
               </div>
             )}
           </>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-slate-200 bg-slate-50/70 px-3 py-2.5 text-[11px] leading-4 text-slate-600">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500">
           <SecurityPoint icon={<BadgeCheck />} text="Name matched by AzamPay" />
-          <SecurityPoint icon={<LockKeyhole />} text="Details encrypted and masked" />
-          <SecurityPoint icon={<ShieldCheck />} text="Destination risk-reviewed" />
+          <SecurityPoint icon={<LockKeyhole />} text="Encrypted and masked" />
+          <SecurityPoint icon={<ShieldCheck />} text="Risk-reviewed before payouts" />
         </div>
 
-        {onSave && (
-          <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+        {onSave && (editing || !configured || saveError || saveSuccess) && (
+          <div className="flex flex-col gap-3 border-0 border-t border-solid border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 text-xs leading-5">
               {saveError ? (
                 <span className="text-rose-700">{saveError}</span>
@@ -411,7 +397,7 @@ export default function SecurePayoutPreferenceCard({
               type="button"
               onClick={onSave}
               disabled={disabled || saving || saveDisabled}
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-[#02665e] px-4 text-xs font-medium text-white transition hover:bg-[#01564f] disabled:cursor-not-allowed disabled:border disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500"
+              className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#01564f] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
             >
               {saving
                 ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />Verifying...</>
@@ -426,12 +412,12 @@ export default function SecurePayoutPreferenceCard({
 
 function MethodButton({ active, disabled, icon, label, hint, onClick }: { active: boolean; disabled: boolean; icon: React.ReactNode; label: string; hint: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} aria-pressed={active} className={`box-border min-h-[64px] min-w-0 rounded-md border px-3 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${active ? "border-[#02665e] bg-[#02665e]/[0.035]" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`}>
+    <button type="button" onClick={onClick} disabled={disabled} aria-pressed={active} className={`box-border min-h-[64px] min-w-0 cursor-pointer rounded-xl border border-solid px-3.5 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${active ? "border-[#02665e] bg-[#02665e]/[0.035]" : "border-slate-200 bg-white hover:border-slate-300"}`}>
       <span className="flex min-w-0 items-center gap-3">
         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md [&>svg]:h-4 [&>svg]:w-4 ${active ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-600"}`}>{icon}</span>
         <span className="min-w-0 flex-1">
           <span className={`flex items-center gap-2 text-sm font-semibold ${active ? "text-[#02665e]" : "text-slate-800"}`}>{label}{active && <CheckCircle2 className="h-4 w-4 shrink-0" />}</span>
-          <span className="mt-0.5 block truncate text-xs text-slate-500">{hint}</span>
+          <span className="mt-0.5 block text-xs leading-5 text-slate-500">{hint}</span>
         </span>
       </span>
     </button>
@@ -538,10 +524,6 @@ function Field({ icon, label, children }: { icon: React.ReactElement<{ className
       {children}
     </label>
   );
-}
-
-function Summary({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="min-w-0 bg-white/90 px-4 py-3"><dt className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">{label}</dt><dd className="m-0 mt-1 truncate text-sm font-semibold text-slate-800">{value || "Not provided"}</dd></div>;
 }
 
 function SecurityPoint({ icon, text }: { icon: React.ReactNode; text: string }) {
