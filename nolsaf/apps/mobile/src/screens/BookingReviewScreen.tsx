@@ -151,7 +151,7 @@ function LockedField({ label, value }: { label: string; value: string }) {
 export function BookingReviewScreen({ navigation, route }: Props) {
   const { token, user } = useAuth();
   const { currency: displayCurrency, tzsPerUnit } = useCurrency();
-  const { propertyId, propertyTitle } = route.params;
+  const { propertyId, propertySlug, propertyTitle } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -214,7 +214,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [d, sys] = await Promise.all([fetchPropertyDetail(propertyId), fetchSystemCommission()]);
+      const [d, sys] = await Promise.all([fetchPropertyDetail(propertySlug || propertyId), fetchSystemCommission()]);
       setDetail(d);
       setCommission(getPropertyCommission(d.services, sys));
     } catch (err) {
@@ -222,7 +222,7 @@ export function BookingReviewScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [propertyId]);
+  }, [propertyId, propertySlug]);
 
   useEffect(() => {
     load();

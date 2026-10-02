@@ -1,15 +1,17 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { Bell, Building2, CheckCircle2, ExternalLink, Filter, GalleryHorizontal, Home, Landmark, MapPin, MapPinned, PackageCheck, Route, Search, TicketsPlane, TrendingUp, UsersRound } from "lucide-react-native";
-import { Animated, Easing, ImageBackground, ImageSourcePropType, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import { Bell, Building2, ChevronRight, GalleryHorizontal, Home, Landmark, MapPin, Route, Search, TicketsPlane, UsersRound } from "lucide-react-native";
+import { Animated, Easing, ImageSourcePropType, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { useAuth } from "../auth";
-import { AppButton, AppCard, AppStack, AppText, CustomerBottomNav, FeaturedTourOperatorCard, GetThereSection, GuestBottomNav, NolsafLogoMark, SafeScreen } from "../components";
-import { TOURISM_COUNTRIES } from "../data/destinations";
+import { AppCard, AppStack, AppText, CustomerBottomNav, GetThereSection, GuestBottomNav, NolsafLogoMark, PLACE_TILE_WIDTH, PlaceTile, PlaceTileSkeleton, SafeScreen, TourOperatorTile } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import { fetchCustomerNotifications } from "../notifications";
-import { fetchPublicProperties, fetchPublicPropertiesHomeSummary, PublicPropertyCard } from "../properties";
+import { fetchCitySummary, fetchParkSummary, ParkSummaryItem } from "../properties/propertiesApi";
+import { fetchMyBookings } from "../bookings/bookingsApi";
+import type { BookingListItem } from "../bookings/types";
+import { fetchPublicPropertiesHomeSummary, PublicPropertyCard } from "../properties";
 import campsiteFallback from "../../assets/property-types/campsite.jpg";
 import guestHouseFallback from "../../assets/property-types/guest_house.jpg";
 import hotelFallback from "../../assets/property-types/hotel.jpg";
@@ -55,12 +57,12 @@ const propertyTypes: Array<{
   { key: "HOUSE", title: "House", accent: "#fb7185", fallbackImage: localHousesFallback }
 ];
 
-const propertyTypeRows = [propertyTypes.slice(0, 5), propertyTypes.slice(5)];
 
+// NoLSAF covers Tanzania only (Kenya and Uganda were removed from the web and search).
 const majorCities: Array<{
   key: string;
   name: string;
-  country: "Tanzania" | "Uganda" | "Kenya";
+  country: "Tanzania";
 }> = [
   { key: "dar-es-salaam", name: "Dar es Salaam", country: "Tanzania" },
   { key: "arusha", name: "Arusha", country: "Tanzania" },
@@ -77,19 +79,64 @@ const majorCities: Array<{
   { key: "lindi", name: "Lindi", country: "Tanzania" },
   { key: "tabora", name: "Tabora", country: "Tanzania" },
   { key: "bagamoyo", name: "Bagamoyo", country: "Tanzania" },
-  { key: "pemba", name: "Pemba", country: "Tanzania" },
-  { key: "kampala", name: "Kampala", country: "Uganda" },
-  { key: "entebbe", name: "Entebbe", country: "Uganda" },
-  { key: "nairobi", name: "Nairobi", country: "Kenya" },
-  { key: "mombasa", name: "Mombasa", country: "Kenya" }
+  { key: "pemba", name: "Pemba", country: "Tanzania" }
 ];
 
-const tourismCountries = TOURISM_COUNTRIES;
+/**
+ * The search box with its rotating hint ("Search Serengeti..."). Kept in its own
+ * component so the hint changing every few seconds re-renders only this input,
+ * not the whole landing screen.
+ */
+/**
+ * A photo that fades in once it has loaded, over a soft tint, instead of popping
+ * in after a blank box. Children (scrims, labels) show straight away.
+ */
+function FadeImageBackground({ source, style, imageStyle, onError, children }: { source: ImageSourcePropType; style: any; imageStyle?: any; onError?: () => void; children?: ReactNode }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  return (
+    <View style={[style, { backgroundColor: "rgba(2,102,94,0.08)", overflow: "hidden" }, imageStyle?.borderRadius != null ? { borderRadius: imageStyle.borderRadius } : null]}>
+      <Animated.Image
+        source={source}
+        resizeMode="cover"
+        onLoad={() => Animated.timing(opacity, { toValue: 1, duration: 260, easing: Easing.out(Easing.quad), useNativeDriver: true }).start()}
+        onError={onError}
+        style={[StyleSheet.absoluteFillObject, imageStyle, { opacity, width: undefined, height: undefined }]}
+      />
+      {children}
+    </View>
+  );
+}
 
-function rotateItems<T>(items: T[], startIndex: number) {
-  if (items.length === 0) return items;
-  const offset = startIndex % items.length;
-  return [...items.slice(offset), ...items.slice(0, offset)];
+/** What is worth knowing this month about travelling in Tanzania. */
+function seasonHint(date = new Date()) {
+  const month = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Dar_es_Salaam", month: "numeric" }).format(date));
+  if (month >= 6 && month <= 10) return { tag: "Migration season", line: "The Great Migration is in the northern Serengeti" };
+  if (month === 1 || month === 2) return { tag: "Calving season", line: "Calving herds in the southern Serengeti" };
+  if (month >= 3 && month <= 5) return { tag: "Green season", line: "Quieter parks and lower prices" };
+  if (month === 11) return { tag: "Short rains", line: "Fewer crowds, lush landscapes" };
+  return { tag: "Festive season", line: "Coast and Zanzibar at their busiest" };
+}
+
+const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+
+function RotatingSearchInput({ value, onChangeText, onSubmit, style }: { value: string; onChangeText: (v: string) => void; onSubmit: () => void; style: any }) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (value.trim()) return;
+    const timer = setInterval(() => setIndex((current) => (current + 1) % searchPrompts.length), 3500);
+    return () => clearInterval(timer);
+  }, [value]);
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={`Search ${searchPrompts[index]}...`}
+      placeholderTextColor={colors.softText}
+      returnKeyType="search"
+      onSubmitEditing={onSubmit}
+      style={style}
+    />
+  );
 }
 
 export function OnboardingScreen({ navigation }: Props) {
@@ -98,32 +145,55 @@ export function OnboardingScreen({ navigation }: Props) {
   const { width: windowWidth } = useWindowDimensions();
   const [unreadCount, setUnreadCount] = useState(0);
   const [destination, setDestination] = useState("");
-  const [activeQuickAction, setActiveQuickAction] = useState("all");
-  const [promptIndex, setPromptIndex] = useState(0);
   const [typeCounts, setTypeCounts] = useState<Record<string, number | null>>({});
   const [typeSamples, setTypeSamples] = useState<Record<string, PublicPropertyCard | null>>({});
   const [cityCounts, setCityCounts] = useState<Record<string, number | null>>({});
   const [citySamples, setCitySamples] = useState<Record<string, PublicPropertyCard | null>>({});
-  const [cityRotationIndex, setCityRotationIndex] = useState(0);
-  const [cityAutoRotateEnabled, setCityAutoRotateEnabled] = useState(true);
+  const [citiesLoaded, setCitiesLoaded] = useState(false);
   const [featuredOperators, setFeaturedOperators] = useState<FeaturedTourOperator[]>([]);
   const [operatorsLoading, setOperatorsLoading] = useState(true);
-  const [featuredOperatorIndex, setFeaturedOperatorIndex] = useState(0);
-  const [operatorAutoSlideEnabled, setOperatorAutoSlideEnabled] = useState(true);
-  const cityRotationOpacity = useRef(new Animated.Value(1)).current;
-  const cityRotationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const operatorScrollRef = useRef<ScrollView | null>(null);
-  const propertyCardWidth = Math.max(150, Math.floor((windowWidth - spacing[4] * 2 - spacing[3]) / 2));
-  const cityCardWidth = Math.max(128, Math.floor((windowWidth - spacing[4] * 2 - spacing[3]) / 2.35));
-  const featuredOperatorWidth = Math.max(284, windowWidth - spacing[4] * 2 - spacing[3] * 2);
-  const countryTourismCardWidth = Math.max(292, windowWidth - spacing[4] * 2);
-  const rotatedCities = rotateItems(majorCities, cityRotationIndex);
-  const majorCityRows = [rotatedCities.slice(0, 10), rotatedCities.slice(10)];
-  const quickVisibleCount = windowWidth >= 520 ? 4 : 3;
-  const quickActionWidth = Math.max(
-    92,
-    Math.floor((windowWidth - spacing[4] * 4 - spacing[2] * (quickVisibleCount - 1)) / quickVisibleCount)
-  );
+  const [parks, setParks] = useState<ParkSummaryItem[]>([]);
+  // Two cards and a slice of the third are visible, so the row clearly slides.
+  const propertyCardWidth = Math.max(140, Math.floor((windowWidth - spacing[4] * 2 - spacing[3] * 2) / 2.35));
+  // One operator card and a slice of the next, so the row reads as a slider.
+  const featuredOperatorWidth = Math.max(220, Math.round((windowWidth - spacing[4] * 2) * 0.68));
+  // Busiest first once counts arrive; cities with no stays are left out (they come back as soon as they have one).
+  const rankedCities = [...majorCities]
+    .sort((x, y) => (cityCounts[y.key] ?? -1) - (cityCounts[x.key] ?? -1))
+    .filter((city) => (cityCounts[city.key] ?? 0) > 0)
+    .slice(0, 10);
+  // The six best-stocked stay types; the rest are one tap away under "All stays".
+  const rankedTypes = [...propertyTypes].sort((x, y) => (typeCounts[y.key] ?? -1) - (typeCounts[x.key] ?? -1)).slice(0, 6);
+  // A slide is most of the card's width; the next one peeks in to invite a swipe.
+  const quickVisibleCount = 1;
+  const quickActionWidth = Math.max(220, Math.round((windowWidth - spacing[4] * 4) * 0.74 * quickVisibleCount));
+
+  // The traveller's next stay (or one waiting for payment) leads the rail.
+  const [nextTrip, setNextTrip] = useState<{ kind: "upcoming" | "unpaid"; booking: BookingListItem } | null>(null);
+  useEffect(() => {
+    if (!isAuthed || !token) {
+      setNextTrip(null);
+      return;
+    }
+    let cancelled = false;
+    fetchMyBookings(token, { page: 1, pageSize: 20 })
+      .then((res: any) => {
+        if (cancelled) return;
+        const items: BookingListItem[] = Array.isArray(res?.items) ? res.items : [];
+        const now = Date.now();
+        const upcoming = items
+          .filter((b) => b.isPaid && b.checkIn && new Date(b.checkOut || b.checkIn).getTime() >= now)
+          .sort((x, y) => new Date(x.checkIn!).getTime() - new Date(y.checkIn!).getTime())[0];
+        const unpaid = items.find((b) => !b.isPaid && b.dashboardBucket === "DRAFT" && (!b.checkIn || new Date(b.checkIn).getTime() >= now));
+        setNextTrip(upcoming ? { kind: "upcoming", booking: upcoming } : unpaid ? { kind: "unpaid", booking: unpaid } : null);
+      })
+      .catch(() => {
+        if (!cancelled) setNextTrip(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthed, token]);
 
   useEffect(() => {
     if (!isAuthed || !token) {
@@ -144,15 +214,6 @@ export function OnboardingScreen({ navigation }: Props) {
   }, [isAuthed, token]);
 
   useEffect(() => {
-    if (destination.trim()) return;
-    const timer = setInterval(() => {
-      setPromptIndex((current) => (current + 1) % searchPrompts.length);
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, [destination]);
-
-  useEffect(() => {
     let mounted = true;
     fetchPublicPropertiesHomeSummary()
       .then((summary) => {
@@ -171,70 +232,12 @@ export function OnboardingScreen({ navigation }: Props) {
     };
   }, []);
 
-  useEffect(() => {
-    if (!operatorAutoSlideEnabled || featuredOperators.length <= 1) return;
-
-    const timer = setInterval(() => {
-      const nextIndex = (featuredOperatorIndex + 1) % featuredOperators.length;
-      setFeaturedOperatorIndex(nextIndex);
-      operatorScrollRef.current?.scrollTo({
-        x: nextIndex * (featuredOperatorWidth + spacing[3]),
-        animated: true
-      });
-    }, 15000);
-
-    return () => clearInterval(timer);
-  }, [featuredOperatorIndex, featuredOperatorWidth, featuredOperators.length, operatorAutoSlideEnabled]);
-
-  function stopOperatorAutoSlide() {
-    setOperatorAutoSlideEnabled(false);
-  }
-
-  useEffect(() => {
-    if (!cityAutoRotateEnabled) return;
-
-    const timer = setInterval(() => {
-      Animated.sequence([
-        Animated.timing(cityRotationOpacity, {
-          toValue: 0.35,
-          duration: 240,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true
-        }),
-        Animated.timing(cityRotationOpacity, {
-          toValue: 1,
-          duration: 320,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true
-        })
-      ]).start();
-
-      cityRotationTimeout.current = setTimeout(() => {
-        setCityRotationIndex((current) => (current + 4) % majorCities.length);
-      }, 230);
-    }, 15000);
-
-    return () => {
-      clearInterval(timer);
-      if (cityRotationTimeout.current) {
-        clearTimeout(cityRotationTimeout.current);
-      }
-    };
-  }, [cityAutoRotateEnabled, cityRotationOpacity]);
-
-  function stopCityAutoRotate() {
-    if (cityRotationTimeout.current) {
-      clearTimeout(cityRotationTimeout.current);
-      cityRotationTimeout.current = null;
-    }
-    setCityAutoRotateEnabled(false);
-  }
 
   useEffect(() => {
     let mounted = true;
 
     setOperatorsLoading(true);
-    fetchFeaturedTourOperators(10)
+    fetchFeaturedTourOperators(5)
       .then((items) => {
         if (!mounted) return;
         setFeaturedOperators(items);
@@ -256,24 +259,16 @@ export function OnboardingScreen({ navigation }: Props) {
   useEffect(() => {
     let mounted = true;
 
-    Promise.all(
-      majorCities.map(async (city) => {
-        try {
-          const response = await fetchPublicProperties({
-            city: city.name,
-            page: 1,
-            pageSize: 1,
-            sort: "newest"
-          });
-          return [city.key, response.total ?? 0, response.items?.[0] ?? null] as const;
-        } catch {
-          return [city.key, null, null] as const;
-        }
-      })
-    ).then((entries) => {
+    fetchParkSummary(8).then((items) => {
+      if (mounted) setParks(items);
+    });
+
+    fetchCitySummary(majorCities.map((city) => city.name)).then((items) => {
       if (!mounted) return;
-      setCityCounts(Object.fromEntries(entries.map(([key, count]) => [key, count])));
-      setCitySamples(Object.fromEntries(entries.map(([key, , sample]) => [key, sample])));
+      const byName = new Map(items.map((item) => [item.city.toLowerCase(), item]));
+      setCityCounts(Object.fromEntries(majorCities.map((city) => [city.key, byName.get(city.name.toLowerCase())?.count ?? null])));
+      setCitySamples(Object.fromEntries(majorCities.map((city) => [city.key, byName.get(city.name.toLowerCase())?.sample ?? null])));
+      setCitiesLoaded(true);
     });
 
     return () => {
@@ -288,41 +283,74 @@ export function OnboardingScreen({ navigation }: Props) {
     });
   }
 
-  const quickActions = [
-    {
-      key: "all",
-      label: "All",
-      accessibilityLabel: "Open all NoLSAF discovery",
-      icon: Home,
-      onPress: () => runSearch("all")
-    },
+  const totalStays = Object.values(typeCounts).reduce<number>((sum, n) => sum + (typeof n === "number" ? n : 0), 0);
+  const citiesWithStays = majorCities.filter((city) => (cityCounts[city.key] ?? 0) > 0).length;
+  const season = seasonHint();
+
+  const tripSlide: QuickActionItem[] = nextTrip
+    ? [
+        {
+          key: "trip",
+          label: nextTrip.booking.property?.title || "Your stay",
+          description:
+            nextTrip.kind === "upcoming" && nextTrip.booking.checkIn
+              ? (() => {
+                  const d = daysUntil(nextTrip.booking.checkIn);
+                  const where = nextTrip.booking.property?.city || nextTrip.booking.property?.regionName || "";
+                  return `${where ? `${where} · ` : ""}${d <= 0 ? "Checking in today" : d === 1 ? "Check-in tomorrow" : `Check-in in ${d} days`}`;
+                })()
+              : "Pay to confirm your booking",
+          tag: nextTrip.kind === "upcoming" ? "Your next stay" : "Waiting for payment",
+          accent: nextTrip.kind === "upcoming" ? "#02665e" : "#b45309",
+          personal: true,
+          accessibilityLabel: "Open my bookings",
+          icon: Building2,
+          onPress: () => navigation.navigate("MyBookings")
+        }
+      ]
+    : [];
+
+  const quickActions: QuickActionItem[] = [
+    ...tripSlide,
     {
       key: "stays",
-      label: "Verified Stays",
+      label: "Verified stays",
+      description: "Checked by NoLSAF",
+      tag: totalStays > 0 ? `${totalStays.toLocaleString()} stays` : undefined,
+      accent: "#02665e",
       accessibilityLabel: "Open verified properties and stays",
       icon: Building2,
       onPress: () => navigation.navigate("VerifiedStays")
     },
     {
       key: "tours",
-      label: "Tour Packages",
+      label: "Tour packages",
+      description: "Safaris, set prices",
+      tag: featuredOperators.length ? `${featuredOperators.length} operators` : undefined,
+      accent: "#0284c7",
       accessibilityLabel: "Open tour packages",
       icon: TicketsPlane,
       onPress: () => navigation.navigate("TourPackages")
     },
     {
+      key: "places",
+      label: "Destinations",
+      description: season.tag,
+      tag: season.tag,
+      accent: "#7c3aed",
+      accessibilityLabel: "Browse regions, parks and cities",
+      icon: MapPin,
+      onPress: () => navigation.navigate("Search", { filter: "places" })
+    },
+    {
       key: "groups",
-      label: "Group Stays",
+      label: "Group stays",
+      description: "One request, many offers",
+      tag: citiesWithStays ? `${citiesWithStays} cities` : undefined,
+      accent: "#b45309",
       accessibilityLabel: "Request a group stay",
       icon: UsersRound,
       onPress: () => navigation.navigate(isAuthed ? "GroupStayRequest" : "Login")
-    },
-    {
-      key: "places",
-      label: "Destinations",
-      accessibilityLabel: "Browse regions, parks and countries",
-      icon: MapPin,
-      onPress: () => navigation.navigate("Search", { filter: "places" })
     }
   ];
 
@@ -333,9 +361,6 @@ export function OnboardingScreen({ navigation }: Props) {
         <FadeInUp>
           <View style={styles.hero}>
           <View pointerEvents="none" style={styles.heroPattern}>
-            <View style={styles.logoWatermark}>
-              <NolsafLogoMark color={colors.white} width={190} height={190} opacity={0.06} />
-            </View>
             <View style={[styles.bgPanel, styles.bgPanelOne]} />
             <View style={[styles.bgPanel, styles.bgPanelTwo]} />
             <View style={[styles.bgLine, styles.bgLineOne]} />
@@ -346,7 +371,7 @@ export function OnboardingScreen({ navigation }: Props) {
           <AppStack gap={4} style={styles.heroContent}>
             <View style={styles.heroTopBar}>
               <View style={styles.logoMark}>
-                <NolsafLogoMark color={colors.white} width={38} height={38} />
+                <NolsafLogoMark color={colors.white} width={30} height={33} />
               </View>
               <View style={styles.authLinks}>
                 {isAuthed ? (
@@ -376,7 +401,7 @@ export function OnboardingScreen({ navigation }: Props) {
 
             <AppStack gap={3} style={styles.heroCenter}>
               <AppText variant="headline" weight="extraBold" tone="inverse" style={styles.heroTitle}>
-                Quality Stay for Every Wallet
+                Quality stays for every wallet
               </AppText>
             </AppStack>
 
@@ -385,305 +410,170 @@ export function OnboardingScreen({ navigation }: Props) {
           </View>
         </FadeInUp>
 
-        <FadeInUp delay={120}>
+        {/* Search first: one field and a short list of ways in (Hick's law: few, clear choices). */}
+        <FadeInUp delay={60}>
           <AppCard style={styles.searchCard}>
-            <View pointerEvents="none" style={styles.searchCardAccent}>
-              <View style={styles.searchAccentDot} />
-              <View style={styles.searchAccentLine} />
-            </View>
-            <View style={styles.searchHeader}>
-              <View style={styles.searchIcon}>
-                <Search color={colors.primary} size={20} />
-              </View>
-              <AppStack gap={1} style={styles.searchText}>
-                <AppText variant="titleSm" weight="bold">
-                  Find your destination
-                </AppText>
-                <AppText variant="bodySmall" tone="muted">
-                  Search NoLSAF.
-                </AppText>
-              </AppStack>
-              <Pressable accessibilityRole="button" onPress={() => runSearch()} style={({ pressed }) => [styles.filterButton, pressed && styles.pressed]}>
-                <Filter color={colors.primary} size={20} />
-              </Pressable>
-            </View>
             <View style={styles.searchBar}>
-              <MapPin color={colors.softText} size={17} />
-              <TextInput
-                value={destination}
-                onChangeText={setDestination}
-                placeholder={`Search ${searchPrompts[promptIndex]}...`}
-                placeholderTextColor={colors.softText}
-                returnKeyType="search"
-                onSubmitEditing={() => runSearch()}
-                style={styles.searchInput}
-              />
+              <Search color={colors.primary} size={18} />
+              <RotatingSearchInput value={destination} onChangeText={setDestination} onSubmit={() => runSearch()} style={styles.searchInput} />
             </View>
             <QuickActionRail
-              activeKey={activeQuickAction}
+              activeKey=""
               itemWidth={quickActionWidth}
               items={quickActions}
-              onSelect={setActiveQuickAction}
+              onSelect={() => undefined}
             />
           </AppCard>
         </FadeInUp>
 
-        <FadeInUp delay={200}>
+        {/* Stay types: the most stocked first, capped, with a way to see everything. */}
+        <FadeInUp delay={100}>
           <AppStack gap={3}>
-            <View style={styles.propertyTypeHeader}>
-              <View style={styles.propertyTypeTitleRow}>
-                <View style={styles.propertyTypeTitleText}>
-                  <AppText variant="title" weight="extraBold">
-                    Browse by property type
-                  </AppText>
-                  <AppText variant="bodySmall" tone="muted">
-                    Choose a category to view filtered stays.
-                  </AppText>
-                </View>
-                <SwipeCue />
-              </View>
-            </View>
-            <View style={styles.propertyCarouselShell}>
-              <View style={styles.propertyTypeRows}>
-                {propertyTypeRows.map((row, rowIndex) => (
-                  <ScrollView
-                    key={`property-type-row-${rowIndex}`}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.propertyTypeRail}
-                  >
-                    <View style={styles.propertyTypeCarouselRow}>
-                      {row.map((item) => (
-                        <PropertyTypeCard
-                          key={item.key}
-                          title={item.title}
-                          width={propertyCardWidth}
-                          image={typeSamples[item.key]?.primaryImage ? { uri: typeSamples[item.key]?.primaryImage || "" } : item.fallbackImage}
-                          fallbackImage={item.fallbackImage}
-                          accent={item.accent}
-                          count={typeCounts[item.key]}
-                          onPress={() =>
-                            navigation.navigate("VerifiedStays", {
-                              propertyType: item.key
-                            })
-                          }
-                        />
-                      ))}
-                    </View>
-                  </ScrollView>
+            <SectionHeader title="Stays by type" actionLabel="All stays" onAction={() => navigation.navigate("VerifiedStays")} />
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={propertyCardWidth + spacing[3]}
+              snapToAlignment="start"
+              contentContainerStyle={styles.propertyTypeRail}
+            >
+              <View style={styles.propertyTypeCarouselRow}>
+                {rankedTypes.map((item) => (
+                  <PropertyTypeCard
+                    key={item.key}
+                    title={item.title}
+                    width={propertyCardWidth}
+                    image={typeSamples[item.key]?.primaryImage ? { uri: typeSamples[item.key]?.primaryImage || "" } : item.fallbackImage}
+                    fallbackImage={item.fallbackImage}
+                    accent={item.accent}
+                    count={typeCounts[item.key]}
+                    onPress={() => navigation.navigate("VerifiedStays", { propertyType: item.key })}
+                  />
                 ))}
+                <SeeAllStaysCard onPress={() => navigation.navigate("VerifiedStays")} />
               </View>
-              <View style={styles.propertySlideHint}>
-                <View style={styles.propertySlideLine} />
-                <View style={styles.propertySlideDot} />
-              </View>
-            </View>
-          </AppStack>
-        </FadeInUp>
-
-        <FadeInUp delay={280}>
-          <AppStack gap={3}>
-            <View style={styles.citySectionHeader}>
-              <View style={styles.cityHeaderText}>
-                <AppText variant="title" weight="extraBold">
-                  East Africa cities
-                </AppText>
-                <AppText variant="bodySmall" tone="muted">
-                  Strong availability for fast filtering.
-                </AppText>
-              </View>
-            </View>
-            <Animated.View style={[styles.cityRows, { opacity: cityRotationOpacity }]} onTouchStart={stopCityAutoRotate}>
-              {majorCityRows.map((row, rowIndex) => (
-                <ScrollView
-                  key={`city-row-${rowIndex}`}
-                  horizontal
-                  onScrollBeginDrag={stopCityAutoRotate}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.cityRail}
-                >
-                  <View style={styles.cityCarouselRow}>
-                    {row.map((city) => (
-                      <CityAvailabilityCard
-                        key={city.key}
-                        city={city.name}
-                        country={city.country}
-                        count={cityCounts[city.key]}
-                        image={citySamples[city.key]?.primaryImage ? { uri: citySamples[city.key]?.primaryImage || "" } : null}
-                        width={cityCardWidth}
-                        onPress={() => {
-                          stopCityAutoRotate();
-                          navigation.navigate("VerifiedStays", {
-                            region: city.name
-                          });
-                        }}
-                      />
-                    ))}
-                  </View>
-                </ScrollView>
-              ))}
-            </Animated.View>
-          </AppStack>
-        </FadeInUp>
-
-        <FadeInUp delay={340}>
-          <View style={styles.tourShowcaseSection}>
-            <View style={styles.tourShowcaseLabel}>
-              <TicketsPlane color={colors.primary} size={16} />
-              <AppText variant="caption" weight="extraBold" tone="primary" numberOfLines={1} style={styles.tourShowcaseLabelText}>
-                TOUR MARKETPLACE
-              </AppText>
-            </View>
-            <AppStack gap={3}>
-            <View style={styles.featuredPackagesHeader}>
-              <View pointerEvents="none" style={styles.featuredHeaderDecor}>
-                <View style={styles.featuredHeaderGlow} />
-                <View style={styles.featuredHeaderRing} />
-              </View>
-              <View style={styles.featuredHeaderMain}>
-                <View style={styles.featuredHeaderCopy}>
-                  <View style={styles.featuredHeaderTop}>
-                    <View style={styles.featuredHeaderIcon}>
-                      <PackageCheck color={colors.primary} size={18} />
-                    </View>
-                    <AppText variant="caption" weight="extraBold" tone="primary" style={styles.featuredEyebrow}>
-                      APPROVED OPERATORS
-                    </AppText>
-                  </View>
-                  <AppText variant="title" weight="extraBold">
-                    Featured tour operators
-                  </AppText>
-                  <AppText variant="bodySmall" tone="muted" style={styles.featuredHeaderDescription}>
-                    Approved companies with visible packages, pricing and confidence signals.
-                  </AppText>
-                </View>
-                <View style={styles.featuredHeaderBadge}>
-                  <AppText variant="titleSm" weight="extraBold" tone="primary" numberOfLines={1}>
-                    {operatorsLoading ? "-" : featuredOperators.length}
-                  </AppText>
-                  <AppText variant="caption" weight="bold" tone="soft" style={styles.featuredHeaderBadgeText} numberOfLines={1}>
-                    live companies
-                  </AppText>
-                </View>
-              </View>
-              <View style={styles.featuredHeaderFooter}>
-                <View style={styles.featuredMiniPill}>
-                  <CheckCircle2 color={colors.primary} size={13} />
-                  <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1}>
-                    Verified profiles
-                  </AppText>
-                </View>
-                <View style={styles.featuredMiniPill}>
-                  <TrendingUp color={colors.primary} size={13} />
-                  <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1}>
-                    Ranked by activity
-                  </AppText>
-                </View>
-              </View>
-            </View>
-
-            {operatorsLoading ? (
-              <View style={styles.featuredPackagesRail}>
-                <View style={[styles.tourPackageCard, { width: featuredOperatorWidth }]}>
-                  <View style={styles.tourPackageSkeletonImage} />
-                  <View style={styles.tourPackageBody}>
-                    <View style={styles.skeletonLineWide} />
-                    <View style={styles.skeletonLine} />
-                    <View style={styles.skeletonLineWide} />
-                  </View>
-                </View>
-              </View>
-            ) : featuredOperators.length > 0 ? (
-              <View style={styles.featuredPackageCarousel}>
-                <ScrollView
-                  ref={operatorScrollRef}
-                  horizontal
-                  pagingEnabled={false}
-                  decelerationRate="fast"
-                  snapToInterval={featuredOperatorWidth + spacing[3]}
-                  snapToAlignment="start"
-                  onScrollBeginDrag={stopOperatorAutoSlide}
-                  onMomentumScrollEnd={(event) => {
-                    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / (featuredOperatorWidth + spacing[3]));
-                    setFeaturedOperatorIndex(Math.max(0, Math.min(nextIndex, featuredOperators.length - 1)));
-                  }}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.featuredPackagesRail}
-                >
-                  {featuredOperators.map((operator) => (
-                    <FeaturedTourOperatorCard
-                      key={operator.key}
-                      item={operator}
-                      width={featuredOperatorWidth}
-                      onPress={() => {
-                        stopOperatorAutoSlide();
-                        runSearch("tours", operator.operatorName);
-                      }}
-                    />
-                  ))}
-                </ScrollView>
-                <View style={styles.featuredDots}>
-                  {featuredOperators.map((operator, index) => (
-                    <View key={`featured-dot-${operator.key}`} style={[styles.featuredDot, index === featuredOperatorIndex && styles.featuredDotActive]} />
-                  ))}
-                </View>
-              </View>
-            ) : (
-              <View style={styles.tourPackageEmpty}>
-                <PackageCheck color={colors.primary} size={22} />
-                <AppText variant="bodySmall" weight="bold" tone="primary">
-                  Approved tour operators will appear here.
-                </AppText>
-              </View>
-            )}
-            </AppStack>
-          </View>
-        </FadeInUp>
-
-        <FadeInUp delay={420}>
-          <AppStack gap={3}>
-            <View style={styles.countryTourismHeader}>
-              <View style={styles.countryTourismIcon}>
-                <MapPinned color={colors.primary} size={18} />
-              </View>
-              <View style={styles.countryTourismHeaderText}>
-                <AppText variant="title" weight="extraBold">
-                  Explore tourism by country
-                </AppText>
-                <AppText variant="bodySmall" tone="muted">
-                  Country quick links into parks, stays and trip support.
-                </AppText>
-              </View>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.countryTourismRail}>
-              {tourismCountries.map((country, index) => (
-                <TourismCountryCard
-                  key={country.key}
-                  country={country}
-                  index={index}
-                  width={countryTourismCardWidth}
-                  onCountryPress={() => runSearch("places", country.name)}
-                  onParkPress={(park) => runSearch("places", `${park} ${country.name}`)}
-                />
-              ))}
             </ScrollView>
           </AppStack>
         </FadeInUp>
 
-        <FadeInUp delay={460}>
-          <GetThereSection />
-        </FadeInUp>
-
-        <FadeInUp delay={500}>
-          <AppStack gap={2}>
-          <AppButton title="Explore verified stays" icon={<Search color={colors.white} size={18} />} onPress={() => navigation.navigate("VerifiedStays")} />
-          <AppButton title="Search destinations" variant="secondary" onPress={() => navigation.navigate("Search")} />
+        {/* Cities: busiest first, only those with stays; skeletons until counts arrive. */}
+        {!citiesLoaded || rankedCities.length > 0 ? (
+        <FadeInUp delay={140}>
+          <AppStack gap={3}>
+            <SectionHeader title="Popular cities" actionLabel="Search" onAction={() => runSearch("places")} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} decelerationRate="fast" snapToInterval={PLACE_TILE_WIDTH + spacing[2]} snapToAlignment="start" contentContainerStyle={styles.parkRail}>
+              {!citiesLoaded
+                ? [0, 1, 2].map((n) => <PlaceTileSkeleton key={n} />)
+                : rankedCities.map((city) => (
+                    <PlaceTile
+                      key={city.key}
+                      name={city.name}
+                      stays={cityCounts[city.key] ?? 0}
+                      image={citySamples[city.key]?.primaryImage || null}
+                      onPress={() => navigation.navigate("VerifiedStays", { region: city.name })}
+                    />
+                  ))}
+              {citiesLoaded ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="Search all places" onPress={() => runSearch("places")} style={({ pressed }) => [styles.seeAllEnd, pressed && styles.pressed]}>
+                  <View style={styles.seeAllCircle}>
+                    <ChevronRight color={colors.primary} size={22} />
+                  </View>
+                  <AppText variant="caption" weight="bold" tone="primary">See all</AppText>
+                </Pressable>
+              ) : null}
+            </ScrollView>
           </AppStack>
+        </FadeInUp>
+        ) : null}
+
+        {/* Tours: approved operators as bookable cards; the rest are one tap away. */}
+        {operatorsLoading || featuredOperators.length > 0 ? (
+          <FadeInUp delay={170}>
+            <AppStack gap={3}>
+              <SectionHeader title="Tour operators" subtitle="Approved companies, book and pay in the app" actionLabel="See all" onAction={() => navigation.navigate("TourPackages")} />
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                decelerationRate="fast"
+                snapToInterval={featuredOperatorWidth + spacing[3]}
+                snapToAlignment="start"
+                contentContainerStyle={styles.operatorRail}
+              >
+                {operatorsLoading
+                  ? [0, 1].map((n) => (
+                      <View key={n} style={[styles.operatorSkeleton, { width: featuredOperatorWidth }]}>
+                        <View style={styles.skeletonLineWide} />
+                        <View style={styles.operatorSkeletonImage} />
+                        <View style={styles.skeletonLine} />
+                      </View>
+                    ))
+                  : featuredOperators.map((operator) => (
+                      <TourOperatorTile
+                        key={operator.key}
+                        item={operator}
+                        width={featuredOperatorWidth}
+                        onPress={() => navigation.navigate("TourOperator", { agentId: operator.agentId, operatorKey: operator.operatorKey, operatorName: operator.operatorName })}
+                      />
+                    ))}
+                {!operatorsLoading ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="See all tour operators" onPress={() => navigation.navigate("TourPackages")} style={({ pressed }) => [styles.seeAllEnd, pressed && styles.pressed]}>
+                    <View style={styles.seeAllCircle}>
+                      <ChevronRight color={colors.primary} size={22} />
+                    </View>
+                    <AppText variant="caption" weight="bold" tone="primary">See all</AppText>
+                  </Pressable>
+                ) : null}
+              </ScrollView>
+            </AppStack>
+          </FadeInUp>
+        ) : null}
+
+        {/* Parks with real stays linked to them; hidden until there is something to book. */}
+        {parks.length > 0 ? (
+        <FadeInUp delay={200}>
+          <AppStack gap={3}>
+            <SectionHeader title="Safari stays" subtitle="Launched in Tanzania. Growing across Africa." actionLabel="Search" onAction={() => runSearch("places")} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} decelerationRate="fast" snapToInterval={PLACE_TILE_WIDTH + spacing[2]} snapToAlignment="start" contentContainerStyle={styles.parkRail}>
+              {parks.map((park) => (
+                <PlaceTile key={park.slug} kind="park" name={park.name} stays={park.stays} image={park.image} onPress={() => runSearch("places", park.name)} />
+              ))}
+              <Pressable accessibilityRole="button" accessibilityLabel="See all parks" onPress={() => runSearch("places")} style={({ pressed }) => [styles.seeAllEnd, pressed && styles.pressed]}>
+                <View style={styles.seeAllCircle}>
+                  <ChevronRight color={colors.primary} size={22} />
+                </View>
+                <AppText variant="caption" weight="bold" tone="primary">See all</AppText>
+              </Pressable>
+            </ScrollView>
+          </AppStack>
+        </FadeInUp>
+        ) : null}
+
+        <FadeInUp delay={220}>
+          <GetThereSection />
         </FadeInUp>
         </AppStack>
       </SafeScreen>
 
       {isAuthed ? <CustomerBottomNav active="Onboarding" /> : <GuestBottomNav active="Onboarding" />}
+    </View>
+  );
+}
+
+/** One header style for every landing section: title, optional line, optional "see all". */
+function SectionHeader({ title, subtitle, actionLabel, onAction }: { title: string; subtitle?: string; actionLabel?: string; onAction?: () => void }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderText}>
+        <AppText variant="title" weight="extraBold" numberOfLines={1}>{title}</AppText>
+        {subtitle ? <AppText variant="caption" tone="muted" numberOfLines={1}>{subtitle}</AppText> : null}
+      </View>
+      {actionLabel && onAction ? (
+        <Pressable accessibilityRole="button" onPress={onAction} hitSlop={8} style={({ pressed }) => [styles.sectionAction, pressed && styles.pressed]}>
+          <AppText variant="caption" weight="bold" tone="primary">{actionLabel}</AppText>
+          <ChevronRight color={colors.primary} size={14} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -696,7 +586,7 @@ function FadeInUp({ children, delay = 0 }: { children: ReactNode; delay?: number
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
-        duration: 420,
+        duration: 320,
         delay,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true
@@ -738,29 +628,9 @@ function ServiceWord({ label }: { label: string }) {
 }
 
 function ServiceRail() {
-  const flow = useFlowValue();
-  const connectorOpacity = flow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.2, 0.45]
-  });
-  const glowTranslate = flow.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["-80%", "80%"]
-  });
-
   return (
-    <View style={styles.servicePath}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.serviceConnector,
-          {
-            opacity: connectorOpacity
-          }
-        ]}
-      >
-        <Animated.View style={[styles.serviceFlowGlow, { transform: [{ translateX: glowTranslate }] }]} />
-      </Animated.View>
+    <View style={styles.servicePath} accessible accessibilityLabel="Stays, tours, rides and payments in one app">
+      <View pointerEvents="none" style={[styles.serviceConnector, { opacity: 0.3 }]} />
       <View style={styles.serviceRow}>
         <ServiceWord label="Stays" />
         <ServiceWord label="Tours" />
@@ -769,34 +639,6 @@ function ServiceRail() {
       </View>
     </View>
   );
-}
-
-function useFlowValue() {
-  const value = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(value, {
-          toValue: 1,
-          duration: 2200,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true
-        }),
-        Animated.timing(value, {
-          toValue: 0,
-          duration: 2200,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true
-        })
-      ])
-    );
-
-    animation.start();
-    return () => animation.stop();
-  }, [value]);
-
-  return value;
 }
 
 function TopAuthLink({ label, onPress }: { label: string; onPress: () => void }) {
@@ -812,114 +654,69 @@ function TopAuthLink({ label, onPress }: { label: string; onPress: () => void })
 type QuickActionItem = {
   key: string;
   label: string;
+  description: string;
+  accent: string;
+  /** Short chip on the slide: a live count, the season, or the trip state. */
+  tag?: string;
+  image?: ImageSourcePropType;
+  /** The traveller's own trip: drawn as a solid card, not a photo. */
+  personal?: boolean;
   accessibilityLabel: string;
   icon: typeof Home;
   onPress: () => void;
 };
 
 function QuickActionRail({
-  items,
-  activeKey,
-  itemWidth,
-  onSelect
+  items
 }: {
   items: QuickActionItem[];
-  activeKey: string;
-  itemWidth: number;
-  onSelect: (key: string) => void;
+  activeKey?: string;
+  itemWidth?: number;
+  onSelect?: (key: string) => void;
 }) {
   return (
-    <View style={styles.quickRailShell}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRail}>
-        {items.map((item) => (
-          <QuickActionButton
-            key={item.key}
-            item={item}
-            width={itemWidth}
-            active={activeKey === item.key}
-            onPress={() => {
-              onSelect(item.key);
-              item.onPress();
-            }}
-          />
-        ))}
-      </ScrollView>
-    </View>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRail}>
+      {items.map((item) => (
+        <QuickActionSlide key={item.key} item={item} />
+      ))}
+    </ScrollView>
   );
 }
 
-function QuickActionButton({ item, active, width, onPress }: { item: QuickActionItem; active: boolean; width: number; onPress: () => void }) {
+/**
+ * A compact way in: tinted icon, name, and one live line (a count, the season,
+ * or the trip state). The traveller's own trip is the one dark card.
+ */
+function QuickActionSlide({ item }: { item: QuickActionItem }) {
   const Icon = item.icon;
-
+  const line = item.personal ? item.description : item.tag || item.description;
   return (
     <Pressable
       accessibilityLabel={item.accessibilityLabel}
       accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.quickActionButton,
-        { width },
-        active && styles.quickActionButtonActive,
-        pressed && styles.pressed
-      ]}
+      onPress={item.onPress}
+      style={({ pressed }) => [styles.quickChip, item.personal && styles.quickChipPersonal, pressed && styles.pressed]}
     >
-      <View style={[styles.quickActionIcon, active && styles.quickActionIconActive]}>
-        <Icon color={active ? colors.white : colors.primary} size={17} />
+      <View style={[styles.quickChipIcon, { backgroundColor: item.personal ? "rgba(255,255,255,0.14)" : `${item.accent}14` }]}>
+        <Icon color={item.personal ? colors.white : item.accent} size={17} />
       </View>
-      <AppText variant="caption" weight="bold" tone={active ? "primary" : "muted"} numberOfLines={2} style={styles.quickActionLabel}>
-        {item.label}
-      </AppText>
+      <View style={styles.quickChipText}>
+        <AppText variant="bodySmall" weight="bold" tone={item.personal ? "inverse" : "default"} numberOfLines={1}>{item.label}</AppText>
+        <AppText variant="caption" tone={item.personal ? "inverse" : "muted"} numberOfLines={1} style={item.personal ? styles.quickChipLinePersonal : undefined}>{line}</AppText>
+      </View>
     </Pressable>
   );
 }
 
-function SwipeCue() {
-  const pulse = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 950,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 950,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true
-        })
-      ])
-    );
-
-    animation.start();
-    return () => animation.stop();
-  }, [pulse]);
-
+/** The end of the row: a small round "see all" button, centred against the cards. */
+function SeeAllStaysCard({ onPress }: { onPress: () => void }) {
   return (
-    <Animated.View
-      style={[
-        styles.propertySwipeBadge,
-        {
-          transform: [
-            {
-              scale: pulse.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 1.12]
-              })
-            }
-          ],
-          opacity: pulse.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.84, 1]
-          })
-        }
-      ]}
-    >
-      <GalleryHorizontal color={colors.primary} size={18} />
-    </Animated.View>
+    <Pressable accessibilityRole="button" accessibilityLabel="See all stays" onPress={onPress} style={({ pressed }) => [styles.seeAllEnd, pressed && styles.pressed]}>
+      <View style={styles.seeAllCircle}>
+        <ChevronRight color={colors.primary} size={22} />
+      </View>
+      <AppText variant="caption" weight="bold" tone="primary">See all</AppText>
+    </Pressable>
   );
 }
 
@@ -1006,9 +803,8 @@ function PropertyTypeCard({
       <Animated.View style={[styles.propertyTypeCard, cardAnimatedStyle]}>
         <View style={styles.propertyImageClip}>
           <Animated.View style={[styles.propertyImageZoom, imageAnimatedStyle]}>
-            <ImageBackground
+            <FadeImageBackground
               source={source}
-              resizeMode="cover"
               style={styles.propertyImage}
               imageStyle={styles.propertyImageRadius}
               onError={() => setImageFailed(true)}
@@ -1032,12 +828,12 @@ function PropertyTypeCard({
                   <Rect width="100%" height="100%" fill={`url(#propertyTint-${gradientId})`} />
                 </Svg>
               </View>
-            </ImageBackground>
+            </FadeImageBackground>
           </Animated.View>
           <View style={[styles.propertyStatus, { borderColor: accent }]}>
             <View style={[styles.propertyStatusDot, { backgroundColor: accent }]} />
             <AppText variant="caption" weight="bold" tone="inverse" numberOfLines={1}>
-              {typeof count === "number" ? count.toLocaleString() : "-"}
+              {typeof count === "number" ? count.toLocaleString() : "..."}
             </AppText>
           </View>
           <Animated.View style={[styles.propertyHoverCta, { backgroundColor: accent }, ctaAnimatedStyle]}>
@@ -1060,140 +856,48 @@ function PropertyTypeCard({
   );
 }
 
-function CityAvailabilityCard({
-  city,
-  country,
-  count,
-  image,
-  width,
-  onPress
-}: {
-  city: string;
-  country: string;
-  count?: number | null;
-  image?: ImageSourcePropType | null;
-  width: number;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityLabel={`Browse stays in ${city}`}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.cityCard, { width }, pressed && styles.pressed]}
-    >
-      <View style={styles.cityImageWrap}>
-        {image ? (
-          <ImageBackground source={image} resizeMode="cover" style={styles.cityImage} imageStyle={styles.cityImageRadius}>
-            <View style={styles.cityImageOverlay} />
-          </ImageBackground>
-        ) : (
-          <View style={styles.cityImageFallback}>
-            <MapPin color={colors.primary} size={22} />
-          </View>
-        )}
-        <View style={styles.cityCountPill}>
-          <View style={styles.cityCountDot} />
-          <AppText variant="caption" weight="extraBold" tone={image ? "inverse" : "default"} numberOfLines={1}>
-            {typeof count === "number" ? count.toLocaleString() : "-"}
-          </AppText>
-        </View>
-      </View>
-      <View style={styles.cityMeta}>
-        <AppText variant="bodySmall" weight="extraBold" numberOfLines={1} style={styles.cityName}>
-          {city}
-        </AppText>
-        <AppText variant="caption" weight="semiBold" tone="muted" numberOfLines={1}>
-          {country}
-        </AppText>
-      </View>
-    </Pressable>
-  );
-}
-
-function TourismCountryCard({
-  country,
-  index,
-  width,
-  onCountryPress,
-  onParkPress
-}: {
-  country: (typeof tourismCountries)[number];
-  index: number;
-  width: number;
-  onCountryPress: () => void;
-  onParkPress: (park: string) => void;
-}) {
-  const visibleParks = country.parks.slice(0, 6);
-  const remainingParks = Math.max(0, country.parks.length - visibleParks.length);
-
-  return (
-    <View style={[styles.countryTourismCard, { width }]}>
-      <Svg pointerEvents="none" style={styles.countryFlagGradient} width="100%" height="100%">
-        <Defs>
-          <LinearGradient id={`countryFlagGradient-${country.key}`} x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={country.flagColors[0]} stopOpacity="0.12" />
-            <Stop offset="0.35" stopColor={country.flagColors[1]} stopOpacity="0.09" />
-            <Stop offset="0.72" stopColor={country.flagColors[2]} stopOpacity="0.08" />
-            <Stop offset="1" stopColor={country.flagColors[3]} stopOpacity="0.08" />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill={`url(#countryFlagGradient-${country.key})`} />
-      </Svg>
-      <View pointerEvents="none" style={styles.countryTourismDecor}>
-        <View style={styles.countryTourismOrb} />
-        <View style={styles.countryTourismRing} />
-      </View>
-      <View style={styles.countryTourismTop}>
-        <View style={styles.countryNumber}>
-          <AppText variant="caption" weight="extraBold" tone="primary" numberOfLines={1}>
-            {String(index + 1).padStart(2, "0")}
-          </AppText>
-        </View>
-        <View style={styles.countryParkCount}>
-          <Landmark color={colors.primary} size={13} />
-          <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1}>
-            {country.parks.length} sites
-          </AppText>
-        </View>
-      </View>
-
-      <Pressable accessibilityRole="button" onPress={onCountryPress} style={({ pressed }) => [styles.countryMainLink, pressed && styles.pressed]}>
-        <View style={styles.countryTextBlock}>
-          <AppText variant="title" weight="extraBold" numberOfLines={1}>
-            {country.name}
-          </AppText>
-          <AppText variant="bodySmall" weight="semiBold" tone="primary" numberOfLines={1}>
-            {country.subtitle}
-          </AppText>
-        </View>
-        <View style={styles.countryOpenMark}>
-          <ExternalLink color={colors.primary} size={16} />
-        </View>
-      </Pressable>
-
-      <View style={styles.countryParkGrid}>
-        {visibleParks.map((park) => (
-          <Pressable key={park} accessibilityRole="button" onPress={() => onParkPress(park)} style={({ pressed }) => [styles.countryParkChip, pressed && styles.pressed]}>
-            <MapPin color={colors.primary} size={12} />
-            <AppText variant="caption" weight="semiBold" tone="default" numberOfLines={1} style={styles.countryParkText}>
-              {park}
-            </AppText>
-          </Pressable>
-        ))}
-        {remainingParks > 0 ? (
-          <Pressable accessibilityRole="button" onPress={onCountryPress} style={({ pressed }) => [styles.countryParkMore, pressed && styles.pressed]}>
-            <AppText variant="caption" weight="extraBold" tone="primary" numberOfLines={1}>
-              +{remainingParks} more
-            </AppText>
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  sectionHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2
+  },
+  sectionAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingVertical: 4
+  },
+  quietRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(2,102,94,0.14)",
+    backgroundColor: colors.white
+  },
+  quietRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(2,102,94,0.08)"
+  },
+  quietRowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2
+  },
   root: {
     flex: 1,
     backgroundColor: colors.surface
@@ -1481,6 +1185,40 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontSize: 15,
     paddingVertical: spacing[2]
+  },
+  quickChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 150,
+    maxWidth: 220,
+    height: 58,
+    paddingLeft: 10,
+    paddingRight: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white
+  },
+  quickChipPersonal: {
+    minWidth: 200,
+    borderColor: "#0b2420",
+    backgroundColor: "#0b2420"
+  },
+  quickChipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  quickChipText: {
+    flexShrink: 1,
+    minWidth: 0,
+    gap: 1
+  },
+  quickChipLinePersonal: {
+    opacity: 0.75
   },
   quickRailShell: {
     minWidth: 0,
@@ -2039,155 +1777,10 @@ const styles = StyleSheet.create({
     height: 220,
     backgroundColor: colors.border
   },
-  countryTourismHeader: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[3],
-    paddingHorizontal: spacing[1]
-  },
-  countryTourismIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100]
-  },
-  countryTourismHeaderText: {
-    minWidth: 0,
-    flex: 1,
-    gap: 2
-  },
-  countryTourismRail: {
-    gap: spacing[3],
-    paddingRight: spacing[6],
-    paddingVertical: spacing[1]
-  },
-  countryTourismCard: {
-    minWidth: 0,
-    overflow: "hidden",
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.white,
-    padding: spacing[4],
-    gap: spacing[3],
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 2
-  },
-  countryFlagGradient: {
-    ...StyleSheet.absoluteFill
-  },
-  countryTourismDecor: {
-    ...StyleSheet.absoluteFill
-  },
-  countryTourismOrb: {
-    position: "absolute",
-    right: -42,
-    top: -38,
-    width: 132,
-    height: 132,
-    borderRadius: 66,
-    backgroundColor: "rgba(2,102,94,0.07)"
-  },
-  countryTourismRing: {
-    position: "absolute",
-    right: 30,
-    bottom: -48,
-    width: 124,
-    height: 124,
-    borderRadius: 62,
-    borderWidth: 1,
-    borderColor: "rgba(2,102,94,0.08)"
-  },
-  countryTourismTop: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing[2]
-  },
-  countryNumber: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100]
-  },
-  countryParkCount: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    backgroundColor: "rgba(233,245,244,0.78)",
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
-  },
-  countryMainLink: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[3]
-  },
-  countryTextBlock: {
-    minWidth: 0,
-    flex: 1,
-    gap: 3
-  },
-  countryOpenMark: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100]
-  },
-  countryParkGrid: {
-    minWidth: 0,
-    flexDirection: "row",
-    flexWrap: "wrap",
+  parkRail: {
     gap: spacing[2],
-    paddingTop: spacing[2]
-  },
-  countryParkChip: {
-    minWidth: 0,
-    width: "48%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[2]
-  },
-  countryParkText: {
-    flex: 1
-  },
-  countryParkMore: {
-    width: "48%",
-    alignItems: "center",
-    borderRadius: radius.full,
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
+    paddingRight: spacing[4],
+    paddingVertical: spacing[1]
   },
   skeletonLineWide: {
     height: 14,
@@ -2235,6 +1828,41 @@ const styles = StyleSheet.create({
     minWidth: 0,
     position: "relative",
     gap: spacing[2]
+  },
+  operatorRail: {
+    gap: spacing[3],
+    paddingRight: spacing[4],
+    paddingVertical: spacing[1]
+  },
+  operatorSkeleton: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    padding: spacing[3],
+    gap: spacing[2]
+  },
+  operatorSkeletonImage: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 12,
+    backgroundColor: "#eef2f1"
+  },
+  seeAllEnd: {
+    width: 76,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8
+  },
+  seeAllCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(2,102,94,0.25)",
+    backgroundColor: colors.white
   },
   propertyTypeRail: {
     paddingRight: spacing[6],

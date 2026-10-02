@@ -123,7 +123,7 @@ function Stepper({ value, min, max, onChange }: { value: number; min: number; ma
 
 export function TourBookingReviewScreen({ navigation, route }: Props) {
   const { token, user } = useAuth();
-  const { agentId, packageId, packageName, operatorName } = route.params;
+  const { agentId, operatorKey, packageId, packageName, operatorName } = route.params;
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -149,7 +149,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const op = await fetchTourOperator(agentId);
+      const op = await fetchTourOperator(operatorKey || agentId);
       if (!op) throw new Error("This tour operator is no longer available.");
       const found = op.packages.find((item) => String(item.id ?? "") === String(packageId)) ?? null;
       if (!found) throw new Error("This tour package is no longer available.");
@@ -162,7 +162,7 @@ export function TourBookingReviewScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [agentId, packageId]);
+  }, [agentId, operatorKey, packageId]);
 
   useEffect(() => {
     load();

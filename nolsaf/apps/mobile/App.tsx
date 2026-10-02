@@ -15,82 +15,65 @@ import { AppLockGate, AppLockProvider } from "./src/lock";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
 
-const MIN_SPLASH_MS = 2000;
+// The native splash and the boot screen below look identical (teal mark, white
+// background), so the hand-off between them cannot be seen. The minimum only
+// stops a one-frame flash on fast devices; nothing waits longer than needed.
+const MIN_SPLASH_MS = 450;
+// Fonts get this long to load before the app shows anyway in the system font.
+const FONT_WAIT_MS = 1500;
 
-// Shared native features such as passkeys use @nolsaf/native-ui's API client.
-// Configure it before any screen or authentication provider can invoke them.
+// Configure the shared API client before any screen or auth provider can use it.
 configureApiClient({ apiUrl: apiBaseUrl() });
 
 void SplashScreen.preventAutoHideAsync().catch(() => {
   // The splash may already be hidden during fast refresh.
 });
 
+/**
+ * Same picture as the native splash, so it takes over without a jump. After a
+ * moment, a quiet caption and a thin progress line fade in, telling the user
+ * something is happening without a spinner.
+ */
 function BrandedBootScreen() {
-  const spin = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
+  const reveal = useRef(new Animated.Value(0)).current;
+  const sweep = useRef(new Animated.Value(0)).current;
+  const breathe = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const spinLoop = Animated.loop(
-      Animated.timing(spin, {
-        toValue: 1,
-        duration: 1250,
-        easing: Easing.inOut(Easing.cubic),
-        useNativeDriver: true
-      })
-    );
-    const pulseLoop = Animated.loop(
+    const revealAnim = Animated.timing(reveal, { toValue: 1, duration: 420, delay: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true });
+    const sweepLoop = Animated.loop(Animated.timing(sweep, { toValue: 1, duration: 1300, easing: Easing.inOut(Easing.quad), useNativeDriver: true }));
+    const breatheLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 900,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: true
-        })
+        Animated.timing(breathe, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.sin), useNativeDriver: true })
       ])
     );
-
-    spinLoop.start();
-    pulseLoop.start();
-
+    revealAnim.start();
+    sweepLoop.start();
+    breatheLoop.start();
     return () => {
-      spinLoop.stop();
-      pulseLoop.stop();
+      revealAnim.stop();
+      sweepLoop.stop();
+      breatheLoop.stop();
     };
-  }, [pulse, spin]);
+  }, [breathe, reveal, sweep]);
 
-  const rotate = spin.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"]
-  });
-
-  const ringScale = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.92, 1.08]
-  });
-  const ringOpacity = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.28, 0.08]
-  });
+  const markScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] });
+  const barX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-48, 112] });
+  const rise = reveal.interpolate({ inputRange: [0, 1], outputRange: [6, 0] });
 
   return (
     <View style={styles.bootRoot}>
-      <StatusBar style="light" />
-      <View pointerEvents="none" style={styles.bootDecorOne} />
-      <View pointerEvents="none" style={styles.bootDecorTwo} />
-      <View style={styles.bootCenter}>
-        <Animated.View style={[styles.bootPulseRing, { opacity: ringOpacity, transform: [{ scale: ringScale }] }]} />
-        <Animated.View style={[styles.bootLogoFrame, { transform: [{ rotate }] }]}>
-          <NolsafLogoMark color={colors.white} width={58} height={58} />
-        </Animated.View>
-        <Text style={styles.bootBrand}>NoLSAF</Text>
-        <Text style={styles.bootCaption}>Preparing trusted travel</Text>
-      </View>
+      <StatusBar style="dark" />
+      <Animated.View style={{ transform: [{ scale: markScale }] }}>
+        <NolsafLogoMark color={colors.primary} width={96} height={106} />
+      </Animated.View>
+      <Animated.View style={[styles.bootFooter, { opacity: reveal, transform: [{ translateY: rise }] }]}>
+        <View style={styles.bootTrack}>
+          <Animated.View style={[styles.bootBar, { transform: [{ translateX: barX }] }]} />
+        </View>
+        <Text style={styles.bootCaption}>Preparing your trip</Text>
+      </Animated.View>
     </View>
   );
 }
@@ -106,11 +89,10 @@ export default function App() {
   const [pinningReady, setPinningReady] = useState(false);
   const [appReady, setAppReady] = useState(false);
   const splashHiddenRef = useRef(false);
-  // Load brand fonts in the background. Font loading is best-effort and must not
-  // gate boot: in release + New Architecture builds the load can stall without ever
-  // resolving or erroring, which would trap the app on the splash screen forever.
-  // Fonts swap in automatically once ready; until then text uses the system font.
-  useFonts({
+  // Brand fonts are waited for briefly so the first screen does not change typeface
+  // under the user. The wait is capped (FONT_WAIT_MS): in release + New Architecture
+  // builds the load can stall without resolving, and that must never trap the splash.
+  const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
@@ -118,9 +100,15 @@ export default function App() {
     Inter_800ExtraBold
   });
 
+  const [fontWaitOver, setFontWaitOver] = useState(false);
+
   useEffect(() => {
     const timer = setTimeout(() => setMinimumSplashElapsed(true), MIN_SPLASH_MS);
-    return () => clearTimeout(timer);
+    const fontTimer = setTimeout(() => setFontWaitOver(true), FONT_WAIT_MS);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(fontTimer);
+    };
   }, []);
 
   useEffect(() => {
@@ -141,8 +129,10 @@ export default function App() {
   useEffect(() => {
     // Boot is gated on the minimum splash time and on pinning being active, never
     // on fonts (see above).
-    if (minimumSplashElapsed && pinningReady) setAppReady(true);
-  }, [minimumSplashElapsed, pinningReady]);
+    // Fonts are waited for only briefly, so a stalled load can never trap the splash.
+    const fontsSettled = fontsLoaded || Boolean(fontError) || fontWaitOver;
+    if (minimumSplashElapsed && pinningReady && fontsSettled) setAppReady(true);
+  }, [minimumSplashElapsed, pinningReady, fontsLoaded, fontError, fontWaitOver]);
 
   useEffect(() => {
     // Dismiss the native splash from an effect tied to appReady. Do NOT rely on
@@ -178,69 +168,38 @@ export default function App() {
 const styles = StyleSheet.create({
   appRoot: {
     flex: 1,
-    backgroundColor: colors.primaryDeep
+    backgroundColor: colors.white
   },
   bootRoot: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: colors.white
+  },
+  bootFooter: {
+    position: "absolute",
+    bottom: 96,
+    alignItems: "center",
+    gap: 12
+  },
+  bootTrack: {
+    width: 64,
+    height: 3,
+    borderRadius: 2,
     overflow: "hidden",
-    backgroundColor: colors.primaryDeep
+    backgroundColor: "rgba(2,102,94,0.12)"
   },
-  bootDecorOne: {
-    position: "absolute",
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    right: -90,
-    top: -70,
-    backgroundColor: "rgba(118,194,183,0.14)"
-  },
-  bootDecorTwo: {
-    position: "absolute",
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    left: -72,
-    bottom: 90,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)"
-  },
-  bootCenter: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10
-  },
-  bootPulseRing: {
-    position: "absolute",
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    borderWidth: 1,
-    borderColor: colors.brand[200]
-  },
-  bootLogoFrame: {
-    width: 92,
-    height: 92,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.24)"
-  },
-  bootBrand: {
-    marginTop: 14,
-    color: colors.white,
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: 1.8
+  bootBar: {
+    width: 22,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.primary
   },
   bootCaption: {
-    color: "rgba(255,255,255,0.74)",
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600"
+    color: "rgba(1,42,38,0.55)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    letterSpacing: 0.3
   }
 });

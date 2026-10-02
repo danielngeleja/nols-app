@@ -219,7 +219,7 @@ export function MyGroupStaysScreen({ navigation }: Props) {
                   <Pressable
                     key={booking.id}
                     accessibilityRole="button"
-                    onPress={() => navigation.navigate("GroupStayDetail", { id: booking.id })}
+                    onPress={() => navigation.navigate("GroupStayDetail", { id: booking.id, ref: booking.groupStayReference })}
                     style={({ pressed }) => [pressed && styles.cardPressed]}
                   >
                     <AppCard>
@@ -269,7 +269,7 @@ export function MyGroupStaysScreen({ navigation }: Props) {
                         {isAwaitingDeposit ? (
                           <Pressable
                             accessibilityRole="button"
-                            onPress={() => navigation.navigate("GroupStayDeposit", { id: booking.id })}
+                            onPress={() => navigation.navigate("GroupStayDeposit", { id: booking.id, ref: booking.groupStayReference })}
                             style={styles.depositBanner}
                           >
                             <View style={styles.depositBannerIconWrap}>

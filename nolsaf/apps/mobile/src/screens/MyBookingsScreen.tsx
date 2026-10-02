@@ -192,6 +192,7 @@ export function MyBookingsScreen({ navigation }: Props) {
       if (booking.isPaid && !isPastStay(booking)) {
         navigation.navigate("AddTransport", {
           bookingId: booking.id,
+          bookingRef: booking.bookingReference,
           mode: "scheduled",
           propertyId: booking.property?.id ?? null,
           propertyTitle: title,
@@ -374,6 +375,7 @@ export function MyBookingsScreen({ navigation }: Props) {
                         <GetThereSection
                           booking={{
                             bookingId: booking.id,
+                            bookingReference: booking.bookingReference,
                             propertyId: booking.property?.id ?? null,
                             propertyTitle: title,
                             propertyArea: area

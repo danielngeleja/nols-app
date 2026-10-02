@@ -40,6 +40,8 @@ export type CreateTransportResult = {
 
 export type RideListItem = {
   id: number;
+  /** Opaque rd_ reference; used in API paths instead of the row id when present. */
+  rideReference?: string | null;
   scheduledDate: string | null;
   fromAddress: string | null;
   toAddress: string | null;

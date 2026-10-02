@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { ArrowLeft, SearchX, ShieldCheck, SlidersHorizontal, X } from "lucide-react-native";
+import { ArrowLeft, CalendarDays, ChevronDown, Search, SearchX, ShieldCheck, SlidersHorizontal, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuth } from "../auth";
@@ -9,7 +9,6 @@ import { fetchSystemCommission } from "../bookings/checkoutApi";
 import {
   AnimatedCounter,
   AppCard,
-  AppInput,
   AppStack,
   AppText,
   countAdvancedFilters,
@@ -77,6 +76,7 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState(route.params?.region ?? "");
   const [availabilityDate, setAvailabilityDate] = useState("");
+  const [daysOpen, setDaysOpen] = useState(false);
   const [availabilityMap, setAvailabilityMap] = useState<Record<number, number | null>>({});
   const [filters, setFilters] = useState<PropertyFilters>(
     route.params?.propertyType ? { ...DEFAULT_PROPERTY_FILTERS, types: [route.params.propertyType] } : DEFAULT_PROPERTY_FILTERS
@@ -183,11 +183,16 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
   }, [items, filters.types.length]);
 
   function openProperty(property: PublicPropertyCard) {
-    navigation.navigate("PropertyDetail", { id: property.id, title: property.title });
+    navigation.navigate("PropertyDetail", { id: property.id, slug: property.slug, title: property.title });
   }
 
   function selectRegion(next: string) {
     setRegion(next);
+  }
+
+  function pickDay(value: string) {
+    setAvailabilityDate(value);
+    setDaysOpen(false);
   }
 
   function clearAll() {
@@ -271,66 +276,86 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
 
       <AppCard style={styles.filtersCard}>
         <AppStack gap={3}>
-          <AppInput
-            label="Search stays"
-            placeholder="Region, district, ward or property name"
-            value={query}
-            onChangeText={setQuery}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
+          <View style={styles.searchBar}>
+            <Search color={colors.primary} size={18} />
+            <TextInput
+              accessibilityLabel="Search stays"
+              placeholder="Where to? Area or stay name"
+              placeholderTextColor={colors.softText}
+              value={query}
+              onChangeText={setQuery}
+              returnKeyType="search"
+              autoCorrect={false}
+              style={styles.searchInput}
+            />
+            {query ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery("")} hitSlop={10} style={styles.searchClear}>
+                <X color={colors.white} size={12} />
+              </Pressable>
+            ) : null}
+          </View>
+
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.chipRow}
             keyboardShouldPersistTaps="handled"
           >
-            <FilterChip label="All" active={region === ""} onPress={() => selectRegion("")} />
+            <FilterChip label="Anywhere" active={region === ""} onPress={() => selectRegion("")} />
             {REGIONS.map((r) => (
               <FilterChip key={r} label={r} active={region === r} onPress={() => selectRegion(r)} />
             ))}
           </ScrollView>
 
-          <AppText variant="label" weight="semiBold" tone="muted">
-            Available on
-          </AppText>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipRow}
-            keyboardShouldPersistTaps="handled"
-          >
-            <FilterChip label="Any day" active={availabilityDate === ""} onPress={() => setAvailabilityDate("")} />
-            {DAY_OPTIONS.map((day) => (
-              <FilterChip
-                key={day.value}
-                label={day.label}
-                active={availabilityDate === day.value}
-                onPress={() => setAvailabilityDate(day.value)}
-              />
-            ))}
-          </ScrollView>
-
+          {/* One control row: date, filters, sort. The day strip opens only on demand. */}
           <View style={styles.controlRow}>
-            <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} style={styles.filtersButton}>
-              <SlidersHorizontal color={colors.primary} size={16} />
-              <AppText variant="bodySmall" weight="semiBold" tone="primary">
-                Filters
-              </AppText>
-              {advancedCount > 0 ? (
-                <View style={styles.badge}>
-                  <AppText variant="caption" weight="bold" tone="inverse">
-                    {advancedCount}
-                  </AppText>
-                </View>
-              ) : null}
-            </Pressable>
+            <View style={styles.controlGroup}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: daysOpen }}
+                onPress={() => setDaysOpen((open) => !open)}
+                style={[styles.controlButton, (availabilityDate || daysOpen) && styles.controlButtonActive]}
+              >
+                <CalendarDays color={colors.primary} size={15} />
+                <AppText variant="bodySmall" weight="semiBold" tone="primary" numberOfLines={1}>
+                  {availabilityDate ? DAY_OPTIONS.find((d) => d.value === availabilityDate)?.label ?? "Date" : "Any day"}
+                </AppText>
+                <ChevronDown color={colors.primary} size={14} style={daysOpen ? styles.chevronOpen : undefined} />
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} style={[styles.controlButton, advancedCount > 0 && styles.controlButtonActive]}>
+                <SlidersHorizontal color={colors.primary} size={15} />
+                <AppText variant="bodySmall" weight="semiBold" tone="primary">
+                  Filters
+                </AppText>
+                {advancedCount > 0 ? (
+                  <View style={styles.badge}>
+                    <AppText variant="caption" weight="bold" tone="inverse">
+                      {advancedCount}
+                    </AppText>
+                  </View>
+                ) : null}
+              </Pressable>
+            </View>
             <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} hitSlop={8}>
-              <AppText variant="bodySmall" tone="muted">
-                Sort: {sortLabel}
+              <AppText variant="caption" tone="muted" numberOfLines={1}>
+                {sortLabel}
               </AppText>
             </Pressable>
           </View>
+
+          {daysOpen ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipRow}
+              keyboardShouldPersistTaps="handled"
+            >
+              <FilterChip label="Any day" active={availabilityDate === ""} onPress={() => pickDay("")} />
+              {DAY_OPTIONS.map((day) => (
+                <FilterChip key={day.value} label={day.label} active={availabilityDate === day.value} onPress={() => pickDay(day.value)} />
+              ))}
+            </ScrollView>
+          ) : null}
         </AppStack>
       </AppCard>
 
@@ -446,6 +471,8 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
         priceCurrency={priceCurrency}
         prices={pricePoints}
         typeCounts={typeCounts}
+        // The live count is exact only over the whole set, before type or price narrowed it.
+        stays={items.length >= total && !filters.types.length && !filters.minPrice && !filters.maxPrice ? items : undefined}
         onApply={(next) => {
           setFilters(next);
           setFiltersVisible(false);
@@ -558,16 +585,56 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing[3]
   },
-  filtersButton: {
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[2],
+    height: 48,
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.brand[50],
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing[3]
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: "100%",
+    fontSize: 15,
+    color: colors.ink
+  },
+  searchClear: {
+    width: 20,
+    height: 20,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.softText
+  },
+  controlGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    flexShrink: 1,
+    minWidth: 0
+  },
+  controlButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2]
+  },
+  controlButtonActive: {
+    borderColor: colors.brand[100],
+    backgroundColor: colors.brand[50]
+  },
+  chevronOpen: {
+    transform: [{ rotate: "180deg" }]
   },
   badge: {
     minWidth: 18,

@@ -1,6 +1,6 @@
 import { apiRequest } from "../lib/apiClient";
 import { AvailabilityRoomFilter, buildAvailabilityRangePath } from "./availability";
-import { PropertyListResponse, PropertySearchParams, PropertyVerificationResponse, PublicHomeSummary, PublicPropertyDetail, SavedPropertyListResponse } from "./types";
+import { PropertyListResponse, PropertySearchParams, PropertyVerificationResponse, PublicHomeSummary, PublicPropertyCard, PublicPropertyDetail, SavedPropertyListResponse } from "./types";
 
 export async function fetchPublicProperties(params: PropertySearchParams = {}) {
   const query = new URLSearchParams();
@@ -58,6 +58,49 @@ export async function fetchPropertyDetail(idOrSlug: string | number) {
   // The endpoint wraps the detail as { property: {...} }.
   const response = await apiRequest<{ property: PublicPropertyDetail }>(`/api/public/properties/${idOrSlug}`);
   return response.property;
+}
+
+export type CitySummaryItem = { city: string; count: number | null; sample: PublicPropertyCard | null };
+
+/**
+ * Listing count and newest card for each city in one request. Falls back to
+ * one list call per city (a few at a time) against an API that predates the
+ * summary endpoint, so the landing screen works during a staged rollout.
+ */
+export async function fetchCitySummary(cities: string[]): Promise<CitySummaryItem[]> {
+  try {
+    const res = await apiRequest<{ items: CitySummaryItem[] }>(`/api/public/properties/city-summary?cities=${encodeURIComponent(cities.join(","))}`);
+    if (Array.isArray(res?.items)) return res.items;
+  } catch {
+    // Older API: fall through to the per-city path.
+  }
+  const out: CitySummaryItem[] = [];
+  for (let i = 0; i < cities.length; i += 4) {
+    const batch = await Promise.all(
+      cities.slice(i, i + 4).map(async (city) => {
+        try {
+          const r = await fetchPublicProperties({ city, page: 1, pageSize: 1, sort: "newest" });
+          return { city, count: r.total ?? 0, sample: r.items?.[0] ?? null };
+        } catch {
+          return { city, count: null, sample: null };
+        }
+      })
+    );
+    out.push(...batch);
+  }
+  return out;
+}
+
+export type ParkSummaryItem = { slug: string; name: string; country: string; stays: number; image: string | null };
+
+/** Parks with approved stays linked to them, busiest first. Empty when none, or on an older API. */
+export async function fetchParkSummary(limit = 8): Promise<ParkSummaryItem[]> {
+  try {
+    const res = await apiRequest<{ items: ParkSummaryItem[] }>(`/api/public/properties/park-summary?limit=${limit}`);
+    return Array.isArray(res?.items) ? res.items.filter((item) => item?.name && item.stays > 0) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchPublicPropertiesHomeSummary() {

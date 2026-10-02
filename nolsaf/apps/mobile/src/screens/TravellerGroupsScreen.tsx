@@ -304,7 +304,7 @@ function TripPicker({ navigation }: { navigation: Props["navigation"] }) {
               title="Manage group"
               variant="secondary"
               icon={<Users color={colors.primary} size={16} />}
-              onPress={() => navigation.navigate("TravellerGroups", { tourBookingId: item.id, tourBookingTitle: item.title || undefined })}
+              onPress={() => navigation.navigate("TravellerGroups", { tourBookingId: item.id, tourBookingRef: item.tourReference, tourBookingTitle: item.title || undefined })}
             />
           </AppCard>
         ))
@@ -313,7 +313,9 @@ function TripPicker({ navigation }: { navigation: Props["navigation"] }) {
   );
 }
 
-function GroupRoster({ tourBookingId, tourBookingTitle }: { tourBookingId: number; tourBookingTitle?: string }) {
+function GroupRoster({ tourBookingId, tourBookingRef, tourBookingTitle }: { tourBookingId: number; tourBookingRef?: string | null; tourBookingTitle?: string }) {
+  // API paths use the opaque tr_ reference when the list provided one.
+  const tourKey = tourBookingRef || tourBookingId;
   const { token } = useAuth();
   const { width: windowWidth } = useWindowDimensions();
   const [members, setMembers] = useState<TourGroupMember[]>([]);
@@ -351,7 +353,7 @@ function GroupRoster({ tourBookingId, tourBookingTitle }: { tourBookingId: numbe
     else setLoading(true);
     setError(null);
     try {
-      const res = await fetchTourGroupMembers(token, tourBookingId);
+      const res = await fetchTourGroupMembers(token, tourKey);
       setMembers(res.members || []);
       if (res.title) setBookingTitle(res.title);
       setBookingCode(res.bookingCode || null);
@@ -362,7 +364,7 @@ function GroupRoster({ tourBookingId, tourBookingTitle }: { tourBookingId: numbe
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, tourBookingId]);
+  }, [token, tourKey]);
 
   useEffect(() => {
     void load();
@@ -490,8 +492,8 @@ function GroupRoster({ tourBookingId, tourBookingTitle }: { tourBookingId: numbe
         documentFileName: documentFileName || undefined
       };
       const res = editingId
-        ? await updateTourGroupMember(token, tourBookingId, editingId, input)
-        : await addTourGroupMember(token, tourBookingId, input);
+        ? await updateTourGroupMember(token, tourKey, editingId, input)
+        : await addTourGroupMember(token, tourKey, input);
       setMembers(res.members || []);
       resetForm();
       setShowForm(false);
@@ -517,7 +519,7 @@ function GroupRoster({ tourBookingId, tourBookingTitle }: { tourBookingId: numbe
     if (!token) return;
     setRemovingId(memberId);
     try {
-      const res = await deleteTourGroupMember(token, tourBookingId, memberId);
+      const res = await deleteTourGroupMember(token, tourKey, memberId);
       setMembers(res.members || []);
       if (editingId === memberId) {
         resetForm();
@@ -728,6 +730,7 @@ function GroupRoster({ tourBookingId, tourBookingTitle }: { tourBookingId: numbe
 export function TravellerGroupsScreen({ navigation, route }: Props) {
   const tourBookingId = route.params?.tourBookingId;
   const tourBookingTitle = route.params?.tourBookingTitle;
+  const tourBookingRef = route.params?.tourBookingRef;
 
   return (
     <SafeScreen contentStyle={{ paddingBottom: 0, flex: 1 }}>
@@ -738,7 +741,7 @@ export function TravellerGroupsScreen({ navigation, route }: Props) {
           onBack={() => navigation.goBack()}
         />
         {tourBookingId ? (
-          <GroupRoster tourBookingId={tourBookingId} tourBookingTitle={tourBookingTitle} />
+          <GroupRoster tourBookingId={tourBookingId} tourBookingRef={tourBookingRef} tourBookingTitle={tourBookingTitle} />
         ) : (
           <TripPicker navigation={navigation} />
         )}

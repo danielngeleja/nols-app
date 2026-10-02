@@ -96,7 +96,9 @@ function formatDueCountdown(ms: number): string {
 export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
   useSecureScreen();
   const { token } = useAuth();
-  const { id } = route.params;
+  const { id, ref } = route.params;
+  // customer/group-stays routes resolve the gs_ reference; /api/group-bookings/:id still needs the id.
+  const stayKey = ref || id;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [booking, setBooking] = useState<GroupBookingDetail | null>(null);
@@ -136,7 +138,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [detailRes, depositRes] = await Promise.all([fetchGroupBookingById(token, id), fetchGroupBookingDepositStatus(token, id)]);
+      const [detailRes, depositRes] = await Promise.all([fetchGroupBookingById(token, id), fetchGroupBookingDepositStatus(token, stayKey)]);
       setBooking(detailRes.data);
       setDeposit(depositRes);
       if (depositRes.depositPaid) setStatus("success");
@@ -162,7 +164,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
     setReceiptLoading(true);
     setError(null);
     try {
-      const res = await fetchGroupBookingDepositReceiptToken(token, id);
+      const res = await fetchGroupBookingDepositReceiptToken(token, stayKey);
       const url = `${apiBaseUrl()}/api/public/group-stays/receipt?token=${encodeURIComponent(res.token)}`;
       await WebBrowser.openBrowserAsync(url);
     } catch (err) {
@@ -199,7 +201,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
       pollRef.current = setTimeout(async () => {
         attemptsRef.current += 1;
         try {
-          const res = await fetchGroupBookingDepositStatus(token, id);
+          const res = await fetchGroupBookingDepositStatus(token, stayKey);
           setDeposit(res);
           if (res.depositPaid) {
             stopPolling();
@@ -238,7 +240,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
     setError(null);
     setStatus("pending");
     try {
-      const res = await initiateGroupBookingDepositMno(token, id, { phoneNumber: phoneForApi, provider });
+      const res = await initiateGroupBookingDepositMno(token, stayKey, { phoneNumber: phoneForApi, provider });
       setPaymentRef(res.paymentRef || res.transactionId || null);
       beginPolling();
     } catch (err) {
@@ -268,7 +270,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
     setError(null);
     setStatus("pending");
     try {
-      const res = await initiateGroupBookingDepositBank(token, id, {
+      const res = await initiateGroupBookingDepositBank(token, stayKey, {
         bankCode,
         accountNumber: bankAccount.trim(),
         merchantMobileNumber: bankMobileForApi,
@@ -285,7 +287,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
     if (!token) return;
     setError(null);
     try {
-      const res = await initiateGroupBookingDepositCard(token, id);
+      const res = await initiateGroupBookingDepositCard(token, stayKey);
       if (!res.checkoutUrl) {
         setError("Card payment is not available yet. Use mobile money or bank.");
         return;
@@ -296,7 +298,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
 
       let statusCheckFailed = false;
       try {
-        const latest = await fetchGroupBookingDepositStatus(token, id);
+        const latest = await fetchGroupBookingDepositStatus(token, stayKey);
         setDeposit(latest);
         if (latest.depositPaid) {
           setStatus("success");
@@ -399,7 +401,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
             ? "Your deposit has been received and this group stay is confirmed."
             : "This request does not currently require a deposit payment."}
         </AppText>
-        <AppButton title="View group stay" onPress={() => navigation.navigate("GroupStayDetail", { id })} />
+        <AppButton title="View group stay" onPress={() => navigation.navigate("GroupStayDetail", { id, ref })} />
       </SafeScreen>
     );
   }
@@ -436,7 +438,7 @@ export function GroupStayDepositPaymentScreen({ navigation, route }: Props) {
             </View>
           </AppStack>
         </AppCard>
-        <AppButton title="View My Group Stay" onPress={() => navigation.navigate("GroupStayDetail", { id })} />
+        <AppButton title="View My Group Stay" onPress={() => navigation.navigate("GroupStayDetail", { id, ref })} />
         <AppButton title="Download receipt" variant="secondary" loading={receiptLoading} onPress={downloadReceipt} />
       </SafeScreen>
     );

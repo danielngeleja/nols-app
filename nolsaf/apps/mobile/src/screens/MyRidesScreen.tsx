@@ -196,7 +196,7 @@ export function MyRidesScreen({ navigation }: Props) {
     return (
       <Pressable
         accessibilityRole="button"
-        onPress={() => navigation.navigate("RideDetail", { id: ride.id })}
+        onPress={() => navigation.navigate("RideDetail", { id: ride.id, ref: ride.rideReference })}
         style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       >
         <CardGradient state={cardState} />

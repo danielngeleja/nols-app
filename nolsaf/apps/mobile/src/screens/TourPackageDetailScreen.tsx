@@ -52,7 +52,7 @@ function difficultyTone(difficulty: string): { bg: string; color: string } {
 }
 
 export function TourPackageDetailScreen({ route, navigation }: Props) {
-  const { agentId, packageId, operatorName } = route.params;
+  const { agentId, operatorKey, packageId, operatorName } = route.params;
   const { token } = useAuth();
   const [operator, setOperator] = useState<DiscoveryOperator | null>(null);
   const [pkg, setPkg] = useState<DiscoveryPackage | null>(null);
@@ -63,7 +63,7 @@ export function TourPackageDetailScreen({ route, navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const op = await fetchTourOperator(agentId);
+      const op = await fetchTourOperator(operatorKey || agentId);
       if (!op) throw new Error("This package is no longer available.");
       const found = op.packages.find((p) => String(p.id ?? "") === String(packageId ?? "")) ?? op.packages[0] ?? null;
       if (!found) throw new Error("This package is no longer available.");
@@ -74,7 +74,7 @@ export function TourPackageDetailScreen({ route, navigation }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [agentId, packageId]);
+  }, [agentId, operatorKey, packageId]);
 
   useEffect(() => {
     void load();
@@ -115,6 +115,7 @@ export function TourPackageDetailScreen({ route, navigation }: Props) {
     }
     navigation.navigate("TourBookingReview", {
       agentId: operator.agentId,
+      operatorKey: operator.operatorKey,
       packageId: pkg.id ?? packageId ?? "",
       packageName: pkg.title,
       operatorName: operator.operatorName
@@ -170,7 +171,7 @@ export function TourPackageDetailScreen({ route, navigation }: Props) {
             </AppText>
             <Pressable
               accessibilityRole="button"
-              onPress={() => navigation.navigate("TourOperator", { agentId: operator.agentId, operatorName: operator.operatorName })}
+              onPress={() => navigation.navigate("TourOperator", { agentId: operator.agentId, operatorKey: operator.operatorKey, operatorName: operator.operatorName })}
               style={styles.metaInline}
             >
               <Building2 color={colors.primary} size={14} />

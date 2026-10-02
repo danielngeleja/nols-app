@@ -57,6 +57,6 @@ export async function fetchMyRides(token: string, params: { status?: string; pag
 }
 
 /** Full detail for one ride (trip data, route coordinates, and the assigned driver). */
-export async function fetchRideDetail(token: string, id: number) {
+export async function fetchRideDetail(token: string, id: number | string) {
   return apiRequest<RideDetail>(`/api/transport-bookings/${id}`, { token });
 }

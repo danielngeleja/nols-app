@@ -98,11 +98,11 @@ export function MyToursScreen({ navigation }: Props) {
 
   const visible = filter === "ALL" ? items : items.filter((item) => String(item.dashboardBucket || "").toUpperCase() === filter);
 
-  const openPayment = useCallback(async (bookingId: number) => {
+  const openPayment = useCallback(async (bookingId: number, ref?: string | null) => {
     if (!token || payingId) return;
     setPayingId(bookingId);
     try {
-      const detail = await fetchCustomerTourBooking(token, bookingId);
+      const detail = await fetchCustomerTourBooking(token, ref || bookingId);
       const accessToken = String(detail.paymentResume?.paymentAccessToken || "");
       const tokenActive = String(detail.paymentResume?.paymentAccessTokenStatus || "").toUpperCase() === "ACTIVE";
       if (accessToken && tokenActive) {
@@ -195,9 +195,9 @@ export function MyToursScreen({ navigation }: Props) {
                 <TourCard
                   key={item.id}
                   item={item}
-                  onOpen={() => navigation.navigate("TourDetail", { id: item.id })}
+                  onOpen={() => navigation.navigate("TourDetail", { id: item.id, ref: item.tourReference })}
                   onBookAgain={() => navigation.navigate("TourPackages")}
-                  onPay={() => openPayment(item.id)}
+                  onPay={() => openPayment(item.id, item.tourReference)}
                   paying={payingId === item.id}
                 />
               ))}

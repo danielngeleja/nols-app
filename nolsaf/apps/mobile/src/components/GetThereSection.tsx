@@ -1,39 +1,38 @@
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Bike, ChevronRight, Clock3, Home, MapPin, Navigation, PlaneLanding, Zap } from "lucide-react-native";
+import { Bike, Home, MapPin, Navigation, PlaneLanding } from "lucide-react-native";
 import { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
-import Svg, { Circle, Defs, LinearGradient, Pattern, Rect, Stop } from "react-native-svg";
 
 import { TransportBookingContext } from "../bookings";
 import { RootStackParamList } from "../navigation/types";
-import { colors, radius, shadows, spacing } from "../theme";
+import { colors, radius, spacing } from "../theme";
 import { AppStack } from "./AppStack";
 import { AppText } from "./AppText";
 
 type GetThereSectionProps = {
   /** The paid stay this transport will bring the customer to. When omitted the
-   *  section is a guest teaser that routes to booking a stay first. */
+   *  section is a guest entry that routes to booking a stay first. */
   booking?: TransportBookingContext;
 };
 
 /**
- * "One Trip, One Tap": NoLSAF transport that always ends at the customer's
- * booked property. NoLSAF does not sell standalone rides, so the action either
- * adds transport to a paid booking or (for guests) sends them to book a stay
- * first.
+ * NoLSAF transport always ends at the customer's booked property, so the route
+ * itself is the message: any pickup on the left, the stay as the fixed,
+ * filled end on the right. Two actions, no pitch. Guests are sent to book a
+ * stay first, since a ride needs a destination.
  */
 export function GetThereSection({ booking }: GetThereSectionProps) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   function openTransport(mode: "scheduled" | "instant") {
     if (!booking) {
-      // No stay booked yet, and transport needs a destination, so book a stay first.
       navigation.navigate("VerifiedStays");
       return;
     }
     navigation.navigate("AddTransport", {
       bookingId: booking.bookingId,
+      bookingRef: booking.bookingReference,
       mode,
       propertyId: booking.propertyId,
       propertyTitle: booking.propertyTitle,
@@ -43,295 +42,194 @@ export function GetThereSection({ booking }: GetThereSectionProps) {
 
   return (
     <AppStack gap={3}>
-      {/* Header panel: signals this block explains a NoLSAF capability */}
-      <View style={styles.hero}>
-        <Svg pointerEvents="none" style={styles.heroGradient} width="100%" height="100%">
-          <Defs>
-            <LinearGradient id="getThereGradient" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#ffffff" stopOpacity="1" />
-              <Stop offset="1" stopColor="#eef4f3" stopOpacity="1" />
-            </LinearGradient>
-            {/* Faint neutral dots for a subtle textured white panel */}
-            <Pattern id="getThereDots" patternUnits="userSpaceOnUse" width="22" height="22">
-              <Circle cx="4" cy="4" r="1.4" fill="#64748b" fillOpacity="0.1" />
-              <Circle cx="15" cy="15" r="1.4" fill="#64748b" fillOpacity="0.1" />
-            </Pattern>
-          </Defs>
-          <Rect width="100%" height="100%" fill="url(#getThereGradient)" />
-          <Rect width="100%" height="100%" fill="url(#getThereDots)" />
-        </Svg>
-
-        <View style={styles.heroContent}>
-          <View style={styles.eyebrowPill}>
-            <Zap color={colors.primary} size={12} />
-            <AppText variant="caption" weight="bold" tone="primary" style={styles.eyebrowText}>
-              ONE TRIP, ONE TAP
-            </AppText>
-          </View>
-
-          <AppText variant="headline" weight="extraBold">
-            Get there
-          </AppText>
-          <AppText variant="bodySmall" tone="muted">
-            {booking
-              ? `Add transport to ${booking.propertyTitle}. We bring you to your booked stay, with no extra app and no separate booking.`
-              : "NoLSAF brings you to the stay you book, with no separate ride app. Book a verified stay, then add a transfer or instant pickup to it."}
-          </AppText>
-
-          <RouteIllustration />
-        </View>
+      <View style={styles.header}>
+        <AppText variant="title" weight="extraBold" numberOfLines={1}>Get there</AppText>
+        <AppText variant="caption" tone="muted" numberOfLines={1}>
+          {booking ? "Rides to your booked stay" : "Book a stay, then add a ride"}
+        </AppText>
       </View>
 
-      <ModeCard
-        icon={<PlaneLanding color={colors.primary} size={22} />}
-        title="Schedule a transfer"
-        description="Airport, bus or ferry pickup, timed to your arrival, straight to your stay."
-        tag="Plan ahead"
-        tagIcon={<Clock3 color={colors.primary} size={12} />}
-        onPress={() => openTransport("scheduled")}
-      />
-      <ModeCard
-        icon={<Navigation color={colors.warning} size={22} />}
-        iconTone="warning"
-        title="Pick me up now"
-        description="Instant pickup from where you are to your booked stay."
-        tag="Right now"
-        tagIcon={<Zap color={colors.warning} size={12} />}
-        tagTone="warning"
-        onPress={() => openTransport("instant")}
-      />
+      <View style={styles.card}>
+        <View style={styles.route} accessible accessibilityLabel={`From any pickup to ${booking ? booking.propertyTitle : "your stay"}`}>
+          <View style={styles.end}>
+            <View style={styles.from}>
+              <MapPin color={colors.primary} size={16} />
+            </View>
+            <AppText variant="caption" weight="semiBold" tone="muted" numberOfLines={1}>Pickup</AppText>
+          </View>
+
+          <View style={styles.track}>
+            <View style={styles.line}>
+              {Array.from({ length: 14 }).map((_, i) => (
+                <View key={i} style={styles.dash} />
+              ))}
+            </View>
+            <View style={styles.rider}>
+              <Bike color={colors.primary} size={14} />
+            </View>
+          </View>
+
+          <View style={[styles.end, styles.endRight]}>
+            <View style={styles.to}>
+              <Home color={colors.white} size={16} />
+            </View>
+            <AppText variant="caption" weight="bold" numberOfLines={1} style={styles.stayLabel}>
+              {booking ? booking.propertyTitle : "Your stay"}
+            </AppText>
+          </View>
+        </View>
+
+        <View style={styles.actions}>
+          <Action
+            icon={<PlaneLanding color={colors.primary} size={18} />}
+            label="Transfer"
+            hint="Timed to arrival"
+            onPress={() => openTransport("scheduled")}
+          />
+          <View style={styles.divider} />
+          <Action
+            icon={<Navigation color={colors.warning} size={18} />}
+            warm
+            label="Pickup now"
+            hint="From where you are"
+            onPress={() => openTransport("instant")}
+          />
+        </View>
+      </View>
     </AppStack>
   );
 }
 
-/** Small "rider going from one place to another" graphic, drawn for attention. */
-function RouteIllustration() {
-  return (
-    <View style={styles.route}>
-      <Endpoint icon={<MapPin color={colors.primary} size={16} />} label="Pickup" />
-      <View style={styles.track}>
-        <DotRow />
-        <View style={styles.bikeChip}>
-          <Bike color={colors.white} size={18} />
-        </View>
-        <DotRow />
-      </View>
-      <Endpoint icon={<Home color={colors.primary} size={16} />} label="Your stay" />
-    </View>
-  );
-}
-
-function Endpoint({ icon, label }: { icon: ReactNode; label: string }) {
-  return (
-    <View style={styles.endpoint}>
-      <View style={styles.endpointDot}>{icon}</View>
-      <AppText variant="caption" weight="semiBold" tone="muted" style={styles.endpointLabel}>
-        {label}
-      </AppText>
-    </View>
-  );
-}
-
-function DotRow() {
-  return (
-    <View style={styles.dotRow}>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <View key={index} style={styles.dot} />
-      ))}
-    </View>
-  );
-}
-
-function ModeCard({
-  icon,
-  iconTone = "primary",
-  title,
-  description,
-  tag,
-  tagIcon,
-  tagTone = "primary",
-  onPress
-}: {
-  icon: ReactNode;
-  iconTone?: "primary" | "warning";
-  title: string;
-  description: string;
-  tag: string;
-  tagIcon: ReactNode;
-  tagTone?: "primary" | "warning";
-  onPress: () => void;
-}) {
+function Action({ icon, label, hint, warm, onPress }: { icon: ReactNode; label: string; hint: string; warm?: boolean; onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={`${label}, ${hint}`}
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
     >
-      <View style={[styles.iconWrap, iconTone === "warning" && styles.iconWrapWarning]}>{icon}</View>
-      <View style={styles.cardText}>
-        <AppText variant="bodySmall" weight="bold">
-          {title}
-        </AppText>
-        <AppText variant="caption" tone="muted" numberOfLines={3}>
-          {description}
-        </AppText>
-        <View style={[styles.tag, tagTone === "warning" && styles.tagWarning]}>
-          {tagIcon}
-          <AppText
-            variant="caption"
-            weight="bold"
-            tone={tagTone === "warning" ? "warning" : "primary"}
-            style={styles.tagText}
-          >
-            {tag}
-          </AppText>
-        </View>
+      <View style={[styles.actionIcon, warm && styles.actionIconWarm]}>{icon}</View>
+      <View style={styles.actionText}>
+        <AppText variant="bodySmall" weight="bold" numberOfLines={1}>{label}</AppText>
+        <AppText variant="caption" tone="soft" numberOfLines={1}>{hint}</AppText>
       </View>
-      <ChevronRight color={colors.softText} size={20} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  hero: {
+  header: {
+    gap: 2
+  },
+  card: {
     minWidth: 0,
     overflow: "hidden",
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.card,
-    ...shadows.card
-  },
-  heroGradient: {
-    ...StyleSheet.absoluteFill
-  },
-  heroContent: {
-    padding: spacing[5],
-    gap: spacing[2]
-  },
-  eyebrowPill: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1],
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    marginBottom: spacing[1]
-  },
-  eyebrowText: {
-    letterSpacing: 1.6
+    backgroundColor: colors.card
   },
   route: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: spacing[4],
+    paddingTop: spacing[4],
+    paddingBottom: spacing[3],
+    gap: spacing[2]
+  },
+  end: {
+    alignItems: "flex-start",
+    gap: 6,
+    maxWidth: 110
+  },
+  endRight: {
+    alignItems: "flex-end"
+  },
+  from: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.white
+  },
+  to: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary
+  },
+  stayLabel: {
+    textAlign: "right"
+  },
+  track: {
+    flex: 1,
+    height: 32,
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  line: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  dash: {
+    width: 6,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "rgba(2,102,94,0.35)"
+  },
+  rider: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand[50],
+    borderWidth: 1,
+    borderColor: colors.brand[100]
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderTopWidth: 1,
+    borderTopColor: colors.border
+  },
+  divider: {
+    width: 1,
+    backgroundColor: colors.border
+  },
+  action: {
+    flex: 1,
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[2],
-    marginTop: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: spacing[3],
-    paddingHorizontal: spacing[3]
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[3]
   },
-  endpoint: {
-    alignItems: "center",
-    gap: spacing[1],
-    width: 58
+  actionPressed: {
+    backgroundColor: colors.brand[50]
   },
-  endpointDot: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.brand[100]
-  },
-  endpointLabel: {
-    textAlign: "center"
-  },
-  track: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[2]
-  },
-  dotRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between"
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: radius.full,
-    backgroundColor: "#cbd5e1"
-  },
-  bikeChip: {
+  actionIcon: {
     width: 36,
     height: 36,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary,
-    borderWidth: 2,
-    borderColor: colors.white
-  },
-  card: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[3],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    padding: spacing[4]
-  },
-  cardPressed: {
-    backgroundColor: colors.brand[50],
-    borderColor: colors.brand[100]
-  },
-  iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.brand[50]
   },
-  iconWrapWarning: {
+  actionIconWarm: {
     backgroundColor: "#fff8e6"
   },
-  cardText: {
+  actionText: {
     flex: 1,
-    minWidth: 0,
-    gap: spacing[1]
-  },
-  tag: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    marginTop: spacing[1],
-    borderRadius: radius.full,
-    paddingHorizontal: spacing[2],
-    paddingVertical: 2,
-    backgroundColor: colors.brand[50]
-  },
-  tagWarning: {
-    backgroundColor: "#fff8e6"
-  },
-  tagText: {
-    textTransform: "uppercase",
-    letterSpacing: 0.8
+    minWidth: 0
   }
 });

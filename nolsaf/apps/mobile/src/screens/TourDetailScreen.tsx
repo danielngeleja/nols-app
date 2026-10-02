@@ -623,6 +623,8 @@ function buildRatingJourney(item: CustomerTourBookingDetail): RatingJourneyPoint
 export function TourDetailScreen({ route, navigation }: Props) {
   const { token } = useAuth();
   const bookingId = route.params.id;
+  // API paths use the opaque tr_ reference; the numeric id stays for display codes and payment.
+  const bookingKey = route.params.ref || bookingId;
   const [item, setItem] = useState<CustomerTourBookingDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -650,13 +652,13 @@ export function TourDetailScreen({ route, navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      setItem(await fetchCustomerTourBooking(token, bookingId));
+      setItem(await fetchCustomerTourBooking(token, bookingKey));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load this tour package.");
     } finally {
       setLoading(false);
     }
-  }, [bookingId, token]);
+  }, [bookingId, bookingKey, token]);
 
   useEffect(() => {
     void load();
@@ -693,7 +695,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
     if (!token) return;
     setActionLoading(true);
     try {
-      const voucher = await fetchCustomerTourVoucher(token, bookingId);
+      const voucher = await fetchCustomerTourVoucher(token, bookingKey);
       const identity = voucher.voucherIdentity?.voucherNumber || voucher.bookingCode || "Voucher ready";
       const securityMark = voucher.voucherIdentity?.securityMark || "NLSAF";
       const machineLine = voucher.voucherIdentity?.machineLine || `NLSAF|TVR|${voucher.bookingId || bookingId}`;
@@ -761,7 +763,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
     if (!token) return;
     setActionLoading(true);
     try {
-      const receipt = await fetchCustomerTourReceipt(token, bookingId);
+      const receipt = await fetchCustomerTourReceipt(token, bookingKey);
       openReceipt(receipt);
     } catch {
       // Keep the local booking receipt visible if the receipt endpoint is not ready yet.
@@ -819,7 +821,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
           uploadedAt: new Date().toISOString()
         }
       });
-      await saveTourBookingDocument(token, bookingId, {
+      await saveTourBookingDocument(token, bookingKey, {
         type: slot.type,
         label: slot.label,
         url,
@@ -855,7 +857,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
     setActionLoading(true);
     setMessage(null);
     try {
-      const res = await startTourPickupCheckIn(token, bookingId);
+      const res = await startTourPickupCheckIn(token, bookingKey);
       setMeetupCode(String(res.bookingCodeSuffix || item?.bookingCodeSuffix || ""));
       setMessage(res.message || "Meetup check-in started.");
       await load();
@@ -871,7 +873,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
     setActionLoading(true);
     setMessage(null);
     try {
-      const res = await validateTourPickup(token, bookingId, meetupCode || item?.bookingCodeSuffix);
+      const res = await validateTourPickup(token, bookingKey, meetupCode || item?.bookingCodeSuffix);
       if (res.bookingCodeSuffix) setMeetupCode(String(res.bookingCodeSuffix));
       if (res.pickupValidationCustomer || res.pickupTimeline) {
         setItem((current) => {
@@ -907,7 +909,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
     setActionLoading(true);
     setMessage(null);
     try {
-      const res = await createTourTimelineInvite(token, bookingId);
+      const res = await createTourTimelineInvite(token, bookingKey);
       const url = String(res.inviteUrl || res.invitePath || "");
       if (url) {
         setCreatedTimelineUrl(url);
@@ -976,10 +978,10 @@ export function TourDetailScreen({ route, navigation }: Props) {
     setMessage(null);
     try {
       if (actionMode === "change") {
-        await submitTourChangeRequest(token, bookingId, { title, message: body });
+        await submitTourChangeRequest(token, bookingKey, { title, message: body });
         setMessage("Change request sent.");
       } else {
-        await submitTourIssueReport(token, bookingId, { title, message: body });
+        await submitTourIssueReport(token, bookingKey, { title, message: body });
         setMessage("Issue report sent.");
       }
       setActionMode(null);
@@ -1136,7 +1138,7 @@ export function TourDetailScreen({ route, navigation }: Props) {
               Icon={Users}
               title="Manage group"
               subtitle="Add travellers"
-              onPress={() => navigation.navigate("TravellerGroups", { tourBookingId: bookingId, tourBookingTitle: item.title || undefined })}
+              onPress={() => navigation.navigate("TravellerGroups", { tourBookingId: bookingId, tourBookingRef: route.params.ref || item.tourReference, tourBookingTitle: item.title || undefined })}
             />
           </View>
         </Section>

@@ -39,7 +39,7 @@ type Destination = { latitude: number; longitude: number } | null;
 
 export function AddTransportScreen({ navigation, route }: Props) {
   const { token, user } = useAuth();
-  const { bookingId, mode, propertyId, propertyTitle, propertyArea } = route.params;
+  const { bookingId, bookingRef, mode, propertyId, propertyTitle, propertyArea } = route.params;
   const isScheduled = mode === "scheduled";
 
   const [loading, setLoading] = useState(true);
@@ -74,7 +74,7 @@ export function AddTransportScreen({ navigation, route }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const detail = await fetchBookingDetail(token, bookingId);
+      const detail = await fetchBookingDetail(token, bookingRef || bookingId);
       const property = detail.property;
       const lat = property?.latitude ?? null;
       const lng = property?.longitude ?? null;
@@ -89,7 +89,7 @@ export function AddTransportScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [bookingId, propertyTitle, token]);
+  }, [bookingId, bookingRef, propertyTitle, token]);
 
   useEffect(() => {
     void load();

@@ -78,6 +78,8 @@ export type PublicTourOperatorProfile = {
 
 export type PublicTourAgent = {
   id?: number;
+  /** Opaque key for /api/public/agents/:publicKey (numeric ids are refused). */
+  publicKey?: string | null;
   level?: string;
   totalCompletedTrips?: number;
   profile?: PublicTourOperatorProfile | null;
@@ -91,6 +93,8 @@ export type FeaturedTourPackage = {
   key: string;
   packageId?: string | number;
   agentId: number;
+  /** Opaque public key; the API looks operators up by this, never by the row id. */
+  operatorKey: string | null;
   title: string;
   operatorName: string;
   destination: string;
@@ -146,6 +150,8 @@ export type DiscoveryPackage = {
 /** One operator with its approved packages, ready for filtering, search, and sort. */
 export type DiscoveryOperator = {
   agentId: number;
+  /** Opaque public key; the API looks operators up by this, never by the row id. */
+  operatorKey: string | null;
   operatorName: string;
   description: string | null;
   location: string;
@@ -192,6 +198,8 @@ export type DiscoveryVehicle = {
 export type FeaturedTourOperator = {
   key: string;
   agentId: number;
+  /** Opaque public key; the API looks operators up by this, never by the row id. */
+  operatorKey: string | null;
   operatorName: string;
   location: string;
   currency: string;
@@ -206,6 +214,10 @@ export type FeaturedTourOperator = {
   packageCount: number;
   packageTitles: string[];
   completedTrips: number;
+  /** Where the operator runs trips, tidied: "Arusha, Serengeti". */
+  where: string;
+  /** The cheapest package's length, e.g. "3 days". */
+  leadDuration: string | null;
   /** Lowercased haystack for substring search, mirrors the web search bag. */
   searchBag: string;
 };
@@ -213,6 +225,8 @@ export type FeaturedTourOperator = {
 export type TourDashboardBucket = "DRAFT" | "PAID_PACKAGES" | "ACTIVE_TIMELINE" | "COMPLETED" | string;
 
 export type CustomerTourBookingSummary = {
+  /** Opaque tr_ reference; used in API paths instead of the row id when present. */
+  tourReference?: string | null;
   id: number;
   bookingCode?: string | null;
   bookingCodeSuffix?: string | null;

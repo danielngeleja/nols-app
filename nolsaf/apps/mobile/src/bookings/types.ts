@@ -12,6 +12,8 @@ export type BookingProperty = {
  *  drafts) are returned; transport is offered on paid stays only. */
 export type BookingListItem = {
   id: number;
+  /** Opaque bk_ reference; used in API paths instead of the row id when present. */
+  bookingReference?: string | null;
   property: BookingProperty | null;
   checkIn: string | null;
   checkOut: string | null;
@@ -71,6 +73,8 @@ export type BookingDetail = {
 /** A booked stay that can carry transport, passed into the transport flow. */
 export type TransportBookingContext = {
   bookingId: number;
+  /** Opaque bk_ reference for loading the booking. */
+  bookingReference?: string | null;
   propertyId: number | null;
   propertyTitle: string;
   propertyArea: string;

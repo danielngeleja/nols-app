@@ -96,7 +96,9 @@ const OFFER_CARD_GAP = spacing[3];
 
 export function GroupStayDetailScreen({ navigation, route }: Props) {
   const { token } = useAuth();
-  const { id } = route.params;
+  const { id, ref } = route.params;
+  // customer/group-stays routes resolve the gs_ reference; /api/group-bookings/:id still needs the id.
+  const stayKey = ref || id;
   const { width: windowWidth } = useWindowDimensions();
   const offerCardWidth = Math.min(windowWidth - spacing[4] * 4, 420);
   const [activeOfferIndex, setActiveOfferIndex] = useState(0);
@@ -130,7 +132,7 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
     setReceiptLoading(true);
     setReceiptError(null);
     try {
-      const res = await fetchGroupBookingDepositReceiptToken(token, id);
+      const res = await fetchGroupBookingDepositReceiptToken(token, stayKey);
       const url = `${apiBaseUrl()}/api/public/group-stays/receipt?token=${encodeURIComponent(res.token)}`;
       await WebBrowser.openBrowserAsync(url);
     } catch (e) {
@@ -162,7 +164,7 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
     if (!token) return;
     setMessagesLoading(true);
     try {
-      const response = await fetchGroupStayMessages(token, id);
+      const response = await fetchGroupStayMessages(token, stayKey);
       setMessages(response.messages || []);
     } catch {
       // Conversation history is best-effort; ignore failures.
@@ -181,7 +183,7 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
     setOffersLoading(true);
     setOffersError(null);
     try {
-      const response = await fetchAuctionOffers(token, id);
+      const response = await fetchAuctionOffers(token, stayKey);
       setOffers(response.offers || []);
       setOffersLoaded(true);
     } catch (e) {
@@ -216,7 +218,7 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
       setConfirmingId(propertyId);
       setConfirmError(null);
       try {
-        await confirmAuctionOffer(token, id, propertyId);
+        await confirmAuctionOffer(token, stayKey, propertyId);
         await load();
         await loadOffers();
       } catch (e) {
@@ -235,7 +237,7 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
       setSendError(null);
       setSent(false);
       try {
-        await sendGroupStayMessage(token, id, text.trim());
+        await sendGroupStayMessage(token, stayKey, text.trim());
         setFollowUpText("");
         setSent(true);
         await loadMessages();
@@ -346,7 +348,7 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
                           </AppText>
                         </View>
                       ) : null}
-                      <AppButton title="Pay deposit now" onPress={() => navigation.navigate("GroupStayDeposit", { id })} />
+                      <AppButton title="Pay deposit now" onPress={() => navigation.navigate("GroupStayDeposit", { id, ref })} />
                     </AppStack>
                   </AppCard>
                 ) : null}

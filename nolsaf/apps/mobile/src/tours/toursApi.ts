@@ -43,10 +43,10 @@ function profilePhotos(profile: PublicTourOperatorProfile) {
   const classified = profile.classifiedPhotos || {};
   return [
     ...(classified.attractions || []),
-    ...(classified.proof || []),
-    ...(classified.office || []),
-    ...(classified.vehicles || []),
     ...(profile.gallery || []),
+    ...(classified.vehicles || []),
+    ...(classified.office || []),
+    ...(classified.proof || []),
     profile.companyLogoUrl
   ]
     .filter((item): item is string => Boolean(item))
@@ -132,6 +132,7 @@ function flattenFeaturedPackages(agent: PublicTourAgent, systemCommission: numbe
     key: `${agentId}-${String(pkg.id ?? index)}-${packageTitle(pkg)}`,
     packageId: pkg.id,
     agentId,
+    operatorKey: agent.publicKey || null,
     title: packageTitle(pkg),
     operatorName,
     destination: String(pkg.destination || location || "East Africa").trim(),
@@ -147,6 +148,18 @@ function flattenFeaturedPackages(agent: PublicTourAgent, systemCommission: numbe
     services,
     packageCount: approvedPackages.length
   }));
+}
+
+/** "ARUSHA / MONDULI" and "arusha" both read as "Arusha". */
+function tidyPlace(value: string) {
+  return value.split(/\s*\/\s*/)[0].trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function durationLabel(pkg: PublicTourPackageItem | undefined | null) {
+  if (!pkg) return null;
+  const n = Number(pkg.duration);
+  if (Number.isFinite(n) && n > 0) return `${n} day${n === 1 ? "" : "s"}`;
+  return typeof pkg.duration === "string" && pkg.duration.trim() ? pkg.duration.trim() : null;
 }
 
 function buildFeaturedOperator(agent: PublicTourAgent, systemCommission: number): FeaturedTourOperator | null {
@@ -180,6 +193,7 @@ function buildFeaturedOperator(agent: PublicTourAgent, systemCommission: number)
   return {
     key: `operator-${agentId}`,
     agentId,
+    operatorKey: agent.publicKey || null,
     operatorName,
     location,
     currency: String(lowestPackage?.currency || "USD").toUpperCase(),
@@ -194,6 +208,10 @@ function buildFeaturedOperator(agent: PublicTourAgent, systemCommission: number)
     packageCount: approvedPackages.length,
     packageTitles,
     completedTrips: Math.max(0, Math.round(toFiniteNumber(agent.totalCompletedTrips) ?? 0)),
+    where:
+      Array.from(new Set((profile.operatingRegions || []).filter(Boolean).map(tidyPlace))).slice(0, 2).join(", ") ||
+      tidyPlace(profile.physicalLocation || profile.businessAddress || "Tanzania"),
+    leadDuration: durationLabel(lowestPackage),
     searchBag: [
       profile.companyName,
       profile.physicalLocation,
@@ -378,6 +396,7 @@ function buildDiscoveryOperator(agent: PublicTourAgent, systemCommission: number
 
   return {
     agentId,
+    operatorKey: agent.publicKey || null,
     operatorName,
     description: profile.description?.trim() ? profile.description.trim() : null,
     location,
@@ -450,10 +469,14 @@ export async function fetchTourOperators(): Promise<DiscoveryOperator[]> {
     .sort((a, b) => b.completedTrips - a.completedTrips);
 }
 
-/** One operator profile with its approved packages, for the operator screen. */
-export async function fetchTourOperator(agentId: number): Promise<DiscoveryOperator | null> {
+/**
+ * One operator profile with its approved packages, for the operator screen.
+ * Looked up by the operator's opaque public key; the API refuses numeric ids.
+ * A bare id is only a fallback for an older API that predates public keys.
+ */
+export async function fetchTourOperator(operatorKeyOrId: string | number): Promise<DiscoveryOperator | null> {
   const [agent, systemCommission] = await Promise.all([
-    apiRequest<PublicTourAgent>(`/api/public/agents/${agentId}`),
+    apiRequest<PublicTourAgent>(`/api/public/agents/${encodeURIComponent(String(operatorKeyOrId))}`),
     fetchTourSystemCommission()
   ]);
   return buildDiscoveryOperator(agent, systemCommission);
@@ -677,15 +700,15 @@ export async function fetchCustomerTourBookings(token: string, params: { page?: 
   return apiRequest<CustomerTourBookingsResponse>(`/api/customer/tour-bookings?${query.toString()}`, { token });
 }
 
-export async function fetchCustomerTourBooking(token: string, id: number) {
+export async function fetchCustomerTourBooking(token: string, id: number | string) {
   return apiRequest<CustomerTourBookingDetail>(`/api/customer/tour-bookings/${id}`, { token });
 }
 
-export async function fetchCustomerTourVoucher(token: string, id: number) {
+export async function fetchCustomerTourVoucher(token: string, id: number | string) {
   return apiRequest<TourVoucherPayload>(`/api/customer/tour-bookings/${id}/voucher`, { token });
 }
 
-export async function fetchCustomerTourReceipt(token: string, id: number) {
+export async function fetchCustomerTourReceipt(token: string, id: number | string) {
   return apiRequest<TourReceiptPayload>(`/api/customer/tour-bookings/${id}/receipt`, { token });
 }
 
@@ -713,7 +736,7 @@ export async function saveTravellerDocument(
 
 export async function saveTourBookingDocument(
   token: string,
-  bookingId: number,
+  bookingId: number | string,
   input: { type: string; label: string; url: string; fileName?: string | null }
 ) {
   return apiRequest<{ ok?: boolean; document?: Record<string, unknown> }>(`/api/customer/tour-bookings/${bookingId}/documents`, {
@@ -723,14 +746,14 @@ export async function saveTourBookingDocument(
   });
 }
 
-export async function startTourPickupCheckIn(token: string, id: number) {
+export async function startTourPickupCheckIn(token: string, id: number | string) {
   return apiRequest<{ ok?: boolean; message?: string; bookingCodeSuffix?: string; pickupCheckIn?: Record<string, unknown> }>(
     `/api/customer/tour-bookings/${id}/start-pickup-checkin`,
     { method: "POST", token, body: {} }
   );
 }
 
-export async function validateTourPickup(token: string, id: number, codeSuffix?: string | null) {
+export async function validateTourPickup(token: string, id: number | string, codeSuffix?: string | null) {
   return apiRequest<{
     ok?: boolean;
     message?: string;
@@ -751,7 +774,7 @@ export async function validateTourPickup(token: string, id: number, codeSuffix?:
   );
 }
 
-export async function createTourTimelineInvite(token: string, id: number) {
+export async function createTourTimelineInvite(token: string, id: number | string) {
   return apiRequest<{ ok?: boolean; reused?: boolean; inviteUrl?: string | null; invitePath?: string | null; invite?: Record<string, unknown> }>(
     `/api/customer/tour-bookings/${id}/timeline-invite`,
     { method: "POST", token, body: {} }
@@ -760,7 +783,7 @@ export async function createTourTimelineInvite(token: string, id: number) {
 
 export async function submitTourChangeRequest(
   token: string,
-  id: number,
+  id: number | string,
   input: { title: string; message: string; changeType?: string }
 ) {
   return apiRequest<{ ok?: boolean; request?: Record<string, unknown> }>(`/api/customer/tour-bookings/${id}/request-change`, {
@@ -776,7 +799,7 @@ export async function submitTourChangeRequest(
 
 export async function submitTourIssueReport(
   token: string,
-  id: number,
+  id: number | string,
   input: { title: string; message: string; issueType?: string; severity?: "LOW" | "MEDIUM" | "HIGH" }
 ) {
   return apiRequest<{ ok?: boolean; issue?: Record<string, unknown> }>(`/api/customer/tour-bookings/${id}/report-issue`, {
@@ -791,7 +814,7 @@ export async function submitTourIssueReport(
   });
 }
 
-export async function fetchTourGroupMembers(token: string, id: number) {
+export async function fetchTourGroupMembers(token: string, id: number | string) {
   return apiRequest<TourGroupMembersResponse>(`/api/customer/tour-bookings/${id}/group-members`, {
     method: "GET",
     token
@@ -811,7 +834,7 @@ export type TourGroupMemberInput = {
   documentFileName?: string;
 };
 
-export async function addTourGroupMember(token: string, id: number, input: TourGroupMemberInput) {
+export async function addTourGroupMember(token: string, id: number | string, input: TourGroupMemberInput) {
   return apiRequest<{ ok?: boolean; member?: TourGroupMember; members?: TourGroupMember[] }>(
     `/api/customer/tour-bookings/${id}/group-members`,
     {
@@ -822,7 +845,7 @@ export async function addTourGroupMember(token: string, id: number, input: TourG
   );
 }
 
-export async function updateTourGroupMember(token: string, id: number, memberId: string, input: TourGroupMemberInput) {
+export async function updateTourGroupMember(token: string, id: number | string, memberId: string, input: TourGroupMemberInput) {
   return apiRequest<{ ok?: boolean; member?: TourGroupMember; members?: TourGroupMember[] }>(
     `/api/customer/tour-bookings/${id}/group-members/${encodeURIComponent(memberId)}`,
     {
@@ -833,7 +856,7 @@ export async function updateTourGroupMember(token: string, id: number, memberId:
   );
 }
 
-export async function deleteTourGroupMember(token: string, id: number, memberId: string) {
+export async function deleteTourGroupMember(token: string, id: number | string, memberId: string) {
   return apiRequest<{ ok?: boolean; members?: TourGroupMember[] }>(
     `/api/customer/tour-bookings/${id}/group-members/${encodeURIComponent(memberId)}`,
     {

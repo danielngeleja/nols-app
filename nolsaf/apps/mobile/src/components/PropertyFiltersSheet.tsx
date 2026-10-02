@@ -1,5 +1,5 @@
 import { X } from "lucide-react-native";
-import { ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { colors, radius, shadows, spacing } from "../theme";
@@ -58,14 +58,20 @@ type PropertyFiltersSheetProps = {
   prices: number[];
   /** How many stays exist per type, so each type chip shows what is available. */
   typeCounts: Record<string, number>;
+  /** The loaded stays (type and nightly price), for the live "Show N stays" count. */
+  stays?: Array<{ type?: string | null; basePrice?: number | null }>;
   onApply: (filters: PropertyFilters) => void;
   onClose: () => void;
 };
 
-/** Bottom sheet of advanced filters. Every section is a single horizontal scroll
- *  row of identical pill chips, so the sheet stays compact and consistent. */
-export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, priceCurrency, prices, typeCounts, onApply, onClose }: PropertyFiltersSheetProps) {
+/**
+ * Bottom sheet of advanced filters. Only stay types that have stays are
+ * offered (busiest first), sort is one compact segmented control, and the
+ * button says how many stays the choice will show before it is applied.
+ */
+export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, priceCurrency, prices, typeCounts, stays, onApply, onClose }: PropertyFiltersSheetProps) {
   const [draft, setDraft] = useState<PropertyFilters>(value);
+  const [gridWidth, setGridWidth] = useState(0);
 
   useEffect(() => {
     if (visible) setDraft(value);
@@ -82,37 +88,76 @@ export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, price
 
   const priceLabel = priceCurrency ? `Price per night (${priceCurrency})` : "Price per night";
 
+  // Types with stays, busiest first; a type already selected stays visible so it can be cleared.
+  const hasCounts = Object.values(typeCounts).some((n) => n > 0);
+  const offeredTypes = hasCounts
+    ? PROPERTY_TYPES.filter((t) => (typeCounts[t.value] ?? 0) > 0 || draft.types.includes(t.value)).sort(
+        (a, b) => (typeCounts[b.value] ?? 0) - (typeCounts[a.value] ?? 0)
+      )
+    : PROPERTY_TYPES;
+
+  // Live result count over the loaded stays.
+  const matchCount = stays
+    ? stays.filter((s) => {
+        if (draft.types.length && !draft.types.includes(String(s.type || "").toUpperCase())) return false;
+        const p = typeof s.basePrice === "number" ? s.basePrice : null;
+        if (draft.minPrice && (p == null || p < Number(draft.minPrice))) return false;
+        if (draft.maxPrice && (p == null || p > Number(draft.maxPrice))) return false;
+        return true;
+      }).length
+    : null;
+  const applyTitle = matchCount == null ? "Apply" : matchCount === 0 ? "No stays match" : `Show ${matchCount} ${matchCount === 1 ? "stay" : "stays"}`;
+  const dirty = countAdvancedFilters(draft) > 0;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
+        <Pressable accessibilityLabel="Close filters" style={styles.backdrop} onPress={onClose} />
         <View style={styles.sheet}>
+          <View style={styles.grabber} />
           <View style={styles.header}>
             <AppText variant="title" weight="bold">
               Filters
             </AppText>
-            <Pressable accessibilityRole="button" onPress={onClose} hitSlop={8} style={styles.close}>
-              <X color={colors.ink} size={20} />
-            </Pressable>
+            <View style={styles.headerActions}>
+              {dirty ? (
+                <Pressable accessibilityRole="button" onPress={() => setDraft(DEFAULT_PROPERTY_FILTERS)} hitSlop={8}>
+                  <AppText variant="bodySmall" weight="semiBold" tone="primary">
+                    Clear all
+                  </AppText>
+                </Pressable>
+              ) : null}
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8} style={styles.close}>
+                <X color={colors.ink} size={18} />
+              </Pressable>
+            </View>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-            <AppStack gap={6}>
-              <Section label="Property type">
-                {PROPERTY_TYPES.map((t) => (
-                  <Chip
-                    key={t.value}
-                    label={t.label}
-                    count={typeCounts[t.value] ?? 0}
-                    active={draft.types.includes(t.value)}
-                    onPress={() => toggleType(t.value)}
-                  />
-                ))}
-              </Section>
+            <AppStack gap={5}>
+              <View style={styles.section}>
+                <AppText variant="bodySmall" weight="bold">
+                  Type of stay
+                </AppText>
+                {/* An even three-column grid: equal tiles, no ragged edge. */}
+                <View style={styles.chipWrap} onLayout={(e) => setGridWidth(e.nativeEvent.layout.width)}>
+                  {offeredTypes.map((t) => (
+                    <Chip
+                      key={t.value}
+                      width={gridWidth ? Math.floor((gridWidth - GRID_GAP * 2) / 3) : undefined}
+                      label={t.label}
+                      count={hasCounts ? typeCounts[t.value] ?? 0 : undefined}
+                      active={draft.types.includes(t.value)}
+                      onPress={() => toggleType(t.value)}
+                    />
+                  ))}
+                </View>
+              </View>
 
               {priceMax > priceMin ? (
                 <View style={styles.section}>
-                  <AppText variant="label" weight="bold" tone="muted" style={styles.sectionLabel}>
-                    {priceLabel.toUpperCase()}
+                  <AppText variant="bodySmall" weight="bold">
+                    {priceLabel}
                   </AppText>
                   <PriceRangeSlider
                     min={priceMin}
@@ -141,21 +186,34 @@ export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, price
                 </View>
               ) : null}
 
-              <Section label="Sort by">
-                {SORT_OPTIONS.map((s) => (
-                  <Chip key={s.value} label={s.label} active={draft.sort === s.value} onPress={() => setDraft((c) => ({ ...c, sort: s.value }))} />
-                ))}
-              </Section>
+              <View style={styles.section}>
+                <AppText variant="bodySmall" weight="bold">
+                  Sort by
+                </AppText>
+                <View style={styles.segment}>
+                  {SORT_OPTIONS.map((s) => {
+                    const active = draft.sort === s.value;
+                    return (
+                      <Pressable
+                        key={s.value}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setDraft((c) => ({ ...c, sort: s.value }))}
+                        style={[styles.segmentItem, active && styles.segmentItemActive]}
+                      >
+                        <AppText variant="caption" weight={active ? "bold" : "semiBold"} tone={active ? "primary" : "muted"} numberOfLines={1}>
+                          {SORT_SHORT[s.value]}
+                        </AppText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
             </AppStack>
           </ScrollView>
 
           <View style={styles.footer}>
-            <View style={styles.flex}>
-              <AppButton title="Reset" variant="ghost" onPress={() => setDraft(DEFAULT_PROPERTY_FILTERS)} />
-            </View>
-            <View style={styles.flex}>
-              <AppButton title="Apply" onPress={() => onApply(draft)} />
-            </View>
+            <AppButton title={applyTitle} disabled={matchCount === 0} onPress={() => onApply(draft)} />
           </View>
         </View>
       </View>
@@ -163,56 +221,43 @@ export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, price
   );
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <AppText variant="label" weight="bold" tone="muted" style={styles.sectionLabel}>
-        {label.toUpperCase()}
-      </AppText>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipRow}
-        keyboardShouldPersistTaps="handled"
-      >
-        {children}
-      </ScrollView>
-    </View>
-  );
-}
+const SORT_SHORT: Record<PropertySort, string> = {
+  newest: "Newest",
+  price_asc: "Lowest price",
+  price_desc: "Highest price"
+};
 
+const GRID_GAP = spacing[2];
+
+/** One stay type as an equal grid tile: the name, and its count underneath. */
 function Chip({
   label,
   active,
   onPress,
-  count
+  count,
+  width
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
   count?: number;
+  width?: number;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed }) => [styles.chip, active && styles.chipActive, pressed && !active && styles.chipPressed]}
+      style={({ pressed }) => [styles.chip, width ? { width } : styles.chipFallback, active && styles.chipActive, pressed && !active && styles.chipPressed]}
     >
-      <View style={styles.chipInner}>
-        <AppText variant="bodySmall" weight="semiBold" tone={active ? "inverse" : "default"}>
-          {label}
+      <AppText variant="bodySmall" weight="semiBold" tone={active ? "inverse" : "default"} numberOfLines={1} style={styles.chipLabel}>
+        {label}
+      </AppText>
+      {count != null ? (
+        <AppText variant="caption" tone={active ? "inverse" : "soft"} numberOfLines={1} style={styles.chipLabel}>
+          {count} {count === 1 ? "stay" : "stays"}
         </AppText>
-        {count != null ? (
-          <AppText
-            variant="caption"
-            weight="bold"
-            tone={active ? "inverse" : "muted"}
-            style={count === 0 ? styles.countZero : styles.count}
-          >
-            {count}
-          </AppText>
-        ) : null}
-      </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -222,6 +267,47 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(2,6,23,0.42)"
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject
+  },
+  grabber: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    marginBottom: spacing[3]
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[4]
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: GRID_GAP
+  },
+  segment: {
+    flexDirection: "row",
+    padding: 3,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  segmentItem: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing[2],
+    borderRadius: radius.sm
+  },
+  segmentItemActive: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.brand[100]
   },
   sheet: {
     maxHeight: "85%",
@@ -253,33 +339,23 @@ const styles = StyleSheet.create({
   section: {
     gap: spacing[3]
   },
-  sectionLabel: {
-    letterSpacing: 1
-  },
-  chipRow: {
-    gap: spacing[2],
-    paddingRight: spacing[2]
-  },
   chip: {
-    borderRadius: radius.full,
+    minHeight: 52,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing[4],
+    paddingHorizontal: spacing[2],
     paddingVertical: spacing[2],
-    minHeight: 40,
-    justifyContent: "center"
-  },
-  chipInner: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: spacing[2]
+    justifyContent: "center",
+    gap: 1
   },
-  count: {
-    opacity: 0.85
+  chipFallback: {
+    width: "31%"
   },
-  countZero: {
-    opacity: 0.4
+  chipLabel: {
+    textAlign: "center"
   },
   chipActive: {
     backgroundColor: colors.primary,

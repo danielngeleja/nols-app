@@ -688,7 +688,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
   const { savedIds, toggleSave } = useSavedProperties(token);
-  const { id } = route.params;
+  const { id, slug } = route.params;
   const [detail, setDetail] = useState<PublicPropertyDetail | null>(null);
   const [commission, setCommission] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -713,6 +713,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
       }
       navigation.navigate("BookingReview", {
         propertyId: id,
+        propertySlug: detail?.slug || slug,
         propertyTitle: detail?.title,
         roomCode: roomCode ?? null,
         checkIn: checkIn || null,
@@ -821,7 +822,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [data, sysCommission] = await Promise.all([fetchPropertyDetail(id), fetchSystemCommission()]);
+      const [data, sysCommission] = await Promise.all([fetchPropertyDetail(slug || id), fetchSystemCommission()]);
       setDetail(data);
       setCommission(getPropertyCommission(data.services, sysCommission));
     } catch (e) {
@@ -829,7 +830,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, slug]);
 
   useEffect(() => {
     void load();

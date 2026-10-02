@@ -38,6 +38,8 @@ export * from "./ScreenHeader";
 export * from "./StateView";
 export * from "./StatusBadge";
 export * from "./FeaturedTourOperatorCard";
+export * from "./TourOperatorTile";
+export * from "./ParkTile";
 export * from "./FeaturedOperatorCarousel";
 export * from "./TourFiltersSheet";
 export * from "./TransportBundle";

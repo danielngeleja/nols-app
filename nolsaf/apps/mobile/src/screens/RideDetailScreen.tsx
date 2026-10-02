@@ -100,6 +100,7 @@ export function RideDetailScreen({ route, navigation }: Props) {
   const { token } = useAuth();
   const { width } = useWindowDimensions();
   const rideId = route.params?.id;
+  const rideKey = route.params?.ref || rideId;
 
   const [ride, setRide] = useState<RideDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -113,13 +114,13 @@ export function RideDetailScreen({ route, navigation }: Props) {
         setError("Please sign in to view this ride.");
         return;
       }
-      setRide(await fetchRideDetail(token, rideId));
+      setRide(await fetchRideDetail(token, rideKey));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load ride details.");
     } finally {
       setLoading(false);
     }
-  }, [rideId, token]);
+  }, [rideId, rideKey, token]);
 
   useEffect(() => {
     void load();

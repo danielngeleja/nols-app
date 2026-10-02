@@ -16,6 +16,6 @@ export async function fetchMyBookings(
 
 /** Full booking detail, including the property's coordinates needed to price
  *  and create a transport booking to that property. */
-export async function fetchBookingDetail(token: string, bookingId: number) {
+export async function fetchBookingDetail(token: string, bookingId: number | string) {
   return apiRequest<BookingDetail>(`/api/customer/bookings/${bookingId}`, { token });
 }

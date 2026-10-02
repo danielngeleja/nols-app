@@ -84,6 +84,8 @@ export type GroupBookingStatus = "PENDING" | "AWAITING_DEPOSIT" | "CONFIRMED" | 
 
 export type GroupBookingListItem = {
   id: number;
+  /** Opaque gs_ reference, when the list returns one. */
+  groupStayReference?: string | null;
   groupType: GroupType | string;
   toRegion: string;
   toDistrict?: string | null;

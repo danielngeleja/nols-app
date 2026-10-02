@@ -209,7 +209,7 @@ export function TourPackagesScreen({ navigation }: Props) {
               <View style={styles.carouselWrap}>
                 <FeaturedOperatorCarousel
                   operators={filtered}
-                  onPressOperator={(op) => navigation.navigate("TourOperator", { agentId: op.agentId, operatorName: op.operatorName })}
+                  onPressOperator={(op) => navigation.navigate("TourOperator", { agentId: op.agentId, operatorKey: op.operatorKey, operatorName: op.operatorName })}
                 />
               </View>
             )}
