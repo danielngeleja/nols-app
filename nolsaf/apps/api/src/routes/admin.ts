@@ -51,6 +51,7 @@ import adminReportsRouter from "./admin.reports";
 import adminRevenueRouter from "./admin.revenue";
 import adminFinanceOverviewRouter from "./admin.financeOverview";
 import adminFinanceExpensesRouter from "./admin.finance.expenses";
+import adminFinancePayrollRouter from "./admin.finance.payroll";
 import adminNrmsRouter from "./admin.nrms";
 import adminNrmsEnforceRouter from "./admin.nrms.enforce";
 import adminNrmsCommercialRouter from "./admin.nrms.commercial.js";
@@ -92,6 +93,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/finance", adminFinanceOverviewRouter);
   // Mounted before the overview router so its own guards run first.
   app.use("/api/admin/finance/expenses", adminFinanceExpensesRouter as RequestHandler);
+  app.use("/api/admin/finance/payroll", adminFinancePayrollRouter as RequestHandler);
   app.use("/api/admin/finance", adminFinanceOverviewRouter as RequestHandler);
   app.use("/admin/nrms/enforce", adminNrmsEnforceRouter);
   app.use("/api/admin/nrms/enforce", adminNrmsEnforceRouter as RequestHandler);

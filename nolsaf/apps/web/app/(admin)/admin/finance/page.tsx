@@ -506,7 +506,7 @@ export default function AdminFinancePage() {
                   ) : null}
                 </span>
               ))}
-              <Link href="/admin/finance/expenses" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 no-underline transition hover:bg-white/[0.08] hover:text-white hover:no-underline">
+              <Link href="/admin/expenses" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 no-underline transition hover:bg-white/[0.08] hover:text-white hover:no-underline">
                 Expenses <ExternalLink className="h-3 w-3" />
               </Link>
             </div>

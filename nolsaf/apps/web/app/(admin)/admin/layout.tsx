@@ -59,7 +59,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   // review, authorize, reconcile). It owns its own navigation and chrome —
   // same pattern as /owner/nrms — and deliberately hides the standard admin
   // sidebar/header until the user exits back to /admin/home.
-  if (pathname.startsWith("/admin/disbursements")) {
+  // Expenses (ledger, payroll, statutory settings) is the same kind of
+  // self-contained finance workspace with its own sidebar and exit.
+  if (pathname.startsWith("/admin/disbursements") || pathname.startsWith("/admin/expenses")) {
     return <div className="min-h-screen min-w-0 bg-neutral-100">{children}</div>;
   }
 

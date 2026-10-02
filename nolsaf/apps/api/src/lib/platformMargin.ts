@@ -77,13 +77,25 @@ export async function accommodationTake(range: DateRange) {
   return out;
 }
 
+/**
+ * Sales commissions that are a real cost to NoLSAF. A reversed commission
+ * that was already paid keeps its row and gains a linked negative offset, so
+ * the two net to zero. One reversed before payment gets no offset, so it is
+ * left out, as are cancelled ones.
+ */
+export const SALES_COMMISSION_COST_WHERE = {
+  OR: [
+    { status: { notIn: ["REVERSED", "CANCELLED"] } },
+    { status: "REVERSED", paidAt: { not: null } },
+  ],
+};
+
 /** Costs recorded in other ledgers, plus money at risk. All in TZS. */
 export async function platformCosts(range: DateRange, toTzs: ToTzs) {
   const [sales, referrals, recoveries] = await Promise.all([
-    // Reversals add a linked negative row, so the plain sum is the net cost.
     prisma.salesCommission.groupBy({
       by: ["currency"],
-      where: range ? { earnedAt: range } : {},
+      where: { ...SALES_COMMISSION_COST_WHERE, ...(range ? { earnedAt: range } : {}) },
       _sum: { commissionAmount: true },
       _count: { _all: true },
     }),

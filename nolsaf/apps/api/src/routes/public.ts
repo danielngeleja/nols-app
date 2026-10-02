@@ -21,6 +21,7 @@ import publicNrmsCalendarRouter from "./public.nrmsCalendar";
 import publicNrmsProFormaRouter from "./public.nrmsProForma";
 import publicNrmsSupplierOrderRouter from "./public.nrmsSupplierOrder";
 import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
+import publicPayslipsRouter from "./public.payslips";
 import publicAgentsRouter from "./public.agents";
 import publicPickupPointsRouter from "./public.pickupPoints";
 import publicPodcastsRouter from "./public.podcasts";
@@ -56,6 +57,7 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/service-availability", publicServiceAvailabilityRouter);
   app.use("/api/public/invoices", publicInvoicesRouter);
   app.use("/api/public/owner-payout-receipts", publicOwnerPayoutReceiptsRouter);
+  app.use("/api/public/payslips", publicPayslipsRouter);
   app.use("/api/public/reports", publicReportsRouter);
   app.use("/api/public/group-stays/receipt", publicGroupStayReceiptRouter);
   app.use("/api/public/pickup-points", publicPickupPointsRouter);

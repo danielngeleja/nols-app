@@ -2251,6 +2251,10 @@ model SystemSetting {
   /// a settlement statement. Null means no estimate is made.
   gatewayFeeEstimatePercent Decimal? @db.Decimal(5, 2)
 
+  /// Payroll statutory rates (lib/payroll.ts PayrollRates). Null uses the
+  /// built-in defaults; each pay run stores the rates it used.
+  payrollSettings Json?
+
   // ==================== Business Configuration Fields ====================
   /// Referral credit percentage as decimal (e.g., 0.0035 for 0.35%)
   referralCreditPercent Decimal? @default(0.0035) @db.Decimal(10, 6)
@@ -3411,16 +3415,16 @@ model ChatbotConversation {
 
   /// Where the conversation sits between Twiga and a human.
   /// BOT, AWAITING_AGENT, AGENT_ACTIVE, RESOLVED.
-  status        String    @default("BOT") @db.VarChar(20)
+  status            String    @default("BOT") @db.VarChar(20)
   /// Admin handling the thread. Deliberately a plain id rather than a relation:
   /// these two tables carry no foreign keys at all (see the migration that
   /// created them), and an assignee pointing at a removed admin should read as
   /// unassigned rather than block the row.
-  assignedToId  Int?
+  assignedToId      Int?
   /// Why it left the bot, for triage. Short and set by the server, never by the visitor.
-  handoffReason String?   @db.VarChar(160)
-  handoffAt     DateTime?
-  resolvedAt    DateTime?
+  handoffReason     String?   @db.VarChar(160)
+  handoffAt         DateTime?
+  resolvedAt        DateTime?
   /// Read receipts. When an admin last opened the thread: visitor messages
   /// older than this show two blue ticks in the widget.
   agentLastReadAt   DateTime?
@@ -3428,8 +3432,8 @@ model ChatbotConversation {
   /// than this show as seen in the admin console.
   visitorLastReadAt DateTime?
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   user     User?            @relation("ChatbotConversations", fields: [userId], references: [id], onDelete: SetNull)
@@ -4202,7 +4206,7 @@ model RoomType {
   /// Human-readable bed setup, e.g. "1 queen and 1 single"
   bedSetup         String? @db.VarChar(200)
 
-  baseRate Decimal? @db.Decimal(12, 2) // standard rate per night
+  baseRate       Decimal? @db.Decimal(12, 2) // standard rate per night
   /// The lowest nightly rate a staff member may agree for this room type.
   ///
   /// Group blocks let the person agreeing the business type the rate, and that
@@ -4215,7 +4219,7 @@ model RoomType {
   /// discounting is granted, not assumed. Set a lower number to grant room to
   /// negotiate, or 0 to lift the limit entirely. The owner is never floored.
   staffRateFloor Decimal? @db.Decimal(12, 2)
-  currency String   @default("TZS") @db.VarChar(3)
+  currency       String   @default("TZS") @db.VarChar(3)
 
   images    Json? // Array of URLs
   amenities Json? // Array of strings
@@ -4780,10 +4784,10 @@ model NrmsMasterFolio {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  block               NrmsGroupBlock?           @relation(fields: [blockId], references: [id], onDelete: Cascade)
-  agentBookingRequest NrmsAgentBookingRequest?  @relation(fields: [agentBookingRequestId], references: [id], onDelete: Cascade)
-  property            Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  owner               User                      @relation("NrmsMasterFolioOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  block               NrmsGroupBlock?              @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  agentBookingRequest NrmsAgentBookingRequest?     @relation(fields: [agentBookingRequestId], references: [id], onDelete: Cascade)
+  property            Property                     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner               User                         @relation("NrmsMasterFolioOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   items               NrmsMasterFolioItem[]
   payments            NrmsMasterFolioPayment[]
   refunds             NrmsMasterFolioRefund[]
@@ -4855,19 +4859,19 @@ model NrmsMasterFolioPayment {
 /// It is deliberately separate from the rooming-list token: the names remain
 /// viewable after confirmation, while the authority to start a payment expires.
 model NrmsMasterFolioPaymentLink {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   masterFolioId Int
-  publicToken   String   @unique(map: "nrms_mf_pay_link_token_uq") @db.VarChar(80)
-  amount        Decimal  @db.Decimal(12, 2)
-  currency      String   @default("TZS") @db.VarChar(3)
+  publicToken   String    @unique(map: "nrms_mf_pay_link_token_uq") @db.VarChar(80)
+  amount        Decimal   @db.Decimal(12, 2)
+  currency      String    @default("TZS") @db.VarChar(3)
   /// ACTIVE, PROCESSING, PAID, EXPIRED, REVOKED, STALE
-  status        String   @default("ACTIVE") @db.VarChar(20)
+  status        String    @default("ACTIVE") @db.VarChar(20)
   expiresAt     DateTime
   createdById   Int?
   paidAt        DateTime?
   revokedAt     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   masterFolio NrmsMasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade, map: "nrms_mf_pay_link_folio_fk")
 
@@ -5810,16 +5814,16 @@ model NrmsStockItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  property       Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  packUnits      NrmsStockPackUnit[]
-  balances       NrmsStockBalance[]
-  movements      NrmsStockMovement[]
-  recipeLines    NrmsMenuRecipeLine[]
-  supplierPrices NrmsSupplierPrice[]
-  receiptLines   NrmsGoodsReceiptLine[]
-  transferLines  NrmsStockTransferLine[]
-  writeOffs      NrmsStockWriteOff[]
-  countLines     NrmsStockCountLine[]
+  property           Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  packUnits          NrmsStockPackUnit[]
+  balances           NrmsStockBalance[]
+  movements          NrmsStockMovement[]
+  recipeLines        NrmsMenuRecipeLine[]
+  supplierPrices     NrmsSupplierPrice[]
+  receiptLines       NrmsGoodsReceiptLine[]
+  transferLines      NrmsStockTransferLine[]
+  writeOffs          NrmsStockWriteOff[]
+  countLines         NrmsStockCountLine[]
   requisitionLines   NrmsStockRequisitionLine[]
   purchaseOrderLines NrmsPurchaseOrderLine[]
 
@@ -5854,16 +5858,16 @@ model NrmsStockLocation {
   status     String   @default("ACTIVE") @db.VarChar(20)
   createdAt  DateTime @default(now())
 
-  property      Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  outlet        NrmsOutlet?         @relation(fields: [outletId], references: [id], onDelete: Cascade)
-  balances      NrmsStockBalance[]
-  movements     NrmsStockMovement[]
-  goodsReceipts NrmsGoodsReceipt[]
-  transfersOut  NrmsStockTransfer[] @relation("NrmsTransferFrom")
-  transfersIn   NrmsStockTransfer[] @relation("NrmsTransferTo")
-  writeOffs     NrmsStockWriteOff[]
-  counts        NrmsStockCount[]
-  requisitions  NrmsStockRequisition[]
+  property       Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  outlet         NrmsOutlet?            @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  balances       NrmsStockBalance[]
+  movements      NrmsStockMovement[]
+  goodsReceipts  NrmsGoodsReceipt[]
+  transfersOut   NrmsStockTransfer[]    @relation("NrmsTransferFrom")
+  transfersIn    NrmsStockTransfer[]    @relation("NrmsTransferTo")
+  writeOffs      NrmsStockWriteOff[]
+  counts         NrmsStockCount[]
+  requisitions   NrmsStockRequisition[]
   purchaseOrders NrmsPurchaseOrder[]
 
   @@index([propertyId, kind])
@@ -5959,25 +5963,25 @@ model NrmsMenuRecipeLine {
 
 /// Per-property stock rules the owner sets. One row, created on first save.
 model NrmsStockSettings {
-  id                  Int      @id @default(autoincrement())
-  propertyId          Int      @unique
+  id                  Int       @id @default(autoincrement())
+  propertyId          Int       @unique
   /// Whether a main store room exists as its own location.
-  storeEnabled        Boolean  @default(false)
+  storeEnabled        Boolean   @default(false)
   /// A receipt above this total from someone without approval rights waits for a manager.
-  directPurchaseLimit Decimal  @default(200000.00) @db.Decimal(14, 2)
+  directPurchaseLimit Decimal   @default(200000.00) @db.Decimal(14, 2)
   /// A write-off worth more than this waits for a manager.
-  writeOffLimit       Decimal  @default(20000.00) @db.Decimal(14, 2)
+  writeOffLimit       Decimal   @default(20000.00) @db.Decimal(14, 2)
   /// A price this many percent above the last or agreed price is flagged.
-  priceAlertPercent   Int      @default(10)
+  priceAlertPercent   Int       @default(10)
   /// Count variance treated as normal loss, by stock category: { "SPIRITS": 1, "PRODUCE": 5 }.
   /// Categories not listed use the defaults in nrmsStockCount.ts.
   varianceTolerances  Json?
   /// The short high-value list counted at a bar shift handover: { "<locationId>": [stockItemId, ...] }.
   handoverCountItems  Json?
   /// A manager's purchase order above this total waits for the owner (milestone 4).
-  purchaseOrderLimit  Decimal  @default(500000.00) @db.Decimal(14, 2)
+  purchaseOrderLimit  Decimal   @default(500000.00) @db.Decimal(14, 2)
   /// A delivery may exceed the ordered quantity by this many percent before a manager must accept it.
-  overDeliveryPercent Int      @default(5)
+  overDeliveryPercent Int       @default(5)
   /// Owner stock digest (milestone 6): OFF, DAILY, WEEKLY. Delivered as an in-app notification.
   digestFrequency     String    @default("OFF") @db.VarChar(10)
   digestLastSentAt    DateTime?
@@ -5987,7 +5991,7 @@ model NrmsStockSettings {
   breakfastRecipe     Json?
   /// The shelf breakfast is taken from (usually the restaurant).
   breakfastLocationId Int?
-  updatedAt           DateTime @updatedAt
+  updatedAt           DateTime  @updatedAt
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
@@ -6017,7 +6021,7 @@ model NrmsSupplier {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  property Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property       Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   prices         NrmsSupplierPrice[]
   receipts       NrmsGoodsReceipt[]
   purchaseOrders NrmsPurchaseOrder[]
@@ -6084,7 +6088,7 @@ model NrmsGoodsReceipt {
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
-  property Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property      Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   supplier      NrmsSupplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   location      NrmsStockLocation      @relation(fields: [locationId], references: [id], onDelete: Restrict)
   purchaseOrder NrmsPurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
@@ -6099,27 +6103,27 @@ model NrmsGoodsReceipt {
 }
 
 model NrmsGoodsReceiptLine {
-  id               Int       @id @default(autoincrement())
-  receiptId        Int
-  stockItemId      Int
-  packUnitName     String?   @db.VarChar(40)
-  packCount        Decimal?  @db.Decimal(14, 3)
+  id                  Int       @id @default(autoincrement())
+  receiptId           Int
+  stockItemId         Int
+  packUnitName        String?   @db.VarChar(40)
+  packCount           Decimal?  @db.Decimal(14, 3)
   /// Accepted quantity in base units: what went onto the shelf.
-  quantity         Decimal   @db.Decimal(14, 3)
+  quantity            Decimal   @db.Decimal(14, 3)
   /// What the supplier's paper said (weighed goods), for the claimed-vs-scale gap.
-  claimedQuantity  Decimal?  @db.Decimal(14, 3)
-  rejectedQuantity Decimal   @default(0.000) @db.Decimal(14, 3)
+  claimedQuantity     Decimal?  @db.Decimal(14, 3)
+  rejectedQuantity    Decimal   @default(0.000) @db.Decimal(14, 3)
   /// DAMAGED, SPOILED, WRONG_ITEM, SHORT_DATED, OTHER
-  rejectReason     String?   @db.VarChar(30)
-  unitCost         Decimal   @db.Decimal(14, 4)
-  lineTotal        Decimal   @db.Decimal(14, 2)
+  rejectReason        String?   @db.VarChar(30)
+  unitCost            Decimal   @db.Decimal(14, 4)
+  lineTotal           Decimal   @db.Decimal(14, 2)
   /// The price this line was compared against when it was received.
-  previousUnitCost Decimal?  @db.Decimal(14, 4)
+  previousUnitCost    Decimal?  @db.Decimal(14, 4)
   /// NONE, ABOVE_LAST, ABOVE_AGREED, ABOVE_ORDER
-  priceFlag        String    @default("NONE") @db.VarChar(20)
-  expiresAt        DateTime? @db.Date
+  priceFlag           String    @default("NONE") @db.VarChar(20)
+  expiresAt           DateTime? @db.Date
   /// The RECEIPT movement written when the receipt posted.
-  movementId       Int?
+  movementId          Int?
   /// The purchase order line this delivery line fills, when received against an order.
   purchaseOrderLineId Int?
 
@@ -8471,15 +8475,15 @@ model SalesPayoutRequest {
   salesPartnerId  Int
   referenceNumber String @unique @db.VarChar(40)
 
-  requestedAmount Decimal  @db.Decimal(12, 2)
-  approvedAmount  Decimal? @db.Decimal(12, 2)
-  deductionAmount Decimal  @default(0.00) @db.Decimal(12, 2)
+  requestedAmount      Decimal  @db.Decimal(12, 2)
+  approvedAmount       Decimal? @db.Decimal(12, 2)
+  deductionAmount      Decimal  @default(0.00) @db.Decimal(12, 2)
   /// Withholding tax taken at approval: netPaidAmount = approvedAmount -
   /// deductionAmount - withholdingTaxAmount. The rate is snapshotted so a later
   /// change of the configured rate never rewrites what was withheld.
   withholdingTaxRate   Decimal? @db.Decimal(5, 2)
   withholdingTaxAmount Decimal  @default(0.00) @db.Decimal(12, 2)
-  netPaidAmount   Decimal? @db.Decimal(12, 2)
+  netPaidAmount        Decimal? @db.Decimal(12, 2)
 
   currency String @default("TZS") @db.VarChar(3)
   status   String @default("REQUESTED") @db.VarChar(20)
@@ -9597,7 +9601,7 @@ model PlatformExpense {
 
   /// When the cost belongs (the bill's date or the bonus grant), which is the
   /// date the margin report groups it by.
-  incurredAt DateTime
+  incurredAt  DateTime
   /// Optional service period for bills covering a span (a month of hosting).
   periodStart DateTime?
   periodEnd   DateTime?
@@ -9625,4 +9629,205 @@ model PlatformExpense {
   @@index([incurredAt])
   @@index([reversesExpenseId])
   @@map("platform_expense")
+}
+
+/// A NoLSAF staff member on the payroll (lib/payroll.ts). Holds personal and
+/// banking details, so it is read and written only behind the admin finance
+/// grant. Employees are never deleted: leaving sets status TERMINATED and an
+/// end date, which keeps every past payslip intact.
+model Employee {
+  id Int @id @default(autoincrement())
+
+  /// NSE-<year joined>-<sequence>, assigned on registration (EMP-0001 before).
+  employeeNo String @unique @db.VarChar(20)
+
+  fullName    String    @db.VarChar(150)
+  email       String?   @db.VarChar(150)
+  phone       String?   @db.VarChar(30)
+  /// NIDA number.
+  nationalId  String?   @db.VarChar(30)
+  /// TRA taxpayer identification number.
+  tin         String?   @db.VarChar(20)
+  nssfNumber  String?   @db.VarChar(30)
+  dateOfBirth DateTime?
+  gender      String?   @db.VarChar(10)
+  address     String?   @db.VarChar(255)
+
+  jobTitle       String    @db.VarChar(120)
+  department     String?   @db.VarChar(80)
+  /// PERMANENT, CONTRACT, CASUAL, INTERN.
+  employmentType String    @default("PERMANENT") @db.VarChar(20)
+  startDate      DateTime
+  endDate        DateTime?
+  /// ACTIVE, ON_LEAVE, TERMINATED.
+  status         String    @default("ACTIVE") @db.VarChar(20)
+
+  basicSalary        Decimal @db.Decimal(14, 2)
+  housingAllowance   Decimal @default(0) @db.Decimal(14, 2)
+  transportAllowance Decimal @default(0) @db.Decimal(14, 2)
+  otherAllowance     Decimal @default(0) @db.Decimal(14, 2)
+  currency           String  @default("TZS") @db.VarChar(3)
+
+  nssfEnrolled Boolean @default(true)
+  payeExempt   Boolean @default(false)
+
+  /// HESLB student loan repayment, deducted each month and remitted to HESLB.
+  heslbDeduct      Boolean @default(false)
+  /// Form IV index number HESLB files the loan under.
+  heslbIndexNumber String? @db.VarChar(40)
+
+  /// BANK or MOBILE_MONEY.
+  paymentMethod          String    @default("BANK") @db.VarChar(20)
+  bankName               String?   @db.VarChar(80)
+  bankBranch             String?   @db.VarChar(80)
+  bankAccountName        String?   @db.VarChar(150)
+  bankAccountNumber      String?   @db.VarChar(40)
+  mobileMoneyProvider    String?   @db.VarChar(40)
+  mobileMoneyNumber      String?   @db.VarChar(30)
+  /// Set when the pay account changes; a second admin must confirm it before
+  /// this person's pay can be approved or paid.
+  payDetailsPendingSince DateTime?
+  payDetailsChangedById  Int?
+
+  emergencyContactName  String? @db.VarChar(150)
+  emergencyContactPhone String? @db.VarChar(30)
+  notes                 String? @db.VarChar(1000)
+
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  payslips Payslip[]
+
+  @@index([status])
+  @@map("employee")
+}
+
+/// One month of payroll. DRAFT (editable) -> APPROVED -> PAID, or CANCELLED
+/// from DRAFT. Stores the statutory rates it used, so a later rate change
+/// never rewrites it. Marking it paid posts one STAFF expense to the ledger.
+model PayrollRun {
+  id Int @id @default(autoincrement())
+
+  /// PR-2026-10.
+  runNumber   String    @unique @db.VarChar(20)
+  /// YYYY-MM, the month the pay is for.
+  periodMonth String    @db.VarChar(7)
+  payDate     DateTime?
+
+  status String @default("DRAFT") @db.VarChar(20)
+
+  /// Statutory rates snapshot (lib/payroll.ts PayrollRates).
+  rates      Json
+  sdlApplies Boolean @default(false)
+  headcount  Int     @default(0)
+
+  gross           Decimal @default(0) @db.Decimal(14, 2)
+  nssfEmployee    Decimal @default(0) @db.Decimal(14, 2)
+  paye            Decimal @default(0) @db.Decimal(14, 2)
+  otherDeductions Decimal @default(0) @db.Decimal(14, 2)
+  net             Decimal @default(0) @db.Decimal(14, 2)
+  nssfEmployer    Decimal @default(0) @db.Decimal(14, 2)
+  wcf             Decimal @default(0) @db.Decimal(14, 2)
+  sdl             Decimal @default(0) @db.Decimal(14, 2)
+  employerCost    Decimal @default(0) @db.Decimal(14, 2)
+  heslb           Decimal @default(0) @db.Decimal(14, 2)
+
+  note             String?   @db.VarChar(500)
+  paymentReference String?   @db.VarChar(120)
+  createdById      Int?
+  /// Who last built or changed the figures; the approver must be someone else.
+  preparedById     Int?
+  approvedById     Int?
+  approvedAt       DateTime?
+  paidById         Int?
+  paidAt           DateTime?
+  cancelledAt      DateTime?
+  /// The platform_expense row this run posted when paid.
+  expenseId        Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payslips    Payslip[]
+  remittances PayrollRemittance[]
+
+  @@index([periodMonth, status])
+  @@map("payroll_run")
+}
+
+/// One employee's pay for one run. Keeps a snapshot of the employee's name,
+/// title and pay account at the time, so the payslip reads the same later.
+model Payslip {
+  id Int @id @default(autoincrement())
+
+  runId         Int
+  employeeId    Int
+  /// PS-<run>-<employee no.>, e.g. PS-2026-10-NSE-2026-0001.
+  payslipNumber String @unique @db.VarChar(30)
+
+  /// Name, employee number, title, department, TIN, NSSF number and masked
+  /// pay account as they were when the run was built.
+  employeeSnapshot Json
+
+  basicSalary     Decimal @db.Decimal(14, 2)
+  allowances      Decimal @default(0) @db.Decimal(14, 2)
+  overtime        Decimal @default(0) @db.Decimal(14, 2)
+  bonus           Decimal @default(0) @db.Decimal(14, 2)
+  gross           Decimal @db.Decimal(14, 2)
+  nssfEmployee    Decimal @default(0) @db.Decimal(14, 2)
+  taxable         Decimal @default(0) @db.Decimal(14, 2)
+  paye            Decimal @default(0) @db.Decimal(14, 2)
+  loanDeduction   Decimal @default(0) @db.Decimal(14, 2)
+  otherDeductions Decimal @default(0) @db.Decimal(14, 2)
+  totalDeductions Decimal @default(0) @db.Decimal(14, 2)
+  net             Decimal @db.Decimal(14, 2)
+  nssfEmployer    Decimal @default(0) @db.Decimal(14, 2)
+  wcf             Decimal @default(0) @db.Decimal(14, 2)
+  sdl             Decimal @default(0) @db.Decimal(14, 2)
+  employerCost    Decimal @db.Decimal(14, 2)
+  heslb           Decimal @default(0) @db.Decimal(14, 2)
+
+  /// Part-month pay: calendar days paid out of the month. Null is a full month.
+  daysPaid   Int?
+  periodDays Int?
+
+  note String? @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  run      PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employee Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, employeeId])
+  @@index([employeeId])
+  @@map("payslip")
+}
+
+/// A statutory payment for a paid run (PAYE, SDL, NSSF, WCF, HESLB) recorded
+/// as settled, with the receipt or control number. The cost itself was booked
+/// to the expense ledger when the run was paid; this tracks the cash leaving.
+model PayrollRemittance {
+  id Int @id @default(autoincrement())
+
+  runId     Int
+  /// PAYE, SDL, NSSF, WCF or HESLB.
+  key       String   @db.VarChar(10)
+  payee     String   @db.VarChar(20)
+  amount    Decimal  @db.Decimal(14, 2)
+  dueOn     DateTime
+  paidOn    DateTime
+  /// Receipt, payment or control number.
+  reference String   @db.VarChar(120)
+  note      String?  @db.VarChar(300)
+  paidById  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  run PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, key])
+  @@map("payroll_remittance")
 }

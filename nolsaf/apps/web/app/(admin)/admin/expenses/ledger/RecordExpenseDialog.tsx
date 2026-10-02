@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DateField } from "../_shared";
 import { AlertTriangle, CreditCard, Loader2, Mail, Megaphone, MessageSquare, MoreHorizontal, Plus, ReceiptText, Server, Users, X } from "lucide-react";
 
 /**
@@ -268,7 +269,7 @@ export default function RecordExpenseDialog({
                       <button type="button" onClick={() => setMode("oneOff")} aria-pressed={mode === "oneOff"} className={segment(mode === "oneOff")}>One-off</button>
                     </div>
                     {mode === "oneOff" ? (
-                      <input type="date" value={oneOffDay} max={iso(eatToday())} onChange={(e) => setOneOffDay(e.target.value)} aria-label="Date of the cost" className={`${fieldClass} w-auto`} />
+                      <DateField value={oneOffDay} onChange={(v) => setOneOffDay(v || iso(eatToday()))} max={iso(eatToday())} ariaLabel="Date of the cost" className="h-10 w-48 rounded-lg border border-solid border-neutral-300 bg-white" />
                     ) : (
                       <span className="text-xs text-neutral-500">{shortDay(period.periodStart!)} to {shortDay(period.periodEnd!)}</span>
                     )}

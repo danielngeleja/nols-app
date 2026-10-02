@@ -613,7 +613,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} exact collapsed={collapsed} path={path} variant={variant} />
 
         {/* NoLSAF's own costs; turns All Revenue into a contribution and net margin. */}
-        <Item href="/admin/finance/expenses" label="Expenses" Icon={Receipt} collapsed={collapsed} path={path} variant={variant} />
+        <Item href="/admin/expenses" label="Expenses" Icon={Receipt} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />
