@@ -5,11 +5,9 @@ import { AlertTriangle, Banknote, BriefcaseBusiness, CheckCircle2, ChevronDown, 
 import {
   DateField,
   LockedCard,
-  cardClass,
   compactTzs,
   eatDate,
   eatTodayIso,
-  fieldClass,
   financeFetch,
   primaryButton,
   secondaryButton,
@@ -18,6 +16,7 @@ import {
 } from "../../_shared";
 import { previewPayslip, type PayrollRates } from "../_payroll";
 import EmployeeProfile from "./EmployeeProfile";
+import { CommandCanvas, eyebrow, panel } from "@/components/admin/commandUi";
 
 /**
  * The staff register for payroll: everyone NoLSAF pays, with the identity,
@@ -77,16 +76,13 @@ const STATUS_TABS: Array<{ key: string; label: string }> = [
   { key: "ON_LEAVE", label: "On leave" },
   { key: "TERMINATED", label: "Former" },
 ];
-const STATUS_TONE: Record<string, string> = {
-  ACTIVE: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  ON_LEAVE: "bg-amber-50 text-amber-700 ring-amber-200",
-  TERMINATED: "bg-neutral-100 text-neutral-500 ring-neutral-200",
-};
 const STATUS_LABEL: Record<string, string> = { ACTIVE: "Active", ON_LEAVE: "On leave", TERMINATED: "Former" };
 const TYPE_LABEL: Record<string, string> = { PERMANENT: "Permanent", CONTRACT: "Contract", CASUAL: "Casual", INTERN: "Intern" };
 const BANKS = ["CRDB Bank", "NMB Bank", "NBC Bank", "Stanbic Bank", "Exim Bank", "Absa Bank", "Equity Bank", "DTB", "Azania Bank", "KCB Bank"];
 const WALLETS = ["M-Pesa", "Mixx by Yas", "Airtel Money", "HaloPesa"];
 
+/** "LEONIDAS JAMES" -> "Leonidas James", for display only; the record keeps the name as entered. */
+const displayName = (name: string) => (name === name.toUpperCase() ? name.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_m, p, c) => p + c.toUpperCase()) : name);
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
 
 export default function EmployeesPage() {
@@ -125,142 +121,143 @@ export default function EmployeesPage() {
   const incomplete = team.filter((e) => e.missing.length).length;
   const completePct = team.length ? Math.round(((team.length - incomplete) / team.length) * 100) : 100;
 
+  const statusTag: Record<string, string> = {
+    ACTIVE: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25",
+    ON_LEAVE: "bg-amber-400/10 text-amber-300 ring-amber-400/25",
+    TERMINATED: "bg-white/[0.04] text-slate-400 ring-white/10",
+  };
+
   return (
-    <div className="w-full min-w-0 space-y-5">
+    <div className="w-full min-w-0">
+    <CommandCanvas>
+      {/* Command bar */}
+      <div className="flex flex-wrap items-center gap-3 px-1 pt-1">
+        <div className="mr-auto min-w-0">
+          <p className={eyebrow}><Users className="h-3.5 w-3.5" /> Payroll · Employees</p>
+          <p className="m-0 mt-1 text-sm text-slate-400">The people NoLSAF pays, with everything their payslips and the statutory returns need.</p>
+        </div>
+        <button type="button" onClick={() => setEditing("new")} className="inline-flex h-9 items-center gap-2 rounded-md border-0 bg-emerald-400 px-4 text-xs font-semibold text-[#06201b] transition hover:bg-emerald-300">
+          <Plus className="h-4 w-4" /> Register employee
+        </button>
+      </div>
+
       {/* Team board */}
-      <section className="overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-5 sm:px-6">
-          <div className="min-w-0 flex-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#02665e]/10 px-2.5 py-1 text-[11px] font-semibold text-[#02665e]"><Users className="h-3.5 w-3.5" /> Payroll</span>
-            <h1 className="m-0 mt-2 text-2xl font-bold tracking-tight text-neutral-900">Employees</h1>
-            <p className="m-0 mt-1 max-w-xl text-sm text-neutral-500">The people NoLSAF pays, with everything their payslips and the statutory returns need.</p>
-          </div>
-          <button type="button" onClick={() => setEditing("new")} className="inline-flex h-11 items-center gap-2 rounded-full border-0 bg-[#0b2420] px-5 text-sm font-semibold text-white shadow-[0_10px_24px_-12px_rgba(11,36,32,0.8)] hover:bg-[#12342f]">
-            <Plus className="h-4 w-4" /> Register employee
-          </button>
-        </div>
-
-        <div className="grid gap-px border-0 border-t border-solid border-neutral-200 bg-neutral-200 md:grid-cols-3">
-          {/* The team */}
-          <div className="bg-white px-5 py-4 sm:px-6">
-            <p className="m-0 text-[11px] font-semibold text-neutral-400">The team</p>
-            <div className="mt-2.5 flex items-center gap-3">
-              <div className="flex -space-x-2.5">
-                {team.slice(0, 5).map((e) => (
-                  <span key={e.id} title={e.fullName} className="grid h-9 w-9 place-items-center rounded-full bg-[#02665e]/10 text-[11px] font-bold text-[#02665e] ring-2 ring-white">{initials(e.fullName)}</span>
-                ))}
-                {team.length > 5 ? <span className="grid h-9 w-9 place-items-center rounded-full bg-neutral-100 text-[11px] font-bold text-neutral-600 ring-2 ring-white">+{team.length - 5}</span> : null}
-                {!team.length ? <span className="grid h-9 w-9 place-items-center rounded-full border-2 border-dashed border-neutral-300 text-neutral-300"><Plus className="h-4 w-4" /></span> : null}
-              </div>
-              <div>
-                <p className="m-0 text-2xl font-bold tabular-nums leading-none text-neutral-900">{board.data ? onPayroll : "..."}</p>
-                <p className="m-0 mt-1 text-[11px] text-neutral-500">on the payroll{counts.ON_LEAVE ? ` · ${counts.ON_LEAVE} on leave` : ""}{counts.TERMINATED ? ` · ${counts.TERMINATED} former` : ""}</p>
-              </div>
-            </div>
-            {departments.length ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {departments.slice(0, 4).map(([d, n]) => <span key={d} className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">{d} <span className="tabular-nums text-neutral-400">{n}</span></span>)}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Pay mix */}
-          <div className="bg-white px-5 py-4 sm:px-6">
-            <p className="m-0 text-[11px] font-semibold text-neutral-400">Monthly gross</p>
-            <p className="m-0 mt-2.5 text-2xl font-bold tabular-nums leading-none text-neutral-900">{board.data ? tzs(board.data.monthlyGross) : "..."}</p>
-            <span className="mt-3 flex h-2 overflow-hidden rounded-full bg-neutral-100">
-              <span className="h-full bg-[#02665e]" style={{ width: `${grossTotal ? (basicTotal / grossTotal) * 100 : 0}%` }} />
-              <span className="h-full bg-emerald-300" style={{ width: `${grossTotal ? (allowanceTotal / grossTotal) * 100 : 0}%` }} />
-            </span>
-            <p className="m-0 mt-2 flex flex-wrap gap-x-3 text-[11px] text-neutral-500">
-              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#02665e]" /> Basic {compactTzs(basicTotal)}</span>
-              <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-300" /> Allowances {compactTzs(allowanceTotal)}</span>
-            </p>
-          </div>
-
-          {/* Records */}
-          <div className="flex items-center gap-4 bg-white px-5 py-4 sm:px-6">
-            <svg viewBox="0 0 36 36" className="h-16 w-16 shrink-0 -rotate-90" aria-hidden>
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke="#f0f0f0" strokeWidth="4" />
-              <circle cx="18" cy="18" r="15.5" fill="none" stroke={incomplete ? "#f59e0b" : "#02665e"} strokeWidth="4" strokeLinecap="round" strokeDasharray={`${(completePct / 100) * 97.4} 97.4`} />
-            </svg>
-            <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold text-neutral-400">Records ready for returns</p>
-              <p className="m-0 mt-1 text-2xl font-bold tabular-nums leading-none text-neutral-900">{board.data ? `${completePct}%` : "..."}</p>
-              <p className={`m-0 mt-1 text-[11px] ${incomplete ? "font-semibold text-amber-700" : "text-neutral-500"}`}>{incomplete ? `${incomplete} missing a TIN, NSSF, NIDA or pay account` : "Every current record is complete"}</p>
+      <div className="grid gap-4 md:grid-cols-3">
+        <section className={`${panel} p-5`}>
+          <p className={eyebrow}>The team</p>
+          <div className="mt-3 flex items-center gap-3">
+            <p className="m-0 text-[40px] font-semibold leading-none tabular-nums text-white">{board.data ? onPayroll : "..."}</p>
+            <p className="m-0 text-xs leading-snug text-slate-400">on the payroll{counts.ON_LEAVE ? <><br />{counts.ON_LEAVE} on leave</> : null}{counts.TERMINATED ? <><br />{counts.TERMINATED} former</> : null}</p>
+            <div className="ml-auto flex -space-x-1.5">
+              {team.slice(0, 4).map((e) => (
+                <span key={e.id} title={displayName(e.fullName)} className="grid h-8 w-8 place-items-center rounded-md bg-[#20403a] text-[10px] font-bold text-emerald-200 ring-2 ring-[#182c28]">{initials(e.fullName)}</span>
+              ))}
+              {team.length > 4 ? <span className="grid h-8 w-8 place-items-center rounded-md bg-[#13241f] text-[10px] font-bold text-slate-400 ring-2 ring-[#182c28]">+{team.length - 4}</span> : null}
             </div>
           </div>
-        </div>
-      </section>
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {departments.length ? departments.slice(0, 4).map(([d, n]) => (
+              <span key={d} className="rounded border border-solid border-[#284540] bg-[#13241f] px-2 py-0.5 text-[11px] text-slate-300">{d} <span className="tabular-nums text-slate-500">{n}</span></span>
+            )) : <span className="text-[11px] text-slate-500">No departments yet</span>}
+          </div>
+        </section>
 
-      <section className={cardClass}>
-        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
-          <div className="flex gap-5" role="tablist">
-            {STATUS_TABS.map((t) => (
-              <button key={t.key || "all"} type="button" role="tab" aria-selected={status === t.key} onClick={() => setStatus(t.key)} className={`-mb-3 border-0 border-b-2 border-solid bg-transparent px-0 pb-2.5 text-sm font-semibold ${status === t.key ? "border-[#02665e] text-neutral-900" : "border-transparent text-neutral-500 hover:text-neutral-800"}`}>
-                {t.label}
-              </button>
+        <section className={`${panel} p-5`}>
+          <p className={eyebrow}>Monthly gross</p>
+          <p className="m-0 mt-3 whitespace-nowrap text-[28px] font-semibold leading-none tabular-nums text-white">{board.data ? tzs(board.data.monthlyGross) : "..."}</p>
+          <span className="mt-4 flex h-1.5 gap-0.5 bg-[#13241f]">
+            <span className="h-full bg-emerald-400" style={{ width: `${grossTotal ? (basicTotal / grossTotal) * 100 : 0}%` }} />
+            <span className="h-full bg-teal-200" style={{ width: `${grossTotal ? (allowanceTotal / grossTotal) * 100 : 0}%` }} />
+          </span>
+          <p className="m-0 mt-2 flex flex-wrap gap-x-4 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 bg-emerald-400" /> Basic {compactTzs(basicTotal)}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 bg-teal-200" /> Allowances {compactTzs(allowanceTotal)}</span>
+          </p>
+        </section>
+
+        <section className={`${panel} p-5`}>
+          <p className={eyebrow}>Ready for the returns</p>
+          <p className="m-0 mt-3 flex items-baseline gap-2">
+            <span className={`text-[28px] font-semibold leading-none tabular-nums ${incomplete ? "text-amber-300" : "text-emerald-300"}`}>{board.data ? `${completePct}%` : "..."}</span>
+            <span className="text-xs text-slate-400">of current records</span>
+          </p>
+          <span className="mt-4 flex h-1.5 gap-0.5">
+            {(team.length ? team : [null]).map((e, i) => (
+              <span key={e?.id ?? i} className={`h-full flex-1 ${!e ? "bg-[#13241f]" : e.missing.length ? "bg-amber-400" : "bg-emerald-400"}`} title={e ? `${displayName(e.fullName)}${e.missing.length ? `: no ${e.missing.join(", ")}` : ": complete"}` : undefined} />
             ))}
+          </span>
+          <p className={`m-0 mt-2 text-[11px] ${incomplete ? "font-semibold text-amber-300" : "text-slate-400"}`}>{incomplete ? `${incomplete} missing a TIN, NSSF, NIDA or pay account` : "Every current record is complete"}</p>
+        </section>
+      </div>
+
+      {/* Register */}
+      <section className={`${panel} overflow-hidden`}>
+        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-[#284540] px-5 pt-3">
+          <div className="flex gap-6" role="tablist">
+            {STATUS_TABS.map((t) => {
+              const n = t.key ? counts[t.key] ?? 0 : (counts.ACTIVE ?? 0) + (counts.ON_LEAVE ?? 0) + (counts.TERMINATED ?? 0);
+              return (
+                <button key={t.key || "all"} type="button" role="tab" aria-selected={status === t.key} onClick={() => setStatus(t.key)} className={`-mb-px border-0 border-b-2 border-solid bg-transparent px-0 pb-3 text-[13px] font-semibold transition ${status === t.key ? "border-emerald-400 text-white" : "border-transparent text-slate-400 hover:text-slate-200"}`}>
+                  {t.label} <span className="ml-1 text-[11px] tabular-nums text-slate-500">{board.data ? n : ""}</span>
+                </button>
+              );
+            })}
           </div>
-          <div className="relative ml-auto w-full sm:w-72">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, number, title or department" aria-label="Search employees" className={`${fieldClass} h-9 pl-9`} />
+          <div className="relative mb-3 ml-auto w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, number, title or department" aria-label="Search employees" className="box-border h-9 w-full rounded-md border border-solid border-[#284540] bg-[#13241f] pl-9 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-400/60" />
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[900px] border-collapse text-left text-sm">
             <thead>
-              <tr className="text-[11px] text-neutral-400">
-                <th className="px-4 py-2.5 font-semibold sm:pl-5">Employee</th>
-                <th className="px-3 py-2.5 font-semibold">Role</th>
-                <th className="px-3 py-2.5 font-semibold">Since</th>
-                <th className="px-3 py-2.5 text-right font-semibold">Monthly pay</th>
-                <th className="px-3 py-2.5 font-semibold">Paid to</th>
-                <th className="px-4 py-2.5 font-semibold sm:pr-5">Status</th>
+              <tr className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <th className="px-5 py-3 font-semibold">Employee</th>
+                <th className="px-3 py-3 font-semibold">Role</th>
+                <th className="px-3 py-3 font-semibold">Since</th>
+                <th className="px-3 py-3 text-right font-semibold">Monthly pay</th>
+                <th className="px-3 py-3 font-semibold">Paid to</th>
+                <th className="px-5 py-3 font-semibold">Status</th>
               </tr>
             </thead>
             <tbody>
               {list.loading && !list.data ? (
-                Array.from({ length: 4 }).map((_, i) => <tr key={i} className="border-0 border-t border-solid border-neutral-200"><td colSpan={6} className="px-5 py-4"><div className="h-3 w-3/4 animate-pulse rounded-full bg-neutral-200/80" /></td></tr>)
+                Array.from({ length: 4 }).map((_, i) => <tr key={i} className="border-0 border-t border-solid border-[#284540]"><td colSpan={6} className="px-5 py-4"><div className="h-3 w-3/4 animate-pulse bg-white/[0.05]" /></td></tr>)
               ) : !list.data?.items.length ? (
-                <tr className="border-0 border-t border-solid border-neutral-200">
-                  <td colSpan={6} className="px-5 py-10 text-center">
-                    <span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><Users className="h-5 w-5" /></span>
-                    <p className="m-0 mt-3 text-sm font-semibold text-neutral-900">{search || status ? "No one matches" : "No employees yet"}</p>
-                    <p className="m-0 mt-0.5 text-xs text-neutral-500">Register staff to run payroll and issue payslips.</p>
+                <tr className="border-0 border-t border-solid border-[#284540]">
+                  <td colSpan={6} className="px-5 py-12 text-center">
+                    <span className="mx-auto grid h-10 w-10 place-items-center rounded-md bg-emerald-400/10 text-emerald-300"><Users className="h-5 w-5" /></span>
+                    <p className="m-0 mt-3 text-sm font-semibold text-white">{search || status ? "No one matches" : "No employees yet"}</p>
+                    <p className="m-0 mt-0.5 text-xs text-slate-500">Register staff to run payroll and issue payslips.</p>
                   </td>
                 </tr>
               ) : (
                 list.data.items.map((e) => (
-                  <tr key={e.id} onClick={() => setOpenId(e.id)} className="cursor-pointer border-0 border-t border-solid border-neutral-200 align-top transition-colors hover:bg-neutral-50/80">
-                    <td className="px-4 py-3 sm:pl-5">
+                  <tr key={e.id} onClick={() => setOpenId(e.id)} className="cursor-pointer border-0 border-t border-solid border-[#284540] align-middle transition-colors hover:bg-white/[0.03]">
+                    <td className="px-5 py-3">
                       <span className="flex items-center gap-3">
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#02665e]/10 text-xs font-bold text-[#02665e]">{initials(e.fullName)}</span>
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#20403a] text-[11px] font-bold text-emerald-200">{initials(e.fullName)}</span>
                         <span className="min-w-0">
-                          <span className="block truncate font-semibold text-neutral-900">{e.fullName}</span>
-                          <span className="block text-[11px] text-neutral-400">{e.employeeNo}{e.phone ? ` · ${e.phone}` : ""}</span>
+                          <span className="block truncate font-semibold text-slate-100" title={e.fullName}>{displayName(e.fullName)}</span>
+                          <span className="block text-[11px] tabular-nums text-slate-500">{e.employeeNo}{e.phone ? ` · ${e.phone}` : ""}</span>
                         </span>
                       </span>
                     </td>
                     <td className="px-3 py-3">
-                      <span className="block text-neutral-800">{e.jobTitle}</span>
-                      <span className="block text-[11px] text-neutral-400">{[e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(" · ")}</span>
+                      <span className="block text-slate-200">{e.jobTitle}</span>
+                      <span className="block text-[11px] text-slate-500">{[e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(" · ")}</span>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 tabular-nums text-neutral-600">{eatDate(e.startDate)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 tabular-nums text-slate-400">{eatDate(e.startDate)}</td>
                     <td className="px-3 py-3 text-right">
-                      <span className="block font-semibold tabular-nums text-neutral-900">{tzs(e.basicSalary + e.allowances, e.currency)}</span>
-                      {e.allowances > 0 ? <span className="block text-[11px] tabular-nums text-neutral-400">{tzs(e.allowances)} allowances</span> : null}
+                      <span className="block whitespace-nowrap font-semibold tabular-nums text-white">{tzs(e.basicSalary + e.allowances, e.currency)}</span>
+                      {e.allowances > 0 ? <span className="block whitespace-nowrap text-[11px] tabular-nums text-slate-500">incl. {compactTzs(e.allowances)} allowances</span> : null}
                     </td>
-                    <td className="px-3 py-3 text-xs text-neutral-600">{e.payTo}</td>
-                    <td className="px-4 py-3 sm:pr-5">
-                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${STATUS_TONE[e.status]}`}>{STATUS_LABEL[e.status]}</span>
-                      {e.payDetailsPending ? (
-                        <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-700"><AlertTriangle className="h-3 w-3" /> New pay account to confirm</span>
-                      ) : null}
-                      {e.status !== "TERMINATED" && e.missing.length ? (
-                        <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-700"><AlertTriangle className="h-3 w-3" /> No {e.missing.join(", ")}</span>
-                      ) : null}
+                    <td className="px-3 py-3 text-xs tabular-nums text-slate-300">{e.payTo}</td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex rounded px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${statusTag[e.status]}`}>{STATUS_LABEL[e.status]}</span>
+                      {e.payDetailsPending ? <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-rose-300"><AlertTriangle className="h-3 w-3" /> New pay account to confirm</span> : null}
+                      {e.status !== "TERMINATED" && e.missing.length ? <span className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-300"><AlertTriangle className="h-3 w-3" /> No {e.missing.join(", ")}</span> : null}
                     </td>
                   </tr>
                 ))
@@ -269,6 +266,7 @@ export default function EmployeesPage() {
           </table>
         </div>
       </section>
+    </CommandCanvas>
 
       {editing && (
         <EmployeeDialog

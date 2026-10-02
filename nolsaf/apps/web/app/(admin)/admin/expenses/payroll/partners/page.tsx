@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, BadgePercent, ChevronLeft, ChevronRight, Handshake, Info } from "lucide-react";
 import { LockedCard, compactTzs, eatTodayIso, monthLabel, tzs, useFinanceData } from "../../_shared";
+import { CommandCanvas, eyebrow, ghostButton, panel } from "@/components/admin/commandUi";
 
 /**
  * The commissioned sales team, beside the salaried staff. Read-only: partners
@@ -33,12 +34,6 @@ type Data = {
   totals: { partners: number; active: number; earned: number; paid: number; withheld: number; owed: number; pending: number };
 };
 
-const STATUS: Record<string, string> = {
-  ACTIVE: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  PENDING: "bg-amber-50 text-amber-700 ring-amber-200",
-  SUSPENDED: "bg-rose-50 text-rose-700 ring-rose-200",
-  TERMINATED: "bg-neutral-100 text-neutral-500 ring-neutral-200",
-};
 const titleCase = (v: string) => v.toLowerCase().replace(/_/g, " ").replace(/(^|\s)\p{L}/gu, (c) => c.toUpperCase());
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
 
@@ -57,112 +52,118 @@ export default function SalesPartnersPage() {
 
   const t = data?.totals;
   const items = data?.items ?? [];
-  const facts = [
-    { label: "Active partners", value: t ? String(t.active) : "...", detail: t ? `${t.partners} on record` : "" },
-    { label: "Commission earned", value: t ? compactTzs(t.earned) : "...", detail: "cost of earning revenue" },
-    { label: "Paid out", value: t ? compactTzs(t.paid) : "...", detail: t && t.withheld ? `after ${compactTzs(t.withheld)} withholding tax` : "net to partners" },
-    { label: "Owed now", value: t ? compactTzs(t.owed) : "...", detail: t && t.pending ? `${compactTzs(t.pending)} still validating` : "approved, not paid yet" },
-  ];
+  const maxEarned = Math.max(1, ...items.map((pp) => pp.earned));
+  const status: Record<string, string> = {
+    ACTIVE: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25",
+    PENDING: "bg-amber-400/10 text-amber-300 ring-amber-400/25",
+    SUSPENDED: "bg-rose-400/10 text-rose-300 ring-rose-400/25",
+    TERMINATED: "bg-white/[0.04] text-slate-400 ring-white/10",
+  };
+  const amount = (v: number, tone = "text-white") => (v ? <span className={`font-semibold tabular-nums ${tone}`}>{tzs(v)}</span> : <span className="text-slate-600">None</span>);
 
   return (
-    <div className="w-full min-w-0 space-y-5">
-      <section className="overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center gap-4 px-5 py-5 sm:px-6">
-          <div className="min-w-0 flex-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#02665e]/10 px-2.5 py-1 text-[11px] font-semibold text-[#02665e]"><Handshake className="h-3.5 w-3.5" /> Sales team</span>
-            <h1 className="m-0 mt-2 text-2xl font-bold tracking-tight text-neutral-900">Sales partners</h1>
-            <p className="m-0 mt-1 max-w-xl text-sm text-neutral-500">The people who sell NoLSAF on commission. They work beside the staff but are paid per sale through Sales payouts, not through pay runs.</p>
-          </div>
-          <div className="inline-flex items-center rounded-full border border-solid border-neutral-200 bg-white p-0.5">
-            <button type="button" onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Previous month" className="grid h-8 w-8 place-items-center rounded-full border-0 bg-transparent text-neutral-500 hover:bg-neutral-100"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="min-w-[8.5rem] text-center text-xs font-bold text-neutral-900">{monthLabel(month)}</span>
-            <button type="button" onClick={() => setMonth((m) => shiftMonth(m, 1))} disabled={month >= thisMonth} aria-label="Next month" className="grid h-8 w-8 place-items-center rounded-full border-0 bg-transparent text-neutral-500 hover:bg-neutral-100 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
-          </div>
+    <div className="w-full min-w-0">
+    <CommandCanvas>
+      {/* Command bar */}
+      <div className="flex flex-wrap items-center gap-3 px-1 pt-1">
+        <div className="mr-auto min-w-0">
+          <p className={eyebrow}><Handshake className="h-3.5 w-3.5" /> Commissioned · Sales partners</p>
+          <p className="m-0 mt-1 max-w-2xl text-sm text-slate-400">The people who sell NoLSAF on commission. Paid per sale through Sales payouts, never through a pay run.</p>
         </div>
-        <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-neutral-200 bg-neutral-200 lg:grid-cols-4">
-          {facts.map((f) => (
-            <div key={f.label} className="min-w-0 bg-white px-5 py-3.5 sm:px-6">
-              <dt className="text-[11px] font-semibold text-neutral-400">{f.label}</dt>
-              <dd className="m-0 mt-1 truncate text-lg font-bold tabular-nums text-neutral-900">{f.value}</dd>
-              <dd className="m-0 truncate text-[11px] text-neutral-500">{f.detail}</dd>
+        <div className="inline-flex items-center rounded-md border border-solid border-[#284540] bg-[#182c28] p-0.5">
+          <button type="button" onClick={() => setMonth((mm) => shiftMonth(mm, -1))} aria-label="Previous month" className="grid h-8 w-8 place-items-center rounded border-0 bg-transparent text-slate-400 hover:bg-white/[0.05] hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
+          <span className="min-w-[7.5rem] text-center text-xs font-semibold text-slate-100">{monthLabel(month)}</span>
+          <button type="button" onClick={() => setMonth((mm) => shiftMonth(mm, 1))} disabled={month >= thisMonth} aria-label="Next month" className="grid h-8 w-8 place-items-center rounded border-0 bg-transparent text-slate-400 hover:bg-white/[0.05] hover:text-white disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+        <Link href="/admin/sales/finance" className={ghostButton}>Sales payouts <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+        <Link href="/admin/sales/partners" className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-emerald-400 px-3.5 text-xs font-semibold text-[#06201b] no-underline hover:bg-emerald-300 hover:no-underline">Manage partners <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+      </div>
+
+      {/* Totals */}
+      <section className={`${panel} overflow-hidden`}>
+        <dl className="m-0 grid grid-cols-2 gap-px bg-[#284540] lg:grid-cols-4">
+          {[
+            { label: "Active partners", value: t ? String(t.active) : "...", detail: t ? `${t.partners} on record` : "", color: "#34d399" },
+            { label: "Commission earned", value: t ? tzs(t.earned) : "...", detail: "a cost of earning revenue", color: "#f87171" },
+            { label: "Paid out", value: t ? tzs(t.paid) : "...", detail: t && t.withheld ? `after ${compactTzs(t.withheld)} withholding tax` : "net to partners", color: "#38bdf8" },
+            { label: "Owed now", value: t ? tzs(t.owed) : "...", detail: t && t.pending ? `${compactTzs(t.pending)} still validating` : "approved, not paid yet", color: "#fbbf24" },
+          ].map((f) => (
+            <div key={f.label} className="min-w-0 bg-[#182c28] px-5 py-4">
+              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8fb5ad]"><span className="h-2 w-2" style={{ background: f.color }} />{f.label}</dt>
+              <dd className="m-0 mt-2 truncate text-xl font-semibold tabular-nums text-white">{f.value}</dd>
+              <dd className="m-0 mt-0.5 truncate text-[11px] text-slate-500">{f.detail}</dd>
             </div>
           ))}
         </dl>
+        <p className="m-0 flex items-start gap-2 border-0 border-t border-solid border-[#284540] px-5 py-3 text-xs leading-relaxed text-slate-400">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-300" />
+          Commission earned in {monthLabel(month)} is already in the month&apos;s costs as &quot;Sales partner commissions&quot;, so it counts in the margin and the revenue coverage once. Partners never appear on a pay run.
+        </p>
       </section>
 
-      <div className="flex items-start gap-3 rounded-2xl border border-solid border-sky-200 bg-sky-50/70 px-4 py-3 text-xs leading-relaxed text-sky-900">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
-        <p className="m-0">
-          Commission earned in {monthLabel(month)} is already counted in the month&apos;s costs as &quot;Sales partner commissions&quot;, so it shows in the margin and the revenue coverage. Nothing here is added again, and partners never appear on a pay run.
-        </p>
-      </div>
-
-      <section className="overflow-hidden rounded-3xl border border-solid border-neutral-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
-          <div>
-            <p className="m-0 text-sm font-bold text-neutral-900">Commission by partner</p>
-            <p className="m-0 mt-0.5 text-xs text-neutral-500">Earned and paid in {monthLabel(month)}. Owed and validating are their balances today.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/admin/sales/finance" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-solid border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 no-underline hover:bg-neutral-50 hover:no-underline">Sales payouts <ArrowUpRight className="h-3.5 w-3.5" /></Link>
-            <Link href="/admin/sales/partners" className="inline-flex h-9 items-center gap-1.5 rounded-full border-0 bg-[#0b2420] px-3.5 text-xs font-bold text-white no-underline hover:bg-[#12342f] hover:no-underline">Manage partners <ArrowUpRight className="h-3.5 w-3.5" /></Link>
-          </div>
+      {/* Partners */}
+      <section className={`${panel} overflow-hidden`}>
+        <div className="px-5 py-4">
+          <p className={eyebrow}>Commission by partner</p>
+          <p className="m-0 mt-1 text-xs text-slate-500">Earned and paid in {monthLabel(month)}. Owed and validating are their balances today.</p>
         </div>
-
         {error ? (
-          <p className="m-0 border-0 border-t border-solid border-neutral-100 px-6 py-8 text-center text-sm text-rose-700">{error}</p>
+          <p className="m-0 border-0 border-t border-solid border-[#284540] px-5 py-8 text-center text-sm text-rose-300">{error}</p>
         ) : !items.length ? (
-          <div className="grid place-items-center border-0 border-t border-solid border-neutral-100 px-6 py-12 text-center">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><BadgePercent className="h-6 w-6" /></span>
-            <p className="m-0 mt-3 text-sm font-semibold text-neutral-900">{loading ? "Loading partners..." : "No sales partners yet"}</p>
-            <p className="m-0 mt-1 text-xs text-neutral-500">Partners are onboarded and contracted under Sales.</p>
+          <div className="grid place-items-center border-0 border-t border-solid border-[#284540] px-5 py-12 text-center">
+            <span className="grid h-10 w-10 place-items-center rounded-md bg-emerald-400/10 text-emerald-300"><BadgePercent className="h-5 w-5" /></span>
+            <p className="m-0 mt-3 text-sm font-semibold text-white">{loading ? "Loading partners..." : "No sales partners yet"}</p>
+            <p className="m-0 mt-1 text-xs text-slate-500">Partners are onboarded and contracted under Sales.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto border-0 border-t border-solid border-neutral-100">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] border-collapse text-left text-sm">
               <thead>
-                <tr className="text-[11px] font-semibold text-neutral-400">
-                  <th className="px-5 py-2.5 font-semibold sm:px-6">Partner</th>
-                  <th className="px-3 py-2.5 font-semibold">Status</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Earned</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Paid out</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Owed now</th>
-                  <th className="px-5 py-2.5 text-right font-semibold sm:px-6">Validating</th>
+                <tr className="border-0 border-t border-solid border-[#284540] text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <th className="px-5 py-3 font-semibold">Partner</th>
+                  <th className="px-3 py-3 font-semibold">Status</th>
+                  <th className="px-3 py-3 font-semibold">Earned this month</th>
+                  <th className="px-3 py-3 text-right font-semibold">Paid out</th>
+                  <th className="px-3 py-3 text-right font-semibold">Owed now</th>
+                  <th className="px-5 py-3 text-right font-semibold">Validating</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((p) => (
-                  <tr key={p.id} className="border-0 border-t border-solid border-neutral-100 hover:bg-neutral-50/70">
-                    <td className="px-5 py-3 sm:px-6">
+                {items.map((pp) => (
+                  <tr key={pp.id} className="border-0 border-t border-solid border-[#284540] transition-colors hover:bg-white/[0.02]">
+                    <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#02665e]/10 text-xs font-bold text-[#02665e]">{initials(p.name)}</span>
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#20403a] text-[11px] font-bold text-emerald-200">{initials(pp.name)}</span>
                         <div className="min-w-0">
-                          <p className="m-0 truncate font-semibold text-neutral-900">{p.name}</p>
-                          <p className="m-0 truncate text-[11px] text-neutral-500">{[p.agentCode, titleCase(p.level), p.region].filter(Boolean).join(", ")}</p>
+                          <p className="m-0 truncate font-semibold text-slate-100">{pp.name}</p>
+                          <p className="m-0 truncate text-[11px] text-slate-500">{[pp.agentCode, titleCase(pp.level), pp.region].filter(Boolean).join(" · ")}</p>
                         </div>
                       </div>
                     </td>
+                    <td className="px-3 py-3"><span className={`inline-flex rounded px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${status[pp.status] ?? status.TERMINATED}`}>{titleCase(pp.status)}</span></td>
                     <td className="px-3 py-3">
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${STATUS[p.status] ?? STATUS.TERMINATED}`}>{titleCase(p.status)}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="block h-1.5 w-24 shrink-0 bg-[#13241f]"><span className="block h-full bg-rose-400" style={{ width: `${(pp.earned / maxEarned) * 100}%` }} /></span>
+                        {amount(pp.earned)}
+                      </div>
                     </td>
-                    <td className="px-3 py-3 text-right font-semibold tabular-nums text-neutral-900">{p.earned ? tzs(p.earned) : <span className="text-neutral-300">0</span>}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-neutral-700">
-                      {p.paid ? tzs(p.paid) : <span className="text-neutral-300">0</span>}
-                      {p.withheld ? <span className="block text-[10px] text-neutral-400">WHT {tzs(p.withheld)}</span> : null}
+                    <td className="px-3 py-3 text-right">
+                      {amount(pp.paid, "text-slate-200")}
+                      {pp.withheld ? <span className="block text-[10px] text-slate-500">WHT {tzs(pp.withheld)}</span> : null}
                     </td>
-                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${p.owed > 0 ? "text-amber-700" : "text-neutral-300"}`}>{p.owed ? tzs(p.owed) : "0"}</td>
-                    <td className="px-5 py-3 text-right tabular-nums text-neutral-500 sm:px-6">{p.pending ? tzs(p.pending) : <span className="text-neutral-300">0</span>}</td>
+                    <td className="px-3 py-3 text-right">{amount(pp.owed, "text-amber-300")}</td>
+                    <td className="px-5 py-3 text-right">{amount(pp.pending, "text-slate-300")}</td>
                   </tr>
                 ))}
               </tbody>
               {t ? (
                 <tfoot>
-                  <tr className="border-0 border-t border-solid border-neutral-200 bg-neutral-50 text-sm font-bold text-neutral-900">
-                    <td className="px-5 py-3 sm:px-6" colSpan={2}>All partners</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{tzs(t.earned)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{tzs(t.paid)}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{tzs(t.owed)}</td>
-                    <td className="px-5 py-3 text-right tabular-nums sm:px-6">{tzs(t.pending)}</td>
+                  <tr className="border-0 border-t border-solid border-[#2f524b] bg-[#13241f] text-sm">
+                    <td className="px-5 py-3 font-semibold text-white" colSpan={2}>All partners</td>
+                    <td className="px-3 py-3 font-semibold tabular-nums text-white">{tzs(t.earned)}</td>
+                    <td className="px-3 py-3 text-right font-semibold tabular-nums text-white">{tzs(t.paid)}</td>
+                    <td className="px-3 py-3 text-right font-semibold tabular-nums text-amber-300">{tzs(t.owed)}</td>
+                    <td className="px-5 py-3 text-right font-semibold tabular-nums text-slate-300">{tzs(t.pending)}</td>
                   </tr>
                 </tfoot>
               ) : null}
@@ -170,6 +171,7 @@ export default function SalesPartnersPage() {
           </div>
         )}
       </section>
+    </CommandCanvas>
     </div>
   );
 }

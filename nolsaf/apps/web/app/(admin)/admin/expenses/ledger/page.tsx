@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Percent, Plus, ReceiptText, RefreshCw, RotateCcw, X } from "lucide-react";
+import { BookOpenText, Loader2, Percent, Plus, ReceiptText, RefreshCw, RotateCcw, X } from "lucide-react";
+import { CommandCanvas, eyebrow, panel } from "@/components/admin/commandUi";
 import { LockedCard } from "../_shared";
 import RecordExpenseDialog from "./RecordExpenseDialog";
 
@@ -51,23 +52,22 @@ const PERIODS: Array<{ key: PeriodKey; label: string }> = [
 ];
 
 const STREAM_LABEL: Record<string, string> = { accommodation: "Accommodation", tours: "Tours", transport: "Transport", groupStay: "Group stay", subscriptions: "Subscriptions" };
-const CATEGORY_TONE: Record<string, string> = {
-  GATEWAY_FEE: "bg-sky-50 text-sky-700 ring-sky-200",
-  PARTNER_BONUS: "bg-violet-50 text-violet-700 ring-violet-200",
-  SMS: "bg-amber-50 text-amber-700 ring-amber-200",
-  EMAIL: "bg-amber-50 text-amber-700 ring-amber-200",
-  HOSTING: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  STAFF: "bg-rose-50 text-rose-700 ring-rose-200",
-  MARKETING: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
-  OTHER: "bg-neutral-100 text-neutral-700 ring-neutral-200",
+
+const CATEGORY_DOT: Record<string, string> = {
+  GATEWAY_FEE: "#38bdf8",
+  PARTNER_BONUS: "#a78bfa",
+  SMS: "#fbbf24",
+  EMAIL: "#fcd34d",
+  HOSTING: "#34d399",
+  STAFF: "#5eead4",
+  MARKETING: "#f0abfc",
+  OTHER: "#94a3b8",
 };
 
 const PAGE_SIZE = 25;
 const fieldClass =
   "box-border h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
 const sectionLabel = "m-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400";
-const heroButton =
-  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
 
 /** Today in Dar es Salaam, as a UTC-midnight date for calendar arithmetic. */
 function eatToday() {
@@ -145,12 +145,6 @@ export default function PlatformExpensesPage() {
     (data?.totals ?? []).filter((t) => t.currency === "TZS" && filter(t.category)).reduce((s, t) => s + t.amount, 0);
   const otherCurrencies = useMemo(() => [...new Set((data?.totals ?? []).filter((t) => t.currency !== "TZS" && t.amount !== 0).map((t) => t.currency))], [data]);
 
-  const facts = [
-    { label: "Recorded costs", value: data ? money(tzsTotal(() => true)) : "...", detail: `${PERIODS.find((p) => p.key === period)?.label}${otherCurrencies.length ? ` · plus ${otherCurrencies.join(", ")}` : ""}` },
-    { label: "Costs of revenue", value: data ? money(tzsTotal((c) => kindOf(c) === "COST_OF_REVENUE")) : "...", detail: "gateway fees and bonuses" },
-    { label: "Running costs", value: data ? money(tzsTotal((c) => kindOf(c) === "OPERATING")) : "...", detail: "SMS, hosting, staff, marketing" },
-    { label: "Gateway fee estimate", value: data ? (data.gatewayFeeEstimatePercent != null ? `${data.gatewayFeeEstimatePercent}%` : "Not set") : "...", detail: "used until statements are recorded" },
-  ];
 
   const saveRate = useCallback(async () => {
     const raw = rateInput.trim();
@@ -183,88 +177,107 @@ export default function PlatformExpensesPage() {
 
   if (locked) return <LockedCard what="The expense ledger" />;
 
+  const recorded = data ? tzsTotal(() => true) : 0;
+  const ofRevenue = data ? tzsTotal((c) => kindOf(c) === "COST_OF_REVENUE") : 0;
+  const running = data ? tzsTotal((c) => kindOf(c) === "OPERATING") : 0;
+  const byCategory = (data?.totals ?? []).filter((t) => t.currency === "TZS" && t.amount !== 0).sort((a, b) => b.amount - a.amount);
+
   return (
-    <div className="w-full min-w-0 space-y-5">
-      {/* Header */}
-      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
-        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Expenses</p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Ledger</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Every cost NoLSAF records, from gateway statements to paid payroll. Corrections are reversals, never edits.</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => setRecordOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-emerald-400 px-3 text-xs font-bold text-[#0b2420] hover:bg-emerald-300">
-                <Plus className="h-3.5 w-3.5" /> Record expense
-              </button>
-              <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-          </div>
-          <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
-            {facts.map((fact, index) => (
-              <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
-                <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
-                <dd className="m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums text-white">{fact.value}</dd>
-                <dd className="m-0 mt-1 truncate text-xs text-white/50">{fact.detail}</dd>
-              </div>
-            ))}
-          </dl>
+    <div className="w-full min-w-0">
+    <CommandCanvas>
+      {/* Command bar */}
+      <div className="flex flex-wrap items-center gap-3 px-1 pt-1">
+        <div className="mr-auto min-w-0">
+          <p className={eyebrow}><BookOpenText className="h-3.5 w-3.5" /> Expenses · Ledger</p>
+          <p className="m-0 mt-1 text-sm text-slate-400">Every cost NoLSAF records, from gateway statements to paid payroll. Corrections are reversals, never edits.</p>
         </div>
+        <button type="button" onClick={() => setRecordOpen(true)} disabled={!data} className="inline-flex h-9 items-center gap-2 rounded-md border-0 bg-emerald-400 px-4 text-xs font-semibold text-[#06201b] transition hover:bg-emerald-300 disabled:opacity-50">
+          <Plus className="h-4 w-4" /> Record expense
+        </button>
+        <button type="button" onClick={() => setReloadKey((k) => k + 1)} disabled={loading} aria-label="Refresh" className="grid h-9 w-9 place-items-center rounded-md border border-solid border-[#284540] bg-[#182c28] text-slate-300 transition hover:border-emerald-300/40 hover:text-emerald-200 disabled:opacity-50">
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </button>
+      </div>
+
+      {/* Totals */}
+      <section className={`${panel} overflow-hidden`}>
+        <dl className="m-0 grid grid-cols-2 gap-px bg-[#284540] lg:grid-cols-4">
+          {[
+            { label: "Recorded costs", value: data ? money(recorded) : "...", detail: `${PERIODS.find((pp) => pp.key === period)?.label}${otherCurrencies.length ? ` · plus ${otherCurrencies.join(", ")}` : ""}`, color: "#e2e8f0" },
+            { label: "Costs of revenue", value: data ? money(ofRevenue) : "...", detail: "gateway fees and bonuses", color: "#38bdf8" },
+            { label: "Running costs", value: data ? money(running) : "...", detail: "SMS, hosting, staff, marketing", color: "#f87171" },
+            { label: "Gateway fee estimate", value: data ? (data.gatewayFeeEstimatePercent != null ? `${data.gatewayFeeEstimatePercent}%` : "Off") : "...", detail: "used until statements are recorded", color: "#fbbf24" },
+          ].map((f) => (
+            <div key={f.label} className="min-w-0 bg-[#182c28] px-5 py-4">
+              <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8fb5ad]"><span className="h-2 w-2" style={{ background: f.color }} />{f.label}</dt>
+              <dd className="m-0 mt-2 truncate text-xl font-semibold tabular-nums text-white">{f.value}</dd>
+              <dd className="m-0 mt-0.5 truncate text-[11px] text-slate-500">{f.detail}</dd>
+            </div>
+          ))}
+        </dl>
+        {recorded > 0 ? (
+          <div className="border-0 border-t border-solid border-[#284540] px-5 py-3">
+            <span className="flex h-1.5 gap-0.5">
+              {byCategory.map((t) => <span key={t.category} className="h-full" style={{ width: `${(t.amount / recorded) * 100}%`, background: CATEGORY_DOT[t.category] ?? "#94a3b8" }} title={`${labelOf(t.category)}: ${money(t.amount)}`} />)}
+            </span>
+            <p className="m-0 mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
+              {byCategory.map((t) => <span key={t.category} className="inline-flex items-center gap-1.5"><span className="h-2 w-2" style={{ background: CATEGORY_DOT[t.category] ?? "#94a3b8" }} />{labelOf(t.category)} <b className="font-semibold tabular-nums text-slate-200">{Math.round((t.amount / recorded) * 100)}%</b></span>)}
+            </p>
+          </div>
+        ) : null}
       </section>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
+        <div className="flex items-start gap-2 rounded-md border border-solid border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
           <X className="mt-0.5 h-4 w-4 shrink-0" /> <span className="flex-1">{error}</span>
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,300px)]">
         {/* Ledger */}
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+        <section className={`${panel} overflow-hidden`}>
+          <div className="flex flex-wrap items-center gap-3 px-5 py-4">
             <div className="mr-auto min-w-0">
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Ledger</h2>
-              <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? "Loading..." : `${(data?.total ?? 0).toLocaleString()} ${data?.total === 1 ? "entry" : "entries"}, newest first`}</p>
+              <p className={eyebrow}>Entries</p>
+              <p className="m-0 mt-1 text-xs tabular-nums text-slate-500">{loading ? "Loading..." : `${(data?.total ?? 0).toLocaleString()} ${data?.total === 1 ? "entry" : "entries"}, newest first`}</p>
             </div>
-            <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} className={`${fieldClass} h-9 w-auto text-xs`} aria-label="Category">
-              <option value="">All categories</option>
-              {categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-            </select>
-            <div className="inline-flex flex-wrap rounded-lg bg-neutral-100 p-0.5" role="group" aria-label="Period">
-              {PERIODS.map((p) => (
-                <button key={p.key} type="button" onClick={() => { setPeriod(p.key); setPage(1); }} aria-pressed={period === p.key} className={`h-8 rounded-md border-0 px-2.5 text-xs font-semibold ${period === p.key ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}>
-                  {p.label}
+            <div className="inline-flex flex-wrap rounded-md border border-solid border-[#284540] bg-[#13241f] p-0.5" role="group" aria-label="Period">
+              {PERIODS.map((pp) => (
+                <button key={pp.key} type="button" onClick={() => { setPeriod(pp.key); setPage(1); }} aria-pressed={period === pp.key} className={`h-8 rounded border-0 px-3 text-xs font-semibold transition ${period === pp.key ? "bg-emerald-400 text-[#06201b]" : "bg-transparent text-slate-400 hover:text-white"}`}>
+                  {pp.label}
                 </button>
               ))}
             </div>
           </div>
+          {/* Category filter */}
+          <div className="flex gap-1.5 overflow-x-auto border-0 border-t border-solid border-[#284540] px-5 py-2.5" role="group" aria-label="Category">
+            {[{ key: "", label: "All categories" }, ...categories].map((c) => (
+              <button key={c.key || "all"} type="button" onClick={() => { setCategory(c.key); setPage(1); }} aria-pressed={category === c.key} className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded border border-solid px-2.5 text-[11px] font-semibold transition ${category === c.key ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-200" : "border-[#284540] bg-transparent text-slate-400 hover:text-slate-200"}`}>
+                {c.key ? <span className="h-1.5 w-1.5" style={{ background: CATEGORY_DOT[c.key] ?? "#94a3b8" }} /> : null}{c.label}
+              </button>
+            ))}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[820px] border-collapse text-left text-sm">
               <thead>
-                <tr className="text-[11px] text-neutral-400">
-                  <th className="px-4 py-2.5 font-semibold sm:pl-5">Date</th>
-                  <th className="px-3 py-2.5 font-semibold">Category</th>
-                  <th className="px-3 py-2.5 font-semibold">Description</th>
-                  <th className="px-3 py-2.5 font-semibold">Stream</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
-                  <th className="px-4 py-2.5 text-right font-semibold sm:pr-5"><span className="sr-only">Actions</span></th>
+                <tr className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <th className="px-5 py-3 font-semibold">Date</th>
+                  <th className="px-3 py-3 font-semibold">Category</th>
+                  <th className="px-3 py-3 font-semibold">Description</th>
+                  <th className="px-3 py-3 font-semibold">Stream</th>
+                  <th className="px-3 py-3 text-right font-semibold">Amount</th>
+                  <th className="px-5 py-3 text-right font-semibold"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {loading && !data ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="border-0 border-t border-solid border-neutral-200"><td colSpan={6} className="px-5 py-4"><div className="h-3 w-3/4 animate-pulse rounded-full bg-neutral-200/80" /></td></tr>
-                  ))
+                  Array.from({ length: 5 }).map((_, i) => <tr key={i} className="border-0 border-t border-solid border-[#284540]"><td colSpan={6} className="px-5 py-4"><div className="h-3 w-3/4 animate-pulse bg-white/[0.05]" /></td></tr>)
                 ) : !data?.items.length ? (
-                  <tr className="border-0 border-t border-solid border-neutral-200">
-                    <td colSpan={6} className="px-5 py-10 text-center">
-                      <span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><ReceiptText className="h-5 w-5" /></span>
-                      <p className="m-0 mt-3 text-sm font-semibold text-neutral-900">No expenses in this period</p>
-                      <p className="m-0 mt-0.5 text-xs text-neutral-500">Record gateway statements and running bills here. Bonuses appear automatically.</p>
+                  <tr className="border-0 border-t border-solid border-[#284540]">
+                    <td colSpan={6} className="px-5 py-12 text-center">
+                      <span className="mx-auto grid h-10 w-10 place-items-center rounded-md bg-emerald-400/10 text-emerald-300"><ReceiptText className="h-5 w-5" /></span>
+                      <p className="m-0 mt-3 text-sm font-semibold text-white">No expenses in this period</p>
+                      <p className="m-0 mt-0.5 text-xs text-slate-500">Record gateway statements and running bills here. Bonuses and paid payroll appear on their own.</p>
                     </td>
                   </tr>
                 ) : (
@@ -272,25 +285,25 @@ export default function PlatformExpensesPage() {
                     const reversal = row.reversesExpenseId != null;
                     const reversed = Boolean(row.reversedAt);
                     return (
-                      <tr key={row.id} className={`border-0 border-t border-solid border-neutral-200 align-top ${reversed ? "text-neutral-400" : ""}`}>
-                        <td className="whitespace-nowrap px-4 py-3 tabular-nums sm:pl-5">
+                      <tr key={row.id} className={`border-0 border-t border-solid border-[#284540] align-top transition-colors hover:bg-white/[0.02] ${reversed ? "opacity-60" : ""}`}>
+                        <td className="whitespace-nowrap px-5 py-3 tabular-nums text-slate-300">
                           {eatDate(row.incurredAt)}
-                          {row.periodStart && row.periodEnd ? <span className="block text-[11px] text-neutral-400">{eatDate(row.periodStart)} to {eatDate(row.periodEnd)}</span> : null}
+                          {row.periodStart && row.periodEnd ? <span className="block text-[11px] text-slate-500">{eatDate(row.periodStart)} to {eatDate(row.periodEnd)}</span> : null}
                         </td>
                         <td className="px-3 py-3">
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${CATEGORY_TONE[row.category] ?? CATEGORY_TONE.OTHER}`}>{labelOf(row.category)}</span>
-                          <span className="mt-1 block text-[11px] text-neutral-400">{row.origin === "SYSTEM" ? "Recorded by the platform" : "Recorded by an admin"}</span>
+                          <span className="inline-flex items-center gap-1.5 rounded border border-solid border-[#284540] bg-[#13241f] px-2 py-0.5 text-[11px] font-semibold text-slate-200"><span className="h-1.5 w-1.5" style={{ background: CATEGORY_DOT[row.category] ?? "#94a3b8" }} />{labelOf(row.category)}</span>
+                          <span className="mt-1 block text-[11px] text-slate-500">{row.origin === "SYSTEM" ? "By the platform" : "By an admin"}</span>
                         </td>
                         <td className="max-w-[320px] px-3 py-3">
-                          <span className={`block truncate font-medium ${reversed ? "line-through" : "text-neutral-900"}`}>{row.description}</span>
-                          <span className="block truncate text-xs text-neutral-400">{[row.vendor, row.reference ? `Ref ${row.reference}` : null, reversal ? row.note : null].filter(Boolean).join(" · ") || " "}</span>
-                          {reversed ? <span className="mt-0.5 inline-flex rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500">Reversed {eatDate(row.reversedAt)}</span> : null}
+                          <span className={`block truncate font-medium ${reversed ? "text-slate-500 line-through" : "text-slate-100"}`}>{row.description}</span>
+                          <span className="block truncate text-xs text-slate-500">{[row.vendor, row.reference ? `Ref ${row.reference}` : null, reversal ? row.note : null].filter(Boolean).join(" · ") || " "}</span>
+                          {reversed ? <span className="mt-1 inline-flex rounded bg-white/[0.05] px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">Reversed {eatDate(row.reversedAt)}</span> : null}
                         </td>
-                        <td className="px-3 py-3 text-xs text-neutral-500">{row.stream ? STREAM_LABEL[row.stream] ?? row.stream : "Whole platform"}</td>
-                        <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums ${row.amount < 0 ? "text-emerald-700" : reversed ? "" : "text-neutral-900"}`}>{money(row.amount, row.currency)}</td>
-                        <td className="px-4 py-3 text-right sm:pr-5">
+                        <td className="px-3 py-3 text-xs text-slate-400">{row.stream ? STREAM_LABEL[row.stream] ?? row.stream : "Whole platform"}</td>
+                        <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums ${row.amount < 0 ? "text-emerald-300" : "text-white"}`}>{money(row.amount, row.currency)}</td>
+                        <td className="px-5 py-3 text-right">
                           {!reversal && !reversed ? (
-                            <button type="button" onClick={() => setReversing(row)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50">
+                            <button type="button" onClick={() => setReversing(row)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-[#284540] bg-transparent px-2.5 text-xs font-semibold text-slate-300 transition hover:border-rose-400/40 hover:text-rose-200">
                               <RotateCcw className="h-3.5 w-3.5" /> Reverse
                             </button>
                           ) : null}
@@ -302,46 +315,47 @@ export default function PlatformExpensesPage() {
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-neutral-200 px-4 py-3 text-xs text-neutral-500 sm:px-5">
+          <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-[#284540] px-5 py-3 text-xs text-slate-500">
             <span>Corrections are made by reversing an entry, never by editing it.</span>
             <span className="flex items-center gap-2">
-              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading} className="h-8 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 font-semibold text-neutral-700 disabled:opacity-40">Previous</button>
+              <button type="button" onClick={() => setPage((pg) => Math.max(1, pg - 1))} disabled={page <= 1 || loading} className="h-8 rounded-md border border-solid border-[#284540] bg-transparent px-2.5 font-semibold text-slate-300 disabled:opacity-30">Previous</button>
               <span className="tabular-nums">Page {page} of {totalPages}</span>
-              <button type="button" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages || loading} className="h-8 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 font-semibold text-neutral-700 disabled:opacity-40">Next</button>
+              <button type="button" onClick={() => setPage((pg) => pg + 1)} disabled={page >= totalPages || loading} className="h-8 rounded-md border border-solid border-[#284540] bg-transparent px-2.5 font-semibold text-slate-300 disabled:opacity-30">Next</button>
             </span>
           </div>
         </section>
 
-        {/* Side: gateway estimate and what each category means */}
+        {/* Side */}
         <div className="min-w-0 space-y-4">
-          <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]"><Percent className="h-4 w-4" /></span>
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Gateway fee estimate</h2>
+          <section className={`${panel} p-5`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className={eyebrow}><Percent className="h-3.5 w-3.5" /> Gateway fee estimate</p>
+              <span className={`rounded px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset ${data?.gatewayFeeEstimatePercent != null ? "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25" : "bg-white/[0.04] text-slate-400 ring-white/10"}`}>{data?.gatewayFeeEstimatePercent != null ? "On" : "Off"}</span>
             </div>
-            <p className="m-0 mt-2 text-xs text-neutral-500">The payment providers do not report their fees to NoLSAF. Until a period has gateway fees recorded from a settlement statement, the margin estimates them at this rate on guest money collected.</p>
+            <p className="m-0 mt-3 text-xs leading-relaxed text-slate-400">Payment providers do not report their fees. Until a period has fees recorded from a settlement statement, the margin estimates them at this rate on guest money collected.</p>
             <div className="mt-3 flex items-center gap-2">
               <div className="relative flex-1">
-                <input value={rateInput} onChange={(e) => setRateInput(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="Not set" aria-label="Gateway fee estimate percent" className={`${fieldClass} pr-8`} />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-neutral-400">%</span>
+                <input value={rateInput} onChange={(e) => setRateInput(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="Not set" aria-label="Gateway fee estimate percent" className="box-border h-9 w-full rounded-md border border-solid border-[#284540] bg-[#13241f] px-3 pr-8 text-sm tabular-nums text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-400/60" />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">%</span>
               </div>
-              <button type="button" onClick={() => void saveRate()} disabled={rateSaving} className="inline-flex h-10 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white hover:bg-[#12342f] disabled:opacity-50">
+              <button type="button" onClick={() => void saveRate()} disabled={rateSaving} className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-emerald-400 px-3.5 text-xs font-semibold text-[#06201b] hover:bg-emerald-300 disabled:opacity-50">
                 {rateSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Save
               </button>
             </div>
-            {rateMessage && <p className={`m-0 mt-2 text-xs ${rateMessage.tone === "ok" ? "text-emerald-700" : "text-rose-700"}`}>{rateMessage.text}</p>}
+            {rateMessage && <p className={`m-0 mt-2 text-xs ${rateMessage.tone === "ok" ? "text-emerald-300" : "text-rose-300"}`}>{rateMessage.text}</p>}
           </section>
 
-          <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-4 shadow-sm">
-            <p className={sectionLabel}>How categories count</p>
-            <ul className="m-0 mt-2 list-none space-y-2 p-0 text-xs text-neutral-600">
-              <li><span className="font-semibold text-neutral-900">Costs of revenue</span> (gateway fees, bonuses) come off revenue first and set the contribution margin.</li>
-              <li><span className="font-semibold text-neutral-900">Running costs</span> (SMS, email, hosting, staff, marketing, other) come off contribution and set the net margin.</li>
-              <li>Sales partner commissions and driver referral earnings are read from their own ledgers, so they are not entered here.</li>
+          <section className={`${panel} p-5`}>
+            <p className={eyebrow}>How categories count</p>
+            <ul className="m-0 mt-3 list-none space-y-3 p-0 text-xs leading-relaxed text-slate-400">
+              <li className="border-0 border-l-2 border-solid border-sky-400 pl-3"><span className="font-semibold text-slate-100">Costs of revenue</span> (gateway fees, bonuses) come off revenue first and set the contribution margin.</li>
+              <li className="border-0 border-l-2 border-solid border-rose-400 pl-3"><span className="font-semibold text-slate-100">Running costs</span> (SMS, email, hosting, staff, marketing, other) come off contribution and set the net margin.</li>
+              <li className="border-0 border-l-2 border-solid border-slate-500 pl-3">Sales partner commissions and driver referral earnings are read from their own ledgers, so they are not entered here.</li>
             </ul>
           </section>
         </div>
       </div>
+    </CommandCanvas>
 
       {recordOpen && data && (
         <RecordExpenseDialog

@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowUpRight, BookOpenText, CalendarCheck2, ChevronLeft, ChevronRight, Landmark, LayoutDashboard, RefreshCw, TrendingDown, TrendingUp, Users } from "lucide-react";
-import { CoverageRing, coverageTone, type MonthCoverage } from "./_coverage";
+import { Activity, ArrowUpRight, BookOpenText, CalendarCheck2, ChevronLeft, ChevronRight, Gauge, Landmark, Layers, Radar, RefreshCw, Scale, Users } from "lucide-react";
+import { CommandCanvas, Dial, DualLineChart, LinearBridge, eyebrow, ghostButton, panel, type BridgeStep } from "@/components/admin/commandUi";
+import { type MonthCoverage } from "./_coverage";
 import { LockedCard, compactTzs, eatDate, eatTodayIso, monthLabel, tzs, useFinanceData } from "./_shared";
 
 /**
- * Expenses overview for one month: does revenue cover the cost of running
- * NoLSAF, how revenue turns into net, what the money went on, and where
- * payroll and the statutory payments stand.
+ * Expenses overview for one month, in the finance "command" look shared with
+ * All Revenue: does revenue cover the cost of running NoLSAF, how the year
+ * has gone month by month, how revenue turns into net, what the money went
+ * on, and where payroll and the statutory payments stand.
  */
 
 type Margin = {
@@ -28,23 +30,23 @@ type RunDetail = { remittances: Array<{ key: string; payee: string; label: strin
 type Employees = { counts: Record<string, number>; monthlyGross: number };
 
 const CATEGORY_COLOR: Record<string, string> = {
-  GATEWAY_FEE: "#0ea5e9",
-  PARTNER_BONUS: "#8b5cf6",
-  SMS: "#f59e0b",
-  EMAIL: "#fbbf24",
-  HOSTING: "#10b981",
-  STAFF: "#0b2420",
-  MARKETING: "#d946ef",
-  OTHER: "#a3a3a3",
+  GATEWAY_FEE: "#38bdf8",
+  PARTNER_BONUS: "#a78bfa",
+  SMS: "#fbbf24",
+  EMAIL: "#fcd34d",
+  HOSTING: "#34d399",
+  STAFF: "#5eead4",
+  MARKETING: "#f0abfc",
+  OTHER: "#94a3b8",
 };
 const RUN_TONE: Record<string, string> = {
-  DRAFT: "bg-amber-50 text-amber-700",
-  APPROVED: "bg-sky-50 text-sky-700",
-  PAID: "bg-emerald-50 text-emerald-700",
-  CANCELLED: "bg-neutral-100 text-neutral-500",
+  DRAFT: "bg-amber-400/10 text-amber-300 ring-amber-400/25",
+  APPROVED: "bg-sky-400/10 text-sky-300 ring-sky-400/25",
+  PAID: "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25",
+  CANCELLED: "bg-white/[0.04] text-slate-400 ring-white/10",
 };
-const card = "rounded-3xl border border-solid border-neutral-200 bg-white shadow-sm";
 const pct = (v: number | null | undefined) => (v == null ? "n/a" : `${v.toFixed(1)}%`);
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function shiftMonth(month: string, by: number) {
   const [y, m] = month.split("-").map(Number);
@@ -63,6 +65,7 @@ export default function ExpensesOverviewPage() {
 
   const overview = useFinanceData<Overview>(`/api/admin/finance/overview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
   const coverage = useFinanceData<{ months: MonthCoverage[] }>(`/api/admin/finance/payroll/coverage?month=${month}`);
+  const year = useFinanceData<{ months: MonthCoverage[] }>(`/api/admin/finance/payroll/coverage?year=${y}`);
   const expenses = useFinanceData<ExpenseList>(`/api/admin/finance/expenses?from=${month}-01&to=${monthEnd}&pageSize=6`);
   const runs = useFinanceData<Runs>("/api/admin/finance/payroll/runs");
   const employees = useFinanceData<Employees>("/api/admin/finance/payroll/employees?status=ACTIVE");
@@ -72,7 +75,6 @@ export default function ExpensesOverviewPage() {
 
   const margin = overview.data?.margin;
   const cover = coverage.data?.months[0] ?? null;
-  const tone = coverageTone(cover?.coveragePercent ?? null);
 
   const byCategory = useMemo(() => {
     const labels = new Map((expenses.data?.categories ?? []).map((c) => [c.key, c.label]));
@@ -83,268 +85,252 @@ export default function ExpensesOverviewPage() {
   }, [expenses.data]);
   const categoryTotal = byCategory.reduce((s, r) => s + r.amount, 0);
 
+  const yearPoints = useMemo(
+    () => (year.data?.months ?? null)?.map((c) => ({ key: c.periodMonth, label: MONTH_SHORT[Number(c.periodMonth.slice(5, 7)) - 1], a: c.revenue, b: c.totalCosts })) ?? null,
+    [year.data],
+  );
+
   if (overview.locked || coverage.locked || expenses.locked) return <LockedCard what="Expenses" />;
 
-  const refresh = () => { overview.reload(); coverage.reload(); expenses.reload(); runs.reload(); employees.reload(); runDetail.reload(); };
+  const refresh = () => { overview.reload(); coverage.reload(); year.reload(); expenses.reload(); runs.reload(); employees.reload(); runDetail.reload(); };
   const loading = overview.loading || coverage.loading;
   const activeCount = (employees.data?.counts?.ACTIVE ?? 0) + (employees.data?.counts?.ON_LEAVE ?? 0);
+  const money = (v: number) => tzs(v);
+  const daysLeft = month === thisMonth ? new Date(Date.UTC(y, m, 0)).getUTCDate() - Number(today.slice(8, 10)) + 1 : 0;
+  const percent = cover?.coveragePercent ?? null;
+  const hasCosts = Boolean(cover && cover.totalCosts > 0);
+  const quiet = Boolean(cover && cover.totalCosts === 0 && cover.revenue === 0);
 
-  // Revenue to net, as steps for the waterfall.
-  const steps = margin
+  const steps: BridgeStep[] = margin
     ? [
-        { label: "NoLSAF revenue", value: margin.revenue, kind: "total" as const },
-        ...margin.costs.filter((c) => c.amount !== 0).map((c) => ({ label: c.label + (c.basis === "ESTIMATE" ? " (est.)" : ""), value: -c.amount, kind: "cost" as const })),
-        { label: "Contribution", value: margin.contribution, kind: "subtotal" as const },
-        ...margin.operating.filter((c) => c.amount !== 0).map((c) => ({ label: c.label, value: -c.amount, kind: "cost" as const })),
-        { label: "Net", value: margin.net, kind: "total" as const },
+        { key: "revenue", label: "NoLSAF revenue", amount: margin.revenue, kind: "start" },
+        ...margin.costs.filter((c) => c.amount !== 0).map((c) => ({ key: c.key, label: c.label, amount: c.amount, kind: "less" as const, tag: c.basis === "ESTIMATE" ? "est." : undefined })),
+        { key: "contribution", label: "Contribution", amount: margin.contribution, kind: "sub" },
+        ...margin.operating.filter((c) => c.amount !== 0).map((c) => ({ key: c.key, label: c.label, amount: c.amount, kind: "less" as const })),
+        { key: "net", label: "Net", amount: margin.net, kind: "end" },
       ]
     : [];
-  const waterScale = Math.max(1, margin?.revenue ?? 0, ...steps.map((s) => Math.abs(s.value)));
 
   return (
-    <div className="w-full min-w-0 space-y-5">
-      {/* Header */}
-      <section className={`${card} flex flex-wrap items-center gap-4 px-5 py-5 sm:px-6`}>
-        <div className="min-w-0 flex-1">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#02665e]/10 px-2.5 py-1 text-[11px] font-semibold text-[#02665e]"><LayoutDashboard className="h-3.5 w-3.5" /> Expenses overview</span>
-          <h1 className="m-0 mt-2 text-2xl font-bold tracking-tight text-neutral-900">{monthLabel(month)}</h1>
-          <p className="m-0 mt-1 text-sm text-neutral-500">{month === thisMonth ? "So far this month." : "The whole month."} What it cost to run NoLSAF, and whether revenue paid for it.</p>
+    <CommandCanvas>
+      {/* Command bar */}
+      <div className="flex flex-wrap items-center gap-3 px-1 pt-1">
+        <div className="mr-auto min-w-0">
+          <p className={eyebrow}><Radar className="h-3.5 w-3.5" /> Expenses command</p>
+          <p className="m-0 mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            <span className="font-semibold text-slate-100">{monthLabel(month)}</span>
+            <span className="text-slate-600">·</span>
+            {month === thisMonth ? `so far, ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : "the whole month"}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex items-center rounded-full border border-solid border-neutral-200 bg-white p-1">
-            <button type="button" onClick={() => setMonth((mm) => shiftMonth(mm, -1))} aria-label="Previous month" className="grid h-8 w-8 place-items-center rounded-full border-0 bg-transparent text-neutral-600 hover:bg-neutral-100"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="w-28 text-center text-sm font-semibold text-neutral-900">{new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" })}</span>
-            <button type="button" onClick={() => setMonth((mm) => shiftMonth(mm, 1))} disabled={month >= thisMonth} aria-label="Next month" className="grid h-8 w-8 place-items-center rounded-full border-0 bg-transparent text-neutral-600 hover:bg-neutral-100 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
-          </div>
-          <button type="button" onClick={refresh} aria-label="Refresh" className="grid h-10 w-10 place-items-center rounded-full border border-solid border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50">
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          </button>
+        <div className="inline-flex items-center rounded-md border border-solid border-[#284540] bg-[#182c28] p-0.5">
+          <button type="button" onClick={() => setMonth((mm) => shiftMonth(mm, -1))} aria-label="Previous month" className="grid h-8 w-8 place-items-center rounded border-0 bg-transparent text-slate-400 hover:bg-white/[0.05] hover:text-white"><ChevronLeft className="h-4 w-4" /></button>
+          <span className="w-24 text-center text-xs font-semibold text-slate-100">{new Date(`${month}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" })}</span>
+          <button type="button" onClick={() => setMonth((mm) => shiftMonth(mm, 1))} disabled={month >= thisMonth} aria-label="Next month" className="grid h-8 w-8 place-items-center rounded border-0 bg-transparent text-slate-400 hover:bg-white/[0.05] hover:text-white disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
         </div>
-      </section>
+        {month !== thisMonth ? <button type="button" onClick={() => setMonth(thisMonth)} className={ghostButton}>This month</button> : null}
+        <button type="button" onClick={refresh} aria-label="Refresh" className="grid h-9 w-9 place-items-center rounded-md border border-solid border-[#284540] bg-[#182c28] text-slate-300 transition hover:border-emerald-300/40 hover:text-emerald-200">
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+        </button>
+      </div>
 
-      {/* Coverage: the answer first */}
-      <section className={`${card} overflow-hidden`}>
-        <div className="grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-          <div className="flex flex-col justify-center px-5 py-6 sm:px-7">
-            {cover && cover.totalCosts > 0 ? (() => {
-              const percent = cover.coveragePercent ?? 0;
-              const state = percent >= 100 ? { label: "Covered", chip: "bg-emerald-50 text-emerald-700 ring-emerald-200" } : percent > 0 ? { label: "Partly covered", chip: "bg-amber-50 text-amber-700 ring-amber-200" } : { label: "Not covered yet", chip: "bg-rose-50 text-rose-700 ring-rose-200" };
-              // The track runs to whichever is larger, so a surplus shows past the break-even line.
-              const scale = Math.max(cover.totalCosts, cover.revenue);
-              const fill = (cover.revenue / scale) * 100;
-              const breakEven = (cover.totalCosts / scale) * 100;
-              const daysLeft = month === thisMonth ? new Date(Date.UTC(y, m, 0)).getUTCDate() - Number(today.slice(8, 10)) + 1 : 0;
-              return (
+      {/* Hero: the year line, the dial and the meters */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <section className={`${panel} p-5 sm:p-6`}>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <p className="m-0 text-xs font-semibold text-slate-400">Does revenue pay for NoLSAF, {monthLabel(month)}</p>
+              {loading && !cover ? (
+                <div className="mt-3 h-11 w-64 animate-pulse rounded-md bg-white/[0.05]" />
+              ) : quiet ? (
                 <>
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="m-0 text-xs font-semibold text-neutral-500">Revenue coverage</p>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${state.chip}`}>
-                      {percent >= 100 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />} {state.label}
-                    </span>
-                  </div>
-                  <p className="m-0 mt-2 flex flex-wrap items-baseline gap-x-2">
-                    <span className={`text-5xl font-bold tracking-tight tabular-nums ${tone.text}`}>{Math.round(percent)}%</span>
-                    <span className="text-sm text-neutral-500">of {tzs(cover.totalCosts)} in costs covered by revenue</span>
-                  </p>
-
-                  {/* Gauge */}
-                  <div className="mt-5">
-                    <div className="relative h-3 rounded-full bg-[repeating-linear-gradient(90deg,#f1f3f2_0,#f1f3f2_calc(10%_-_2px),#e5e7e6_calc(10%_-_2px),#e5e7e6_10%)]">
-                      <span className={`absolute inset-y-0 left-0 rounded-full ${tone.bar}`} style={{ width: `${fill}%`, minWidth: fill > 0 ? 6 : 0 }} />
-                      <span className="absolute -top-1.5 h-6 w-0.5 rounded-full bg-neutral-900" style={{ left: `calc(${breakEven}% - 1px)` }} aria-hidden />
-                    </div>
-                    <div className="relative mt-1.5 h-4 text-[10px] font-semibold text-neutral-400">
-                      <span className="absolute left-0">0</span>
-                      <span className="absolute -translate-x-1/2 whitespace-nowrap text-neutral-700" style={{ left: `${Math.min(Math.max(breakEven, 10), 90)}%` }}>Break-even {compactTzs(cover.totalCosts)}</span>
-                    </div>
-                  </div>
-
-                  <dl className="m-0 mt-4 grid grid-cols-2 gap-2.5">
-                    <div className="rounded-2xl bg-neutral-50 px-3.5 py-2.5">
-                      <dt className="text-[11px] text-neutral-500">{cover.surplus > 0 ? "Left over" : "Revenue gap"}</dt>
-                      <dd className={`m-0 mt-0.5 text-base font-bold tabular-nums ${cover.surplus > 0 ? "text-emerald-700" : "text-rose-700"}`}>{tzs(cover.surplus > 0 ? cover.surplus : cover.shortfall)}</dd>
-                    </div>
-                    <div className="rounded-2xl bg-neutral-50 px-3.5 py-2.5">
-                      {cover.surplus > 0 || daysLeft <= 0 ? (
-                        <>
-                          <dt className="text-[11px] text-neutral-500">Revenue in</dt>
-                          <dd className="m-0 mt-0.5 text-base font-bold tabular-nums text-neutral-900">{tzs(cover.revenue)}</dd>
-                        </>
-                      ) : (
-                        <>
-                          <dt className="text-[11px] text-neutral-500">Needed per day to break even</dt>
-                          <dd className="m-0 mt-0.5 text-base font-bold tabular-nums text-neutral-900">{tzs(cover.shortfall / daysLeft)}</dd>
-                          <dd className="m-0 text-[10px] text-neutral-400">over the {daysLeft} day{daysLeft === 1 ? "" : "s"} left</dd>
-                        </>
-                      )}
-                    </div>
-                  </dl>
+                  <p className="m-0 mt-2 text-xl font-semibold tracking-tight text-white">Nothing recorded for {monthLabel(month)} yet</p>
+                  <p className="m-0 mt-1 text-sm text-slate-400">Coverage appears once revenue comes in or payroll and expenses are booked.</p>
                 </>
-              );
-            })() : (
-              <div className="flex items-center gap-4">
-                <CoverageRing percent={null} size={72} />
-                <div>
-                  <p className="m-0 text-sm font-semibold text-neutral-900">{loading ? "Working out revenue and costs..." : "No costs recorded for this month yet"}</p>
-                  <p className="m-0 mt-0.5 text-xs text-neutral-500">Coverage appears once payroll or expenses exist for {monthLabel(month)}.</p>
-                </div>
-              </div>
-            )}
+              ) : (
+                <>
+                  <p className="m-0 mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className={`text-[44px] font-semibold leading-none tabular-nums tracking-tight ${percent == null ? "text-slate-500" : percent >= 100 ? "text-emerald-300" : percent >= 70 ? "text-amber-300" : "text-rose-300"}`}>{percent == null ? "n/a" : `${Math.round(percent)}%`}</span>
+                    <span className="text-sm text-slate-400">of the cost covered</span>
+                  </p>
+                  <p className="m-0 mt-2 text-sm text-slate-400">
+                    Revenue <b className="font-semibold text-emerald-300">{money(cover?.revenue ?? 0)}</b> against costs <b className="font-semibold text-rose-300">{money(cover?.totalCosts ?? 0)}</b>.
+                    {cover && cover.surplus > 0 ? <> <b className="font-semibold text-white">{money(cover.surplus)}</b> left over.</> : cover && cover.shortfall > 0 ? <> Gap <b className="font-semibold text-white">{money(cover.shortfall)}</b>{daysLeft > 0 ? <>, about <b className="font-semibold text-white">{compactTzs(cover.shortfall / daysLeft)}</b> a day to close it</> : null}.</> : null}
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-4 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
+              <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-5 bg-emerald-400" /> Revenue</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-5 bg-rose-400" /> Cost to run</span>
+            </div>
           </div>
-
-          <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-neutral-200 bg-neutral-200 lg:border-l lg:border-t-0">
-            {[
-              { label: "NoLSAF revenue", value: cover ? tzs(cover.revenue) : "...", detail: "realized this month", tone: "text-emerald-700" },
-              { label: "Cost to run NoLSAF", value: cover ? tzs(cover.totalCosts) : "...", detail: cover ? `payroll ${compactTzs(cover.payroll.amount)}` : "", tone: "text-neutral-900" },
-              { label: "Contribution margin", value: margin ? pct(margin.contributionMarginPercent) : "...", detail: "after costs of earning revenue", tone: "text-neutral-900" },
-              { label: "Net margin", value: margin ? pct(margin.netMarginPercent) : "...", detail: "after running costs", tone: margin && (margin.netMarginPercent ?? 0) < 0 ? "text-rose-700" : "text-neutral-900" },
-            ].map((f) => (
-              <div key={f.label} className="min-w-0 bg-white px-5 py-4">
-                <dt className="text-[11px] font-semibold text-neutral-400">{f.label}</dt>
-                <dd className={`m-0 mt-1 truncate text-xl font-bold tabular-nums ${f.tone}`}>{f.value}</dd>
-                <dd className="m-0 truncate text-[11px] text-neutral-500">{f.detail}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      </section>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        {/* Revenue to net waterfall */}
-        <section className={`${card} p-5 sm:p-6`}>
-          <div className="flex items-center justify-between">
-            <h2 className="m-0 text-sm font-bold text-neutral-900">From revenue to net</h2>
-            <Link href="/admin/finance" className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e] no-underline hover:underline">All Revenue <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+          <div className="mt-5">
+            <DualLineChart points={yearPoints} aLabel="Revenue" bLabel="Cost to run" money={money} selected={month} onPick={(key) => setMonth(key)} />
           </div>
-          {steps.length ? (
-            <ul className="m-0 mt-4 list-none space-y-2.5 p-0">
-              {steps.map((s, i) => {
-                const width = (Math.abs(s.value) / waterScale) * 100;
-                const color = s.kind === "cost" ? "bg-rose-300" : s.value < 0 ? "bg-rose-500" : s.kind === "subtotal" ? "bg-emerald-400" : "bg-[#02665e]";
-                return (
-                  <li key={`${s.label}-${i}`} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-3">
-                    <span className={`truncate text-xs ${s.kind === "cost" ? "text-neutral-500" : "font-semibold text-neutral-900"}`}>{s.kind === "cost" ? `less ${s.label.toLowerCase()}` : s.label}</span>
-                    <span className="h-2.5 overflow-hidden rounded-full bg-neutral-100"><span className={`block h-full rounded-full ${color}`} style={{ width: `${Math.max(width, s.value ? 1.5 : 0)}%` }} /></span>
-                    <span className={`text-right text-xs tabular-nums ${s.kind === "cost" ? "text-rose-700" : "font-bold text-neutral-900"}`}>{s.kind === "cost" ? `- ${compactTzs(-s.value)}` : compactTzs(s.value)}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : <p className="m-0 mt-4 text-xs text-neutral-500">{overview.loading ? "Loading..." : "No revenue or costs for this month yet."}</p>}
+          <p className="m-0 mt-3 text-[11px] text-slate-500">{y}, month by month. Click a month to open it.</p>
         </section>
 
-        {/* Spend by category */}
-        <section className={`${card} p-5 sm:p-6`}>
-          <div className="flex items-center justify-between">
-            <h2 className="m-0 text-sm font-bold text-neutral-900">What the money went on</h2>
-            <Link href="/admin/expenses/ledger" className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e] no-underline hover:underline">Ledger <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          <section className={`${panel} p-5`}>
+            <p className={eyebrow}><Gauge className="h-3.5 w-3.5" /> Coverage</p>
+            <Dial
+              value={hasCosts ? percent : null}
+              max={150}
+              marker={100}
+              label="Covered"
+              display={hasCosts && percent != null ? `${Math.round(percent)}%` : "n/a"}
+              sub={hasCosts ? (percent != null && percent >= 100 ? "past break-even" : "tick is break-even") : "no costs yet"}
+              tone={percent == null ? "good" : percent >= 100 ? "good" : percent >= 70 ? "warn" : "bad"}
+            />
+          </section>
+          <section className={`${panel} space-y-4 p-5`}>
+            <p className={eyebrow}><Activity className="h-3.5 w-3.5" /> This month</p>
+            {[
+              { label: "Revenue in", value: cover?.revenue ?? 0, color: "#34d399", hint: "realized NoLSAF revenue" },
+              { label: "Cost to run", value: cover?.totalCosts ?? 0, color: "#f87171", hint: cover ? `payroll ${compactTzs(cover.payroll.amount)}` : "" },
+              { label: "Net margin", text: margin ? pct(margin.netMarginPercent) : "...", color: "#5eead4", hint: margin ? `contribution ${pct(margin.contributionMarginPercent)}` : "" },
+            ].map((f) => {
+              const scale = Math.max(1, cover?.revenue ?? 0, cover?.totalCosts ?? 0);
+              return (
+                <div key={f.label}>
+                  <span className="text-xs font-medium text-slate-400">{f.label}</span>
+                  <p className={`m-0 mt-0.5 whitespace-nowrap text-lg font-semibold tabular-nums ${"text" in f || f.value ? "text-white" : "text-slate-600"}`}>{"text" in f ? f.text : f.value ? money(f.value) : "None yet"}</p>
+                  {"value" in f ? <span className="mt-1.5 block h-1 bg-white/[0.06]"><span className="block h-full" style={{ width: `${((f.value ?? 0) / scale) * 100}%`, background: f.color }} /></span> : null}
+                  <p className="m-0 mt-1 text-[10px] text-slate-500">{f.hint}</p>
+                </div>
+              );
+            })}
+          </section>
+        </div>
+      </div>
+
+      {/* Bridge and categories */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+        <section className={`${panel} overflow-hidden`}>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 sm:px-6">
+            <div className="mr-auto min-w-0">
+              <p className={eyebrow}><Scale className="h-3.5 w-3.5" /> Revenue to net</p>
+              <p className="m-0 mt-1 text-sm text-slate-400">Less what it costs to earn it, less running costs.</p>
+            </div>
+            <Link href="/admin/finance" className={ghostButton}>All Revenue <ArrowUpRight className="h-3.5 w-3.5" /></Link>
           </div>
-          {byCategory.length ? (
-            <>
-              <span className="mt-4 flex h-3 overflow-hidden rounded-full bg-neutral-100">
-                {byCategory.map((c) => <span key={c.key} className="h-full" style={{ width: `${(c.amount / categoryTotal) * 100}%`, background: CATEGORY_COLOR[c.key] ?? "#a3a3a3" }} title={`${c.label}: ${tzs(c.amount)}`} />)}
-              </span>
-              <ul className="m-0 mt-4 list-none space-y-2 p-0">
+          <div className="border-0 border-t border-solid border-[#284540] px-5 py-3 sm:px-6">
+            {steps.length && (margin!.revenue !== 0 || steps.some((s) => s.kind === "less")) ? (
+              <LinearBridge steps={steps} money={money} />
+            ) : (
+              <p className="m-0 grid h-24 place-items-center text-xs text-slate-500">{overview.loading ? "Loading..." : `No revenue or costs for ${monthLabel(month)} yet.`}</p>
+            )}
+          </div>
+        </section>
+
+        <section className={`${panel} overflow-hidden`}>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 sm:px-6">
+            <div className="mr-auto min-w-0">
+              <p className={eyebrow}><Layers className="h-3.5 w-3.5" /> What the money went on</p>
+              <p className="m-0 mt-1 text-sm text-slate-400">{categoryTotal ? `${money(categoryTotal)} in the ledger` : "From the expense ledger"}</p>
+            </div>
+            <Link href="/admin/expenses/ledger" className={ghostButton}>Ledger <ArrowUpRight className="h-3.5 w-3.5" /></Link>
+          </div>
+          <div className="border-0 border-t border-solid border-[#284540] px-5 py-3 sm:px-6">
+            {byCategory.length ? (
+              <ul className="m-0 list-none p-0">
                 {byCategory.map((c) => (
-                  <li key={c.key} className="flex items-center justify-between gap-3 text-sm">
-                    <span className="inline-flex min-w-0 items-center gap-2 text-neutral-700"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_COLOR[c.key] ?? "#a3a3a3" }} /><span className="truncate">{c.label}</span></span>
-                    <span className="shrink-0 tabular-nums"><span className="font-semibold text-neutral-900">{compactTzs(c.amount)}</span> <span className="text-[11px] text-neutral-400">{Math.round((c.amount / categoryTotal) * 100)}%</span></span>
+                  <li key={c.key} className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-4 py-2">
+                    <span className="flex min-w-0 items-center gap-2 text-xs text-slate-300"><span className="h-2 w-2 shrink-0" style={{ background: CATEGORY_COLOR[c.key] ?? "#94a3b8" }} /><span className="truncate">{c.label}</span></span>
+                    <span className="block h-1.5 bg-[#13241f]"><span className="block h-full" style={{ width: `${(c.amount / categoryTotal) * 100}%`, background: CATEGORY_COLOR[c.key] ?? "#94a3b8" }} /></span>
+                    <span className="whitespace-nowrap text-right text-xs tabular-nums"><b className="font-semibold text-white">{compactTzs(c.amount)}</b> <span className="text-slate-500">{Math.round((c.amount / categoryTotal) * 100)}%</span></span>
                   </li>
                 ))}
               </ul>
-            </>
-          ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-neutral-300 px-4 py-6 text-center">
-              <p className="m-0 text-sm font-semibold text-neutral-900">Nothing in the ledger yet</p>
-              <p className="m-0 mt-0.5 text-xs text-neutral-500">Paid payroll, bonuses and recorded bills show up here.</p>
-            </div>
-          )}
+            ) : (
+              <p className="m-0 grid h-24 place-items-center text-center text-xs text-slate-500">{expenses.loading ? "Loading..." : "Nothing in the ledger yet. Paid payroll, bonuses and recorded bills show up here."}</p>
+            )}
+          </div>
         </section>
       </div>
 
+      {/* Payroll, statutory, latest */}
       <div className="grid gap-4 lg:grid-cols-3">
-        {/* Payroll */}
-        <section className={`${card} p-5`}>
+        <section className={`${panel} flex flex-col p-5`}>
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><Users className="h-5 w-5" /></span>
+            <span className="grid h-9 w-9 place-items-center rounded-md bg-emerald-400/10 text-emerald-300"><Users className="h-4 w-4" /></span>
             <div className="min-w-0">
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Payroll, {monthLabel(month)}</h2>
-              <p className="m-0 text-xs text-neutral-500">{employees.data ? `${activeCount} on the payroll · ${compactTzs(employees.data.monthlyGross)} gross a month` : "Loading..."}</p>
+              <h2 className="m-0 text-sm font-semibold text-white">Payroll, {monthLabel(month)}</h2>
+              <p className="m-0 text-xs text-slate-400">{employees.data ? `${activeCount} on the payroll · ${compactTzs(employees.data.monthlyGross)} gross a month` : "Loading..."}</p>
             </div>
           </div>
-          <div className="mt-4 rounded-2xl bg-neutral-50 px-4 py-3">
+          <div className="mt-4 flex-1 rounded-md border border-solid border-[#284540] bg-[#13241f] px-4 py-3">
             {monthRun ? (
               <div className="flex items-center justify-between gap-3">
                 <span>
-                  <span className="block text-lg font-bold tabular-nums text-neutral-900">{tzs(monthRun.net)}</span>
-                  <span className="block text-[11px] text-neutral-500">net to {monthRun.headcount} · cost {compactTzs(monthRun.employerCost)}</span>
+                  <span className="block text-lg font-semibold tabular-nums text-white">{tzs(monthRun.net)}</span>
+                  <span className="block text-[11px] text-slate-400">net to {monthRun.headcount} · cost {compactTzs(monthRun.employerCost)}</span>
                 </span>
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${RUN_TONE[monthRun.status] ?? RUN_TONE.CANCELLED}`}>{monthRun.status.charAt(0) + monthRun.status.slice(1).toLowerCase()}</span>
+                <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${RUN_TONE[monthRun.status] ?? RUN_TONE.CANCELLED}`}>{monthRun.status.charAt(0) + monthRun.status.slice(1).toLowerCase()}</span>
               </div>
             ) : (
-              <p className="m-0 text-sm text-neutral-600">{cover?.payroll.basis === "PROJECTED" ? `No run yet. Projected cost ${compactTzs(cover.payroll.amount)}.` : runs.loading ? "Loading..." : "No pay run for this month."}</p>
+              <p className="m-0 text-sm text-slate-400">{cover?.payroll.basis === "PROJECTED" ? `No run yet. Projected cost ${compactTzs(cover.payroll.amount)}.` : runs.loading ? "Loading..." : "No pay run for this month."}</p>
             )}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href="/admin/expenses/payroll/runs" className="inline-flex h-9 items-center gap-1.5 rounded-full border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline hover:bg-[#12342f] hover:no-underline"><CalendarCheck2 className="h-3.5 w-3.5" /> Pay runs</Link>
-            <Link href="/admin/expenses/payroll/employees" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-solid border-neutral-300 bg-white px-3.5 text-xs font-semibold text-neutral-700 no-underline hover:bg-neutral-50 hover:no-underline"><Users className="h-3.5 w-3.5" /> Employees</Link>
+            <Link href="/admin/expenses/payroll/runs" className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-emerald-400 px-3.5 text-xs font-semibold text-[#06201b] no-underline hover:bg-emerald-300 hover:no-underline"><CalendarCheck2 className="h-3.5 w-3.5" /> Pay runs</Link>
+            <Link href="/admin/expenses/payroll/employees" className={ghostButton}><Users className="h-3.5 w-3.5" /> Employees</Link>
           </div>
         </section>
 
-        {/* Statutory */}
-        <section className={`${card} p-5`}>
+        <section className={`${panel} p-5`}>
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><Landmark className="h-5 w-5" /></span>
+            <span className="grid h-9 w-9 place-items-center rounded-md bg-emerald-400/10 text-emerald-300"><Landmark className="h-4 w-4" /></span>
             <div className="min-w-0">
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Statutory payments</h2>
-              <p className="m-0 text-xs text-neutral-500">{latestPayable ? `From ${monthLabel(latestPayable.periodMonth)} payroll` : "Appear once a pay run is approved"}</p>
+              <h2 className="m-0 text-sm font-semibold text-white">Statutory payments</h2>
+              <p className="m-0 text-xs text-slate-400">{latestPayable ? `From ${monthLabel(latestPayable.periodMonth)} payroll` : "Appear once a pay run is approved"}</p>
             </div>
           </div>
-          <ul className="m-0 mt-4 list-none space-y-2 p-0">
+          <ul className="m-0 mt-4 list-none p-0">
             {runDetail.data?.remittances.length ? runDetail.data.remittances.map((r) => {
               const overdue = !r.paid && r.dueOn < today;
               return (
-                <li key={r.key} className="flex items-center gap-3 rounded-2xl bg-neutral-50 px-3.5 py-2.5">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#0b2420] text-[9px] font-bold text-emerald-300">{r.payee}</span>
+                <li key={r.key} className="flex items-center gap-3 border-0 border-b border-solid border-[#284540] py-2.5 last:border-b-0">
+                  <span className="w-12 shrink-0 rounded bg-white/[0.05] py-1 text-center text-[10px] font-bold text-slate-300">{r.payee}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-semibold text-neutral-900">{r.label}</span>
+                    <span className="block truncate text-xs font-semibold text-slate-100">{r.label}</span>
                     {r.paid ? (
-                      <span className="block text-[11px] font-semibold text-emerald-700">Paid {eatDate(r.paid.paidOn)}</span>
+                      <span className="block text-[11px] font-semibold text-emerald-300">Paid {eatDate(r.paid.paidOn)}</span>
                     ) : (
-                      <span className={`block text-[11px] ${overdue ? "font-semibold text-rose-700" : "text-neutral-500"}`}>by {eatDate(`${r.dueOn}T00:00:00+03:00`)}{overdue ? ", past due" : ""}</span>
+                      <span className={`block text-[11px] ${overdue ? "font-semibold text-rose-300" : "text-slate-500"}`}>by {eatDate(`${r.dueOn}T00:00:00+03:00`)}{overdue ? ", past due" : ""}</span>
                     )}
                   </span>
-                  <span className="shrink-0 text-sm font-bold tabular-nums text-neutral-900">{compactTzs(r.amount)}</span>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums text-white">{compactTzs(r.amount)}</span>
                 </li>
               );
-            }) : <li className="rounded-2xl border border-dashed border-neutral-300 px-4 py-5 text-center text-xs text-neutral-500">{runs.loading || runDetail.loading ? "Loading..." : "Nothing due yet."}</li>}
+            }) : <li className="grid h-20 place-items-center border border-dashed border-[#284540] text-xs text-slate-500">{runs.loading || runDetail.loading ? "Loading..." : "Nothing due yet."}</li>}
           </ul>
         </section>
 
-        {/* Latest entries */}
-        <section className={`${card} p-5`}>
+        <section className={`${panel} p-5`}>
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><BookOpenText className="h-5 w-5" /></span>
+            <span className="grid h-9 w-9 place-items-center rounded-md bg-emerald-400/10 text-emerald-300"><BookOpenText className="h-4 w-4" /></span>
             <div className="min-w-0 flex-1">
-              <h2 className="m-0 text-sm font-bold text-neutral-900">Latest entries</h2>
-              <p className="m-0 text-xs text-neutral-500">{monthLabel(month)}</p>
+              <h2 className="m-0 text-sm font-semibold text-white">Latest entries</h2>
+              <p className="m-0 text-xs text-slate-400">{monthLabel(month)}</p>
             </div>
-            <Link href="/admin/expenses/ledger" className="text-xs font-semibold text-[#02665e] no-underline hover:underline">All</Link>
+            <Link href="/admin/expenses/ledger" className="text-xs font-semibold text-emerald-300 no-underline hover:underline">All</Link>
           </div>
-          <ul className="m-0 mt-4 list-none space-y-2 p-0">
+          <ul className="m-0 mt-4 list-none p-0">
             {expenses.data?.items.length ? expenses.data.items.map((e) => (
-              <li key={e.id} className="flex items-center gap-3 rounded-2xl bg-neutral-50 px-3.5 py-2.5">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_COLOR[e.category] ?? "#a3a3a3" }} />
+              <li key={e.id} className="flex items-center gap-3 border-0 border-b border-solid border-[#284540] py-2.5 last:border-b-0">
+                <span className="h-2 w-2 shrink-0" style={{ background: CATEGORY_COLOR[e.category] ?? "#94a3b8" }} />
                 <span className="min-w-0 flex-1">
-                  <span className={`block truncate text-xs font-semibold ${e.reversedAt ? "text-neutral-400 line-through" : "text-neutral-900"}`}>{e.description}</span>
-                  <span className="block text-[11px] text-neutral-500">{eatDate(e.incurredAt)} · {e.origin === "SYSTEM" ? "by the platform" : "by an admin"}</span>
+                  <span className={`block truncate text-xs font-semibold ${e.reversedAt ? "text-slate-500 line-through" : "text-slate-100"}`}>{e.description}</span>
+                  <span className="block text-[11px] text-slate-500">{eatDate(e.incurredAt)} · {e.origin === "SYSTEM" ? "by the platform" : "by an admin"}</span>
                 </span>
-                <span className={`shrink-0 text-sm font-bold tabular-nums ${e.amount < 0 ? "text-emerald-700" : "text-neutral-900"}`}>{compactTzs(e.amount)}</span>
+                <span className={`shrink-0 text-sm font-semibold tabular-nums ${e.amount < 0 ? "text-emerald-300" : "text-white"}`}>{compactTzs(e.amount)}</span>
               </li>
-            )) : <li className="rounded-2xl border border-dashed border-neutral-300 px-4 py-5 text-center text-xs text-neutral-500">{expenses.loading ? "Loading..." : "No entries this month."}</li>}
+            )) : <li className="grid h-20 place-items-center border border-dashed border-[#284540] text-xs text-slate-500">{expenses.loading ? "Loading..." : "No entries this month."}</li>}
           </ul>
         </section>
       </div>
-    </div>
+    </CommandCanvas>
   );
 }
