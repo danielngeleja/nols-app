@@ -2251,6 +2251,10 @@ model SystemSetting {
   /// a settlement statement. Null means no estimate is made.
   gatewayFeeEstimatePercent Decimal? @db.Decimal(5, 2)
 
+  /// Gateway fee rates by channel (lib/gatewayFees.ts): { provider, MNO, BANK,
+  /// CARD } in percent. Null uses AzamPay's defaults (2.5, 2.5, 2.9).
+  gatewayFeeRates Json?
+
   /// Payroll statutory rates (lib/payroll.ts PayrollRates). Null uses the
   /// built-in defaults; each pay run stores the rates it used.
   payrollSettings Json?

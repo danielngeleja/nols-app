@@ -4,6 +4,7 @@ import { prisma } from "@nolsaf/prisma";
 import { blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
+import { DEFAULT_GATEWAY_FEE_RATES, FEE_CHANNELS, gatewayFeeRates, normalizeFeeRates } from "../lib/gatewayFees.js";
 import { auditOrThrow } from "../lib/audit.js";
 import { EXPENSE_CATEGORIES, EXPENSE_CATEGORY_KEYS, REVENUE_STREAMS } from "../lib/platformMargin.js";
 
@@ -74,7 +75,7 @@ router.get("/", async (req, res) => {
       prisma.platformExpense.findMany({ where, orderBy: [{ incurredAt: "desc" }, { id: "desc" }], skip: (page - 1) * pageSize, take: pageSize }),
       prisma.platformExpense.count({ where }),
       prisma.platformExpense.groupBy({ by: ["category", "currency"], where, _sum: { amount: true } }),
-      prisma.systemSetting.findUnique({ where: { id: 1 }, select: { gatewayFeeEstimatePercent: true } }),
+      gatewayFeeRates(),
     ]);
 
     res.json({
@@ -85,7 +86,8 @@ router.get("/", async (req, res) => {
       totals: byCategory.map((row) => ({ category: row.category, currency: row.currency, amount: n(row._sum.amount) })),
       categories: EXPENSE_CATEGORIES,
       streams: REVENUE_STREAMS,
-      gatewayFeeEstimatePercent: setting?.gatewayFeeEstimatePercent == null ? null : n(setting.gatewayFeeEstimatePercent),
+      gatewayFeeRates: setting,
+      feeChannels: FEE_CHANNELS,
     });
   } catch (err: any) {
     console.error("GET /admin/finance/expenses error:", err?.message || err);
@@ -193,27 +195,26 @@ router.post("/:id(\\d+)/reverse", writeLimiter, blockImpersonated, async (req, r
   }
 });
 
-const settingsSchema = z.object({ gatewayFeeEstimatePercent: z.union([z.coerce.number().min(0).max(20), z.null()]) });
+const rate = z.coerce.number().min(0, "Rates cannot be negative").max(20, "Keep each rate at 20% or below");
+const settingsSchema = z.object({
+  gatewayFeeRates: z.object({ provider: z.string().trim().min(2).max(40).optional(), MNO: rate, BANK: rate, CARD: rate }),
+});
 
-/** PUT /settings  the gateway fee estimate rate (percent of guest money collected) */
+/** PUT /settings  gateway fee rates by channel, in percent of the transaction */
 router.put("/settings", writeLimiter, blockImpersonated, async (req, res) => {
   const parsed = settingsSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: "Enter a rate between 0 and 20 percent, or clear it" });
-  const rate = parsed.data.gatewayFeeEstimatePercent;
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Check the rates" });
+  const next = normalizeFeeRates({ ...DEFAULT_GATEWAY_FEE_RATES, ...parsed.data.gatewayFeeRates });
   try {
     await prisma.$transaction(async (tx) => {
-      const before = await tx.systemSetting.findUnique({ where: { id: 1 }, select: { gatewayFeeEstimatePercent: true } });
-      await tx.systemSetting.upsert({
-        where: { id: 1 },
-        update: { gatewayFeeEstimatePercent: rate == null || rate === 0 ? null : (rate.toFixed(2) as any) },
-        create: { id: 1, gatewayFeeEstimatePercent: rate == null || rate === 0 ? null : (rate.toFixed(2) as any) },
-      });
-      await auditOrThrow(tx as any, req, "GATEWAY_FEE_ESTIMATE_CHANGED", "SYSTEM_SETTING:gatewayFeeEstimatePercent", { gatewayFeeEstimatePercent: before?.gatewayFeeEstimatePercent == null ? null : n(before.gatewayFeeEstimatePercent) }, { gatewayFeeEstimatePercent: rate || null });
+      const before = await gatewayFeeRates();
+      await tx.systemSetting.upsert({ where: { id: 1 }, update: { gatewayFeeRates: next as any }, create: { id: 1, gatewayFeeRates: next as any } });
+      await auditOrThrow(tx as any, req, "GATEWAY_FEE_RATES_CHANGED", "SYSTEM_SETTING:gatewayFeeRates", before, next);
     });
-    res.json({ ok: true, gatewayFeeEstimatePercent: rate || null });
+    res.json({ ok: true, gatewayFeeRates: next });
   } catch (err: any) {
     console.error("PUT /admin/finance/expenses/settings error:", err?.message || err);
-    res.status(500).json({ error: "The rate was not saved. Please try again." });
+    res.status(500).json({ error: "The rates were not saved. Please try again." });
   }
 });
 

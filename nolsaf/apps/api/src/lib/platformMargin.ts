@@ -1,4 +1,5 @@
 import { prisma } from "@nolsaf/prisma";
+import { channelOf, estimateGatewayFees, gatewayFeeRates, type FeeChannel } from "./gatewayFees.js";
 import { moneyStageOf } from "./invoiceMoneyStage.js";
 import { GUEST_MONEY_IN, loadOwnerInvoiceDisbursements } from "./invoiceMoneyStageIndex.js";
 
@@ -57,15 +58,16 @@ export async function accommodationTake(range: DateRange) {
     : BOOKING_INVOICE;
   const rows = await prisma.invoice.findMany({
     where: where as any,
-    select: { id: true, status: true, invoiceNumber: true, total: true, commissionAmount: true, netPayable: true },
+    select: { id: true, status: true, invoiceNumber: true, total: true, commissionAmount: true, netPayable: true, paymentMethod: true },
   });
   const disbursements = await loadOwnerInvoiceDisbursements(range ? rows.map((r) => r.id) : undefined);
 
-  const out = { gmv: 0, commission: 0, partnerNet: 0, count: 0, pendingCommission: 0, pendingCount: 0 };
+  const out = { gmv: 0, commission: 0, partnerNet: 0, count: 0, pendingCommission: 0, pendingCount: 0, byChannel: { MNO: 0, BANK: 0, CARD: 0 } as Record<FeeChannel, number> };
   for (const row of rows) {
     const { stage } = moneyStageOf(row, disbursements.get(row.id) ?? []);
     if (GUEST_MONEY_IN.has(stage)) {
       out.gmv += n(row.total);
+      out.byChannel[channelOf((row as any).paymentMethod)] += n(row.total);
       out.commission += n(row.commissionAmount);
       out.partnerNet += n(row.netPayable);
       out.count += 1;
@@ -167,17 +169,6 @@ async function readPlatformExpenses(range: DateRange, toTzs: ToTzs) {
   return byCategory;
 }
 
-/** The configured gateway fee estimate rate, or null when not set. */
-export async function gatewayFeeEstimatePercent(): Promise<number | null> {
-  try {
-    const row = await prisma.systemSetting.findUnique({ where: { id: 1 }, select: { gatewayFeeEstimatePercent: true } });
-    const rate = row?.gatewayFeeEstimatePercent == null ? null : Number(row.gatewayFeeEstimatePercent);
-    return rate != null && Number.isFinite(rate) && rate > 0 ? rate : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Costs that exist in the business but are still not recorded or estimated. */
 export function unrecordedCosts(input: { gatewayFeesKnown: boolean; runningCostsRecorded: boolean }) {
   const out: Array<{ key: string; label: string; detail: string }> = [];
@@ -217,17 +208,21 @@ export function marginSummary(input: {
  * The full margin block for the finance overview: revenue, every cost line
  * with where it comes from, contribution and net, plus money at risk.
  */
-export async function buildMargin(input: { range: DateRange; toTzs: ToTzs; gmv: number; revenue: number }) {
-  const [costs, expenses, feeRate] = await Promise.all([
+export async function buildMargin(input: { range: DateRange; toTzs: ToTzs; gmv: number; revenue: number; channelGmv?: Partial<Record<FeeChannel, number>> }) {
+  const [costs, expenses, rates] = await Promise.all([
     platformCosts(input.range, input.toTzs),
     platformExpenses(input.range, input.toTzs),
-    gatewayFeeEstimatePercent(),
+    gatewayFeeRates(),
   ]);
   const expense = (key: ExpenseCategory) => expenses.get(key) ?? { amount: 0, count: 0 };
 
   const gatewayRecorded = expense("GATEWAY_FEE");
   const gatewayFromStatements = gatewayRecorded.count > 0 || gatewayRecorded.amount !== 0;
-  const gatewayEstimate = !gatewayFromStatements && feeRate != null ? input.gmv * (feeRate / 100) : null;
+  // Guest money by channel where the platform knows it (accommodation); the
+  // rest of GMV is charged at the mobile money rate.
+  const attributed = Object.values(input.channelGmv ?? {}).reduce((acc, v) => acc + (v ?? 0), 0);
+  const estimate = estimateGatewayFees(input.channelGmv ?? {}, Math.max(0, input.gmv - attributed), rates);
+  const gatewayEstimate = !gatewayFromStatements && input.gmv > 0 ? estimate.total : null;
   const gatewayFees = gatewayFromStatements ? gatewayRecorded.amount : gatewayEstimate ?? 0;
 
   const bonuses = expense("PARTNER_BONUS");
@@ -249,7 +244,7 @@ export async function buildMargin(input: { range: DateRange; toTzs: ToTzs; gmv: 
     operatingCosts: operatingTotal,
   });
 
-  const gatewayBasis = gatewayFromStatements ? "STATEMENTS" : gatewayEstimate != null ? "ESTIMATE" : "MISSING";
+  const gatewayBasis = gatewayFromStatements ? "STATEMENTS" : gatewayEstimate != null || input.gmv <= 0 ? "ESTIMATE" : "MISSING";
   return {
     revenue: round2(input.revenue),
     takeRatePercent: summary.takeRatePercent,
@@ -262,7 +257,8 @@ export async function buildMargin(input: { range: DateRange; toTzs: ToTzs; gmv: 
         amount: round2(gatewayFees),
         count: gatewayRecorded.count,
         basis: gatewayBasis,
-        note: gatewayBasis === "ESTIMATE" ? `Estimated at ${feeRate}% of guest money collected` : gatewayBasis === "MISSING" ? "Not recorded and no estimate rate set" : "From settlement statements",
+        note: gatewayBasis === "ESTIMATE" ? `Estimated with ${rates.provider} rates: mobile money ${rates.MNO}%, bank ${rates.BANK}%, card ${rates.CARD}%` : gatewayBasis === "MISSING" ? "Not recorded" : "From settlement statements",
+        estimate: { provider: rates.provider, lines: estimate.lines, total: estimate.total },
       },
       { key: "partnerBonuses", label: "Driver and owner bonuses", amount: round2(bonuses.amount), count: bonuses.count, basis: "RECORDED" },
     ],

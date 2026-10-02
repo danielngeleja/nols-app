@@ -52,7 +52,13 @@ const STYLES = `
   .sheet { position: relative; overflow: hidden; width: 148mm; min-height: 210mm; margin: 0 auto 24px; padding: 11mm 10mm; background: #fff; page-break-after: always; break-after: page; display: flex; flex-direction: column; }
   .sheet > * { position: relative; z-index: 1; }
   .sheet > .wm { position: absolute; z-index: 0; pointer-events: none; }
-  .wm-brand { top: 50%; left: 50%; width: 92mm; height: 92mm; transform: translate(-50%, -46%); opacity: 0.045; object-fit: contain; }
+  .wm-brand { top: 50%; left: 50%; width: 96mm; height: 96mm; transform: translate(-50%, -46%); opacity: 0.075; object-fit: contain; }
+  .wm-tile { inset: 0; width: 100%; height: 100%; }
+  .wm-seal { top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-28deg); white-space: nowrap; font-size: 30px; font-weight: 800; letter-spacing: 0.18em; color: rgba(2, 102, 94, 0.10); border: 3px solid rgba(2, 102, 94, 0.10); border-radius: 10px; padding: 3px 16px; }
+  .wm-edge { left: 0; right: 0; height: 5mm; display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap; font-size: 6px; font-weight: 700; letter-spacing: 0.22em; color: rgba(2, 102, 94, 0.55); background: rgba(2, 102, 94, 0.06); }
+  .wm-edge.top { top: 0; }
+  .wm-edge.bottom { bottom: 0; }
+  @media print { .wm, .wm * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   .wm-stamp { top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-32deg); font-size: 64px; font-weight: 800; letter-spacing: 0.12em; white-space: nowrap; color: rgba(225, 29, 72, 0.13); border: 5px solid rgba(225, 29, 72, 0.13); border-radius: 14px; padding: 4px 22px; }
   .stamp-note { margin-top: 8px; padding: 6px 9px; border-radius: 6px; background: #fff1f2; color: #9f1239; font-size: 8.5px; font-weight: 700; }
   .verify { display: flex; align-items: center; gap: 9px; margin-top: 10px; padding: 7px 9px; border: 1px solid #d7e5e1; border-radius: 8px; background: #fbfdfc; }
@@ -96,6 +102,17 @@ function qrSvg(text: string) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size + 4} ${size + 4}" shape-rendering="crispEdges" aria-label="Verification QR code"><rect width="100%" height="100%" fill="#fff"/><path d="${path}" fill="#0b2420"/></svg>`;
 }
 
+/** A diagonal, repeating text watermark covering the whole sheet. Drawn as inline SVG so it prints even without background graphics. */
+function tiledWatermark(text: string, color: string) {
+  const safe = escapeHtml(text);
+  return `<svg class="wm wm-tile" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><pattern id="wm-${Math.abs(hash(text))}" width="300" height="110" patternUnits="userSpaceOnUse" patternTransform="rotate(-30)"><text x="0" y="40" font-family="Trebuchet MS, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2" fill="${color}">${safe}</text><text x="-150" y="95" font-family="Trebuchet MS, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="2" fill="${color}">${safe}</text></pattern></defs><rect width="100%" height="100%" fill="url(#wm-${Math.abs(hash(text))})"/></svg>`;
+}
+function hash(text: string) {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return h;
+}
+
 function sheet(run: PayslipRun, line: PayslipLine, logoUrl: string, origin: string) {
   const e = line.employee;
   const issued = run.status === "PAID";
@@ -118,7 +135,11 @@ function sheet(run: PayslipRun, line: PayslipLine, logoUrl: string, origin: stri
 
   return `
   <section class="sheet">
-    ${issued ? `<img class="wm wm-brand" src="${escapeAttr(logoUrl)}" alt="" aria-hidden="true" />` : `<div class="wm wm-stamp" aria-hidden="true">${stamp}</div>`}
+    ${issued
+      ? `${tiledWatermark(`NoLSAF  ·  PAID  ·  ${line.payslipNumber}  ·  ${e.employeeNo}`, "rgba(2,102,94,0.075)")}<img class="wm wm-brand" src="${escapeAttr(logoUrl)}" alt="" aria-hidden="true" /><div class="wm wm-seal" aria-hidden="true">ISSUED · ${escapeHtml(monthName(run.periodMonth).toUpperCase())}</div>`
+      : `${tiledWatermark(`${stamp}  ·  NOT ISSUED  ·  NOT PROOF OF INCOME`, "rgba(225,29,72,0.07)")}<div class="wm wm-stamp" aria-hidden="true">${stamp}</div>`}
+    <div class="wm wm-edge top" aria-hidden="true">${escapeHtml(`NoLSAF PAYROLL  ·  ${line.payslipNumber}  ·  ${e.employeeNo}  ·  ${issued ? "VERIFY BY QR CODE" : "DRAFT, NOT ISSUED"}`)}</div>
+    <div class="wm wm-edge bottom" aria-hidden="true">${escapeHtml(`${line.payslipNumber}  ·  NoLSAF  ·  ${e.employeeNo}  ·  ${line.payslipNumber}  ·  NoLSAF  ·  ${e.employeeNo}`)}</div>
     <div class="head">
       <div class="brand"><img src="${escapeAttr(logoUrl)}" alt="NoLSAF" /><div><strong>NoLSAF</strong><span>NoLS Africa Co Ltd · Dar es Salaam</span></div></div>
       <div class="doc"><strong>Payslip</strong><span>${escapeHtml(monthName(run.periodMonth))}</span><span>${escapeHtml(line.payslipNumber)}</span></div>

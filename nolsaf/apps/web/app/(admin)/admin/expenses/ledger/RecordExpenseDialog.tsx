@@ -17,7 +17,7 @@ type Category = { key: string; label: string; kind: "COST_OF_REVENUE" | "OPERATI
 type Existing = { id: number; vendor: string | null; amount: number; currency: string; incurredAt: string; periodStart: string | null; reversedAt: string | null; reversesExpenseId: number | null };
 
 const GUIDE: Record<string, { icon: typeof CreditCard; help: string; suppliers: string[]; example: string }> = {
-  GATEWAY_FEE: { icon: CreditCard, help: "What the payment providers kept from guest payments", suppliers: ["AzamPay", "M-Pesa", "Airtel Money", "Mixx by Yas", "Selcom"], example: "settlement fees" },
+  GATEWAY_FEE: { icon: CreditCard, help: "What AzamPay kept from guest payments, by mobile money, bank and card", suppliers: ["AzamPay"], example: "settlement fees" },
   SMS: { icon: MessageSquare, help: "Booking codes, OTPs and alerts by text", suppliers: ["Beem Africa", "Africa's Talking", "NextSMS"], example: "SMS bundle" },
   EMAIL: { icon: Mail, help: "Transactional and marketing email", suppliers: ["Resend", "SendGrid", "Zoho Mail", "Google Workspace"], example: "email service" },
   HOSTING: { icon: Server, help: "Servers, database, domains and software", suppliers: ["AWS", "Vercel", "Railway", "Render", "Cloudflare", "Aiven"], example: "hosting" },
@@ -64,13 +64,13 @@ const segment = (on: boolean) =>
 export default function RecordExpenseDialog({
   categories,
   streams,
-  feeRate,
+  feeRates,
   onClose,
   onSaved,
 }: {
   categories: Category[];
   streams: string[];
-  feeRate: number | null;
+  feeRates: { provider: string; MNO: number; BANK: number; CARD: number } | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -97,6 +97,7 @@ export default function RecordExpenseDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collected, setCollected] = useState<number | null>(null);
+  const [expected, setExpected] = useState<{ total: number; lines: Array<{ channel: string; label: string; gmv: number; rate: number; fee: number }> } | null>(null);
   const [duplicates, setDuplicates] = useState<Existing[]>([]);
 
   const guide = category ? GUIDE[category] ?? GUIDE.OTHER : null;
@@ -113,21 +114,26 @@ export default function RecordExpenseDialog({
 
   // Reset the supplier when the kind of cost changes.
   useEffect(() => {
-    setSupplier("");
+    setSupplier(category === "GATEWAY_FEE" ? feeRates?.provider || "AzamPay" : "");
     setCustomSupplier(false);
     setStream("");
-  }, [category]);
+  }, [category, feeRates?.provider]);
 
   // Guest money collected in the covered period, to sense-check a gateway fee.
   useEffect(() => {
-    if (!isGateway || mode === "oneOff" || !period.periodStart || !period.periodEnd) { setCollected(null); return; }
+    if (!isGateway || mode === "oneOff" || !period.periodStart || !period.periodEnd) { setCollected(null); setExpected(null); return; }
     let cancelled = false;
     const from = new Date(`${period.periodStart}T00:00:00+03:00`).toISOString();
     const to = new Date(`${period.periodEnd}T23:59:59.999+03:00`).toISOString();
     fetch(`/api/admin/finance/overview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (!cancelled) setCollected(typeof j?.totals?.gmv === "number" ? j.totals.gmv : null); })
-      .catch(() => { if (!cancelled) setCollected(null); });
+      .then((j) => {
+        if (cancelled) return;
+        setCollected(typeof j?.totals?.gmv === "number" ? j.totals.gmv : null);
+        const line = (j?.margin?.costs ?? []).find((c: any) => c.key === "gatewayFees");
+        setExpected(line?.estimate ? { total: Number(line.estimate.total) || 0, lines: line.estimate.lines ?? [] } : null);
+      })
+      .catch(() => { if (!cancelled) { setCollected(null); setExpected(null); } });
     return () => { cancelled = true; };
   }, [isGateway, mode, period.periodStart, period.periodEnd]);
 
@@ -300,21 +306,44 @@ export default function RecordExpenseDialog({
                   </div>
                 </div>
 
-                {/* Gateway sense check */}
+                {/* What AzamPay should have kept, channel by channel */}
                 {isGateway && mode !== "oneOff" && (
-                  <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 text-xs">
-                    <div className="bg-white px-3 py-2.5">
-                      <p className="m-0 text-[11px] text-neutral-500">Guest money collected</p>
-                      <p className="m-0 mt-0.5 font-semibold tabular-nums text-neutral-900">{collected == null ? "..." : `TZS ${Math.round(collected).toLocaleString("en-US")}`}</p>
+                  <div className="overflow-hidden rounded-xl border border-solid border-neutral-200">
+                    <div className="flex items-center justify-between gap-3 bg-neutral-50 px-3.5 py-2.5">
+                      <p className="m-0 text-xs font-semibold text-neutral-700">Expected from {feeRates?.provider ?? "AzamPay"} rates</p>
+                      <span className="text-[11px] text-neutral-500">Guest money {collected == null ? "..." : `TZS ${Math.round(collected).toLocaleString("en-US")}`}</span>
                     </div>
-                    <div className="bg-white px-3 py-2.5">
-                      <p className="m-0 text-[11px] text-neutral-500">This fee as a share</p>
-                      <p className={`m-0 mt-0.5 font-semibold tabular-nums ${effectiveRate != null && effectiveRate > 10 ? "text-amber-700" : "text-neutral-900"}`}>{effectiveRate == null ? "Enter the amount" : `${effectiveRate.toFixed(2)}%`}</p>
+                    <table className="w-full border-collapse text-xs">
+                      <tbody>
+                        {(expected?.lines ?? [
+                          { channel: "MNO", label: "Mobile money", gmv: 0, rate: feeRates?.MNO ?? 2.5, fee: 0 },
+                          { channel: "BANK", label: "Bank", gmv: 0, rate: feeRates?.BANK ?? 2.5, fee: 0 },
+                          { channel: "CARD", label: "Card", gmv: 0, rate: feeRates?.CARD ?? 2.9, fee: 0 },
+                        ]).map((l) => (
+                          <tr key={l.channel} className="border-0 border-t border-solid border-neutral-100">
+                            <td className="px-3.5 py-2 text-neutral-700">{l.label}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-neutral-500">TZS {Math.round(l.gmv).toLocaleString("en-US")}</td>
+                            <td className="px-2 py-2 text-right tabular-nums text-neutral-500">{l.rate}%</td>
+                            <td className="px-3.5 py-2 text-right font-semibold tabular-nums text-neutral-900">TZS {Math.round(l.fee).toLocaleString("en-US")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-neutral-200 px-3.5 py-2.5">
+                      <span className="text-xs">
+                        <span className="text-neutral-500">Expected fee </span>
+                        <b className="tabular-nums text-neutral-900">TZS {Math.round(expected?.total ?? 0).toLocaleString("en-US")}</b>
+                        {expected && amountNumber > 0 && currency === "TZS" && expected.total > 0 ? (() => {
+                          const diff = amountNumber - expected.total;
+                          const off = Math.abs(diff) / expected.total;
+                          return <span className={`ml-2 font-semibold ${off > 0.05 ? "text-amber-700" : "text-emerald-700"}`}>{off <= 0.05 ? "matches the statement" : `statement is TZS ${Math.round(Math.abs(diff)).toLocaleString("en-US")} ${diff > 0 ? "above" : "below"}`}</span>;
+                        })() : null}
+                      </span>
+                      {expected && expected.total > 0 ? (
+                        <button type="button" onClick={() => { setCurrency("TZS"); setAmount(Math.round(expected.total).toLocaleString("en-US")); }} className="h-7 rounded-md border border-solid border-neutral-300 bg-white px-2.5 text-[11px] font-semibold text-neutral-700 hover:bg-neutral-50">Use expected</button>
+                      ) : null}
                     </div>
-                    <div className="bg-white px-3 py-2.5">
-                      <p className="m-0 text-[11px] text-neutral-500">Estimate rate in use</p>
-                      <p className="m-0 mt-0.5 font-semibold tabular-nums text-neutral-900">{feeRate != null ? `${feeRate}%` : "Not set"}</p>
-                    </div>
+                    {effectiveRate != null ? <p className="m-0 border-0 border-t border-solid border-neutral-100 px-3.5 py-2 text-[11px] text-neutral-500">The amount entered is {effectiveRate.toFixed(2)}% of guest money collected.</p> : null}
                   </div>
                 )}
 

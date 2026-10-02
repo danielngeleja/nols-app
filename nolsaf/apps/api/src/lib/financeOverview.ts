@@ -265,7 +265,7 @@ export async function computeFinanceOverview(from?: string, to?: string, opts: {
 
   // What it costs NoLSAF to earn that revenue, as far as the platform records it.
   // Skipped for chart buckets, which only need the totals.
-  const margin = opts.margin === false ? undefined : await buildMargin({ range: dateClause(), toTzs, gmv: totals.gmv, revenue: totals.nolsafRevenue });
+  const margin = opts.margin === false ? undefined : await buildMargin({ range: dateClause(), toTzs, gmv: totals.gmv, revenue: totals.nolsafRevenue, channelGmv: acc.byChannel });
 
   return {
     ok: true,

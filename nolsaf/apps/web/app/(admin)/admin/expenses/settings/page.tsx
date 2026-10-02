@@ -21,12 +21,12 @@ const fmt = (v: number) => Math.round(v).toLocaleString("en-US");
 
 export default function ExpensesSettingsPage() {
   const payroll = useFinanceData<{ rates: PayrollRates; defaults: PayrollRates }>("/api/admin/finance/payroll/settings");
-  const ledger = useFinanceData<{ gatewayFeeEstimatePercent: number | null }>("/api/admin/finance/expenses?pageSize=1");
+  const ledger = useFinanceData<{ gatewayFeeRates: FeeRates }>("/api/admin/finance/expenses?pageSize=1");
 
   if (payroll.locked || ledger.locked) return <LockedCard what="Rates and settings" />;
 
   const r = payroll.data?.rates;
-  const gateway = ledger.data?.gatewayFeeEstimatePercent ?? null;
+  const gateway = ledger.data?.gatewayFeeRates ?? null;
   const topBand = r?.payeBands[r.payeBands.length - 1]?.rate;
 
   return (
@@ -48,7 +48,7 @@ export default function ExpensesSettingsPage() {
             { label: "NSSF", value: r ? `${r.nssfEmployeePercent}% + ${r.nssfEmployerPercent}%` : "...", detail: "employee + NoLSAF" },
             { label: "PAYE", value: r ? `${r.payeBands.length} bands` : "...", detail: topBand != null ? `top rate ${topBand}%` : "on taxable pay" },
             { label: "WCF, SDL and HESLB", value: r ? `${r.wcfPercent}%, ${r.sdlPercent}%, ${r.heslbPercent ?? 15}%` : "...", detail: r ? `SDL from ${r.sdlMinEmployees} staff` : "" },
-            { label: "Gateway fee estimate", value: ledger.data ? (gateway == null ? "Off" : `${gateway}%`) : "...", detail: "until statements arrive" },
+            { label: "Gateway rates", value: gateway ? `${gateway.MNO}% · ${gateway.CARD}%` : "...", detail: gateway ? `${gateway.provider}: mobile money and bank, card` : "" },
           ].map((f) => (
             <div key={f.label} className="min-w-0 bg-white px-5 py-3.5 sm:px-6">
               <dt className="text-[11px] font-semibold text-neutral-400">{f.label}</dt>
@@ -64,7 +64,7 @@ export default function ExpensesSettingsPage() {
           rates={payroll.data.rates}
           defaults={payroll.data.defaults}
           onSaved={payroll.reload}
-          aside={<GatewayCard value={gateway} loaded={Boolean(ledger.data)} onSaved={ledger.reload} />}
+          aside={<GatewayCard value={gateway} onSaved={ledger.reload} />}
         />
       ) : (
         <section className={`${card} p-8 text-center text-sm text-neutral-500`}>{payroll.error ?? "Loading the rates..."}</section>
@@ -75,22 +75,32 @@ export default function ExpensesSettingsPage() {
 
 // ── Gateway ─────────────────────────────────────────────────────────────
 
-function GatewayCard({ value, loaded, onSaved }: { value: number | null; loaded: boolean; onSaved: () => void }) {
-  const [text, setText] = useState("");
+type FeeRates = { provider: string; MNO: number; BANK: number; CARD: number };
+const FEE_CHANNELS: Array<{ key: "MNO" | "BANK" | "CARD"; label: string; help: string }> = [
+  { key: "MNO", label: "Mobile money", help: "M-Pesa, Mixx, Airtel Money, HaloPesa" },
+  { key: "BANK", label: "Bank", help: "CRDB, NMB and other bank transfers" },
+  { key: "CARD", label: "Card", help: "Visa and Mastercard" },
+];
+const DEFAULT_FEES: FeeRates = { provider: "AzamPay", MNO: 2.5, BANK: 2.5, CARD: 2.9 };
+
+function GatewayCard({ value, onSaved }: { value: FeeRates | null; onSaved: () => void }) {
+  const toForm = (r: FeeRates) => ({ MNO: String(r.MNO), BANK: String(r.BANK), CARD: String(r.CARD) });
+  const [form, setForm] = useState(() => toForm(value ?? DEFAULT_FEES));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  useEffect(() => { if (loaded) setText(value == null ? "" : String(value)); }, [value, loaded]);
+  useEffect(() => { if (value) setForm(toForm(value)); }, [value]);
 
-  const dirty = loaded && text.trim() !== (value == null ? "" : String(value));
+  const dirty = value != null && (["MNO", "BANK", "CARD"] as const).some((k) => Number(form[k]) !== value[k]);
+  const sample = 100_000;
 
   async function save() {
-    const rate = text.trim() === "" ? null : Number(text);
-    if (rate != null && (!Number.isFinite(rate) || rate < 0 || rate > 20)) { setMessage({ ok: false, text: "Enter 0 to 20, or leave it empty to turn the estimate off." }); return; }
+    const next = { MNO: Number(form.MNO), BANK: Number(form.BANK), CARD: Number(form.CARD) };
+    if (Object.values(next).some((v) => !Number.isFinite(v) || v < 0 || v > 20)) { setMessage({ ok: false, text: "Each rate must be between 0 and 20%." }); return; }
     setBusy(true);
     setMessage(null);
     try {
-      await financeFetch("/api/admin/finance/expenses/settings", { method: "PUT", body: JSON.stringify({ gatewayFeeEstimatePercent: rate }) });
-      setMessage({ ok: true, text: rate ? `Months without statements are estimated at ${rate}%.` : "Estimate turned off." });
+      await financeFetch("/api/admin/finance/expenses/settings", { method: "PUT", body: JSON.stringify({ gatewayFeeRates: { provider: value?.provider ?? "AzamPay", ...next } }) });
+      setMessage({ ok: true, text: "Saved. The margin estimates gateway fees with these rates until statements are recorded." });
       onSaved();
     } catch (err: any) {
       setMessage({ ok: false, text: err?.message || "Not saved." });
@@ -105,18 +115,31 @@ function GatewayCard({ value, loaded, onSaved }: { value: number | null; loaded:
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#02665e]/10 text-[#02665e]"><Percent className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <h2 className="m-0 text-sm font-bold text-neutral-900">Gateway fee estimate</h2>
-            <p className="m-0 text-[11px] text-neutral-500">Used by the margin</p>
+            <h2 className="m-0 text-sm font-bold text-neutral-900">Payment gateway fees</h2>
+            <p className="m-0 text-[11px] text-neutral-500">{value?.provider ?? "AzamPay"}, per transaction</p>
           </div>
-          <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${value == null ? "bg-neutral-100 text-neutral-500" : "bg-emerald-50 text-emerald-700"}`}>{value == null ? "Off" : "On"}</span>
         </div>
-        <p className="m-0 mt-3 text-xs leading-relaxed text-neutral-500">Payment providers do not report their fees. Until a month has fees recorded from a settlement statement, the margin estimates them at this rate on guest money collected.</p>
+        <p className="m-0 mt-3 text-xs leading-relaxed text-neutral-500">Deducted from each guest payment and carried by NoLSAF revenue. Change them here when {value?.provider ?? "AzamPay"} changes its pricing.</p>
+        <div className="mt-4 space-y-2">
+          {FEE_CHANNELS.map((c) => (
+            <label key={c.key} className="flex items-center gap-3 rounded-xl border border-solid border-neutral-200 px-3 py-2.5">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-neutral-900">{c.label}</span>
+                <span className="block truncate text-[11px] text-neutral-500">{c.help}</span>
+              </span>
+              <span className="relative w-24 shrink-0">
+                <input value={form[c.key]} onChange={(e) => setForm((f) => ({ ...f, [c.key]: e.target.value.replace(/[^\d.]/g, "") }))} inputMode="decimal" aria-label={`${c.label} fee percent`} className={`${input} h-10 pr-8 text-right`} />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-neutral-400">%</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="m-0 mt-3 text-[11px] text-neutral-500">
+          On a TZS {fmt(sample)} payment: mobile money TZS {fmt(sample * (Number(form.MNO) || 0) / 100)}, bank TZS {fmt(sample * (Number(form.BANK) || 0) / 100)}, card TZS {fmt(sample * (Number(form.CARD) || 0) / 100)}.
+        </p>
         <div className="mt-4 flex items-center gap-2">
-          <div className="relative flex-1">
-            <input value={text} onChange={(e) => setText(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="Not set" aria-label="Gateway fee estimate percent" className={`${input} pr-9`} />
-            <span className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-neutral-400">%</span>
-          </div>
-          <button type="button" onClick={() => void save()} disabled={busy || !dirty} className={darkPill}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Save</button>
+          <button type="button" onClick={() => setForm(toForm(DEFAULT_FEES))} className={`${lightPill} flex-1 justify-center`}>AzamPay defaults</button>
+          <button type="button" onClick={() => void save()} disabled={busy || !dirty} className={`${darkPill} flex-1 justify-center`}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Save rates</button>
         </div>
         {message && <p className={`m-0 mt-3 rounded-xl px-3 py-2 text-xs font-medium ${message.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{message.text}</p>}
       </div>

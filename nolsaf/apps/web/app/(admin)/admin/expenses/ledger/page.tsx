@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { BookOpenText, Loader2, Percent, Plus, ReceiptText, RefreshCw, RotateCcw, X } from "lucide-react";
 import { CommandCanvas, eyebrow, panel } from "@/components/admin/commandUi";
 import { LockedCard } from "../_shared";
@@ -39,8 +40,9 @@ type ListResponse = {
   totals: Array<{ category: string; currency: string; amount: number }>;
   categories: Category[];
   streams: string[];
-  gatewayFeeEstimatePercent: number | null;
+  gatewayFeeRates: GatewayFeeRates;
 };
+type GatewayFeeRates = { provider: string; MNO: number; BANK: number; CARD: number };
 
 type PeriodKey = "month" | "lastMonth" | "quarter" | "year" | "all";
 const PERIODS: Array<{ key: PeriodKey; label: string }> = [
@@ -102,9 +104,6 @@ export default function PlatformExpensesPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [recordOpen, setRecordOpen] = useState(false);
   const [reversing, setReversing] = useState<Expense | null>(null);
-  const [rateInput, setRateInput] = useState("");
-  const [rateSaving, setRateSaving] = useState(false);
-  const [rateMessage, setRateMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   const range = periodRange(period);
 
@@ -123,7 +122,6 @@ export default function PlatformExpensesPage() {
         setLocked(false);
         setError(null);
         setData(json);
-        setRateInput(json.gatewayFeeEstimatePercent == null ? "" : String(json.gatewayFeeEstimatePercent));
       })
       .catch(() => { if (!cancelled) setError("Network error, could not load expenses."); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -146,32 +144,6 @@ export default function PlatformExpensesPage() {
   const otherCurrencies = useMemo(() => [...new Set((data?.totals ?? []).filter((t) => t.currency !== "TZS" && t.amount !== 0).map((t) => t.currency))], [data]);
 
 
-  const saveRate = useCallback(async () => {
-    const raw = rateInput.trim();
-    const value = raw === "" ? null : Number(raw);
-    if (value != null && (!Number.isFinite(value) || value < 0 || value > 20)) {
-      setRateMessage({ tone: "error", text: "Enter a rate between 0 and 20, or leave it empty to turn the estimate off." });
-      return;
-    }
-    setRateSaving(true);
-    setRateMessage(null);
-    try {
-      const res = await fetch("/api/admin/finance/expenses/settings", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gatewayFeeEstimatePercent: value }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) { setRateMessage({ tone: "error", text: json?.error || "The rate was not saved." }); return; }
-      setRateMessage({ tone: "ok", text: value ? `Saved. Periods without statements are estimated at ${value}%.` : "Estimate turned off." });
-      setReloadKey((k) => k + 1);
-    } catch {
-      setRateMessage({ tone: "error", text: "Network error, the rate was not saved." });
-    } finally {
-      setRateSaving(false);
-    }
-  }, [rateInput]);
 
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
 
@@ -206,7 +178,7 @@ export default function PlatformExpensesPage() {
             { label: "Recorded costs", value: data ? money(recorded) : "...", detail: `${PERIODS.find((pp) => pp.key === period)?.label}${otherCurrencies.length ? ` · plus ${otherCurrencies.join(", ")}` : ""}`, color: "#e2e8f0" },
             { label: "Costs of revenue", value: data ? money(ofRevenue) : "...", detail: "gateway fees and bonuses", color: "#38bdf8" },
             { label: "Running costs", value: data ? money(running) : "...", detail: "SMS, hosting, staff, marketing", color: "#f87171" },
-            { label: "Gateway fee estimate", value: data ? (data.gatewayFeeEstimatePercent != null ? `${data.gatewayFeeEstimatePercent}%` : "Off") : "...", detail: "used until statements are recorded", color: "#fbbf24" },
+            { label: "Gateway rates", value: data ? `${data.gatewayFeeRates.MNO}% · ${data.gatewayFeeRates.CARD}%` : "...", detail: data ? `${data.gatewayFeeRates.provider}: mobile money and bank, card` : "", color: "#fbbf24" },
           ].map((f) => (
             <div key={f.label} className="min-w-0 bg-[#182c28] px-5 py-4">
               <dt className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8fb5ad]"><span className="h-2 w-2" style={{ background: f.color }} />{f.label}</dt>
@@ -329,20 +301,23 @@ export default function PlatformExpensesPage() {
         <div className="min-w-0 space-y-4">
           <section className={`${panel} p-5`}>
             <div className="flex items-center justify-between gap-2">
-              <p className={eyebrow}><Percent className="h-3.5 w-3.5" /> Gateway fee estimate</p>
-              <span className={`rounded px-2 py-0.5 text-[10px] font-bold ring-1 ring-inset ${data?.gatewayFeeEstimatePercent != null ? "bg-emerald-400/10 text-emerald-300 ring-emerald-400/25" : "bg-white/[0.04] text-slate-400 ring-white/10"}`}>{data?.gatewayFeeEstimatePercent != null ? "On" : "Off"}</span>
+              <p className={eyebrow}><Percent className="h-3.5 w-3.5" /> Gateway fee rates</p>
+              <span className="rounded bg-white/[0.05] px-2 py-0.5 text-[10px] font-bold text-slate-300">{data?.gatewayFeeRates.provider ?? "AzamPay"}</span>
             </div>
-            <p className="m-0 mt-3 text-xs leading-relaxed text-slate-400">Payment providers do not report their fees. Until a period has fees recorded from a settlement statement, the margin estimates them at this rate on guest money collected.</p>
-            <div className="mt-3 flex items-center gap-2">
-              <div className="relative flex-1">
-                <input value={rateInput} onChange={(e) => setRateInput(e.target.value.replace(/[^\d.]/g, ""))} inputMode="decimal" placeholder="Not set" aria-label="Gateway fee estimate percent" className="box-border h-9 w-full rounded-md border border-solid border-[#284540] bg-[#13241f] px-3 pr-8 text-sm tabular-nums text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-400/60" />
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">%</span>
-              </div>
-              <button type="button" onClick={() => void saveRate()} disabled={rateSaving} className="inline-flex h-9 items-center gap-1.5 rounded-md border-0 bg-emerald-400 px-3.5 text-xs font-semibold text-[#06201b] hover:bg-emerald-300 disabled:opacity-50">
-                {rateSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Save
-              </button>
-            </div>
-            {rateMessage && <p className={`m-0 mt-2 text-xs ${rateMessage.tone === "ok" ? "text-emerald-300" : "text-rose-300"}`}>{rateMessage.text}</p>}
+            <p className="m-0 mt-3 text-xs leading-relaxed text-slate-400">Deducted from each guest payment and carried by NoLSAF revenue. Until a period has fees from a settlement statement, the margin estimates them with these rates.</p>
+            <dl className="m-0 mt-3 divide-y divide-[#284540] border border-solid border-[#284540]">
+              {[
+                { key: "MNO", label: "Mobile money" },
+                { key: "BANK", label: "Bank" },
+                { key: "CARD", label: "Card" },
+              ].map((c) => (
+                <div key={c.key} className="flex items-center justify-between bg-[#13241f] px-3 py-2">
+                  <dt className="text-xs text-slate-300">{c.label}</dt>
+                  <dd className="m-0 text-sm font-semibold tabular-nums text-white">{data ? `${data.gatewayFeeRates[c.key as "MNO" | "BANK" | "CARD"]}%` : "..."}</dd>
+                </div>
+              ))}
+            </dl>
+            <Link href="/admin/expenses/settings" className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-[#284540] bg-transparent px-3 text-xs font-semibold text-slate-200 no-underline hover:border-emerald-300/40 hover:text-emerald-200 hover:no-underline">Change the rates</Link>
           </section>
 
           <section className={`${panel} p-5`}>
@@ -361,7 +336,7 @@ export default function PlatformExpensesPage() {
         <RecordExpenseDialog
           categories={data.categories}
           streams={data.streams}
-          feeRate={data.gatewayFeeEstimatePercent}
+          feeRates={data.gatewayFeeRates}
           onClose={() => setRecordOpen(false)}
           onSaved={() => { setRecordOpen(false); setReloadKey((k) => k + 1); }}
         />
