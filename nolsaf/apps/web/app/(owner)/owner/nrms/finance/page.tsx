@@ -43,6 +43,12 @@ type FinanceData = {
   nightAuditPolicy: { closeTime: string; timezone: string; activeBusinessDate: string; latestClosableDate: string; nextCloseAt: string; canCloseSelectedDate: boolean };
   unclosedBusinessDays: Array<{ id: number; businessDate: string; status: "OPEN" | "CLOSING"; openedAt: string; canClose: boolean }>;
   businessDayStrip?: Array<{ businessDate: string; status: "OPEN" | "CLOSING" | "CLOSED" }>;
+  operatingTimeline?: {
+    days: Array<{ businessDate: string; status: "OPEN" | "CLOSING" | "CLOSED" }>;
+    firstRecordedDate: string | null;
+    lastClosed: { businessDate: string; closedAt: string | null } | null;
+    closedCount: number;
+  } | null;
   nightAuditReview: NightAuditReview | null;
   businessDay: { id: number | null; status: string; openedAt?: string; closedAt?: string | null; audits: Array<{ id: number; reportNumber: string; status: string; startedAt: string; completedAt: string | null; summary: any }> };
   blockers: Blocker[]; warnings: Blocker[]; shifts: Shift[];
@@ -75,11 +81,6 @@ function expenseCategoryLabel(value: string): string { return EXPENSE_CATEGORIES
 
 function localDay(date = new Date()) { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date); }
 function lastCompletedDay() { return localDay(new Date(Date.now() - 86_400_000)); }
-/** Step a YYYY-MM-DD business date without tripping over month ends. */
-function shiftDay(day: string, delta: number) {
-  const [y, m, d] = day.split("-").map(Number);
-  return localDay(new Date(Date.UTC(y!, m! - 1, d! + delta, 12)));
-}
 /** One date format across the page: "27 Aug 2026", matching the picker. */
 function dayLabel(day: string) {
   const [y, m, d] = day.split("-").map(Number);
@@ -463,11 +464,21 @@ export default function FinanceControlPage() {
         const today = localDay();
         const thisMonth = today.slice(0, 7);
 
-        const stripEnd = [shiftDay(businessDate, 3), today].sort()[0]!;
-        const stripDays = Array.from({ length: 7 }, (_, index) => shiftDay(stripEnd, index - 6));
-        const stripStatus = new Map((data?.businessDayStrip ?? []).map((row) => [row.businessDate, row.status]));
-        if (data && isDayScoped && status && status !== "NOT_OPENED") stripStatus.set(businessDate, status as "OPEN" | "CLOSING" | "CLOSED");
-        const olderUnclosed = tab === "audit" ? unclosedBusinessDays.filter((openDay) => openDay.businessDate < stripDays[0]!) : [];
+        // The strip is the hotel's operating timeline: only business days NRMS
+        // recorded, never calendar dates the property did not operate.
+        const timeline = data?.operatingTimeline ?? null;
+        const recordedDays = (timeline?.days ?? []).map((row) => (row.businessDate === businessDate && status && status !== "NOT_OPENED" ? { ...row, status: status as "OPEN" | "CLOSING" | "CLOSED" } : row));
+        const stripStatus = new Map(recordedDays.map((row) => [row.businessDate, row.status]));
+        const selectedIndex = recordedDays.findIndex((row) => row.businessDate === businessDate);
+        const anchorIndex = selectedIndex >= 0 ? selectedIndex : recordedDays.length - 1;
+        const windowStart = Math.max(0, Math.min(anchorIndex - 3, recordedDays.length - 7));
+        const stripDays = recordedDays.slice(windowStart, windowStart + 7).map((row) => row.businessDate);
+        const previousRecorded = selectedIndex > 0 ? recordedDays[selectedIndex - 1]!.businessDate : selectedIndex < 0 ? recordedDays[recordedDays.length - 1]?.businessDate ?? null : null;
+        const nextRecorded = selectedIndex >= 0 && selectedIndex < recordedDays.length - 1 ? recordedDays[selectedIndex + 1]!.businessDate : null;
+        const goToDay = (day: string) => { setBusinessDate(day); setMonth(day.slice(0, 7)); };
+        // The three facts the page must answer before anything else.
+        const toAudit = unclosedBusinessDays.filter((openDay) => openDay.canClose);
+        const tradingDay = unclosedBusinessDays.find((openDay) => !openDay.canClose) ?? null;
 
         const monthEnd = [shiftMonth(month, 2), thisMonth].sort()[0]!;
         const stripMonths = Array.from({ length: 6 }, (_, index) => shiftMonth(monthEnd, index - 5));
@@ -495,11 +506,6 @@ export default function FinanceControlPage() {
               <h2 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950 sm:text-xl">Business date, cash and statutory records</h2>
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
-              {olderUnclosed.length > 0 && (
-                <button type="button" onClick={() => { setBusinessDate(olderUnclosed[0]!.businessDate); setMonth(olderUnclosed[0]!.businessDate.slice(0, 7)); }} className="inline-flex h-9 appearance-none items-center gap-1.5 rounded-lg border-0 bg-amber-50 px-3 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200 transition hover:ring-amber-400">
-                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />{olderUnclosed.length} older day{olderUnclosed.length === 1 ? "" : "s"} to audit · from {dayLabel(olderUnclosed[0]!.businessDate)}
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => canManage && setEditingAuditTime(true)}
@@ -517,33 +523,81 @@ export default function FinanceControlPage() {
           </header>
 
           <div className="flex items-stretch gap-1.5 bg-neutral-50 px-2 py-3 shadow-[inset_0_1px_0_0_#f1f5f9] sm:px-3">
-            {isDayScoped ? <>
-              <button type="button" aria-label="Previous week" onClick={() => setBusinessDate(shiftDay(businessDate, -7))} className={stepButton}><ChevronLeft className="h-4 w-4" /></button>
-              <div className="min-w-0 flex-1 overflow-x-auto">
-                <div className="grid min-w-[520px] grid-cols-7 gap-1.5">
-                  {stripDays.map((day) => {
-                    const on = day === businessDate;
-                    const state = tileState(day);
-                    const [y, m, d] = day.split("-").map(Number);
-                    const weekday = day === today ? "Today" : new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", weekday: "short" });
-                    return (
-                      <button key={day} type="button" onClick={() => { setBusinessDate(day); setMonth(day.slice(0, 7)); }} aria-current={on ? "date" : undefined} title={`${dayLabel(day)} · ${state.label}`}
-                        className={`flex min-h-[64px] appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : tileSkin[state.tone]}`}>
-                        <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{weekday}</span>
-                        <span className="mt-0.5 text-base font-extrabold leading-none tabular-nums">{d}</span>
-                        <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold ${on ? "text-emerald-200" : tileStatusText[state.tone]}`}>{state.tone === "closed" && <CheckCircle2 className="h-3 w-3" />}{state.label}</span>
+            {isDayScoped ? <div className="min-w-0 flex-1 space-y-3">
+              {/* Control summary: what is closed, what waits for audit, what is trading. */}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-4 w-4" /></span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Last closed</p>
+                    {timeline?.lastClosed ? (
+                      <button type="button" onClick={() => goToDay(timeline.lastClosed!.businessDate)} className="m-0 cursor-pointer appearance-none border-0 bg-transparent p-0 text-left text-sm font-bold text-neutral-900 hover:text-emerald-800">
+                        {dayLabel(timeline.lastClosed.businessDate)}<span className="ml-1.5 text-[11px] font-semibold text-neutral-400">{timeline.closedCount} closed</span>
                       </button>
-                    );
-                  })}
+                    ) : <p className="m-0 text-sm font-bold text-neutral-500">{data ? "No day closed yet" : "..."}</p>}
+                  </div>
+                </div>
+                <div className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 ring-1 ${toAudit.length ? "bg-amber-50 ring-amber-300" : "bg-white ring-neutral-200"}`}>
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toAudit.length ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>{toAudit.length ? <AlertTriangle className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${toAudit.length ? "text-amber-700" : "text-neutral-400"}`}>To audit</p>
+                    <p className="m-0 text-sm font-bold text-neutral-900">{!data ? "..." : toAudit.length ? `${toAudit.length} day${toAudit.length === 1 ? "" : "s"} waiting` : "Nothing waiting"}</p>
+                  </div>
+                  {toAudit.length > 0 && toAudit[0]!.businessDate !== businessDate && (
+                    <button type="button" onClick={() => goToDay(toAudit[0]!.businessDate)} className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#073c35] px-2.5 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">
+                      Start {dayLabel(toAudit[0]!.businessDate)}
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
+                  <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><Clock3 className="h-4 w-4" />{tradingDay && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />}</span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Trading now</p>
+                    {tradingDay ? (
+                      <button type="button" onClick={() => goToDay(tradingDay.businessDate)} className="m-0 cursor-pointer appearance-none border-0 bg-transparent p-0 text-left text-sm font-bold text-neutral-900 hover:text-emerald-800">
+                        {dayLabel(tradingDay.businessDate)}{msToClose > 0 && <span className="ml-1.5 text-[11px] font-semibold text-neutral-400">closes in {countdown(msToClose)}</span>}
+                      </button>
+                    ) : <p className="m-0 text-sm font-bold text-neutral-500">{data ? "No day trading" : "..."}</p>}
+                  </div>
                 </div>
               </div>
-              <button type="button" aria-label="Next week" disabled={businessDate >= today} onClick={() => setBusinessDate([shiftDay(businessDate, 7), today].sort()[0]!)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
-              {/* Any other date: the calendar opens from this button (the picker sits invisibly over it). */}
-              <div className="relative flex w-10 shrink-0 items-center justify-center rounded-xl text-neutral-500 ring-1 ring-neutral-200 transition hover:bg-white hover:text-emerald-800" title="Choose any business date">
-                <CalendarCheck2 className="h-4 w-4" />
-                <div className="absolute inset-0 opacity-0 [&>*]:!h-full [&_button]:!h-full [&_button]:!w-full [&_button]:!min-w-0 [&_button]:!cursor-pointer [&_button]:!p-0"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
+
+              {/* Recorded business days only; arrows step from one recorded day to the next. */}
+              <div className="flex items-stretch gap-1.5">
+                <button type="button" aria-label="Previous recorded day" disabled={!previousRecorded} onClick={() => previousRecorded && goToDay(previousRecorded)} className={stepButton}><ChevronLeft className="h-4 w-4" /></button>
+                <div className="min-w-0 flex-1 overflow-x-auto">
+                  {stripDays.length ? (
+                    <div className="grid min-w-[520px] grid-cols-7 gap-1.5">
+                      {stripDays.map((day) => {
+                        const on = day === businessDate;
+                        const state = tileState(day);
+                        const [y, m, d] = day.split("-").map(Number);
+                        const weekday = day === today ? "Today" : new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", weekday: "short" });
+                        const monthShort = new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", month: "short" });
+                        return (
+                          <button key={day} type="button" onClick={() => goToDay(day)} aria-current={on ? "date" : undefined} title={`${dayLabel(day)} · ${state.label}`}
+                            className={`flex min-h-[64px] cursor-pointer appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : tileSkin[state.tone]}`}>
+                            <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{weekday}</span>
+                            <span className="mt-0.5 text-base font-extrabold leading-none tabular-nums">{d}<span className={`ml-1 text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{monthShort}</span></span>
+                            <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold ${on ? "text-emerald-200" : tileStatusText[state.tone]}`}>{state.tone === "closed" && <CheckCircle2 className="h-3 w-3" />}{state.tone === "trading" && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-300" : "bg-emerald-500"}`} />}{state.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[64px] items-center justify-center rounded-xl px-4 text-center text-xs text-neutral-500 ring-1 ring-neutral-200">
+                      {data ? "No business days recorded yet. The first day opens when this property starts operating in NRMS." : "Loading the operating timeline..."}
+                    </div>
+                  )}
+                </div>
+                <button type="button" aria-label="Next recorded day" disabled={!nextRecorded} onClick={() => nextRecorded && goToDay(nextRecorded)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
+                {/* Older dates: the calendar, limited to the days this property could have records for. */}
+                <div className="relative flex w-10 shrink-0 items-center justify-center rounded-xl text-neutral-500 ring-1 ring-neutral-200 transition hover:bg-white hover:text-emerald-800" title="Find an older business date">
+                  <CalendarCheck2 className="h-4 w-4" />
+                  <div className="absolute inset-0 opacity-0 [&>*]:!h-full [&_button]:!h-full [&_button]:!w-full [&_button]:!min-w-0 [&_button]:!cursor-pointer [&_button]:!p-0"><DatePickerField label="Business date" value={businessDate} onChangeAction={(value) => goToDay(String(value))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast min={timeline?.firstRecordedDate ?? undefined} max={today} /></div>
+                </div>
               </div>
-            </> : <>
+            </div> : <>
               {/* One light track, the selected month raised in brand green. The
                   old tiles never reset the browser's button border, which with
                   preflight off drew a thick grey outset frame round each one. */}
@@ -636,7 +690,26 @@ export default function FinanceControlPage() {
           {data?.businessDay.status === "NOT_OPENED" ? (
             <div className="flex items-start gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-5">
               <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
-              <div className="min-w-0 flex-1"><p className="m-0 text-sm font-bold text-neutral-800">No operating record for this date</p><p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">This date was never opened for hotel operations. Browsing it does not create an artificial financial close.{oldestUnclosedDay ? " Choose a recorded unclosed day instead." : " There are no recorded unclosed business days."}</p>{oldestUnclosedDay && <button type="button" onClick={() => { setBusinessDate(oldestUnclosedDay.businessDate); setMonth(oldestUnclosedDay.businessDate.slice(0, 7)); }} className="mt-3 h-9 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">Review oldest unclosed · {dayLabel(oldestUnclosedDay.businessDate)}</button>}</div>
+              <div className="min-w-0 flex-1">
+                {(() => {
+                  const first = data?.operatingTimeline?.firstRecordedDate ?? null;
+                  const beforeStart = Boolean(first && businessDate < first);
+                  const target = oldestUnclosedDay?.canClose ? oldestUnclosedDay : unclosedBusinessDays.find((openDay) => !openDay.canClose) ?? oldestUnclosedDay;
+                  return <>
+                    <p className="m-0 text-sm font-bold text-neutral-800">{beforeStart ? "Before NRMS started at this property" : "No operations recorded on this date"}</p>
+                    <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">
+                      {beforeStart
+                        ? `The first recorded business day is ${dayLabel(first!)}. Nothing before it can be audited or closed.`
+                        : "No business day was opened on this date, so there is nothing to audit or close here."}
+                    </p>
+                    {target && (
+                      <button type="button" onClick={() => { setBusinessDate(target.businessDate); setMonth(target.businessDate.slice(0, 7)); }} className="mt-3 h-9 cursor-pointer rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">
+                        {target.canClose ? `Audit ${dayLabel(target.businessDate)}` : `Go to today's trading day · ${dayLabel(target.businessDate)}`}
+                      </button>
+                    )}
+                  </>;
+                })()}
+              </div>
             </div>
           ) : (
             (() => {

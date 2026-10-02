@@ -627,6 +627,26 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderBy: { businessDate: "asc" },
       })).map((row: any) => ({ businessDate: new Date(row.businessDate).toISOString().slice(0, 10), status: row.status }))
       : [];
+    // The operating timeline: only days NRMS actually recorded, so the page can
+    // show what is closed, what waits for audit and what is trading, instead of
+    // a calendar of dates the hotel never operated.
+    const operatingTimeline = needsAudit || needsCashiers
+      ? await (async () => {
+        const [recent, first, lastClosed, closedCount] = await Promise.all([
+          db.nrmsBusinessDay.findMany({ where: { propertyId }, select: { businessDate: true, status: true }, orderBy: { businessDate: "desc" }, take: 45 }),
+          db.nrmsBusinessDay.findFirst({ where: { propertyId }, select: { businessDate: true }, orderBy: { businessDate: "asc" } }),
+          db.nrmsBusinessDay.findFirst({ where: { propertyId, status: "CLOSED" }, select: { businessDate: true, closedAt: true }, orderBy: { businessDate: "desc" } }),
+          db.nrmsBusinessDay.count({ where: { propertyId, status: "CLOSED" } }),
+        ]);
+        const key = (value: Date) => new Date(value).toISOString().slice(0, 10);
+        return {
+          days: recent.reverse().map((row: any) => ({ businessDate: key(row.businessDate), status: row.status })),
+          firstRecordedDate: first ? key(first.businessDate) : null,
+          lastClosed: lastClosed ? { businessDate: key(lastClosed.businessDate), closedAt: lastClosed.closedAt } : null,
+          closedCount,
+        };
+      })()
+      : null;
     let resolvedIssues: any = { blockers: [], warnings: [] };
     let nightAuditReview: any = null;
     if (needsAudit && day?.status === "CLOSED") {
@@ -667,6 +687,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         };
       }),
       businessDayStrip,
+      operatingTimeline,
       nightAuditReview,
       businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits ?? [] } : { id: null, status: "NOT_OPENED", audits: [] },
       blockers: resolvedIssues.blockers, warnings: resolvedIssues.warnings, shifts: enrichedShifts, unassignedSales,
