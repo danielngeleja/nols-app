@@ -2,14 +2,14 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { formatPasskeyError, nativePasskeysSupported } from "@nolsaf/native-ui";
 import { Fingerprint, KeyRound, Mail, Phone, ShieldCheck } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import * as SecureStore from "expo-secure-store";
 
 import { useAuth } from "../auth";
 import { sendOtp, verifyOtp } from "../auth/authApi";
-import { OtpChannel } from "../auth/types";
-import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen, PhoneNumberField } from "../components";
+import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen } from "../components";
 import { useSecureScreen } from "../lib/secureScreen";
-import { DEFAULT_PHONE_COUNTRY_CODE, isPhoneLengthValid } from "../lib/phone";
+import { contactProblem, detectContact, EMAIL_PATTERN, shapeContactInput } from "../lib/contact";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, spacing } from "../theme";
 
@@ -18,6 +18,22 @@ type Method = "password" | "otp";
 type IconType = typeof Mail;
 
 const RESEND_COOLDOWN_SEC = 60;
+// The last identifier that signed in on this device (never the password), so a
+// returning traveller only types their password. Kept in the device keychain.
+const LAST_LOGIN_KEY = "nolsaf.lastLoginId";
+
+async function readLastLogin(): Promise<string> {
+  try {
+    return (await SecureStore.getItemAsync(LAST_LOGIN_KEY)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberLogin(identifier: string) {
+  const value = identifier.trim();
+  if (value) void SecureStore.setItemAsync(LAST_LOGIN_KEY, value).catch(() => undefined);
+}
 
 export function LoginScreen({ navigation }: Props) {
   useSecureScreen();
@@ -29,14 +45,13 @@ export function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState("");
 
   // OTP login state
-  const [channel, setChannel] = useState<OtpChannel>("PHONE");
-  const [otpCountryCode, setOtpCountryCode] = useState(DEFAULT_PHONE_COUNTRY_CODE);
-  const [otpPhone, setOtpPhone] = useState("");
-  const [otpEmail, setOtpEmail] = useState("");
+  const [otpContact, setOtpContact] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const [remembered, setRemembered] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,6 +63,23 @@ export function LoginScreen({ navigation }: Props) {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    void readLastLogin().then((last) => {
+      if (!alive || !last) return;
+      setOtpContact((current) => current || last);
+      // The password form takes an email only, so a remembered phone fills the code tab alone.
+      if (last.includes("@")) {
+        setEmail((current) => current || last);
+        setRemembered(true);
+        setTimeout(() => passwordRef.current?.focus(), 350);
+      }
+    });
+    return () => {
+      alive = false;
     };
   }, []);
 
@@ -65,21 +97,23 @@ export function LoginScreen({ navigation }: Props) {
     }, 1000);
   }
 
-  const canSubmitPassword = email.trim().length > 0 && password.length > 0;
-  const destination = channel === "PHONE" ? { phone: `${otpCountryCode}${otpPhone.trim()}` } : { email: otpEmail.trim().toLowerCase() };
-  const otpContactValid =
-    channel === "PHONE" ? isPhoneLengthValid(otpPhone, otpCountryCode) : /^\S+@\S+\.\S{2,}$/.test(otpEmail.trim());
+  // Password sign-in is by email only: one clear identifier, no guessing.
+  const emailValid = EMAIL_PATTERN.test(email.trim());
+  const canSubmitPassword = emailValid && password.length > 0;
+  const contact = detectContact(otpContact);
+  const otpContactValid = Boolean(contact);
 
   async function submitPassword() {
     if (loading) return;
     if (!canSubmitPassword) {
-      setError("Enter your email and password.");
+      setError(emailValid ? "Enter your password." : "Enter a valid email address.");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      await signIn(email.trim(), password);
+      await signIn(email.trim().toLowerCase(), password);
+      rememberLogin(email);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed.");
     } finally {
@@ -93,7 +127,8 @@ export function LoginScreen({ navigation }: Props) {
     setError(null);
     try {
       // No role: login OTP — the account must already exist.
-      await sendOtp(destination);
+      if (!contact) return;
+      await sendOtp(contact.destination);
       startResendCooldown();
       if (!resend) {
         setCode("");
@@ -106,16 +141,18 @@ export function LoginScreen({ navigation }: Props) {
     }
   }
 
-  async function submitOtp() {
-    if (loading || code.trim().length !== 6) return;
+  async function submitOtp(value = code) {
+    if (loading || value.trim().length !== 6) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await verifyOtp(destination, code.trim());
+      if (!contact) return;
+      const res = await verifyOtp(contact.destination, value.trim());
       if (!res.token) {
         throw new Error(res.message || res.error || "Verification failed. Please try again.");
       }
       await completeOtpSignIn(res.token, res.user);
+      rememberLogin(otpContact);
     } catch (e) {
       // Map the backend's technical messages to friendly, actionable copy.
       const raw = e instanceof Error ? e.message : "";
@@ -153,7 +190,7 @@ export function LoginScreen({ navigation }: Props) {
   return (
     <AuthScreen
       title="Welcome back"
-      subtitle="Your stays, rides and journeys are ready when you are."
+      subtitle={remembered ? "Enter your password to continue." : "Sign in to book, pay and track your trips."}
       onBack={() => navigation.goBack()}
       icon={<KeyRound color={colors.white} size={24} />}
       footer={
@@ -196,20 +233,53 @@ export function LoginScreen({ navigation }: Props) {
               {method === "password" ? (
                 <>
                   <AppInput
-                    label="Email, username or phone"
+                    label="Email"
                     autoCapitalize="none"
+                    autoCorrect={false}
                     keyboardType="email-address"
                     textContentType="username"
+                    autoComplete="email"
+                    returnKeyType="next"
+                    submitBehavior="submit"
+                    onSubmitEditing={() => passwordRef.current?.focus()}
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(value) => {
+                      setEmail(value);
+                      if (error) setError(null);
+                    }}
                     placeholder="you@example.com"
+                    error={email.trim().length >= 6 && !emailValid ? (email.includes("@") ? "Check the email address." : "Use your email here. For a phone number, use One-time code.") : undefined}
+                    hint={
+                      remembered && email ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          hitSlop={8}
+                          onPress={() => {
+                            setEmail("");
+                            setRemembered(false);
+                            void SecureStore.deleteItemAsync(LAST_LOGIN_KEY).catch(() => undefined);
+                          }}
+                        >
+                          <AppText variant="caption" weight="bold" tone="primary">
+                            Not you?
+                          </AppText>
+                        </Pressable>
+                      ) : undefined
+                    }
                   />
                   <AppInput
+                    inputRef={passwordRef}
                     label="Password"
                     secureTextEntry
                     textContentType="password"
+                    autoComplete="current-password"
+                    returnKeyType="go"
+                    onSubmitEditing={submitPassword}
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(value) => {
+                      setPassword(value);
+                      if (error) setError(null);
+                    }}
                     placeholder="Enter password"
                   />
                   {error ? (
@@ -225,7 +295,7 @@ export function LoginScreen({ navigation }: Props) {
                   <AppButton
                     title="Sign in"
                     loading={loading}
-                    disabled={passkeyLoading}
+                    disabled={passkeyLoading || !canSubmitPassword}
                     onPress={submitPassword}
                     style={passkeyAvailable ? styles.submitNeutral : undefined}
                   />
@@ -234,29 +304,38 @@ export function LoginScreen({ navigation }: Props) {
                 <>
                   {!codeSent ? (
                     <>
-                      <View style={styles.methodRow}>
-                        <MethodPill Icon={Phone} label="Phone (SMS)" active={channel === "PHONE"} onPress={() => setChannel("PHONE")} />
-                        <MethodPill Icon={Mail} label="Email" active={channel === "EMAIL"} onPress={() => setChannel("EMAIL")} />
-                      </View>
-                      {channel === "PHONE" ? (
-                        <PhoneNumberField
-                          label="Phone number"
-                          countryCode={otpCountryCode}
-                          onCountryCodeChange={setOtpCountryCode}
-                          value={otpPhone}
-                          onChangeText={setOtpPhone}
-                        />
-                      ) : (
-                        <AppInput
-                          label="Email"
-                          value={otpEmail}
-                          onChangeText={setOtpEmail}
-                          placeholder="you@example.com"
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          textContentType="emailAddress"
-                        />
-                      )}
+                      <AppInput
+                        label="Phone or email"
+                        value={otpContact}
+                        onChangeText={(value) => {
+                          // A phone is shaped as it is typed (digits only, never longer than the
+                          // prefix allows); anything with letters or an @ is left as typed.
+                          setOtpContact(shapeContactInput(value));
+                          if (error) setError(null);
+                        }}
+                        placeholder="0712 345 678 or you@example.com"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="email-address"
+                        textContentType="username"
+                        autoComplete="username"
+                        returnKeyType="send"
+                        onSubmitEditing={() => otpContactValid && sendLoginCode(false)}
+                      />
+                      {contactProblem(otpContact) ? (
+                        <AppText variant="caption" tone="danger" style={styles.contactInvalid}>
+                          {contactProblem(otpContact)}
+                        </AppText>
+                      ) : null}
+                      {contact ? (
+                        <View style={styles.contactHint}>
+                          {contact.channel === "PHONE" ? <Phone color={colors.primary} size={14} /> : <Mail color={colors.primary} size={14} />}
+                          <AppText variant="caption" tone="muted" numberOfLines={1} style={styles.contactHintText}>
+                            {contact.channel === "PHONE" ? "We will text a code to " : "We will email a code to "}
+                            <AppText variant="caption" weight="bold">{contact.shown}</AppText>
+                          </AppText>
+                        </View>
+                      ) : null}
                       {error ? (
                         <AppText variant="bodySmall" tone="danger">
                           {error}
@@ -267,16 +346,25 @@ export function LoginScreen({ navigation }: Props) {
                   ) : (
                     <>
                       <AppText variant="caption" tone="muted">
-                        Enter the 6-digit code we sent you. It expires in 5 minutes.
+                        {/* The API only sends to a destination that has an account, and does not say which (so no one can probe who is registered). The copy stays just as honest. */}
+                        {contact ? `If ${contact.shown} belongs to a NoLSAF account, a 6-digit code is on its way. It expires in 5 minutes.` : "If this belongs to a NoLSAF account, a 6-digit code is on its way. It expires in 5 minutes."}
                       </AppText>
                       <AppInput
                         label="Verification code"
                         value={code}
-                        onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+                        onChangeText={(value) => {
+                          const next = value.replace(/\D/g, "").slice(0, 6);
+                          setCode(next);
+                          if (error) setError(null);
+                          // No extra tap: the code verifies as soon as all six digits are in.
+                          if (next.length === 6 && next !== code) void submitOtp(next);
+                        }}
                         placeholder="123456"
                         keyboardType="number-pad"
                         maxLength={6}
+                        autoFocus
                         textContentType="oneTimeCode"
+                        autoComplete="sms-otp"
                         style={styles.codeInput}
                       />
                       {error ? (
@@ -284,7 +372,7 @@ export function LoginScreen({ navigation }: Props) {
                           {error}
                         </AppText>
                       ) : null}
-                      <AppButton title="Verify and login" loading={loading} disabled={code.trim().length !== 6} onPress={submitOtp} />
+                      <AppButton title="Verify and sign in" loading={loading} disabled={code.trim().length !== 6} onPress={() => submitOtp()} />
                       <AppButton
                         title={resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
                         variant="ghost"
@@ -292,6 +380,14 @@ export function LoginScreen({ navigation }: Props) {
                         onPress={() => sendLoginCode(true)}
                       />
                       <AppButton title="Use a different phone or email" variant="ghost" disabled={loading} onPress={() => { setCodeSent(false); setCode(""); setError(null); }} />
+                      {resendIn === 0 ? (
+                        <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Register")} style={styles.noCodeLink}>
+                          <AppText variant="caption" tone="muted" style={styles.noCodeText}>
+                            No code? This phone or email may not have an account yet.{" "}
+                            <AppText variant="caption" weight="bold" tone="primary">Create one</AppText>
+                          </AppText>
+                        </Pressable>
+                      ) : null}
                     </>
                   )}
                 </>
@@ -303,11 +399,12 @@ export function LoginScreen({ navigation }: Props) {
   );
 }
 
+/** Primary sign-in method: a segmented control, the chosen option a white raised tab. */
 function MethodPill({ Icon, label, active, onPress }: { Icon: IconType; label: string; active: boolean; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.methodPill, active && styles.methodPillActive, pressed && styles.pressed]}>
-      <Icon color={active ? colors.white : colors.mutedText} size={15} />
-      <AppText variant="caption" weight={active ? "bold" : "semiBold"} tone={active ? "inverse" : "muted"} numberOfLines={1}>
+    <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.methodPill, active && styles.methodPillActive, pressed && !active && styles.pressed]}>
+      <Icon color={active ? colors.primary : colors.mutedText} size={15} />
+      <AppText variant="caption" weight={active ? "bold" : "semiBold"} tone={active ? "primary" : "muted"} numberOfLines={1}>
         {label}
       </AppText>
     </Pressable>
@@ -340,12 +437,10 @@ const styles = StyleSheet.create({
   // method switch reads as a control instead of competing with the buttons.
   methodRow: {
     flexDirection: "row",
-    gap: spacing[1],
-    padding: spacing[1],
-    borderRadius: radius.lg,
-    backgroundColor: colors.brand[100],
-    borderWidth: 1,
-    borderColor: colors.brand[200]
+    gap: 4,
+    padding: 4,
+    borderRadius: radius.md + 2,
+    backgroundColor: "#eef2f1"
   },
   methodPill: {
     flex: 1,
@@ -360,13 +455,33 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent"
   },
   methodPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: colors.white,
+    borderColor: "rgba(15,23,42,0.06)",
     shadowColor: "#0f172a",
-    shadowOpacity: 0.18,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
+  },
+  contactHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: -spacing[2]
+  },
+  noCodeLink: {
+    alignSelf: "center",
+    paddingHorizontal: spacing[2]
+  },
+  noCodeText: {
+    textAlign: "center"
+  },
+  contactInvalid: {
+    marginTop: -spacing[2]
+  },
+  contactHintText: {
+    flex: 1,
+    minWidth: 0
   },
   // When the passkey button holds the brand color, the form submit steps back
   // to neutral ink so the screen keeps a single accent action.

@@ -2,7 +2,7 @@ import { createContext, PropsWithChildren, useCallback, useContext, useEffect, u
 import { AppState, AppStateStatus } from "react-native";
 
 import { useAuth } from "../auth";
-import { authenticateLock, getLockCapability, isAppLockEnabled, setAppLockEnabledFlag } from "../lib/appLock";
+import { attemptLock, authenticateLock, BiometricKind, getLockCapability, isAppLockEnabled, LockAttempt, setAppLockEnabledFlag } from "../lib/appLock";
 
 /**
  * How long the app may sit in the background before it re-locks on return. Short
@@ -19,12 +19,14 @@ type AppLockValue = {
   supported: boolean;
   /** A biometric (fingerprint / face) is available, not just a passcode. */
   biometric: boolean;
+  /** Which biometric, so the lock screen can name it (Face ID, fingerprint). */
+  biometricKind: BiometricKind;
   /** Currently blocking the app pending an unlock. */
   locked: boolean;
   /** Initial capability/flag load has completed. */
   ready: boolean;
-  /** Prompt the OS to unlock. Resolves true on success. */
-  unlock: () => Promise<boolean>;
+  /** Prompt the OS to unlock. Resolves with what happened (ok, cancelled, lockout, failed). */
+  unlock: () => Promise<LockAttempt>;
   /** Turn App Lock on (confirms with a biometric/passcode check). Resolves true on success. */
   enable: () => Promise<boolean>;
   /** Turn App Lock off (confirms with a biometric/passcode check first). */
@@ -38,6 +40,7 @@ export function AppLockProvider({ children }: PropsWithChildren) {
   const [enabled, setEnabled] = useState(false);
   const [supported, setSupported] = useState(false);
   const [biometric, setBiometric] = useState(false);
+  const [biometricKind, setBiometricKind] = useState<BiometricKind>(null);
   const [ready, setReady] = useState(false);
   // Assume locked until we learn otherwise. The gate only shows the lock screen
   // once the user is authenticated, so this never blocks the login screen.
@@ -52,6 +55,7 @@ export function AppLockProvider({ children }: PropsWithChildren) {
       const effective = savedEnabled && capability.supported;
       setSupported(capability.supported);
       setBiometric(capability.biometric);
+      setBiometricKind(capability.kind);
       setEnabled(effective);
       // If a session is restored silently on cold start, require an unlock.
       setLocked(effective);
@@ -86,9 +90,9 @@ export function AppLockProvider({ children }: PropsWithChildren) {
   }, [enabled]);
 
   const unlock = useCallback(async () => {
-    const ok = await authenticateLock("Unlock NoLSAF");
-    if (ok) setLocked(false);
-    return ok;
+    const outcome = await attemptLock("Unlock NoLSAF");
+    if (outcome === "ok") setLocked(false);
+    return outcome;
   }, []);
 
   const enable = useCallback(async () => {
@@ -99,6 +103,7 @@ export function AppLockProvider({ children }: PropsWithChildren) {
     await setAppLockEnabledFlag(true);
     setSupported(true);
     setBiometric(capability.biometric);
+    setBiometricKind(capability.kind);
     setEnabled(true);
     setLocked(false);
     return true;
@@ -113,7 +118,7 @@ export function AppLockProvider({ children }: PropsWithChildren) {
   }, []);
 
   return (
-    <AppLockContext.Provider value={{ enabled, supported, biometric, locked, ready, unlock, enable, disable }}>
+    <AppLockContext.Provider value={{ enabled, supported, biometric, biometricKind, locked, ready, unlock, enable, disable }}>
       {children}
     </AppLockContext.Provider>
   );

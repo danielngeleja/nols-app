@@ -695,14 +695,20 @@ function QuickActionSlide({ item }: { item: QuickActionItem }) {
       accessibilityLabel={item.accessibilityLabel}
       accessibilityRole="button"
       onPress={item.onPress}
-      style={({ pressed }) => [styles.quickChip, item.personal && styles.quickChipPersonal, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.quickChip,
+        item.personal && styles.quickChipPersonal,
+        // Pressed: the border takes the chip's own colour, with a faint wash of it.
+        pressed && !item.personal && { borderColor: `${item.accent}66`, backgroundColor: `${item.accent}0A` },
+        pressed && styles.quickChipPressed
+      ]}
     >
       <View style={[styles.quickChipIcon, { backgroundColor: item.personal ? "rgba(255,255,255,0.14)" : `${item.accent}14` }]}>
-        <Icon color={item.personal ? colors.white : item.accent} size={17} />
+        <Icon color={item.personal ? colors.white : item.accent} size={15} />
       </View>
       <View style={styles.quickChipText}>
-        <AppText variant="bodySmall" weight="bold" tone={item.personal ? "inverse" : "default"} numberOfLines={1}>{item.label}</AppText>
-        <AppText variant="caption" tone={item.personal ? "inverse" : "muted"} numberOfLines={1} style={item.personal ? styles.quickChipLinePersonal : undefined}>{line}</AppText>
+        <AppText variant="bodySmall" weight="bold" tone={item.personal ? "inverse" : "default"} numberOfLines={1} style={styles.quickChipTitle}>{item.label}</AppText>
+        <AppText variant="caption" tone={item.personal ? "inverse" : "muted"} numberOfLines={1} style={[styles.quickChipLine, item.personal && styles.quickChipLinePersonal]}>{line}</AppText>
       </View>
     </Pressable>
   );
@@ -1054,9 +1060,14 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textAlign: "center"
   },
+  // Sized for Inter, which now loads before the first frame: at the 28px headline
+  // it reads heavier and wraps than the system font it used to show in.
   heroTitle: {
     textAlign: "center",
-    maxWidth: 310
+    maxWidth: 310,
+    fontSize: 23,
+    lineHeight: 29,
+    letterSpacing: -0.2
   },
   servicePath: {
     alignSelf: "stretch",
@@ -1189,33 +1200,50 @@ const styles = StyleSheet.create({
   quickChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    minWidth: 150,
-    maxWidth: 220,
-    height: 58,
-    paddingLeft: 10,
-    paddingRight: 14,
-    borderRadius: 12,
+    gap: 8,
+    minWidth: 128,
+    maxWidth: 200,
+    height: 48,
+    paddingLeft: 8,
+    paddingRight: 12,
+    borderRadius: 11,
+    // A clear but soft outline, with a light lift so each chip reads as its own card.
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white
+    borderColor: "rgba(15,23,42,0.14)",
+    backgroundColor: colors.white,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1
+  },
+  quickChipPressed: {
+    transform: [{ scale: 0.98 }]
   },
   quickChipPersonal: {
-    minWidth: 200,
+    minWidth: 176,
     borderColor: "#0b2420",
     backgroundColor: "#0b2420"
   },
   quickChipIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center"
   },
   quickChipText: {
     flexShrink: 1,
     minWidth: 0,
-    gap: 1
+    gap: 0
+  },
+  quickChipTitle: {
+    fontSize: 13,
+    lineHeight: 17
+  },
+  quickChipLine: {
+    fontSize: 11,
+    lineHeight: 14
   },
   quickChipLinePersonal: {
     opacity: 0.75
@@ -1226,7 +1254,9 @@ const styles = StyleSheet.create({
   },
   quickRail: {
     gap: spacing[2],
-    paddingRight: spacing[2]
+    paddingRight: spacing[2],
+    // Room for the chips' soft shadow, which a horizontal scroll would otherwise clip.
+    paddingVertical: 4
   },
   quickActionButton: {
     minHeight: 82,

@@ -10,7 +10,6 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 
 import { colors, radius, spacing } from "../theme";
 import { AppText } from "./AppText";
@@ -45,33 +44,10 @@ export function AuthScreen({ children, title, subtitle, onBack, icon, footer, pr
 
   return (
     <View style={styles.root}>
-      <View pointerEvents="none" style={styles.heroBackground}>
-        <Svg width="100%" height="100%" viewBox="0 0 390 360" preserveAspectRatio="xMidYMid slice">
-          <Defs>
-            <LinearGradient id="authGradient" x1="18" y1="18" x2="370" y2="342" gradientUnits="userSpaceOnUse">
-              <Stop offset="0" stopColor={colors.brand[900]} />
-              <Stop offset="0.56" stopColor={colors.brand[700]} />
-              <Stop offset="1" stopColor={colors.brand[500]} />
-            </LinearGradient>
-          </Defs>
-          <Rect width="390" height="360" fill="url(#authGradient)" />
-          <Path
-            d="M-22 250C52 181 110 298 185 222C245 161 292 183 418 101"
-            fill="none"
-            opacity="0.14"
-            stroke={colors.white}
-            strokeDasharray="5 11"
-            strokeLinecap="round"
-            strokeWidth="2"
-          />
-          <Circle cx="42" cy="94" r="3" fill={colors.white} opacity="0.18" />
-          <Circle cx="82" cy="58" r="2" fill={colors.white} opacity="0.14" />
-          <Circle cx="330" cy="70" r="3" fill={colors.white} opacity="0.16" />
-          <Circle cx="356" cy="128" r="2" fill={colors.white} opacity="0.2" />
-          <Circle cx="285" cy="174" r="2.5" fill={colors.white} opacity="0.13" />
-          <Circle cx="115" cy="196" r="2" fill={colors.white} opacity="0.16" />
-        </Svg>
-      </View>
+      {/* Solid brand green, the same as the boot and lock screens. It used to be an
+          SVG gradient with a fixed id; with Login and Register both mounted in the
+          stack the duplicate id could fail to draw on Android, washing the header out. */}
+      <View pointerEvents="none" style={styles.heroBackground} />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.keyboard}>
@@ -171,7 +147,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 360
+    height: 360,
+    backgroundColor: colors.primaryDeep
   },
   safeArea: {
     flex: 1

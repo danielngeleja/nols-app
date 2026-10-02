@@ -92,12 +92,12 @@ export function RegisterScreen({ navigation, route }: Props) {
     }
   }
 
-  async function verifyCode() {
-    if (loading || code.trim().length !== 6) return;
+  async function verifyCode(value = code) {
+    if (loading || value.trim().length !== 6) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await verifyOtp(destination, code.trim(), "CUSTOMER");
+      const res = await verifyOtp(destination, value.trim(), "CUSTOMER");
       if (!res.token) {
         throw new Error(res.message || res.error || "Verification failed. Please try again.");
       }
@@ -218,7 +218,8 @@ export function RegisterScreen({ navigation, route }: Props) {
                     {agreed ? <Check color={colors.white} size={14} /> : null}
                   </View>
                   <AppText variant="caption" tone="muted" style={styles.flex}>
-                    I agree to the NoLSAF Terms and Conditions and Privacy Policy.
+                    I agree to the NoLSAF <AppText variant="caption" weight="bold" tone="primary">Terms and Conditions</AppText> and{" "}
+                    <AppText variant="caption" weight="bold" tone="primary">Privacy Policy</AppText>.
                   </AppText>
                 </Pressable>
                 {error ? (
@@ -250,11 +251,19 @@ export function RegisterScreen({ navigation, route }: Props) {
                 <AppInput
                   label="Verification code"
                   value={code}
-                  onChangeText={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+                  onChangeText={(value) => {
+                    const next = value.replace(/\D/g, "").slice(0, 6);
+                    setCode(next);
+                    if (error) setError(null);
+                    // No extra tap: the code verifies as soon as all six digits are in.
+                    if (next.length === 6 && next !== code) void verifyCode(next);
+                  }}
                   placeholder="123456"
                   keyboardType="number-pad"
                   maxLength={6}
+                  autoFocus
                   textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
                   style={styles.codeInput}
                 />
                 {error ? (
@@ -262,7 +271,7 @@ export function RegisterScreen({ navigation, route }: Props) {
                     {error}
                   </AppText>
                 ) : null}
-                <AppButton title="Verify" loading={loading} disabled={code.trim().length !== 6} onPress={verifyCode} />
+                <AppButton title="Verify" loading={loading} disabled={code.trim().length !== 6} onPress={() => verifyCode()} />
                 <AppButton
                   title={resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
                   variant="ghost"

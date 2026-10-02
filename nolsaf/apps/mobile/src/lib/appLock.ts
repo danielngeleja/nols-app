@@ -41,46 +41,79 @@ export async function setAppLockEnabledFlag(enabled: boolean): Promise<void> {
   }
 }
 
+/** Which biometric the phone offers, so the UI can name it. */
+export type BiometricKind = "face" | "fingerprint" | "iris" | null;
+
 export type LockCapability = {
   /** The device can gate at all: enrolled biometric OR a device passcode. */
   supported: boolean;
   /** A biometric (fingerprint / face) is specifically available. */
   biometric: boolean;
+  kind: BiometricKind;
 };
 
 export async function getLockCapability(): Promise<LockCapability> {
-  if (Platform.OS === "web") return { supported: false, biometric: false };
+  if (Platform.OS === "web") return { supported: false, biometric: false, kind: null };
   try {
-    const [hasHardware, isEnrolled, level] = await Promise.all([
+    const [hasHardware, isEnrolled, level, types] = await Promise.all([
       LocalAuthentication.hasHardwareAsync(),
       LocalAuthentication.isEnrolledAsync(),
-      LocalAuthentication.getEnrolledLevelAsync()
+      LocalAuthentication.getEnrolledLevelAsync(),
+      LocalAuthentication.supportedAuthenticationTypesAsync()
     ]);
     const biometric = Boolean(hasHardware && isEnrolled);
     // A device passcode alone (SECRET) is enough to lock, even without biometrics.
     const hasSecret = level !== LocalAuthentication.SecurityLevel.NONE;
-    return { supported: biometric || hasSecret, biometric };
+    const T = LocalAuthentication.AuthenticationType;
+    const kind: BiometricKind = !biometric
+      ? null
+      : types.includes(T.FACIAL_RECOGNITION)
+        ? "face"
+        : types.includes(T.FINGERPRINT)
+          ? "fingerprint"
+          : types.includes(T.IRIS)
+            ? "iris"
+            : "fingerprint";
+    return { supported: biometric || hasSecret, biometric, kind };
   } catch {
-    return { supported: false, biometric: false };
+    return { supported: false, biometric: false, kind: null };
   }
 }
 
 /**
- * Prompts the OS biometric/passcode sheet. Returns true only on a successful
- * check. Device-passcode fallback stays enabled so users without biometrics are
- * never locked out of their own account.
+ * Outcome of one unlock attempt, so the lock screen can say the right thing:
+ * a cancel is not an error, and a lockout means "use the phone passcode".
  */
-export async function authenticateLock(reason: string): Promise<boolean> {
-  if (Platform.OS === "web") return true;
+export type LockAttempt = "ok" | "cancelled" | "lockout" | "failed";
+
+/**
+ * Prompts the OS biometric/passcode sheet. Device-passcode fallback stays
+ * enabled so users without biometrics are never locked out of their own account.
+ */
+export async function attemptLock(reason: string): Promise<LockAttempt> {
+  if (Platform.OS === "web") return "ok";
   try {
+    // The passcode lives inside the system prompt (expo-local-authentication has
+    // no passcode-only mode): Android shows its own "Use PIN" button, iOS offers
+    // the passcode after a missed Face ID / Touch ID. The prompt says so.
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: reason,
+      promptDescription: "You can also use your phone PIN, pattern or password.",
       cancelLabel: "Cancel",
-      fallbackLabel: "Use device passcode",
+      fallbackLabel: "Use passcode",
       disableDeviceFallback: false
     });
-    return result.success;
+    if (result.success) return "ok";
+    const error = String(result.error || "");
+    if (error === "user_cancel" || error === "system_cancel" || error === "app_cancel" || error === "user_fallback") return "cancelled";
+    if (error === "lockout" || error === "lockout_permanent") return "lockout";
+    return "failed";
   } catch {
-    return false;
+    return "failed";
   }
+}
+
+/** Yes/no form of attemptLock, for confirm-to-change-a-setting checks. */
+export async function authenticateLock(reason: string): Promise<boolean> {
+  return (await attemptLock(reason)) === "ok";
 }

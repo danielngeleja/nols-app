@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, Ref, useState } from "react";
 import { Pressable, TextInput, TextInputProps, StyleSheet, View } from "react-native";
 import { Eye, EyeOff } from "lucide-react-native";
 
@@ -14,9 +14,11 @@ type AppInputProps = TextInputProps & {
   hint?: ReactNode;
   /** Fixed, non-editable value shown inside the left side of the field. */
   prefix?: string;
+  /** The underlying TextInput, so a screen can move focus (e.g. email Next to password). */
+  inputRef?: Ref<TextInput>;
 };
 
-export function AppInput({ label, error, required, hint, prefix, style, ...props }: AppInputProps) {
+export function AppInput({ label, error, required, hint, prefix, style, inputRef, ...props }: AppInputProps) {
   // On Android, a custom fontFamily on a secureTextEntry input breaks masking and
   // renders the password in plain text. Use the system font for secure fields so
   // the characters are always masked.
@@ -25,6 +27,7 @@ export function AppInput({ label, error, required, hint, prefix, style, ...props
 
   const field = (
     <TextInput
+      ref={inputRef}
       placeholderTextColor={colors.softText}
       style={[
         styles.input,
