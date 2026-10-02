@@ -4,7 +4,7 @@ import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
 import { accrueNrmsSalesCommission } from "./salesCommission.js";
 import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
-import { shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
+import { hotelCalendarDayKey, shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -163,7 +163,7 @@ export type NrmsCheckoutDeclaration = {
  * departure day is the later of the open business day and today's EAT date.
  */
 export function checkoutDepartureFacts(plannedCheckOut: Date, businessDate: string, now: Date = new Date()) {
-  const calendarDate = shiftDayKey(now);
+  const calendarDate = hotelCalendarDayKey(now);
   const departureDateKey = businessDate > calendarDate ? businessDate : calendarDate;
   const actualDepartureDate = shiftDateOnly(departureDateKey);
   return {

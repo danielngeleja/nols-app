@@ -5,7 +5,7 @@
 // the marketplace and NRMS can never disagree about what is sellable.
 import { prisma } from "@nolsaf/prisma";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES, REAL_BOOKING_STATUSES } from "./bookingStatus.js";
-import { shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
+import { hotelCalendarDayKey, shiftDateOnly } from "./nrmsShifts.js";
 
 type DbLike = typeof prisma | any;
 
@@ -37,7 +37,7 @@ export type CalendarEntry = {
 
 export function calendarDepartureSpan(plannedEnd: Date, checkedOutAt?: Date | null) {
   if (!checkedOutAt) return { endDate: plannedEnd, scheduledEndDate: null, earlyDeparture: false };
-  const actualDay = shiftDateOnly(shiftDayKey(checkedOutAt));
+  const actualDay = shiftDateOnly(hotelCalendarDayKey(checkedOutAt));
   if (actualDay >= plannedEnd) return { endDate: plannedEnd, scheduledEndDate: null, earlyDeparture: false };
   return { endDate: actualDay, scheduledEndDate: plannedEnd, earlyDeparture: true };
 }

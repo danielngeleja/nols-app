@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNrmsBusinessDayWritable, expectedCashForShift, nextShiftDayKey, nightAuditSchedule, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "./nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, expectedCashForShift, hotelCalendarDayKey, nextShiftDayKey, nightAuditSchedule, NRMS_BUSINESS_DAY_LOCKED, shiftDayKey, shiftHandoverSummary, shiftMoney } from "./nrmsShifts.js";
 
 describe("shiftMoney", () => {
   it("rounds to two decimals and coerces junk to zero", () => {
@@ -20,6 +20,15 @@ describe("shiftDayKey", () => {
   it("uses a property-specific boundary", () => {
     expect(shiftDayKey(new Date("2026-07-24T20:30:00Z"), "00:30")).toBe("2026-07-24");
     expect(shiftDayKey(new Date("2026-07-24T21:30:00Z"), "00:30")).toBe("2026-07-25");
+  });
+});
+
+describe("hotelCalendarDayKey", () => {
+  it("uses the EAT calendar date without the Night Audit cutoff", () => {
+    const beforeAudit = new Date("2026-07-24T16:30:00Z");
+    expect(hotelCalendarDayKey(beforeAudit)).toBe("2026-07-24");
+    expect(shiftDayKey(beforeAudit)).toBe("2026-07-23");
+    expect(hotelCalendarDayKey(new Date("2026-07-24T21:30:00Z"))).toBe("2026-07-25");
   });
 });
 

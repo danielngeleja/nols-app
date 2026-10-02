@@ -31,6 +31,11 @@ function localClock(date: Date) {
   return { day: `${get("year")}-${get("month")}-${get("day")}`, minutes: Number(getTime("hour")) * 60 + Number(getTime("minute")) };
 }
 
+/** The physical calendar date in Tanzania, without the Night Audit cutoff. */
+export function hotelCalendarDayKey(date: Date): string {
+  return localClock(date).day;
+}
+
 function closeMinutes(value: string): number {
   const match = /^(\d{2}):(\d{2})$/.exec(value);
   if (!match) return 1200;
