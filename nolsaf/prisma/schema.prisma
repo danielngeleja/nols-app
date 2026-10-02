@@ -5816,7 +5816,7 @@ model NrmsStockItem {
   status        String  @default("ACTIVE") @db.VarChar(20)
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   property           Property                   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   packUnits          NrmsStockPackUnit[]
@@ -5888,7 +5888,7 @@ model NrmsStockBalance {
   quantity     Decimal  @default(0.000) @db.Decimal(14, 3)
   parLevel     Decimal? @db.Decimal(14, 3)
   reorderPoint Decimal? @db.Decimal(14, 3)
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @default(now()) @updatedAt
 
   location  NrmsStockLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
   stockItem NrmsStockItem     @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
@@ -5995,7 +5995,7 @@ model NrmsStockSettings {
   breakfastRecipe     Json?
   /// The shelf breakfast is taken from (usually the restaurant).
   breakfastLocationId Int?
-  updatedAt           DateTime  @updatedAt
+  updatedAt           DateTime  @default(now()) @updatedAt
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
@@ -6023,7 +6023,7 @@ model NrmsSupplier {
   notes        String?  @db.VarChar(500)
   status       String   @default("ACTIVE") @db.VarChar(20)
   createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime @default(now()) @updatedAt
 
   property       Property              @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   prices         NrmsSupplierPrice[]
@@ -6046,7 +6046,7 @@ model NrmsSupplierPrice {
   lastUnitCost   Decimal?  @db.Decimal(14, 4)
   agreedUnitCost Decimal?  @db.Decimal(14, 4)
   lastReceivedAt DateTime?
-  updatedAt      DateTime  @updatedAt
+  updatedAt      DateTime  @default(now()) @updatedAt
 
   supplier  NrmsSupplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   stockItem NrmsStockItem @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
@@ -6090,7 +6090,7 @@ model NrmsGoodsReceipt {
   voidedAt               DateTime?
   voidReason             String?   @db.VarChar(300)
   createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  updatedAt              DateTime  @default(now()) @updatedAt
 
   property      Property               @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   supplier      NrmsSupplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
@@ -6159,7 +6159,7 @@ model NrmsStockTransfer {
   cancelledById  Int?
   cancelledAt    DateTime?
   createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  updatedAt      DateTime  @default(now()) @updatedAt
 
   property     Property                @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   fromLocation NrmsStockLocation       @relation("NrmsTransferFrom", fields: [fromLocationId], references: [id], onDelete: Restrict)
@@ -6249,7 +6249,7 @@ model NrmsStockCount {
   varianceCost  Decimal?  @db.Decimal(14, 2)
   varianceSales Decimal?  @db.Decimal(14, 2)
   createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  updatedAt     DateTime  @default(now()) @updatedAt
 
   property Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   location NrmsStockLocation    @relation(fields: [locationId], references: [id], onDelete: Restrict)
