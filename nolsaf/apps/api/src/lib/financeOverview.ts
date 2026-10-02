@@ -26,7 +26,7 @@ export type StreamSummary = {
   note?: string;
 };
 
-export async function computeFinanceOverview(from?: string, to?: string) {
+export async function computeFinanceOverview(from?: string, to?: string, opts: { margin?: boolean } = {}) {
   const hasRange = Boolean(from || to);
   const dateClause = () => {
     if (!hasRange) return undefined;
@@ -264,7 +264,8 @@ export async function computeFinanceOverview(from?: string, to?: string) {
   });
 
   // What it costs NoLSAF to earn that revenue, as far as the platform records it.
-  const margin = await buildMargin({ range: dateClause(), toTzs, gmv: totals.gmv, revenue: totals.nolsafRevenue });
+  // Skipped for chart buckets, which only need the totals.
+  const margin = opts.margin === false ? undefined : await buildMargin({ range: dateClause(), toTzs, gmv: totals.gmv, revenue: totals.nolsafRevenue });
 
   return {
     ok: true,
