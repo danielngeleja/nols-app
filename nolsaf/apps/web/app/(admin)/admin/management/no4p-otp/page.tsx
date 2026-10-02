@@ -2,9 +2,14 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import apiClient from "@/lib/apiClient";
-import TableRow from "@/components/TableRow";
 import DatePicker from "@/components/ui/DatePicker";
-import { KeyRound, ShieldCheck, ChevronLeft, ChevronRight, Search, X, CheckCircle2, Clock, Ban, Filter, Calendar, Download } from "lucide-react";
+import { Ban, Calendar, CheckCircle2, ChevronLeft, ChevronRight, Clock, Download, KeyRound, Loader2, Mail, MessageSquare, Search, ShieldAlert, ShieldCheck, X } from "lucide-react";
+
+/**
+ * No4P OTP: every one-time code NoLSAF sent, who it went to, what it was for,
+ * whether it was used, and whether it followed policy. Codes are masked; the
+ * hot database keeps 30 days.
+ */
 
 const api = apiClient;
 
@@ -23,79 +28,54 @@ type OtpRow = {
   provider: any;
   policyCompliant: boolean | null;
 };
+type Meta = { page: number; pageSize: number; total: number };
+type Notice = { tone: "success" | "error"; title: string; message?: string };
+type StatusKey = "all" | "valid" | "used" | "expired";
 
-type Meta = {
-  page: number;
-  pageSize: number;
-  total: number;
+const STATUS_TABS: Array<{ key: StatusKey; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "valid", label: "Valid now" },
+  { key: "used", label: "Used" },
+  { key: "expired", label: "Expired" },
+];
+const STATUS_META: Record<OtpRow["status"], { label: string; tag: string; dot: string; Icon: typeof CheckCircle2 }> = {
+  used: { label: "Used", tag: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500", Icon: CheckCircle2 },
+  valid: { label: "Valid", tag: "bg-sky-50 text-sky-700 ring-sky-200", dot: "bg-sky-500", Icon: ShieldCheck },
+  expired: { label: "Expired", tag: "bg-amber-50 text-amber-700 ring-amber-200", dot: "bg-amber-400", Icon: Clock },
+  unknown: { label: "Unknown", tag: "bg-slate-100 text-slate-600 ring-slate-200", dot: "bg-slate-400", Icon: Ban },
 };
 
-type Notice = {
-  tone: "success" | "error";
-  title: string;
-  message?: string;
-};
+const card = "min-w-0 rounded-lg border border-solid border-slate-200 bg-white";
+const EAT = "Africa/Dar_es_Salaam";
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return "—";
+const when = (value: string | null | undefined) => {
+  if (!value) return null;
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleString();
-}
-
-function statusPill(status: OtpRow["status"]) {
-  switch (status) {
-    case "used":
-      return {
-        label: "Used",
-        Icon: CheckCircle2,
-        className:
-          "bg-success/10 text-success ring-1 ring-success/25 dark:bg-success/15 dark:text-emerald-300 dark:ring-success/30",
-      };
-    case "expired":
-      return {
-        label: "Expired",
-        Icon: Clock,
-        className:
-          "bg-amber-500/10 text-amber-800 ring-1 ring-amber-500/25 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/30",
-      };
-    case "valid":
-      return {
-        label: "Valid",
-        Icon: ShieldCheck,
-        className:
-          "bg-brand/10 text-brand ring-1 ring-brand/25 dark:bg-brand/15 dark:text-brand-100 dark:ring-brand/30",
-      };
-    default:
-      return {
-        label: "Unknown",
-        Icon: Ban,
-        className:
-          "bg-slate-500/10 text-slate-800 ring-1 ring-slate-500/25 dark:bg-slate-500/15 dark:text-slate-300 dark:ring-slate-400/30",
-      };
-  }
-}
+  return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: EAT })}, ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: EAT })}`;
+};
+const seconds = (a: string | null, b: string | null) => (a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 1000)) : null);
+const duration = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`);
+/** "ADMIN_FINANCE_VIEW" -> "Admin finance view". */
+const purpose = (v: string | null) => (v ? v.toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) : null);
+const initials = (name: string | null) => (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("");
 
 function localTodayYmd() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: EAT, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
 export default function Page() {
   const [rows, setRows] = useState<OtpRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"all" | "valid" | "expired" | "used">("all");
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<StatusKey>("all");
   const [date, setDate] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
-
   const [page, setPage] = useState(1);
   const [pageSize] = useState(25);
   const [total, setTotal] = useState(0);
@@ -103,9 +83,14 @@ export default function Page() {
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
   const maxDate = useMemo(() => localTodayYmd(), []);
 
+  // Search after the admin stops typing, not on every key.
+  useEffect(() => {
+    const t = window.setTimeout(() => setQ(query.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    setNotice(null);
     try {
       const params: any = { page, pageSize, status };
       if (q) params.q = q;
@@ -119,11 +104,7 @@ export default function Page() {
       console.error(e);
       setRows([]);
       setTotal(0);
-      setNotice({
-        tone: "error",
-        title: "Failed to load OTP usage",
-        message: "Please try again in a moment.",
-      });
+      setNotice({ tone: "error", title: "Could not load OTP records", message: "Please try again in a moment." });
     } finally {
       setLoading(false);
     }
@@ -131,288 +112,229 @@ export default function Page() {
 
   const exportCsv = useCallback(async () => {
     setNotice(null);
+    setExporting(true);
     try {
       const params: any = { status };
       if (q) params.q = q;
       if (date) params.date = date;
-      const res = await api.get("/api/admin/no4p-otp/export.csv", {
-        params,
-        responseType: "blob",
-      });
+      const res = await api.get("/api/admin/no4p-otp/export.csv", { params, responseType: "blob" });
       const url = URL.createObjectURL(res.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `no4p-otp-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.download = `no4p-otp-${localTodayYmd()}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setNotice({
-        tone: "success",
-        title: "CSV export started",
-        message: "The export contains No4P OTP records still inside the 30-day hot database window.",
-      });
+      setNotice({ tone: "success", title: "CSV downloaded", message: "It holds the records in the current view, within the 30-day window." });
     } catch (e) {
       console.error(e);
-      setNotice({
-        tone: "error",
-        title: "Failed to export OTP CSV",
-        message: "Please try again in a moment.",
-      });
+      setNotice({ tone: "error", title: "The export failed", message: "Please try again in a moment." });
+    } finally {
+      setExporting(false);
     }
   }, [q, status, date]);
 
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setPage(1); }, [q, status, date]);
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [q, status, date]);
+  // What this page of results says at a glance.
+  const glance = useMemo(() => {
+    const used = rows.filter((r) => r.status === "used");
+    const times = used.map((r) => seconds(r.requestedAt, r.usedAt)).filter((s): s is number => s != null).sort((a, b) => a - b);
+    return {
+      used: used.length,
+      valid: rows.filter((r) => r.status === "valid").length,
+      expired: rows.filter((r) => r.status === "expired").length,
+      flagged: rows.filter((r) => r.policyCompliant === false).length,
+      useRate: rows.length ? Math.round((used.length / rows.length) * 100) : null,
+      medianToUse: times.length ? times[Math.floor(times.length / 2)] : null,
+    };
+  }, [rows]);
+
+  const from = total ? (page - 1) * pageSize + 1 : 0;
+  const to = Math.min(total, page * pageSize);
 
   return (
-    <div className="p-4 md:p-6">
-      <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/5 dark:border-white/15 dark:bg-slate-950/50 md:mb-6 md:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-600 text-white shadow-sm">
-                <KeyRound className="h-5 w-5" aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="truncate text-xl font-black tracking-tight text-slate-950 dark:text-brand-50 md:text-2xl">No4P OTP</h1>
-                <p className="mt-0.5 max-w-3xl text-sm leading-5 text-slate-600 dark:text-slate-300">
-                  OTP requests, usage, expiry, and policy flags.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/15 bg-brand/5 px-3 py-1 text-xs font-bold text-brand dark:border-brand-100/20 dark:bg-brand-100/10 dark:text-brand-100">
-                <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-                Security log
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-                <Clock className="h-3.5 w-3.5" aria-hidden />
-                30-day retention
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={exportCsv}
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
-            title="Export current No4P OTP view to CSV"
-          >
-            <Download className="h-4 w-4" aria-hidden />
-            Export CSV
-          </button>
-        </div>
-
-        <div className="mt-4 border-t border-slate-100 pt-4 dark:border-white/10">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full min-w-0 lg:w-72 lg:flex-none">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={searchInputRef}
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search phone or email"
-                className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-12 text-sm font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand/30 focus:bg-white focus:ring-2 focus:ring-brand/15 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:focus:bg-white/10"
-              />
-              {q ? (
-                <button
-                  onClick={() => {
-                    setQ("");
-                    setPage(1);
-                    requestAnimationFrame(() => searchInputRef.current?.focus());
-                  }}
-                  type="button"
-                  className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-slate-100"
-                  aria-label="Clear search"
-                  title="Clear"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
-              <div className="relative w-full min-w-0 sm:w-56 sm:flex-none">
-                <Filter className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
-                  className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 pl-11 pr-10 text-sm font-semibold text-slate-900 outline-none transition focus:border-brand/30 focus:bg-white focus:ring-2 focus:ring-brand/15 dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:focus:bg-white/10"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="valid">Valid</option>
-                  <option value="expired">Expired</option>
-                  <option value="used">Used</option>
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setPickerOpen((v) => !v)}
-                className="inline-flex h-11 w-full min-w-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-700 transition hover:bg-white hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/20 dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10 sm:w-44 sm:flex-none"
-                aria-label={date ? `Filter date: ${date}` : "Filter by date"}
-                title={date ? `Date: ${date}` : "Pick a date"}
-              >
-                <Calendar className={date ? "h-5 w-5 text-brand" : "h-5 w-5 text-slate-400"} />
-                {date || "Date"}
-              </button>
-            </div>
-          </div>
-
-          {pickerOpen ? (
-            <>
-              <div className="fixed inset-0 z-30 bg-black/20 backdrop-blur-sm" onClick={() => setPickerOpen(false)} />
-              <div className="fixed z-40 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                <DatePicker
-                  selected={date || undefined}
-                  allowRange={false}
-                  allowPast={true}
-                  maxDate={maxDate}
-                  onSelectAction={(s) => {
-                    const next = Array.isArray(s) ? s[0] : s;
-                    setDate(next || "");
-                    setPage(1);
-                    setPickerOpen(false);
-                  }}
-                  onCloseAction={() => setPickerOpen(false)}
-                />
-              </div>
-            </>
-          ) : null}
-        </div>
-      </div>
+    <div id="no4p-otp-page" className="w-full min-w-0 space-y-4">
+      <style>{`#no4p-otp-page, #no4p-otp-page * { box-sizing: border-box; }`}</style>
 
       {notice ? (
-        <div
-          className={
-            notice.tone === "success"
-              ? "mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100"
-              : "mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-100"
-          }
-        >
-          <div className="text-sm font-semibold">{notice.title}</div>
-          {notice.message ? <div className="text-sm opacity-90">{notice.message}</div> : null}
+        <div className={`fixed right-6 top-6 z-50 max-w-sm rounded-md px-4 py-3 text-white shadow-lg ${notice.tone === "success" ? "bg-[#0b2420]" : "bg-rose-600"}`} role="status">
+          <p className="m-0 text-sm font-semibold">{notice.title}</p>
+          {notice.message ? <p className="m-0 mt-0.5 text-xs opacity-80">{notice.message}</p> : null}
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-3xl border border-slate-300 bg-white shadow-sm ring-1 ring-black/5 dark:border-white/15 dark:bg-slate-950/50">
-        <div className="h-1.5 w-full bg-gradient-to-r from-brand-700 via-brand-600 to-brand-700" />
+      {/* Header */}
+      <header className={card}>
+        <div className="flex flex-wrap items-start gap-4 px-5 py-5">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><KeyRound className="h-5 w-5" /></span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="m-0 text-xl font-bold tracking-tight text-slate-900">No4P OTP</h1>
+              <span className="inline-flex items-center gap-1 rounded bg-[#02665e]/10 px-2 py-0.5 text-[11px] font-semibold text-[#02665e]"><ShieldCheck className="h-3 w-3" /> Security log</span>
+              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600"><Clock className="h-3 w-3" /> 30-day retention</span>
+            </div>
+            <p className="m-0 mt-1 text-sm text-slate-500">Every one-time code sent: who it went to, what it was for, whether it was used, and whether it followed policy. Codes are masked.</p>
+          </div>
+          <button type="button" onClick={() => void exportCsv()} disabled={exporting} className="inline-flex h-9 items-center gap-2 rounded-md border-0 bg-[#02665e] px-3.5 text-sm font-semibold text-white transition hover:bg-[#014e47] disabled:opacity-60">
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Export CSV
+          </button>
+        </div>
+
+        {/* At a glance */}
+        <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-slate-200 bg-slate-200 md:grid-cols-5">
+          {[
+            { label: "Records", value: loading ? "..." : total.toLocaleString(), detail: date ? `on ${date}` : "in the 30-day window", tone: "text-slate-900" },
+            { label: "Used", value: loading ? "..." : String(glance.used), detail: glance.useRate != null ? `${glance.useRate}% of this page` : "on this page", tone: "text-emerald-700" },
+            { label: "Typical time to use", value: loading ? "..." : glance.medianToUse != null ? duration(glance.medianToUse) : "None", detail: "median, request to use", tone: "text-slate-900" },
+            { label: "Expired unused", value: loading ? "..." : String(glance.expired), detail: glance.valid ? `${glance.valid} still valid` : "on this page", tone: glance.expired ? "text-amber-700" : "text-slate-900" },
+            { label: "Policy flags", value: loading ? "..." : String(glance.flagged), detail: glance.flagged ? "review below" : "all compliant", tone: glance.flagged ? "text-rose-700" : "text-emerald-700" },
+          ].map((f) => (
+            <div key={f.label} className="min-w-0 bg-white px-5 py-3.5">
+              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{f.label}</dt>
+              <dd className={`m-0 mt-1 text-lg font-bold tabular-nums ${f.tone}`}>{f.value}</dd>
+              <dd className="m-0 truncate text-[11px] text-slate-500">{f.detail}</dd>
+            </div>
+          ))}
+        </dl>
+      </header>
+
+      {/* Records */}
+      <section className={card}>
+        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-slate-200 px-5 py-3">
+          <div className="inline-flex rounded-md border border-solid border-slate-200 bg-slate-50 p-0.5" role="tablist" aria-label="Status">
+            {STATUS_TABS.map((t) => (
+              <button key={t.key} type="button" role="tab" aria-selected={status === t.key} onClick={() => setStatus(t.key)} className={`h-8 rounded border-0 px-3 text-xs font-semibold transition ${status === t.key ? "bg-white text-slate-900 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input ref={searchInputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search phone or email" aria-label="Search phone or email" className="h-9 w-full rounded-md border border-solid border-slate-300 bg-white pl-9 pr-8 text-sm text-slate-900 outline-none transition focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+            {query ? (
+              <button type="button" onClick={() => { setQuery(""); requestAnimationFrame(() => searchInputRef.current?.focus()); }} aria-label="Clear search" className="absolute right-1.5 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded border-0 bg-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="h-3.5 w-3.5" /></button>
+            ) : null}
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button type="button" onClick={() => setPickerOpen((v) => !v)} className={`inline-flex h-9 items-center gap-2 rounded-md border border-solid px-3 text-xs font-semibold transition ${date ? "border-[#02665e]/40 bg-[#02665e]/[0.06] text-[#02665e]" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
+              <Calendar className="h-4 w-4" /> {date ? new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "Any day"}
+            </button>
+            {date ? <button type="button" onClick={() => setDate("")} aria-label="Clear the date" className="grid h-9 w-9 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-500 hover:bg-slate-50"><X className="h-4 w-4" /></button> : null}
+          </div>
+        </div>
+
+        {pickerOpen ? (
+          <>
+            <div className="fixed inset-0 z-30 bg-black/20" onClick={() => setPickerOpen(false)} />
+            <div className="fixed left-1/2 top-1/2 z-40 -translate-x-1/2 -translate-y-1/2">
+              <DatePicker
+                selected={date || undefined}
+                allowRange={false}
+                allowPast
+                maxDate={maxDate}
+                onSelectAction={(s) => { const next = Array.isArray(s) ? s[0] : s; setDate(next || ""); setPickerOpen(false); }}
+                onCloseAction={() => setPickerOpen(false)}
+              />
+            </div>
+          </>
+        ) : null}
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1100px] w-full">
+          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
             <thead>
-              <tr className="bg-brand-600 text-left text-xs font-semibold uppercase tracking-wide text-white">
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3">Username / Name</th>
-                <th className="px-4 py-3">OTP Code</th>
-                <th className="px-4 py-3">Destination</th>
-                <th className="px-4 py-3">Requested At</th>
-                <th className="px-4 py-3">OTP Validity</th>
-                <th className="px-4 py-3">Used At</th>
-                <th className="px-4 py-3">Used For</th>
-                <th className="px-4 py-3">Policy</th>
+              <tr className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                <th className="px-5 py-3 font-semibold">Who</th>
+                <th className="px-3 py-3 font-semibold">Sent to</th>
+                <th className="px-3 py-3 font-semibold">For</th>
+                <th className="px-3 py-3 font-semibold">Timeline</th>
+                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className="px-5 py-3 font-semibold">Policy</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 text-sm text-slate-800 dark:divide-white/10 dark:text-slate-100">
+            <tbody>
               {loading ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <td className="px-4 py-3" colSpan={9}>
-                      <div className="h-4 w-full animate-pulse rounded bg-slate-200/70 dark:bg-white/10" />
-                    </td>
-                  </TableRow>
-                ))
+                Array.from({ length: 8 }).map((_, i) => <tr key={i} className="border-0 border-t border-solid border-slate-100"><td colSpan={6} className="px-5 py-4"><div className="h-3 w-3/4 animate-pulse rounded bg-slate-100" /></td></tr>)
               ) : rows.length ? (
                 rows.map((r) => {
-                  const pill = statusPill(r.status);
-                  const PolicyIcon = r.policyCompliant ? ShieldCheck : Ban;
+                  const st = STATUS_META[r.status] ?? STATUS_META.unknown;
+                  const tookSec = seconds(r.requestedAt, r.usedAt);
+                  const lifeSec = seconds(r.requestedAt, r.expiresAt);
+                  const Channel = (r.destinationType || "").toUpperCase().includes("MAIL") ? Mail : MessageSquare;
                   return (
-                    <TableRow key={r.id} className="transition-colors hover:bg-brand/5 dark:hover:bg-brand/15">
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center gap-2 rounded-2xl bg-slate-900/5 px-3 py-1 text-xs font-semibold text-slate-800 ring-1 ring-slate-900/10 dark:bg-white/10 dark:text-slate-100 dark:ring-white/10">
-                          {r.role || "—"}
-                        </span>
+                    <tr key={r.id} className={`border-0 border-t border-solid border-slate-100 align-middle transition-colors hover:bg-slate-50 ${r.policyCompliant === false ? "bg-rose-50/40" : ""}`}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#02665e]/10 text-[11px] font-bold text-[#02665e]">{initials(r.name)}</span>
+                          <div className="min-w-0">
+                            <p className="m-0 truncate font-semibold text-slate-900">{r.name || "Unknown user"}</p>
+                            <p className="m-0 mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+                              <span className="rounded bg-slate-100 px-1.5 py-px font-semibold text-slate-600">{r.role || "No role"}</span>
+                              <span className="font-mono tracking-wider">{r.codeMasked || "Code not stored"}</span>
+                            </p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900 dark:text-slate-100">{r.name || "—"}</div>
+                      <td className="px-3 py-3">
+                        <p className="m-0 flex items-center gap-1.5 text-slate-800"><Channel className="h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="truncate">{r.destination || "Not recorded"}</span></p>
+                        <p className="m-0 mt-0.5 text-[11px] text-slate-500">{r.destinationType ? r.destinationType.charAt(0) + r.destinationType.slice(1).toLowerCase() : "Channel not recorded"}</p>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
-                        {r.codeMasked || "—"}
+                      <td className="px-3 py-3">
+                        <p className="m-0 text-slate-800">{purpose(r.usedFor) ?? <span className="text-slate-400">Not used</span>}</p>
+                        {r.usedFor ? <p className="m-0 mt-0.5 font-mono text-[10px] text-slate-400">{r.usedFor}</p> : null}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="text-slate-900 dark:text-slate-100">{r.destination || "—"}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">{r.destinationType || "—"}</div>
+                      <td className="px-3 py-3">
+                        <p className="m-0 tabular-nums text-slate-800">{when(r.requestedAt)} <span className="text-[11px] text-slate-400">EAT</span></p>
+                        <p className="m-0 mt-0.5 text-[11px] text-slate-500">
+                          {r.usedAt
+                            ? <>Used {tookSec != null ? <b className="font-semibold text-emerald-700">{duration(tookSec)}</b> : null} later, at {when(r.usedAt)}</>
+                            : r.expiresAt ? <>Expires {when(r.expiresAt)}{lifeSec != null ? `, a ${duration(lifeSec)} window` : ""}</> : "No expiry recorded"}
+                        </p>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{formatDate(r.requestedAt)}</td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1.5 rounded-2xl px-2.5 py-1 text-xs font-semibold ${pill.className}`}>
-                          <pill.Icon className="h-3.5 w-3.5" />
-                          {pill.label}
-                        </span>
-                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Expires: {formatDate(r.expiresAt)}</div>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${st.tag}`}><st.Icon className="h-3 w-3" />{st.label}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{formatDate(r.usedAt)}</td>
-                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{r.usedFor || "—"}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={
-                            r.policyCompliant
-                              ? "inline-flex items-center gap-1.5 rounded-2xl bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand ring-1 ring-brand/25 dark:bg-brand/15 dark:text-brand-100 dark:ring-brand/30"
-                              : "inline-flex items-center gap-1.5 rounded-2xl bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-500/25 dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-400/30"
-                          }
-                        >
-                          <PolicyIcon className="h-3.5 w-3.5" />
-                          {r.policyCompliant ? "Compliant" : "Flag"}
-                        </span>
+                      <td className="px-5 py-3">
+                        {r.policyCompliant === false ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200"><ShieldAlert className="h-3 w-3" /> Flagged</span>
+                        ) : r.policyCompliant ? (
+                          <span className="inline-flex items-center gap-1 rounded bg-[#02665e]/10 px-2 py-0.5 text-[11px] font-semibold text-[#02665e] ring-1 ring-inset ring-[#02665e]/20"><ShieldCheck className="h-3 w-3" /> Compliant</span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">Not checked</span>
+                        )}
                       </td>
-                    </TableRow>
+                    </tr>
                   );
                 })
               ) : (
-                <TableRow>
-                  <td className="px-4 py-10 text-center text-sm font-medium text-slate-600 dark:text-slate-300" colSpan={9}>
-                    No OTP records found.
+                <tr className="border-0 border-t border-solid border-slate-100">
+                  <td colSpan={6} className="px-5 py-12 text-center">
+                    <KeyRound className="mx-auto h-5 w-5 text-slate-300" />
+                    <p className="m-0 mt-2 text-sm font-semibold text-slate-900">No OTP records found</p>
+                    <p className="m-0 mt-0.5 text-xs text-slate-500">{q || date || status !== "all" ? "Try clearing the search, status or date." : "Codes appear here as they are sent."}</p>
                   </td>
-                </TableRow>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-sm dark:border-white/10">
-          <div className="text-slate-700 dark:text-slate-300">
-            Page <span className="font-semibold text-slate-900 dark:text-slate-100">{page}</span> of {totalPages}
-            <span className="ml-2">•</span>
-            <span className="ml-2">Total: {total}</span>
-          </div>
-
+        <div className="flex items-center justify-between gap-3 border-0 border-t border-solid border-slate-200 px-5 py-3 text-xs text-slate-500">
+          <span className="tabular-nums">{total ? `${from} to ${to} of ${total.toLocaleString()}` : "No records"}</span>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1 || loading}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-300 bg-white font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:bg-slate-950/50 dark:text-slate-100 dark:hover:bg-white/10"
-              aria-label="Previous page"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages || loading}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-300 bg-white font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/15 dark:bg-slate-950/50 dark:text-slate-100 dark:hover:bg-white/10"
-              aria-label="Next page"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
+            <span className="tabular-nums">Page {page} of {totalPages}</span>
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading} aria-label="Previous page" className="grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages || loading} aria-label="Next page" className="grid h-8 w-8 place-items-center rounded-md border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
