@@ -464,6 +464,67 @@ async function nbsStatistics(propertyId: number, month: string) {
   };
 }
 
+/**
+ * The open-day Night Audit preview (pending postings, stock, controls, review)
+ * costs about as much as a close. The finance page used to rebuild it on every
+ * load, and loads arrive in bursts (after each close, from several panels), so
+ * a few page loads could keep MySQL busy enough to make a one-posting close take
+ * 25 seconds. The preview is now shared by concurrent requests and kept for a
+ * short time; any write through this router for the property drops it.
+ */
+const NIGHT_AUDIT_PREVIEW_TTL_MS = 20_000;
+const nightAuditPreviewCache = new Map<string, { at: number; value: Promise<{ issues: any; review: any }> }>();
+
+function invalidateNightAuditPreview(propertyId: number) {
+  const prefix = `${propertyId}:`;
+  for (const key of nightAuditPreviewCache.keys()) if (key.startsWith(prefix)) nightAuditPreviewCache.delete(key);
+}
+
+function cachedNightAuditPreview(input: { propertyId: number; businessDate: string; closeTime: string; currency: string; openedAt: Date | null }) {
+  const key = `${input.propertyId}:${input.businessDate}:${input.closeTime}:${input.openedAt ? new Date(input.openedAt).getTime() : 0}`;
+  const hit = nightAuditPreviewCache.get(key);
+  if (hit && Date.now() - hit.at < NIGHT_AUDIT_PREVIEW_TTL_MS) return hit.value;
+  const value = (async () => {
+    const preview = await pendingNightAuditPostings(
+      db,
+      input.propertyId,
+      input.businessDate,
+      input.closeTime,
+      input.currency,
+      input.openedAt,
+      new Date(),
+      `NA-PREVIEW-${input.propertyId}-${input.businessDate.replace(/-/g, "")}`,
+    );
+    const issues = await controlIssues(db, input.propertyId, input.businessDate, preview.eventWindow);
+    const review = await buildNightAuditReview(db, input.propertyId, input.businessDate, preview.eventWindow, issues, preview.postings, preview.stock.movementIds.length);
+    return { issues, review };
+  })();
+  nightAuditPreviewCache.set(key, { at: Date.now(), value });
+  value.catch(() => nightAuditPreviewCache.delete(key));
+  // Bounded: drop the oldest entries if many properties are active at once.
+  while (nightAuditPreviewCache.size > 500) {
+    const oldest = nightAuditPreviewCache.keys().next().value;
+    if (oldest === undefined) break;
+    nightAuditPreviewCache.delete(oldest);
+  }
+  return value;
+}
+
+// Any successful write through this router (close, shift, expense, tender...)
+// drops that property's cached preview, so the next load reflects it at once.
+router.use((req, res, next) => {
+  if (req.method !== "GET") {
+    const match = /^\/property\/(\d+)(\/|$)/.exec(req.path);
+    if (match) {
+      const propertyId = Number(match[1]);
+      res.on("finish", () => {
+        if (res.statusCode < 400) invalidateNightAuditPreview(propertyId);
+      });
+    }
+  }
+  next();
+});
+
 router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
     const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
@@ -494,12 +555,13 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const start = dateOnly(businessDate);
     const selectedDayRange = dayRange(businessDate);
     const emptyNbs = { month, reportingDays: reportMonthRange.days, bedsAvailable: 0, bedNightsAvailable: 0, bedNightsOccupied: 0, domesticBedNights: 0, internationalBedNights: 0, roomNightsOccupied: 0, bedOccupancyRate: 0, missingNationalityBedNights: 0, methodology: "Open NBS statistics to calculate this reporting month." };
-    const [day, shifts, issues, nbs, unclassifiedTenders, unclosedBusinessDays] = await Promise.all([
+    const [day, shifts, , nbs, unclassifiedTenders, unclosedBusinessDays] = await Promise.all([
       needsAudit
         ? db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } })
         : db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, select: { id: true, status: true, openedAt: true, closedAt: true } }),
       needsCashiers ? db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }) : Promise.resolve([]),
-      needsAudit ? controlIssues(db, propertyId, businessDate) : Promise.resolve({ blockers: [], warnings: [] }),
+      // Controls are resolved once below, with the right window for the day's state.
+      Promise.resolve(null),
       needsNbs ? nbsStatistics(propertyId, month) : Promise.resolve(emptyNbs),
       needsAudit ? db.nrmsOutletOrder.findMany({
         where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
@@ -565,25 +627,24 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         orderBy: { businessDate: "asc" },
       })).map((row: any) => ({ businessDate: new Date(row.businessDate).toISOString().slice(0, 10), status: row.status }))
       : [];
-    let resolvedIssues = issues;
+    let resolvedIssues: any = { blockers: [], warnings: [] };
     let nightAuditReview: any = null;
     if (needsAudit && day?.status === "CLOSED") {
+      // A closed day reads its sealed review; controls are only recomputed if it has none.
       nightAuditReview = day.nightAudits?.find((audit: any) => audit.status === "CLOSED")?.summary?.review ?? null;
-      if (nightAuditReview?.controls) resolvedIssues = nightAuditReview.controls;
+      resolvedIssues = nightAuditReview?.controls ?? await controlIssues(db, propertyId, businessDate);
     } else if (needsAudit && day?.status === "OPEN") {
-      const through = new Date();
-      const preview = await pendingNightAuditPostings(
-        db,
+      const preview = await cachedNightAuditPreview({
         propertyId,
         businessDate,
         closeTime,
-        (active.property.currency || "TZS").toUpperCase(),
-        day.openedAt,
-        through,
-        `NA-PREVIEW-${propertyId}-${businessDate.replace(/-/g, "")}`,
-      );
-      resolvedIssues = await controlIssues(db, propertyId, businessDate, preview.eventWindow);
-      nightAuditReview = await buildNightAuditReview(db, propertyId, businessDate, preview.eventWindow, resolvedIssues, preview.postings, preview.stock.movementIds.length);
+        currency: (active.property.currency || "TZS").toUpperCase(),
+        openedAt: day.openedAt,
+      });
+      resolvedIssues = preview.issues;
+      nightAuditReview = preview.review;
+    } else if (needsAudit) {
+      resolvedIssues = await controlIssues(db, propertyId, businessDate);
     }
     res.json({
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },

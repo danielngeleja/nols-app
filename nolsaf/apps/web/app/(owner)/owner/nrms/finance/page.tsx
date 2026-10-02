@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, BadgeCheck, BedDouble, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ClipboardCheck, Loader2, LockKeyhole, LogIn, LogOut, Plus, Receipt, RefreshCw, Scale, Settings2, WalletCards, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -240,15 +240,40 @@ export default function FinanceControlPage() {
     if (!editingAuditTime && data?.nightAuditPolicy.closeTime) setAuditTimeDraft(data.nightAuditPolicy.closeTime);
   }, [data?.nightAuditPolicy.closeTime, editingAuditTime]);
 
-  const load = useCallback(async (silent = false) => {
-    if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
-    try { const response = await apiClient.get(`/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}&view=${tab}`); setData(response.data); setLastLoadedAt(new Date()); }
-    catch (cause: any) { setError(cause?.response?.data?.error || "Unable to load financial control records"); }
-    finally { if (!silent) setLoading(false); }
+  // One finance request at a time. This payload can be heavy (an open day's
+  // Night Audit preview), and after a close the date, tab and URL all change in
+  // quick succession; without this the page sent several copies at once and
+  // kept the database busy enough to slow the close itself.
+  const inflightRef = useRef<{ url: string; promise: Promise<unknown>; controller: AbortController } | null>(null);
+  const load = useCallback(async (silent = false, force = false) => {
+    if (!selectedPropertyId) return;
+    const url = `/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}&view=${tab}`;
+    const running = inflightRef.current;
+    // The same request is already on its way: share it rather than send another.
+    if (running && running.url === url && !force) { await running.promise.catch(() => undefined); return; }
+    // A different (or forced) request supersedes the one in flight.
+    running?.controller.abort();
+    const controller = new AbortController();
+    const promise = apiClient.get(url, { signal: controller.signal });
+    inflightRef.current = { url, promise, controller };
+    if (!silent) setLoading(true); setError(null);
+    try {
+      const response = await promise;
+      if (inflightRef.current?.promise === promise) { setData(response.data); setLastLoadedAt(new Date()); }
+    } catch (cause: any) {
+      if (controller.signal.aborted || cause?.code === "ERR_CANCELED") return;
+      setError(cause?.response?.data?.error || "Unable to load financial control records");
+    } finally {
+      if (inflightRef.current?.promise === promise) { inflightRef.current = null; if (!silent) setLoading(false); }
+    }
   }, [businessDate, month, selectedPropertyId, tab]);
   useEffect(() => {
-    void load();
+    // Several state changes often land together (date, month, tab from the URL);
+    // a short pause lets them settle into a single request.
+    const timer = window.setTimeout(() => { void load(); }, 120);
+    return () => window.clearTimeout(timer);
   }, [load]);
+  useEffect(() => () => inflightRef.current?.controller.abort(), []);
   useEffect(() => {
     // Only the two operational finance tabs need a live safety refresh. The
     // full payload also contains ledger, tax and NBS data, so do not reload it
@@ -310,9 +335,9 @@ export default function FinanceControlPage() {
     finally { setBusy(false); }
   };
 
-  const action = async (request: () => Promise<unknown>, success: string) => {
+  const action = async (request: () => Promise<unknown>, success: string, reload = true) => {
     setBusy(true); setError(null); setMessage(null);
-    try { await request(); setMessage(success); await load(); return true; }
+    try { await request(); setMessage(success); if (reload) await load(false, true); return true; }
     catch (cause: any) { setError(cause?.response?.data?.error || "The control action could not be completed"); return false; }
     finally { setBusy(false); }
   };
@@ -334,19 +359,24 @@ export default function FinanceControlPage() {
     const closed = await action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/close`, {
       businessDate,
       acknowledgeFiscalBacklog: fiscalBacklogWarning ? acknowledgeFiscalBacklog : false,
-    }), "Night Audit completed. This date is locked, the next business day is open, and operations can continue.");
+    }), "Night Audit completed. This date is locked, the next business day is open, and operations can continue.", false);
     if (closed) {
       setConfirmNightAudit(false);
       setAcknowledgeFiscalBacklog(false);
+      // Reload once: either the next business date (via the date change) or,
+      // if there is none to move to, this date again.
+      let moved = false;
       try {
         const response = await apiClient.get<{ finance: { targetBusinessDate: string | null } }>(`/api/nrms/operations/property/${selectedPropertyId}/attention`, { params: { fresh: 1 } });
         const nextDate = response.data.finance.targetBusinessDate;
         if (nextDate && nextDate !== businessDate) {
+          moved = true;
           setBusinessDate(nextDate);
           setMonth(nextDate.slice(0, 7));
           router.replace(`/owner/nrms/finance?view=audit&businessDate=${encodeURIComponent(nextDate)}`);
         }
       } catch { /* the sidebar refresh remains the fallback */ }
+      if (!moved) await load(false, true);
     }
   };
   const saveAuditTime = async () => {
