@@ -1,8 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useFocusEffect } from "@react-navigation/native";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { Bell, Building2, ChevronRight, GalleryHorizontal, Home, Landmark, MapPin, Route, Search, ShoppingCart, TicketsPlane, UsersRound, X } from "lucide-react-native";
-import { ActivityIndicator, Animated, Easing, ImageSourcePropType, Modal, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import { ReactNode, useEffect, useRef, useState } from "react";
+import { Bell, Building2, ChevronRight, GalleryHorizontal, Home, Landmark, MapPin, Route, Search, TicketsPlane, UsersRound } from "lucide-react-native";
+import { Animated, Easing, ImageSourcePropType, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { useAuth } from "../auth";
@@ -12,7 +11,6 @@ import { fetchCustomerNotifications } from "../notifications";
 import { fetchCitySummary, fetchParkSummary, ParkSummaryItem } from "../properties/propertiesApi";
 import { fetchMyBookings } from "../bookings/bookingsApi";
 import type { BookingListItem } from "../bookings/types";
-import { fetchMyGroupBookings, GroupBookingListItem } from "../groupStays";
 import { fetchPublicPropertiesHomeSummary, PublicPropertyCard } from "../properties";
 import campsiteFallback from "../../assets/property-types/campsite.jpg";
 import guestHouseFallback from "../../assets/property-types/guest_house.jpg";
@@ -21,15 +19,11 @@ import localHousesFallback from "../../assets/property-types/local_houses.jpg";
 import villaFallback from "../../assets/property-types/villa.jpg";
 import villageStayFallback from "../../assets/property-types/village_stay.jpg";
 import { colors, radius, spacing } from "../theme";
-import { CustomerTourBookingSummary, FeaturedTourOperator, fetchCustomerTourBooking, fetchCustomerTourBookings, fetchFeaturedTourOperators } from "../tours";
+import { FeaturedTourOperator, fetchFeaturedTourOperators } from "../tours";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Onboarding">;
 type HeroFilter = "all" | "stays" | "tours" | "places";
 type PropertyTypeKey = "HOTEL" | "LODGE" | "APARTMENT" | "VILLA" | "GUEST_HOUSE" | "BUNGALOW" | "CABIN" | "HOMESTAY" | "CONDO" | "HOUSE";
-type PendingCartItem =
-  | { key: string; kind: "stay"; title: string; detail: string; booking: BookingListItem }
-  | { key: string; kind: "tour"; title: string; detail: string; booking: CustomerTourBookingSummary }
-  | { key: string; kind: "group"; title: string; detail: string; booking: GroupBookingListItem };
 
 // How much of the third card shows at the right edge of a two-up rail.
 const RAIL_PEEK = 24;
@@ -128,12 +122,6 @@ function seasonHint(date = new Date()) {
 
 const daysUntil = (iso: string) => Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 
-function isFutureOrUnset(value: string | null | undefined, now: number) {
-  if (!value) return true;
-  const timestamp = new Date(value).getTime();
-  return Number.isNaN(timestamp) || timestamp > now;
-}
-
 function RotatingSearchInput({ value, onChangeText, onSubmit, style }: { value: string; onChangeText: (v: string) => void; onSubmit: () => void; style: any }) {
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -189,62 +177,32 @@ export function OnboardingScreen({ navigation }: Props) {
   const quickVisibleCount = 1;
   const quickActionWidth = Math.max(220, Math.round((windowWidth - spacing[4] * 4) * 0.74 * quickVisibleCount));
 
-  // Confirmed stays belong in the discovery rail. Every active payment draft—stay,
-  // tour, or group-stay deposit—belongs to the unified header cart.
+  // The traveller's next confirmed stay leads the discovery rail. Payment drafts
+  // are handled by the navigation-level cart, outside this scrolling screen.
   const [nextStay, setNextStay] = useState<BookingListItem | null>(null);
-  const [stayDrafts, setStayDrafts] = useState<BookingListItem[]>([]);
-  const [tourDrafts, setTourDrafts] = useState<CustomerTourBookingSummary[]>([]);
-  const [groupDeposits, setGroupDeposits] = useState<GroupBookingListItem[]>([]);
-  const [cartVisible, setCartVisible] = useState(false);
-  const [openingCartItem, setOpeningCartItem] = useState<string | null>(null);
-  const [cartNow, setCartNow] = useState(() => Date.now());
-
   useEffect(() => {
-    const timer = setInterval(() => setCartNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useFocusEffect(useCallback(() => {
     if (!isAuthed || !token) {
       setNextStay(null);
-      setStayDrafts([]);
-      setTourDrafts([]);
-      setGroupDeposits([]);
-      setCartVisible(false);
-      return undefined;
+      return;
     }
     let cancelled = false;
-
-    void Promise.allSettled([
-      fetchMyBookings(token, { page: 1, pageSize: 30 }),
-      fetchCustomerTourBookings(token, { page: 1, pageSize: 30 }),
-      fetchMyGroupBookings(token, { page: 1, pageSize: 30 })
-    ]).then(([stayResult, tourResult, groupResult]) => {
+    fetchMyBookings(token, { page: 1, pageSize: 30 })
+      .then((response) => {
         if (cancelled) return;
-
-        const items = stayResult.status === "fulfilled" && Array.isArray(stayResult.value.items) ? stayResult.value.items : [];
+        const items = Array.isArray(response.items) ? response.items : [];
         const now = Date.now();
         const upcoming = items
           .filter((b) => b.isPaid && b.checkIn && new Date(b.checkOut || b.checkIn).getTime() >= now)
           .sort((x, y) => new Date(x.checkIn!).getTime() - new Date(y.checkIn!).getTime())[0];
         setNextStay(upcoming || null);
-        setStayDrafts(items.filter((b) => !b.isPaid && b.dashboardBucket === "DRAFT"));
-
-        const tours = tourResult.status === "fulfilled" && Array.isArray(tourResult.value.items) ? tourResult.value.items : [];
-        setTourDrafts(
-          tours.filter(
-            (b) => String(b.dashboardBucket || "").toUpperCase() === "DRAFT" && String(b.paymentStatus || "").toUpperCase() !== "PAID"
-          )
-        );
-
-        const groups = groupResult.status === "fulfilled" && Array.isArray(groupResult.value.data) ? groupResult.value.data : [];
-        setGroupDeposits(groups.filter((b) => b.status.toUpperCase() === "AWAITING_DEPOSIT" && !b.depositPaid));
+      })
+      .catch(() => {
+        if (!cancelled) setNextStay(null);
       });
-
     return () => {
       cancelled = true;
     };
-  }, [isAuthed, token]));
+  }, [isAuthed, token]);
 
   useEffect(() => {
     if (!isAuthed || !token) {
@@ -338,51 +296,6 @@ export function OnboardingScreen({ navigation }: Props) {
   const citiesWithStays = majorCities.filter((city) => (cityCounts[city.key] ?? 0) > 0).length;
   const season = seasonHint();
 
-  const pendingCartItems: PendingCartItem[] = [
-    ...stayDrafts
-      .filter(
-        (booking) =>
-          String(booking.draftExpiryStatus || "").toUpperCase() !== "EXPIRED" &&
-          booking.draftAvailability?.available !== false &&
-          isFutureOrUnset(booking.draftExpiresAt, cartNow) &&
-          isFutureOrUnset(booking.checkIn, cartNow)
-      )
-      .map((booking): PendingCartItem => ({
-        key: `stay-${booking.id}`,
-        kind: "stay",
-        title: booking.property?.title || "Stay booking",
-        detail: "Stay · payment required",
-        booking
-      })),
-    ...tourDrafts
-      .filter(
-        (booking) =>
-          String(booking.draftExpiryStatus || "").toUpperCase() !== "EXPIRED" &&
-          isFutureOrUnset(booking.draftExpiresAt, cartNow) &&
-          isFutureOrUnset(booking.startDate, cartNow)
-      )
-      .map((booking): PendingCartItem => ({
-        key: `tour-${booking.id}`,
-        kind: "tour",
-        title: booking.title || "Tour package",
-        detail: "Tour package · payment required",
-        booking
-      })),
-    ...groupDeposits
-      .filter((booking) => isFutureOrUnset(booking.depositDueAt, cartNow))
-      .map((booking): PendingCartItem => ({
-        key: `group-${booking.id}`,
-        kind: "group",
-        title: `${booking.toRegion || "Group"} stay`,
-        detail: "Group stay · deposit required",
-        booking
-      }))
-  ];
-
-  useEffect(() => {
-    if (cartVisible && pendingCartItems.length === 0) setCartVisible(false);
-  }, [cartVisible, pendingCartItems.length]);
-
   const tripSlide: QuickActionItem[] = nextStay
     ? [
         {
@@ -449,41 +362,6 @@ export function OnboardingScreen({ navigation }: Props) {
     }
   ];
 
-  async function openPendingCartItem(item: PendingCartItem) {
-    setOpeningCartItem(item.key);
-    try {
-      setCartVisible(false);
-      if (item.kind === "stay") {
-        if (item.booking.invoiceId && item.booking.invoiceAccessToken) {
-          navigation.navigate("BookingPayment", { invoiceId: item.booking.invoiceId, accessToken: item.booking.invoiceAccessToken });
-        } else {
-          navigation.navigate("MyBookings");
-        }
-        return;
-      }
-      if (item.kind === "group") {
-        navigation.navigate("GroupStayDeposit", { id: item.booking.id, ref: item.booking.groupStayReference });
-        return;
-      }
-      if (!token) {
-        navigation.navigate("Login");
-        return;
-      }
-      const detail = await fetchCustomerTourBooking(token, item.booking.tourReference || item.booking.id);
-      const accessToken = String(detail.paymentResume?.paymentAccessToken || "");
-      const tokenActive = String(detail.paymentResume?.paymentAccessTokenStatus || "").toUpperCase() === "ACTIVE";
-      if (accessToken && tokenActive) {
-        navigation.navigate("TourBookingPayment", { bookingId: item.booking.id, accessToken });
-      } else {
-        navigation.navigate("MyTours");
-      }
-    } catch {
-      navigation.navigate(item.kind === "tour" ? "MyTours" : "MyBookings");
-    } finally {
-      setOpeningCartItem(null);
-    }
-  }
-
   return (
     <View style={styles.root}>
       <SafeScreen contentStyle={styles.screen}>
@@ -505,38 +383,20 @@ export function OnboardingScreen({ navigation }: Props) {
               </View>
               <View style={styles.authLinks}>
                 {isAuthed ? (
-                  <>
-                    {pendingCartItems.length > 0 ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`${pendingCartItems.length} ${pendingCartItems.length === 1 ? "booking" : "bookings"} waiting for payment`}
-                        accessibilityHint="Opens your pending booking cart"
-                        onPress={() => setCartVisible(true)}
-                        style={({ pressed }) => [styles.headerCartButton, pressed && styles.pressed]}
-                      >
-                        <ShoppingCart color={colors.white} size={21} strokeWidth={2.4} />
-                        <View style={styles.headerCartBadge}>
-                          <AppText variant="caption" weight="extraBold" tone="inverse" style={styles.headerBadgeText}>
-                            {pendingCartItems.length > 9 ? "9+" : String(pendingCartItems.length)}
-                          </AppText>
-                        </View>
-                      </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => navigation.navigate("Notifications")}
+                    style={({ pressed }) => [styles.notificationButton, pressed && styles.pressed]}
+                  >
+                    <Bell color={colors.white} size={20} />
+                    {unreadCount > 0 ? (
+                      <View style={styles.notificationBadge}>
+                        <AppText variant="caption" weight="bold" tone="inverse" style={styles.notificationBadgeText}>
+                          {unreadCount > 9 ? "9+" : String(unreadCount)}
+                        </AppText>
+                      </View>
                     ) : null}
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => navigation.navigate("Notifications")}
-                      style={({ pressed }) => [styles.notificationButton, pressed && styles.pressed]}
-                    >
-                      <Bell color={colors.white} size={20} />
-                      {unreadCount > 0 ? (
-                        <View style={styles.notificationBadge}>
-                          <AppText variant="caption" weight="bold" tone="inverse" style={styles.notificationBadgeText}>
-                            {unreadCount > 9 ? "9+" : String(unreadCount)}
-                          </AppText>
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  </>
+                  </Pressable>
                 ) : (
                   <>
                     <TopAuthLink label="Register" onPress={() => navigation.navigate("Register")} />
@@ -704,87 +564,8 @@ export function OnboardingScreen({ navigation }: Props) {
         </AppStack>
       </SafeScreen>
 
-      <PendingBookingsCartSheet
-        visible={cartVisible}
-        items={pendingCartItems}
-        openingKey={openingCartItem}
-        onClose={() => setCartVisible(false)}
-        onOpen={openPendingCartItem}
-      />
-
       {isAuthed ? <CustomerBottomNav active="Onboarding" /> : <GuestBottomNav active="Onboarding" />}
     </View>
-  );
-}
-
-function PendingBookingsCartSheet({
-  visible,
-  items,
-  openingKey,
-  onClose,
-  onOpen
-}: {
-  visible: boolean;
-  items: PendingCartItem[];
-  openingKey: string | null;
-  onClose: () => void;
-  onOpen: (item: PendingCartItem) => void;
-}) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.cartModalRoot}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close pending bookings" onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View style={styles.cartSheet}>
-          <View style={styles.cartHandle} />
-          <View style={styles.cartSheetHeader}>
-            <View style={styles.cartSheetTitleRow}>
-              <View style={styles.cartSheetIcon}>
-                <ShoppingCart color={colors.white} size={20} strokeWidth={2.4} />
-              </View>
-              <View style={styles.cartSheetTitleText}>
-                <AppText variant="title" weight="extraBold">Pending bookings</AppText>
-                <AppText variant="caption" tone="muted">
-                  {items.length} {items.length === 1 ? "payment" : "payments"} to complete
-                </AppText>
-              </View>
-            </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" hitSlop={8} onPress={onClose} style={styles.cartCloseButton}>
-              <X color={colors.primary} size={20} />
-            </Pressable>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.cartList}>
-            {items.map((item) => {
-              const Icon = item.kind === "stay" ? Building2 : item.kind === "tour" ? TicketsPlane : UsersRound;
-              const loading = openingKey === item.key;
-              return (
-                <Pressable
-                  key={item.key}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Continue payment for ${item.title}`}
-                  disabled={Boolean(openingKey)}
-                  onPress={() => onOpen(item)}
-                  style={({ pressed }) => [styles.cartItem, pressed && styles.cartItemPressed]}
-                >
-                  <View style={styles.cartItemIcon}>
-                    <Icon color={colors.primary} size={19} />
-                  </View>
-                  <View style={styles.cartItemText}>
-                    <AppText variant="bodySmall" weight="extraBold" numberOfLines={1}>{item.title}</AppText>
-                    <AppText variant="caption" tone="muted" numberOfLines={1}>{item.detail}</AppText>
-                  </View>
-                  {loading ? <ActivityIndicator color={colors.primary} /> : <ChevronRight color={colors.primary} size={18} />}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <AppText variant="caption" tone="muted" style={styles.cartSheetNote}>
-            Paid, expired, and unavailable bookings are removed automatically.
-          </AppText>
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -1134,112 +915,7 @@ const styles = StyleSheet.create({
   },
   root: {
     flex: 1,
-    position: "relative",
     backgroundColor: colors.surface
-  },
-  cartModalRoot: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(1,42,38,0.48)"
-  },
-  cartSheet: {
-    maxHeight: "72%",
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    backgroundColor: colors.white,
-    paddingHorizontal: spacing[4],
-    paddingTop: spacing[2],
-    paddingBottom: spacing[5],
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    elevation: 12
-  },
-  cartHandle: {
-    alignSelf: "center",
-    width: 42,
-    height: 4,
-    borderRadius: radius.full,
-    backgroundColor: colors.border,
-    marginBottom: spacing[3]
-  },
-  cartSheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing[3],
-    marginBottom: spacing[4]
-  },
-  cartSheetTitleRow: {
-    minWidth: 0,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[3]
-  },
-  cartSheetIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary
-  },
-  cartSheetTitleText: {
-    minWidth: 0,
-    flex: 1,
-    gap: 2
-  },
-  cartCloseButton: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100]
-  },
-  cartList: {
-    gap: spacing[2],
-    paddingBottom: spacing[3]
-  },
-  cartItem: {
-    minWidth: 0,
-    minHeight: 64,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[3],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.brand[50],
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
-  },
-  cartItemPressed: {
-    opacity: 0.78,
-    transform: [{ scale: 0.99 }]
-  },
-  cartItemIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.brand[100]
-  },
-  cartItemText: {
-    minWidth: 0,
-    flex: 1,
-    gap: 2
-  },
-  cartSheetNote: {
-    textAlign: "center",
-    paddingTop: spacing[2]
   },
   screen: {
     justifyContent: "center",
@@ -1348,40 +1024,6 @@ const styles = StyleSheet.create({
     minHeight: 36,
     justifyContent: "center",
     paddingHorizontal: spacing[1]
-  },
-  headerCartButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    backgroundColor: colors.primary,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.72)",
-    transform: [{ translateY: 5 }],
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.24,
-    shadowRadius: 8,
-    elevation: 7
-  },
-  headerCartBadge: {
-    position: "absolute",
-    top: -7,
-    right: -7,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 4,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.danger,
-    borderWidth: 2,
-    borderColor: colors.white
-  },
-  headerBadgeText: {
-    fontSize: 9,
-    lineHeight: 11
   },
   notificationButton: {
     width: 36,

@@ -1,7 +1,9 @@
 import { LinkingOptions, NavigationContainer, DefaultTheme, getStateFromPath } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
+import { PendingBookingsCart } from "../components/PendingBookingsCart";
 import { webOrigin } from "../lib/webOrigin";
 import { AccountScreen } from "../screens/AccountScreen";
 import { AccountPreferencesScreen } from "../screens/AccountPreferencesScreen";
@@ -98,13 +100,14 @@ export function AppNavigator() {
 
   return (
     <NavigationContainer theme={navigationTheme} linking={linking}>
-      <Stack.Navigator
-        initialRouteName={needsRegistrationCompletion ? "ProfileCompletion" : "Onboarding"}
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.surface }
-        }}
-      >
+      <View style={styles.root}>
+        <Stack.Navigator
+          initialRouteName={needsRegistrationCompletion ? "ProfileCompletion" : "Onboarding"}
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.surface }
+          }}
+        >
         {status === "authenticated" ? (
           needsRegistrationCompletion ? (
             <>
@@ -170,7 +173,15 @@ export function AppNavigator() {
             <Stack.Screen name="Search" component={SearchScreen} />
           </>
         )}
-      </Stack.Navigator>
+        </Stack.Navigator>
+        {status === "authenticated" && !needsRegistrationCompletion ? <PendingBookingsCart /> : null}
+      </View>
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1
+  }
+});
