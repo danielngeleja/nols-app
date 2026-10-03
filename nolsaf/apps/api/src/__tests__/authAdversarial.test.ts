@@ -118,6 +118,8 @@ beforeAll(async () => {
   app.use(express.json());
   app.use(csrfProtection);
   app.use("/api/auth", router);
+  const { default: accountRouter } = await import("../routes/account.js");
+  app.use("/api/account", requireAuth, accountRouter);
   app.get("/probe/session", requireAuth, (req: any, res) => res.json(req.user));
   for (const role of ["OWNER", "ADMIN", "DRIVER", "USER"] as const) {
     app.get(`/probe/${role}`, requireAuth, requireRole(role), (req: any, res) => res.json({ id: req.user.id, role: req.user.role }));
@@ -380,6 +382,29 @@ async function challenge(owner: { email: string }) {
   expect(result.body.token).toBeUndefined();
   return result.body.challengeId as string;
 }
+
+describe("turning the authenticator on", () => {
+  it.each([
+    ["2fa/totp/verify", (secret: string) => ({ code: authenticator.generate(secret) })],
+    ["security/2fa", (secret: string) => ({ type: "totp", action: "enable", code: authenticator.generate(secret), secret })],
+  ] as const)("via %s returns an MFA-verified session so setup does not sign the person out", async (path, body) => {
+    const { owner, token: oldToken } = await ownerLogin();
+    const setup = await request(app).post("/api/account/2fa/totp/setup").set("Authorization", `Bearer ${oldToken}`).send({}).expect(200);
+    // Setup only exposes the secret inside the otpauth link the authenticator app scans.
+    const secret = new URL(setup.body?.data?.otpauthUrl ?? setup.body?.otpauthUrl).searchParams.get("secret")!;
+    expect(secret).toBeTruthy();
+
+    const enabled = await request(app).post(`/api/account/${path}`).set("Authorization", `Bearer ${oldToken}`).send(body(secret)).expect(200);
+    const payload = enabled.body?.data ?? enabled.body;
+    expect(payload.backupCodes).toHaveLength(10);
+    expect(jwt.verify(payload.token, SECRET)).toMatchObject({ sub: String(owner.id), mfa: "totp" });
+    expect(([] as string[]).concat(enabled.headers["set-cookie"] ?? []).join(";")).toContain("nolsaf_token=");
+
+    // The session that turned it on no longer passes the MFA policy; the returned one does.
+    await get("OWNER", oldToken).expect(401);
+    await get("OWNER", payload.token).expect(200);
+  });
+});
 
 describe("enrolled account MFA enforcement", () => {
   it("requires real authenticator verification, preserves OWNER, and rejects challenge/code replay", async () => {

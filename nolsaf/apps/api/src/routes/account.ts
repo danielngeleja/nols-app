@@ -29,6 +29,8 @@ import {
 import { isAllowedDocumentTypeForRole, isTrustedUserDocumentUrl, sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { getRedis } from "../lib/redis.js";
 import { invalidateAuthSessionCacheForUser } from "../lib/authSessionCache.js";
+import { accountMfaBinding, requiresAccountTotp } from "../lib/accountMfaPolicy.js";
+import { setAuthCookie, signUserJwt } from "../lib/sessionManager.js";
 import { getWebAuthnRp } from "../lib/webauthnRp.js";
 import {
   generateRegistrationOptions,
@@ -2010,6 +2012,27 @@ const setupTotp: RequestHandler = async (req, res) => {
 };
 router.post("/2fa/totp/setup", sensitive as unknown as RequestHandler, setupTotp as unknown as RequestHandler);
 
+/**
+ * Once the authenticator is turned on, accountMfaSessionAllowed rejects every
+ * session that was not issued through the MFA check, including the one that
+ * just turned it on. The person has proved possession of the authenticator in
+ * this very request, so hand back a session that carries that proof instead of
+ * signing them out mid-setup (and losing the backup codes on screen).
+ * ADMIN keeps its own admin-MFA session; `sensitive` already refuses
+ * impersonated sessions, so this never mints a real session for support.
+ */
+async function issueAccountMfaSession(res: Response, userId: number): Promise<string | null> {
+  const fresh = await prisma.user.findUnique({ where: { id: userId } });
+  if (!fresh || !requiresAccountTotp(fresh) || !fresh.totpSecretEnc) return null;
+  const token = await signUserJwt(
+    { id: fresh.id, role: fresh.role, email: fresh.email },
+    { accountMfa: { method: "totp", binding: accountMfaBinding(fresh) } },
+  );
+  await setAuthCookie(res, token, fresh.role);
+  await invalidateAuthSessionCacheForUser(fresh.id).catch(() => {});
+  return token;
+}
+
 /** 2FA: Verify and enable — step 2 */
 const verifyTotp: RequestHandler = async (req, res) => {
   try {
@@ -2043,9 +2066,10 @@ const verifyTotp: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_ENABLED", `user:${user.id}`);
+    const token = await issueAccountMfaSession(res as Response, user.id);
 
     // Return plaintext codes ONCE
-    sendSuccess(res, { backupCodes: plainCodes }, "2FA enabled successfully");
+    sendSuccess(res, { backupCodes: plainCodes, ...(token ? { token } : {}) }, "2FA enabled successfully");
   } catch (error: any) {
     console.error('account.2fa.totp.verify failed', error);
     sendError(res, 500, "Failed to verify TOTP");
@@ -2195,8 +2219,9 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
     } catch {
       // ignore
     }
+    const token = await issueAccountMfaSession(res as Response, (fresh as any).id);
 
-    return res.json({ ok: true, backupCodes: plainCodes });
+    return res.json({ ok: true, backupCodes: plainCodes, ...(token ? { token } : {}) });
   } catch (e: any) {
     console.error("account.security.2fa.post failed", e);
     return res.status(500).json({ error: "failed" });
