@@ -2,14 +2,11 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Users, Search, X, Mail, Phone, Lock, ShoppingCart, DollarSign, Eye, MoreVertical, CheckCircle, XCircle, Loader2, Filter, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { Users, Search, X, Mail, Phone, Lock, Eye, MoreVertical, XCircle, Loader2, Filter, ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight, RefreshCw, UserCheck, BadgeCheck, CalendarCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
-import Link from "next/link";
-import Chart from "@/components/Chart";
-import TableRow from "@/components/TableRow";
-import type { ChartData, ChartOptions } from "chart.js";
-import { useAdminHref } from "@/lib/adminRecordRefs";
+import TablePagination from "@/components/TablePagination";
+import { adminPath, adminRecordRef, useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -219,6 +216,22 @@ export default function AdminUsersListPage(){
 
   useEffect(()=>{ load(); }, [load]);
 
+  // Ask for every visible row's us_ reference as soon as the rows land, so a
+  // click is never left with only the numeric fallback.
+  useEffect(() => {
+    items.forEach((customer) => adminRecordRef("user", customer.id));
+  }, [items]);
+
+  /**
+   * Opens a customer at its opaque reference. Waiting for the reference keeps
+   * the row id out of the address bar; navigating to the numeric fallback made
+   * the profile load, then reload when the gate swapped in the reference.
+   */
+  const openCustomer = useCallback(async (customerId: number) => {
+    closeActionsMenu();
+    router.push(await adminPath("user", customerId));
+  }, [closeActionsMenu, router]);
+
   useEffect(()=>{
     const term = q; 
     if(!term || term.trim()===""){ 
@@ -246,8 +259,6 @@ export default function AdminUsersListPage(){
     s.on("admin:user:updated", load); 
     return ()=>{ s.off("admin:user:updated", load); s.disconnect(); }; 
   }, [load]);
-
-  const pages = useMemo(()=> Math.max(1, Math.ceil(total / pageSize)), [total]);
 
   const sortedItems = useMemo(() => {
     const next = [...items];
@@ -310,72 +321,21 @@ export default function AdminUsersListPage(){
       : <ChevronDown className="h-3.5 w-3.5 text-emerald-600" />;
   }
 
-  // Chart data for customer engagement
-  /**
-   * Customer funnel, as horizontal bars.
-   *
-   * Replaces a two-slice "with bookings / without" doughnut. That chart used a
-   * whole card to answer one yes/no question, and it was computed from `items`
-   * — the loaded page — so it described 25 customers under a header reporting
-   * 35. These figures come from the summary endpoint and cover every customer.
-   *
-   * Each step is a subset of the one above it, so the drop between bars is the
-   * thing worth looking at: where travellers stop progressing.
-   */
-  const funnelChartData = useMemo<ChartData<"bar">>(() => {
+
+  // Customer lifecycle, from whole-population figures (the summary endpoint),
+  // not the loaded page. Each step is a subset of the one above it, so the drop
+  // between steps is the thing worth looking at.
+  const lifecycle = useMemo(() => {
     const registered = stats.totalCustomers;
-    const profileComplete = Math.max(0, registered - stats.incompleteRegistrations);
-    const verified = stats.verifiedCustomers;
-    const booked = stats.customersWithBookings;
-
-    return {
-      labels: ["Registered", "Profile complete", "Verified", "Booked at least once"],
-      datasets: [
-        {
-          label: "Customers",
-          data: [registered, profileComplete, verified, booked],
-          // One hue, deepening down the funnel: these are stages of the same
-          // population, not different categories.
-          backgroundColor: [
-            "rgba(148, 163, 184, 0.85)",
-            "rgba(94, 190, 168, 0.85)",
-            "rgba(45, 160, 138, 0.9)",
-            "rgba(2, 102, 94, 0.95)",
-          ],
-          borderWidth: 0,
-          borderRadius: 6,
-          barThickness: 22,
-        },
-      ],
-    };
+    const share = (n: number) => (registered > 0 ? Math.round((n / registered) * 100) : 0);
+    const complete = Math.max(0, registered - stats.incompleteRegistrations);
+    return [
+      { key: "registered", label: "Registered", icon: Users, value: registered, share: 100, hint: "Every traveller account", dot: "bg-neutral-400", bar: "bg-neutral-400", text: "text-neutral-600", soft: "bg-neutral-50", filter: "" },
+      { key: "complete", label: "Profile complete", icon: UserCheck, value: complete, share: share(complete), hint: `${stats.incompleteRegistrations.toLocaleString()} still incomplete`, dot: "bg-emerald-400", bar: "bg-emerald-400", text: "text-emerald-700", soft: "bg-emerald-50/70", filter: "COMPLETE" },
+      { key: "verified", label: "Verified", icon: BadgeCheck, value: stats.verifiedCustomers, share: share(stats.verifiedCustomers), hint: "Email or phone confirmed", dot: "bg-sky-500", bar: "bg-sky-500", text: "text-sky-700", soft: "bg-sky-50/70", filter: null },
+      { key: "booked", label: "Booked at least once", icon: CalendarCheck, value: stats.customersWithBookings, share: share(stats.customersWithBookings), hint: "Turned into a paying traveller", dot: "bg-[#02665e]", bar: "bg-[#02665e]", text: "text-[#02665e]", soft: "bg-emerald-50/70", filter: null },
+    ];
   }, [stats]);
-
-  const funnelChartOptions = useMemo<ChartOptions<"bar">>(() => ({
-    indexAxis: "y" as const,
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: (context: any) => {
-            const value = Number(context.raw || 0);
-            const total = stats.totalCustomers || 0;
-            const share = total > 0 ? Math.round((value / total) * 100) : 0;
-            return `${value.toLocaleString()} customers (${share}% of all)`;
-          },
-        },
-      },
-    },
-    scales: {
-      x: {
-        beginAtZero: true,
-        ticks: { precision: 0 },
-        grid: { color: "rgba(148, 163, 184, 0.18)" },
-      },
-      y: { grid: { display: false } },
-    },
-  }), [stats.totalCustomers]);
 
   const handleReset2FA = async (customerId: number) => {
     if (!confirm("Are you sure you want to reset 2FA for this customer?")) return;
@@ -408,609 +368,557 @@ export default function AdminUsersListPage(){
     }
   };
 
+  const filtersOn = Boolean(status || registrationStatus || activeHoldsRole || q.trim());
+  const directoryTitle = registrationStatus === "COMPLETE"
+    ? "Complete profiles"
+    : registrationStatus === "INCOMPLETE"
+      ? "Incomplete profiles"
+      : status === "SUSPENDED"
+        ? "Suspended customers"
+        : "All customers";
+
+  const verificationBadges = (customer: CustomerRow) => (
+    <span className="inline-flex items-center gap-1">
+      {[
+        { on: Boolean(customer.emailVerifiedAt), Icon: Mail, label: "Email verified", tone: "bg-violet-50 text-violet-700 ring-violet-200" },
+        { on: Boolean(customer.phoneVerifiedAt), Icon: Phone, label: "Phone verified", tone: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
+        { on: customer.twoFactorEnabled, Icon: Lock, label: "2FA on", tone: "bg-amber-50 text-amber-700 ring-amber-200" },
+      ].map(({ on, Icon, label, tone }) => (
+        <span
+          key={label}
+          title={on ? label : `${label.replace(/ (verified|on)$/, "")} not confirmed`}
+          className={`inline-flex h-6 w-6 items-center justify-center rounded-md ring-1 ${on ? tone : "bg-white text-neutral-300 ring-neutral-200"}`}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      ))}
+    </span>
+  );
+
+  const statusPill = (customer: CustomerRow) =>
+    isCustomerSuspended(customer) ? (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-rose-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> Suspended
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-emerald-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Active
+      </span>
+    );
+
+  const actionsMenu = (customer: CustomerRow) => (
+    <>
+      <button
+        type="button"
+        aria-label="Customer actions"
+        aria-expanded={showActionsMenu === customer.id}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (showActionsMenu === customer.id) {
+            closeActionsMenu();
+            return;
+          }
+          openActionsMenu(customer.id, event.currentTarget);
+        }}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-transparent text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+      >
+        {actionLoading === customer.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreVertical className="h-4 w-4" />}
+      </button>
+      {showActionsMenu === customer.id && actionsMenuPos && typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[70]" onClick={closeActionsMenu} />
+            {/* ring-1 instead of `border`, and gap-px over a tinted background
+                instead of `border-b`: Tailwind preflight is disabled in this
+                app, so bare border utilities set no border-style. */}
+            <div
+              className="fixed z-[80] w-52 overflow-hidden rounded-xl bg-white shadow-xl ring-1 ring-neutral-200"
+              style={{ top: actionsMenuPos.top, left: actionsMenuPos.left }}
+            >
+              <div className="flex flex-col gap-px bg-neutral-100">
+                <a
+                  href={recordHref("user", customer.id)}
+                  onClick={(event) => {
+                    // Wait for the reference so the address bar never shows the row id.
+                    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                    event.preventDefault();
+                    void openCustomer(customer.id);
+                  }}
+                  className="flex w-full items-center gap-2 bg-white px-4 py-2.5 text-sm text-neutral-700 no-underline hover:bg-neutral-50 hover:no-underline"
+                >
+                  <Eye className="h-4 w-4 text-[#02665e]" />
+                  Open customer
+                </a>
+                <button
+                  type="button"
+                  onClick={() => handleReset2FA(customer.id)}
+                  className="flex w-full items-center gap-2 border-0 bg-white px-4 py-2.5 text-left text-sm text-neutral-700 hover:bg-neutral-50"
+                >
+                  <Lock className="h-4 w-4 text-amber-500" />
+                  Reset 2FA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSuspend(customer.id)}
+                  className="flex w-full items-center gap-2 border-0 bg-white px-4 py-2.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+                >
+                  <XCircle className="h-4 w-4 text-rose-500" />
+                  Suspend
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
+  );
+
+  const sortHeader = (field: CustomerSortKey, label: string, align: "left" | "right" = "left") => (
+    <th className={`whitespace-nowrap px-4 py-2.5 font-semibold ${align === "right" ? "text-right" : ""}`}>
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        className={`m-0 inline-flex appearance-none items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-semibold transition-colors hover:text-neutral-700 ${sortBy === field ? "text-neutral-800" : "text-neutral-400"}`}
+      >
+        {label} {renderSortIcon(field)}
+      </button>
+    </th>
+  );
+
   return (
-    // Full width rather than a centred max-w-7xl column. The admin layout
-    // already supplies the workspace frame, so capping at 1280px left a wide
-    // empty gutter on large screens and squeezed the table for no reason.
-    //
-    <div id="admin-customers-page" className="box-border w-full min-w-0 space-y-4 px-3 py-3 sm:space-y-6 sm:px-4 lg:px-5 xl:px-6">
-      {/* Tailwind preflight is disabled app-wide, so nothing sets border-box.
-          Without this, any `w-full` element that also has padding renders wider
-          than its parent and pushes the page sideways. Scoped to this page
-          rather than global, because enabling it everywhere would shift layouts
-          that were built around its absence. */}
-      <style>{`#admin-customers-page, #admin-customers-page * { box-sizing: border-box; }`}</style>
-      {/* Premium Banner */}
-      <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)", padding: "clamp(1rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) clamp(0.9rem, 2.5vw, 1.75rem)" }}>
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.13, pointerEvents: "none" }} viewBox="0 0 900 160" preserveAspectRatio="xMidYMid slice">
-          <circle cx="820" cy="30" r="90" fill="none" stroke="white" strokeWidth="1.2" />
-          <circle cx="820" cy="30" r="55" fill="none" stroke="white" strokeWidth="0.7" />
-          <circle cx="60" cy="140" r="70" fill="none" stroke="white" strokeWidth="1.0" />
-          <line x1="0" y1="40" x2="900" y2="40" stroke="white" strokeWidth="0.4" />
-          <line x1="0" y1="72" x2="900" y2="72" stroke="white" strokeWidth="0.4" />
-          <line x1="0" y1="104" x2="900" y2="104" stroke="white" strokeWidth="0.4" />
-          <line x1="0" y1="136" x2="900" y2="136" stroke="white" strokeWidth="0.4" />
-          <polyline points="0,130 90,112 180,96 270,80 360,65 450,88 540,52 630,68 720,36 810,50 900,32" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          <polygon points="0,130 90,112 180,96 270,80 360,65 450,88 540,52 630,68 720,36 810,50 900,32 900,160 0,160" fill="white" opacity={0.06} />
-          <polyline points="0,145 90,133 180,119 270,130 360,112 450,125 540,100 630,115 720,92 810,105 900,82" fill="none" stroke="white" strokeWidth="1.2" strokeDasharray="6 4" opacity={0.5} />
-          <circle cx="540" cy="52" r="5" fill="white" opacity={0.75} />
-          <circle cx="720" cy="36" r="5" fill="white" opacity={0.75} />
-          <circle cx="900" cy="32" r="5" fill="white" opacity={0.75} />
-          <defs><radialGradient id="custListGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="white" stopOpacity="0.12" /><stop offset="100%" stopColor="white" stopOpacity="0" /></radialGradient></defs>
-          <ellipse cx="450" cy="90" rx="200" ry="70" fill="url(#custListGlow)" />
-        </svg>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-          <div style={{ width: 46, height: 46, borderRadius: "50%", background: "rgba(255,255,255,0.10)", border: "1.5px solid rgba(255,255,255,0.18)", boxShadow: "0 0 0 8px rgba(255,255,255,0.05)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Users style={{ width: 22, height: 22, color: "white" }} />
+    // The admin layout owns the gutter and the border-box rule, so the page adds neither.
+    <div id="admin-customers-page" className="w-full min-w-0 space-y-5">
+      {/* Header: dark brand band with the headline numbers */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Customers</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">All customers</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Travellers who book stays, tours, group stays and rides, and how far each has come.</p>
+            </div>
+            <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 px-0`} aria-label="Refresh customers" title="Refresh">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
           </div>
-          <div>
-            <h1 style={{ fontSize: "clamp(1.1rem, 2.2vw, 1.35rem)", fontWeight: 800, color: "white", margin: 0, letterSpacing: "-0.01em" }}>All Customers</h1>
-            <p style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.62)", margin: "2px 0 0" }}>Manage customers who book, review, pay, and add transportation</p>
-          </div>
-        </div>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>
-          <div style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.20)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 90 }}>
-            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(255,255,255,0.70)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Total</div>
-            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "white", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.totalCustomers.toLocaleString()}</div>
-          </div>
-          <div style={{ background: "rgba(16,185,129,0.16)", border: "1px solid rgba(16,185,129,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 90 }}>
-            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(110,231,183,0.85)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Active</div>
-            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#6ee7b7", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.activeCustomers.toLocaleString()}</div>
-          </div>
-          <div style={{ background: "rgba(147,51,234,0.18)", border: "1px solid rgba(196,181,253,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 90 }}>
-            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(216,180,254,0.85)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Bookings</div>
-            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#c4b5fd", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.totalBookings.toLocaleString()}</div>
-          </div>
-          <div style={{ background: "rgba(245,158,11,0.16)", border: "1px solid rgba(245,158,11,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 130 }}>
-            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(252,211,77,0.85)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Revenue</div>
-            <div style={{ fontSize: "1.1rem", fontWeight: 900, color: "#fcd34d", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>
-              {loading ? "…" : new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(stats.totalRevenue)} <span style={{ fontSize: "0.65rem", opacity: 0.7 }}>TZS</span>
+
+          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{stats.totalCustomers.toLocaleString()}</p>
+              <p className="m-0 mt-1 text-xs text-white/55">{stats.totalCustomers === 1 ? "Customer" : "Customers"} registered</p>
+            </div>
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{stats.activeCustomers.toLocaleString()}</p>
+              <p className="m-0 mt-1 text-xs text-white/55">Active customers</p>
+            </div>
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{stats.totalBookings.toLocaleString()}</p>
+              <p className="m-0 mt-1 text-xs text-white/55">Bookings across services</p>
+            </div>
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">
+                {new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(stats.totalRevenue)}
+                <span className="ml-1 text-sm font-semibold text-white/55">TZS</span>
+              </p>
+              <p className="m-0 mt-1 text-xs text-white/55">Money of record</p>
             </div>
           </div>
-          <div style={{ background: "rgba(14,165,233,0.16)", border: "1px solid rgba(14,165,233,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 90 }}>
-            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(125,211,252,0.85)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Verified</div>
-            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#7dd3fc", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.verifiedCustomers.toLocaleString()}</div>
-          </div>
-          <div style={{ background: "rgba(249,115,22,0.16)", border: "1px solid rgba(251,146,60,0.35)", borderRadius: "0.85rem", padding: "0.6rem 1rem", minWidth: 105 }}>
-            <div style={{ fontSize: "0.63rem", fontWeight: 700, color: "rgba(253,186,116,0.9)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Incomplete</div>
-            <div style={{ fontSize: "1.3rem", fontWeight: 900, color: "#fdba74", fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{loading ? "…" : stats.incompleteRegistrations.toLocaleString()}</div>
-          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-        <div className="flex flex-col sm:flex-row gap-4 w-full max-w-full">
-          {/* Search */}
-          <div className="relative flex-1 min-w-0 w-full sm:w-auto">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            <input
-              ref={searchRef}
-              type="text"
-              className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white text-gray-900 placeholder-gray-400 outline-none box-border max-w-full"
-              placeholder="Search by name, email, or phone..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  setPage(1);
-                  load();
-                }
-              }}
-            />
-            {q && (
+      {/* Lifecycle track: where every customer sits; the profile steps double as filters */}
+      <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-2">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {lifecycle.map((stage, idx) => {
+            const Icon = stage.icon;
+            const selectable = stage.filter !== null;
+            const selected = selectable && registrationStatus === stage.filter && (stage.filter !== "" || !filtersOn);
+            const body = (
+              <>
+                <span className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${stage.text}`}>
+                    <Icon className="h-3.5 w-3.5" /> {stage.label}
+                  </span>
+                  <span className="text-[11px] tabular-nums text-neutral-400">{idx === 0 ? "All" : `${stage.share}%`}</span>
+                </span>
+                <span className="mt-2 block text-2xl font-bold tabular-nums leading-none text-neutral-900">{loading && !stats.totalCustomers ? "…" : stage.value.toLocaleString()}</span>
+                <span className="mt-1 block truncate text-[11px] text-neutral-500">{stage.hint}</span>
+                <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-neutral-200/70">
+                  <span className={`block h-full rounded-full ${stage.bar}`} style={{ width: `${stage.value > 0 ? Math.max(stage.share, 4) : 0}%` }} />
+                </span>
+              </>
+            );
+            const base = "relative min-w-0 rounded-xl border border-solid p-3.5 text-left transition-all";
+            return selectable ? (
               <button
+                key={stage.key}
                 type="button"
-                onClick={() => { setQ(""); setPage(1); load(); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                aria-pressed={selected}
+                onClick={() => { setRegistrationStatus(stage.filter as string); setPage(1); }}
+                className={`${base} ${selected ? `border-neutral-900 ${stage.soft}` : "border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white"}`}
               >
-                <X className="h-4 w-4" />
+                {body}
               </button>
-            )}
-            {suggestions.length > 0 && (
-              <div className="absolute left-0 right-0 mt-2 z-10 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-auto">
-                {suggestions.map(s => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => { setQ(s.displayName ?? s.name ?? s.email ?? ''); setSuggestions([]); setPage(1); load(); }}
-                    className="w-full text-left px-3 py-2 text-sm border-b border-gray-100 hover:bg-gray-50 last:border-b-0"
-                  >
-                    <div className="font-medium text-gray-900">{s.displayName ?? s.name ?? s.email ?? `Account #${s.id}`}</div>
-                    <div className="text-xs text-gray-500">{s.email || s.phone || 'Missing contact details'}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            ) : (
+              <div key={stage.key} className={`${base} border-transparent bg-neutral-50/70`}>{body}</div>
+            );
+          })}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 px-2 pb-1 text-xs">
+          <span className="text-[11px] font-semibold text-neutral-400">Bookings by service</span>
+          {[
+            { key: "stays", label: "Accommodation", value: stats.bookingsByService.stays, dot: "bg-blue-500" },
+            { key: "tours", label: "Tours", value: stats.bookingsByService.tours, dot: "bg-violet-500" },
+            { key: "transport", label: "Transport", value: stats.bookingsByService.transport, dot: "bg-orange-500" },
+            { key: "groups", label: "Group stays", value: stats.bookingsByService.groups, dot: "bg-teal-500" },
+          ].map((service) => (
+            <span key={service.key} className="inline-flex items-center gap-1.5 font-medium text-neutral-600">
+              <span className={`h-2 w-2 rounded-sm ${service.dot}`} aria-hidden />
+              {service.label}
+              <span className="font-bold tabular-nums text-neutral-900">{service.value.toLocaleString()}</span>
+            </span>
+          ))}
+        </div>
+      </section>
 
-          {/* Status Filter */}
-          <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
-            <Filter className="h-4 w-4 text-gray-400 flex-shrink-0" />
+      {/* Directory */}
+      <section className="rounded-2xl border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">{directoryTitle}</h2>
+            <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? "Loading…" : `${total.toLocaleString()} ${total === 1 ? "result" : "results"}`}</p>
+          </div>
+          {filtersOn && (
+            <button
+              type="button"
+              onClick={() => { setQ(""); setStatus(""); setRegistrationStatus(""); setHoldsRole(""); setPage(1); }}
+              className="inline-flex h-7 items-center gap-1 rounded-full border-0 bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200"
+            >
+              <X className="h-3 w-3" /> Show all
+            </button>
+          )}
+          <div className="ml-auto flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto">
+            <div className="relative min-w-0 flex-1 sm:w-80 sm:flex-none">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    setSuggestions([]);
+                    setPage(1);
+                    load();
+                  }
+                }}
+                className="h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white pl-9 pr-9 text-sm text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+                placeholder="Search name, email or phone"
+                aria-label="Search customers"
+              />
+              {q && (
+                <button type="button" onClick={() => { setQ(""); setPage(1); }} className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700" aria-label="Clear search">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {suggestions.length > 0 && (
+                <div className="absolute left-0 right-0 z-20 mt-1.5 max-h-60 overflow-auto rounded-xl bg-white py-1 shadow-xl ring-1 ring-neutral-200">
+                  {suggestions.map((s) => {
+                    const name = s.displayName ?? s.name ?? s.email ?? "Customer";
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => { setSuggestions([]); void openCustomer(s.id); }}
+                        className="flex w-full items-center gap-3 border-0 bg-transparent px-3 py-2 text-left hover:bg-neutral-50"
+                      >
+                        <span className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[10px] font-semibold text-white">{initials(name)}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-neutral-900">{name}</span>
+                          <span className="block truncate text-xs text-neutral-400">{s.email || s.phone || "No contact details"}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <select
               value={status}
               onChange={(e) => { setStatus(e.target.value); setPage(1); }}
-              className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white text-gray-700 outline-none box-border min-w-[140px]"
+              aria-label="Account status"
+              className="h-9 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-sm text-neutral-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
             >
-              <option value="">All Status</option>
+              <option value="">Any status</option>
               <option value="ACTIVE">Active</option>
               <option value="SUSPENDED">Suspended</option>
             </select>
-          </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
             <select
               value={registrationStatus}
               onChange={(e) => { setRegistrationStatus(e.target.value); setPage(1); }}
-              aria-label="Registration status"
-              className="w-full sm:w-auto px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-white text-gray-700 outline-none box-border min-w-[180px]"
+              aria-label="Profile"
+              className="h-9 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-sm text-neutral-700 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
             >
-              <option value="">All Registrations</option>
-              <option value="COMPLETE">Complete Profiles</option>
-              <option value="INCOMPLETE">Incomplete Profiles</option>
+              <option value="">Any profile</option>
+              <option value="COMPLETE">Complete profiles</option>
+              <option value="INCOMPLETE">Incomplete profiles</option>
             </select>
-          </div>
-
-          {/* Advanced filter toggle, on the same row as the controls it extends. */}
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:flex-shrink-0">
             <button
               type="button"
               onClick={() => setShowAdvanced((v) => !v)}
               aria-expanded={showAdvanced}
-              className={`inline-flex h-[38px] items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition-all ${
-                showAdvanced || activeHoldsRole
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              className={`inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid px-3 text-sm font-semibold transition-colors ${
+                showAdvanced || activeHoldsRole ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
               }`}
             >
               <Filter className="h-4 w-4" />
-              <span className="whitespace-nowrap">Advanced</span>
-              {/* The count stays visible when the panel is closed, so a filter
-                  can never be silently narrowing the table out of sight. */}
-              {activeHoldsRole ? (
-                <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">1</span>
-              ) : null}
+              Roles
+              {activeHoldsRole ? <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">1</span> : null}
               {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
-
-            {/* Closed-state summary: what is applied, and one click to undo. */}
-            {activeHoldsRole && !showAdvanced ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
-                <span className="truncate">Also holds: {activeHoldsRole.label}</span>
-                <button
-                  type="button"
-                  onClick={() => { setHoldsRole(""); setPage(1); }}
-                  aria-label="Clear the role filter"
-                  className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-0 bg-emerald-100 p-0 text-emerald-800 transition hover:bg-emerald-200"
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            ) : null}
           </div>
         </div>
 
-        {/* The expandable panel only. Its toggle sits on the filter row above,
-            because a lone button on its own row read as an orphan control. */}
-        {showAdvanced ? (
-          <div className="mt-3 pt-3 shadow-[inset_0_1px_0_0_#e5e7eb]">
-            {(
-            <div className="mt-3 rounded-xl bg-gray-50 p-3 ring-1 ring-gray-200 sm:p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                {/* Title and note on one line: the panel is wide, and stacking
-                    them pushed the chips a row further down for no gain. */}
-                <p className="m-0 min-w-0 text-xs text-gray-500">
-                  <span className="font-bold text-gray-800">Also holds a role</span>
-                  <span className="mx-1.5 text-gray-300">·</span>
-                  Travellers who also work on a property or sell for NoLSAF. Counts cover the whole table.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => { setHoldsRole(""); setPage(1); }}
-                  disabled={!activeHoldsRole}
-                  className="inline-flex items-center gap-1 rounded-md border-0 bg-transparent px-2 py-1 text-[11px] font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 disabled:opacity-40"
-                >
-                  <X className="h-3 w-3" />
-                  Clear
-                </button>
-              </div>
-
-              {holdsRoleFilters.length === 0 ? (
-                <p className="m-0 text-xs text-gray-500">No additional roles are recorded for these customers.</p>
-              ) : (
-                // One wrapping row: each group is an inline cluster of its own
-                // label plus chips. Stacked, a group of one chip claimed a full
-                // row of a very wide panel.
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {holdsRoleGroups.map((group, groupIndex) => (
-                    <div key={group.key} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-                      {/* Separator only between groups, so the row reads as
-                          distinct clusters rather than one long strip. */}
-                      {groupIndex > 0 ? (
-                        <span className="mr-1 hidden h-5 w-px bg-gray-300 sm:inline-block" aria-hidden />
-                      ) : null}
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                        {group.label}
-                      </span>
-                      {group.options.map((chip) => {
-                          const active = holdsRole === chip.value;
-                          return (
-                            <button
-                              key={chip.value}
-                              type="button"
-                              title={chip.hint}
-                              aria-pressed={active}
-                              onClick={() => { setHoldsRole(active ? "" : chip.value); setPage(1); }}
-                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all ${
-                                active
-                                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                              }`}
-                            >
-                              {chip.label}
-                              {chip.count >= 0 ? (
-                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
-                                  active ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-700"
-                                }`}>
-                                  {chip.count}
-                                </span>
-                              ) : null}
-                            </button>
-                          );
-                        })}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+        {/* Closed-state summary: what is applied, and one click to undo. */}
+        {activeHoldsRole && !showAdvanced ? (
+          <div className="px-4 pb-3 sm:px-5">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+              <span className="truncate">Also holds: {activeHoldsRole.label}</span>
+              <button
+                type="button"
+                onClick={() => { setHoldsRole(""); setPage(1); }}
+                aria-label="Clear the role filter"
+                className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-0 bg-emerald-100 p-0 text-emerald-800 transition hover:bg-emerald-200"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
           </div>
         ) : null}
-      </div>
 
-      {/* Chart */}
-      {items.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="m-0 text-sm font-bold text-gray-700">Customer funnel</h2>
-            <p className="m-0 text-[11px] text-gray-500">
-              All {stats.totalCustomers.toLocaleString()} customers, not just this page. Each step is a subset of the one above.
-            </p>
-          </div>
-          <div className="h-56">
-            <Chart type="bar" data={funnelChartData} options={funnelChartOptions} />
-          </div>
-          {/* Where travellers actually go once they book. Uses the same service
-              colours as the customer statement and the profile tabs. */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 pt-3 shadow-[inset_0_1px_0_0_#e5e7eb]">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Bookings by service</span>
-            {[
-              { key: "stays", label: "Accommodation", value: stats.bookingsByService.stays, dot: "bg-blue-500" },
-              { key: "tours", label: "Tours", value: stats.bookingsByService.tours, dot: "bg-violet-500" },
-              { key: "transport", label: "Transport", value: stats.bookingsByService.transport, dot: "bg-orange-500" },
-              { key: "groups", label: "Group stays", value: stats.bookingsByService.groups, dot: "bg-teal-500" },
-            ].map((service) => (
-              <span key={service.key} className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-                <span className={`h-2 w-2 rounded-sm ${service.dot}`} aria-hidden />
-                {service.label}
-                <span className="font-bold tabular-nums text-gray-900">{service.value.toLocaleString()}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Customers Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {loading ? (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                  <tr>
-                    {["S/N","Customer","Profile","Account ID","Contact","Verification","Status","Bookings","Total Spent","Last Booking","Joined","Actions"].map(h => (
-                      <th key={h} className={`px-6 py-3 ${h==="Actions"?"text-right":"text-left"} text-xs font-semibold text-gray-500 uppercase tracking-wider`}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-100">
-                    {[...Array(5)].map((_, i) => (
-                      <TableRow key={i} hover={false} className="animate-pulse">
-                      <td className="px-4 py-4 whitespace-nowrap"><div className="h-7 w-7 rounded-md bg-gray-200"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-32 mb-2"></div><div className="h-3 bg-gray-100 rounded w-40"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-5 bg-gray-200 rounded w-28"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-16"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-24"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-6 bg-gray-200 rounded w-16"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-6 bg-gray-200 rounded w-20"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-20"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-20"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><div className="h-4 bg-gray-200 rounded w-20"></div></td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right"><div className="h-8 bg-gray-200 rounded w-8 ml-auto"></div></td>
-                    </TableRow>
-                  ))}
-                </tbody>
-              </table>
+        {showAdvanced ? (
+          <div className="mx-4 mb-3 rounded-xl bg-neutral-50 p-3 ring-1 ring-neutral-200 sm:mx-5 sm:p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="m-0 min-w-0 text-xs text-neutral-500">
+                <span className="font-bold text-neutral-800">Also holds a role</span>
+                <span className="mx-1.5 text-neutral-300">·</span>
+                Travellers who also work on a property or sell for NoLSAF. Counts cover the whole table.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setHoldsRole(""); setPage(1); }}
+                disabled={!activeHoldsRole}
+                className="inline-flex items-center gap-1 rounded-md border-0 bg-transparent px-2 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-40"
+              >
+                <X className="h-3 w-3" />
+                Clear
+              </button>
             </div>
-          </>
+            {holdsRoleFilters.length === 0 ? (
+              <p className="m-0 text-xs text-neutral-500">No additional roles are recorded for these customers.</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {holdsRoleGroups.map((group, groupIndex) => (
+                  <div key={group.key} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+                    {groupIndex > 0 ? <span className="mr-1 hidden h-5 w-px bg-neutral-300 sm:inline-block" aria-hidden /> : null}
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">{group.label}</span>
+                    {group.options.map((chip) => {
+                      const active = holdsRole === chip.value;
+                      return (
+                        <button
+                          key={chip.value}
+                          type="button"
+                          title={chip.hint}
+                          aria-pressed={active}
+                          onClick={() => { setHoldsRole(active ? "" : chip.value); setPage(1); }}
+                          className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-xs font-medium transition-all ${
+                            active ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+                          }`}
+                        >
+                          {chip.label}
+                          {chip.count >= 0 ? (
+                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-700"}`}>
+                              {chip.count}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {loading && items.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 border-0 border-t border-solid border-neutral-100 py-16 text-sm text-neutral-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading customers
+          </div>
         ) : items.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <Users className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">No customers found.</p>
+          <div className="border-0 border-t border-solid border-neutral-100 px-6 py-14 text-center">
+            <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0b2420] text-emerald-300">
+              <Users className="h-5 w-5" />
+            </span>
+            <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">No matching customers</p>
+            <p className="m-0 mt-1 text-xs text-neutral-500">{filtersOn ? "Try another search or clear the filters." : "Travellers appear here as soon as they register."}</p>
           </div>
         ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 sticky top-0 z-10">
-                  <tr>
-                    <th className="w-16 whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">S/N</th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("customer")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Customer {renderSortIcon("customer")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      <button type="button" onClick={() => handleSort("profile")} className="m-0 inline-flex appearance-none items-center gap-1 border-0 bg-transparent p-0 hover:text-gray-700">
-                        Profile {renderSortIcon("profile")}
-                      </button>
-                    </th>
-                    <th className="min-w-[110px] whitespace-nowrap px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
-                      <button type="button" onClick={() => handleSort("accountId")} className="m-0 inline-flex whitespace-nowrap appearance-none items-center gap-1 border-0 bg-transparent p-0 hover:text-gray-700">
-                        Account ID {renderSortIcon("accountId")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("contact")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Contact {renderSortIcon("contact")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("verification")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Verification {renderSortIcon("verification")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("status")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Status {renderSortIcon("status")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("bookings")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Bookings {renderSortIcon("bookings")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("totalSpent")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Total Spent {renderSortIcon("totalSpent")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("lastBooking")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Last Booking {renderSortIcon("lastBooking")}
-                      </button>
-                    </th>
-                    <th className="whitespace-nowrap px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      <button type="button" onClick={() => handleSort("joined")} className="inline-flex whitespace-nowrap items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                        Joined {renderSortIcon("joined")}
-                      </button>
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+          <div className={`transition-opacity ${loading ? "opacity-60" : ""}`}>
+            <div className="hidden overflow-x-auto border-0 border-t border-solid border-neutral-100 md:block">
+              <table className="table w-full min-w-[1040px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="text-[11px] font-semibold text-neutral-400">
+                    <th className="w-12 px-4 py-2.5 font-semibold sm:pl-5">#</th>
+                    {sortHeader("customer", "Customer")}
+                    {sortHeader("profile", "Profile")}
+                    {sortHeader("accountId", "Account")}
+                    {sortHeader("contact", "Phone")}
+                    {sortHeader("verification", "Verification")}
+                    {sortHeader("status", "Status")}
+                    {sortHeader("bookings", "Bookings", "right")}
+                    {sortHeader("totalSpent", "Total spent", "right")}
+                    {sortHeader("lastBooking", "Last booking")}
+                    {sortHeader("joined", "Joined")}
+                    <th className="px-4 py-2.5 sm:pr-5"><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-100">
-                  {sortedItems.map((customer, index) => (
-                    <TableRow
-                      key={customer.id}
-                      // Double click anywhere on the row is a shortcut to the
-                      // customer profile, same destination as View Details.
-                      onDoubleClick={() => {
-                        closeActionsMenu();
-                        router.push(recordHref("user", customer.id));
-                      }}
-                      title="Double click to open this customer"
-                      className="align-middle cursor-pointer select-none hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-slate-100 px-1.5 text-xs font-bold tabular-nums text-slate-700 ring-1 ring-slate-200">
-                          {(page - 1) * pageSize + index + 1}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-semibold text-gray-900">{customer.displayName || customer.name || "Incomplete profile"}</div>
-                        <div className="text-sm text-gray-500">{customer.email || 'Email missing'}</div>
-                        {/* One person is often several things at once. Without
-                            this you cannot tell a plain customer from a bar
-                            attendant without opening the record. */}
-                        {customer.extraRoles && customer.extraRoles.length > 0 ? (
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            {customer.extraRoles.slice(0, 3).map((r, i) => (
-                              <span
-                                key={`${customer.id}-${r.label}-${i}`}
-                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  r.active
-                                    ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                                    : 'bg-slate-50 text-slate-500 ring-1 ring-slate-200'
-                                }`}
-                                title={r.active ? `${r.label} (active)` : `${r.label} (on record, not active)`}
-                              >
-                                <span className={`h-1 w-1 rounded-full ${r.active ? 'bg-emerald-500' : 'bg-slate-300'}`} aria-hidden />
-                                {r.label}
-                              </span>
-                            ))}
-                            {customer.extraRoles.length > 3 ? (
-                              <span className="text-[10px] font-medium text-gray-400">+{customer.extraRoles.length - 3}</span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${customer.registrationStatus === 'COMPLETE' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
-                            {customer.registrationStatus === 'COMPLETE' ? 'Profile complete' : 'Profile incomplete'}
-                          </span>
-                          <span className="text-[10px] font-medium text-gray-400">{(customer.registrationSource || 'UNKNOWN').replaceAll('_', ' ')}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-semibold tabular-nums text-gray-600">{customer.id}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {customer.phone || "N/A"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          {customer.emailVerifiedAt && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-700 border border-violet-200" title="Email Verified">
-                              <Mail className="h-3 w-3" />
-                            </span>
-                          )}
-                          {customer.phoneVerifiedAt && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200" title="Phone Verified">
-                              <Phone className="h-3 w-3" />
-                            </span>
-                          )}
-                          {customer.twoFactorEnabled && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200" title="2FA Enabled">
-                              <Lock className="h-3 w-3" />
-                            </span>
-                          )}
-                          {!customer.emailVerifiedAt && !customer.phoneVerifiedAt && !customer.twoFactorEnabled && (
-                            <span className="text-xs text-gray-400">None</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {isCustomerSuspended(customer) ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-                            <XCircle className="h-3.5 w-3.5" />
-                            Suspended
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                            <CheckCircle className="h-3.5 w-3.5" />
-                            Active
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <ShoppingCart className="h-4 w-4 text-gray-400" />
-                          <span className="text-sm font-medium text-gray-700">{customer.bookingCount || 0}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-semibold text-emerald-700">
-                          {customer.totalSpent ? `TZS ${customer.totalSpent.toLocaleString()}` : "TZS 0"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {customer.lastBookingDate ? new Date(customer.lastBookingDate).toLocaleDateString() : "Never"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(customer.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="relative">
-                          <button
-                            aria-label="Customer actions"
-                            aria-expanded={showActionsMenu === customer.id}
-                            onClick={(event) => {
-                              if (showActionsMenu === customer.id) {
-                                closeActionsMenu();
-                                return;
-                              }
-                              openActionsMenu(customer.id, event.currentTarget);
-                            }}
-                            className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-                          >
-                            {actionLoading === customer.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <MoreVertical className="h-4 w-4" />
-                            )}
-                          </button>
-                          {showActionsMenu === customer.id && actionsMenuPos && typeof document !== "undefined" &&
-                            createPortal(
-                              <>
-                                <div className="fixed inset-0 z-[70]" onClick={closeActionsMenu} />
-                                {/* ring-1 instead of `border`, and gap-px over a tinted
-                                    background instead of `border-b`: Tailwind preflight is
-                                    disabled in this app, so bare border utilities set no
-                                    border-style and render nothing. */}
-                                <div
-                                  className="fixed z-[80] w-52 overflow-hidden rounded-lg bg-white shadow-xl ring-1 ring-gray-200"
-                                  style={{ top: actionsMenuPos.top, left: actionsMenuPos.left }}
-                                >
-                                  <div className="flex flex-col gap-px bg-gray-100">
-                                    <Link
-                                      href={recordHref("user", customer.id)}
-                                      className="w-full bg-white px-4 py-2.5 text-sm flex items-center gap-2 no-underline text-gray-700 hover:bg-gray-50"
-                                      onClick={closeActionsMenu}
+                <tbody>
+                  {sortedItems.map((customer, index) => {
+                    const name = customer.displayName || customer.name || "Incomplete profile";
+                    return (
+                      <tr
+                        key={customer.id}
+                        onClick={() => void openCustomer(customer.id)}
+                        title="Open this customer"
+                        className="cursor-pointer border-0 border-t border-solid border-neutral-100 align-middle transition-colors hover:bg-neutral-50/70"
+                      >
+                        <td className="px-4 py-3 text-xs tabular-nums text-neutral-400 sm:pl-5">{(page - 1) * pageSize + index + 1}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white ring-2 ring-offset-2 ${isCustomerSuspended(customer) ? "bg-rose-700 ring-rose-200" : "bg-neutral-900 ring-emerald-200"}`}>{initials(name)}</span>
+                            <div className="min-w-0">
+                              <div className={`max-w-[15rem] truncate font-medium ${customer.displayName || customer.name ? "text-neutral-900" : "italic text-neutral-500"}`}>{name}</div>
+                              <div className="max-w-[15rem] truncate text-xs text-neutral-400">{customer.email || "No email"}</div>
+                              {/* One person is often several things at once: show the extra roles. */}
+                              {customer.extraRoles && customer.extraRoles.length > 0 ? (
+                                <div className="mt-1 flex flex-wrap items-center gap-1">
+                                  {customer.extraRoles.slice(0, 3).map((r, i) => (
+                                    <span
+                                      key={`${customer.id}-${r.label}-${i}`}
+                                      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${r.active ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-neutral-50 text-neutral-500 ring-neutral-200"}`}
+                                      title={r.active ? `${r.label} (active)` : `${r.label} (on record, not active)`}
                                     >
-                                      <Eye className="h-4 w-4 text-blue-500" />
-                                      View Details
-                                    </Link>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleReset2FA(customer.id)}
-                                      className="w-full bg-white text-left px-4 py-2.5 text-sm flex items-center gap-2 text-gray-700 hover:bg-gray-50"
-                                    >
-                                      <Lock className="h-4 w-4 text-amber-500" />
-                                      Reset 2FA
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSuspend(customer.id)}
-                                      className="w-full bg-white text-left px-4 py-2.5 text-sm flex items-center gap-2 text-red-600 hover:bg-red-50"
-                                    >
-                                      <XCircle className="h-4 w-4 text-red-500" />
-                                      Suspend
-                                    </button>
-                                  </div>
+                                      <span className={`h-1 w-1 rounded-full ${r.active ? "bg-emerald-500" : "bg-neutral-300"}`} aria-hidden />
+                                      {r.label}
+                                    </span>
+                                  ))}
+                                  {customer.extraRoles.length > 3 ? <span className="text-[10px] font-medium text-neutral-400">+{customer.extraRoles.length - 3}</span> : null}
                                 </div>
-                              </>,
-                              document.body,
-                            )}
-                        </div>
-                      </td>
-                    </TableRow>
-                  ))}
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${customer.registrationStatus === "COMPLETE" ? "text-emerald-700" : "text-orange-700"}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${customer.registrationStatus === "COMPLETE" ? "bg-emerald-500" : "bg-orange-500"}`} />
+                            {customer.registrationStatus === "COMPLETE" ? "Complete" : "Incomplete"}
+                          </span>
+                          <div className="mt-0.5 text-[10px] font-medium text-neutral-400">{sourceLabel(customer.registrationSource)}</div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-neutral-500">#{customer.id}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 ${customer.phone ? "text-neutral-700" : "text-neutral-400"}`}>{customer.phone || "Not set"}</td>
+                        <td className="px-4 py-3">{verificationBadges(customer)}</td>
+                        <td className="px-4 py-3">{statusPill(customer)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-neutral-800">{(customer.bookingCount || 0).toLocaleString()}</td>
+                        <td className={`whitespace-nowrap px-4 py-3 text-right tabular-nums ${customer.totalSpent ? "font-semibold text-neutral-900" : "text-neutral-400"}`}>
+                          {customer.totalSpent ? `${customer.totalSpent.toLocaleString()} TZS` : "None"}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{customer.lastBookingDate ? shortDate(customer.lastBookingDate) : "Never"}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{shortDate(customer.createdAt)}</td>
+                        <td className="px-4 py-3 text-right sm:pr-5" onClick={(event) => event.stopPropagation()}>
+                          <span className="inline-flex items-center gap-1">
+                            {actionsMenu(customer)}
+                            <ChevronRight className="h-4 w-4 text-neutral-300" aria-hidden />
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          </>
-        )}
-      </div>
 
-      {/* Pagination */}
-      {items.length > 0 && (
-        <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-          <div className="text-sm text-gray-500">
-            Showing {((page - 1) * pageSize) + 1} to {Math.min(page * pageSize, total)} of {total} customers
-          </div>
-          <div className="flex gap-2">
-            <button
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
-            <div className="px-4 py-2 text-sm font-medium text-gray-700">
-              Page {page} of {pages}
+            {/* Cards on phones, where a twelve-column table cannot fit */}
+            <div className="grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 p-3 sm:grid-cols-2 md:hidden">
+              {sortedItems.map((customer) => {
+                const name = customer.displayName || customer.name || "Incomplete profile";
+                return (
+                  <div
+                    key={customer.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => void openCustomer(customer.id)}
+                    onKeyDown={(event) => { if (event.key === "Enter") void openCustomer(customer.id); }}
+                    className="flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white text-left transition-all hover:border-neutral-300"
+                  >
+                    <span className="flex items-start gap-3 px-4 pt-4">
+                      <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white">{initials(name)}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-neutral-900">{name}</span>
+                        <span className="block truncate text-xs text-neutral-400">{customer.email || customer.phone || "No contact details"}</span>
+                      </span>
+                      <span onClick={(event) => event.stopPropagation()}>{actionsMenu(customer)}</span>
+                    </span>
+                    <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4">
+                      {statusPill(customer)}
+                      {verificationBadges(customer)}
+                    </span>
+                    <span className="mt-3 grid grid-cols-3 gap-px bg-neutral-100">
+                      {[
+                        ["Bookings", (customer.bookingCount || 0).toLocaleString()],
+                        ["Spent", customer.totalSpent ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(customer.totalSpent) : "None"],
+                        ["Joined", shortDate(customer.createdAt)],
+                      ].map(([label, value]) => (
+                        <span key={label} className="min-w-0 bg-white px-3 py-2.5">
+                          <span className="block text-[10px] text-neutral-400">{label}</span>
+                          <span className="block truncate text-sm font-semibold tabular-nums text-neutral-900">{value}</span>
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-            <button
-              disabled={page >= pages}
-              onClick={() => setPage(p => p + 1)}
-              className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-            </button>
+
+            <TablePagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
           </div>
-        </div>
-      )}
+        )}
+      </section>
     </div>
   );
+}
+
+const heroButton = "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline disabled:opacity-60";
+
+function initials(name: string | null | undefined) {
+  const parts = String(name || "").trim().split(/[\s@.]+/).filter(Boolean);
+  return ((parts[0]?.charAt(0) || "") + (parts[1]?.charAt(0) || "")).toUpperCase() || "?";
+}
+
+function shortDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : "Not set";
+}
+
+function sourceLabel(source: CustomerRow["registrationSource"]) {
+  switch (source) {
+    case "WEB": return "Web";
+    case "TRAVELLER_APP": return "Traveller app";
+    case "DRIVER_APP": return "Driver app";
+    case "PARTNERS_APP": return "Partners app";
+    case "LEGACY": return "Legacy";
+    default: return "Unknown source";
+  }
 }
