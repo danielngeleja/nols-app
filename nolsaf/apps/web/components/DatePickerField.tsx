@@ -18,6 +18,8 @@ type Props = {
   twoMonths?: boolean;
   variant?: "light" | "dark";
   display?: "date" | "month" | "day-month";
+  /** A darker outline for fields that sit on a tinted panel, where the default fades out. */
+  strongBorder?: boolean;
 };
 
 function formatDisplay(iso?: string, display: "date" | "month" | "day-month" = "date") {
@@ -86,6 +88,7 @@ export default function DatePickerField({
   twoMonths: twoMonthsProp,
   variant = "light",
   display = "date",
+  strongBorder = false,
 }: Props) {
   const isDark = variant === "dark";
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -167,7 +170,7 @@ export default function DatePickerField({
                 " text-left focus:outline-none transition " +
                 (isDark
                   ? "border-white/[0.12] bg-white/[0.07] text-white hover:bg-white/[0.12] focus:ring-2 focus:ring-white/20"
-                  : "border-gray-200 bg-white text-gray-900 hover:bg-brand/5 focus:ring-2 focus:ring-brand/25 focus:border-brand")
+                  : `${strongBorder ? "border-solid border-slate-300 hover:border-slate-400" : "border-gray-200"} bg-white text-gray-900 hover:bg-brand/5 focus:ring-2 focus:ring-brand/25 focus:border-brand`)
               }
               aria-label={label}
               title={label}

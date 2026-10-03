@@ -10,10 +10,10 @@ import Chart from "@/components/Chart";
 import DatePickerField from "@/components/DatePickerField";
 import { 
   Mail, Phone, Calendar, Lock, CheckCircle, XCircle,
-  ShoppingCart, DollarSign, ArrowLeft, Ban, UserCheck, 
+  ShoppingCart, ArrowLeft, Ban, UserCheck, 
   CreditCard, Eye, History, Activity, Clock, X, Coins, Home, Tag, MoreHorizontal,
   ChevronUp, ChevronDown, ChevronsUpDown, ChevronRight,
-  Map as MapIcon, Car, Users, Star, Bookmark, Filter, Search, FileText
+  Map as MapIcon, Car, Users, Star, Bookmark, Filter, Search, FileText, Copy, Check, IdCard
 } from "lucide-react";
 
 // IMPORTANT: Use same-origin requests so Next.js can proxy via `rewrites()`.
@@ -949,6 +949,9 @@ type UserDetailResponse = {
 
 type BookingSortKey = "property" | "propertyType" | "region" | "district" | "checkInOut" | "amount" | "status" | "code";
 
+/** Secondary action on the dark record header, as on the booking and sales records. */
+const recordHeroButton = "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline";
+
 export default function AdminUserDetailPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
   return (
@@ -993,6 +996,8 @@ function AdminUserDetail({ userId }: { userId: number }) {
   // not buried among six that do not.
   const [showCleanSignals, setShowCleanSignals] = useState(false);
   const [copiedReferral, setCopiedReferral] = useState(false);
+  // Which identifier on the customer pass was just copied, for the tick.
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const [profileFilters, setProfileFilters] = useState<ProfileFilters>(PROFILE_FILTERS_DEFAULT);
   const [profileFiltersOpen, setProfileFiltersOpen] = useState(false);
@@ -1404,157 +1409,227 @@ function AdminUserDetail({ userId }: { userId: number }) {
     );
   }
 
+  // Header figures, across every product rather than stays alone.
+  const activityStats = stats.activity;
+  const productBreakdown = (activityStats?.byProduct || []).filter((entry) => entry.records > 0);
+  // Only amounts that are not already folded into the TZS figure get their own
+  // line, so a currency is never counted twice.
+  const excludedForeign = (activityStats?.byCurrency || []).filter((entry) => entry.currency !== "TZS" && entry.unconvertedAmount > 0);
+  const totalValue = activityStats ? activityStats.valueTzs : stats.revenue.total;
+  const openRecords = activityStats ? activityStats.totalRecords - activityStats.settled - activityStats.canceled : 0;
+  const suspended = Boolean(user.suspendedAt || user.isDisabled);
+  const customerName = user.displayName || user.name || "Unnamed customer";
+  const eatDateTime = (value: string) =>
+    `${new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
+  const sourceName = String(user.registrationSource || "Unknown").replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+
+  const headerFacts = [
+    {
+      label: "Total activity",
+      value: (activityStats?.totalRecords ?? stats.booking.total).toLocaleString(),
+      detail: `${productBreakdown.length ? `${productBreakdown.length} of 4 services used` : "No service used yet"}${stats.lastBooking?.createdAt ? ` · last ${new Date(stats.lastBooking.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" })}` : ""}`,
+    },
+    {
+      label: "Confirmed",
+      value: (activityStats?.settled ?? stats.booking.confirmed).toLocaleString(),
+      detail: activityStats
+        ? [`${activityStats.canceled} canceled`, openRecords > 0 ? `${openRecords} still open` : null].filter(Boolean).join(" · ")
+        : "Ready or completed stays",
+    },
+    {
+      label: "Total value",
+      value: `${totalValue.toLocaleString()} TZS`,
+      detail: excludedForeign.length
+        ? excludedForeign.map((entry) => `${entry.unconvertedAmount.toLocaleString()} ${entry.currency}`).join(" · ") + " recorded separately"
+        : "All products, money of record",
+    },
+    { label: "Invoices", value: stats.revenue.invoiceCount.toLocaleString(), detail: "Documents issued" },
+  ];
+
+  const copyText = (key: string, text: string) => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1600);
+    });
+  };
+
+  const copyButton = (key: string, text: string, label: string) => (
+    <button
+      type="button"
+      onClick={() => copyText(key, text)}
+      aria-label={`Copy ${label}`}
+      title={copiedKey === key ? "Copied" : `Copy ${label}`}
+      className="inline-grid h-7 w-7 shrink-0 place-items-center rounded-md border-0 bg-transparent text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-800"
+    >
+      {copiedKey === key ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+
+  /** One contact line: icon, value, copy, and the native action (mail or call). */
+  const contactRow = (key: string, kind: "mail" | "tel", value: string | null | undefined) => (
+    <div key={key} className="flex min-w-0 items-center gap-2 rounded-lg bg-neutral-50 px-2.5 py-1.5 ring-1 ring-inset ring-neutral-200">
+      {kind === "mail" ? <Mail className="h-3.5 w-3.5 shrink-0 text-neutral-400" /> : <Phone className="h-3.5 w-3.5 shrink-0 text-neutral-400" />}
+      <span className={`min-w-0 flex-1 truncate text-sm ${value ? "text-neutral-800" : "text-neutral-400"} ${kind === "tel" ? "tabular-nums" : ""}`} title={value || undefined}>
+        {value || (kind === "mail" ? "No email on file" : "No phone on file")}
+      </span>
+      {value ? (
+        <>
+          {copyButton(key, value, kind === "mail" ? "email" : "phone")}
+          <a href={kind === "mail" ? `mailto:${value}` : `tel:${value}`} className="inline-flex h-7 shrink-0 items-center rounded-md bg-[#0b2420] px-2 text-[11px] font-semibold text-white no-underline hover:bg-[#12342f] hover:no-underline">
+            {kind === "mail" ? "Email" : "Call"}
+          </a>
+        </>
+      ) : null}
+    </div>
+  );
+
+  const chip = (on: boolean, onTone: string, children: ReactNode, key: string) => (
+    <span key={key} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${on ? onTone : "bg-neutral-50 text-neutral-500 ring-neutral-200"}`}>
+      {children}
+    </span>
+  );
+
   return (
-    <div className="min-h-screen min-w-0 overflow-x-clip bg-gray-50">
-      <div className="mx-auto box-border w-full max-w-[1440px] min-w-0 px-3 py-3 sm:px-4 sm:py-4 lg:px-5 xl:px-6">
+    // The admin layout owns the gutter, width and border-box rule.
+    <div className="w-full min-w-0">
+      <div className="w-full min-w-0">
         {/* Success Message Card */}
         {successMessage && (
-          <div className="mb-4 flex animate-in items-start gap-3 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 p-4 shadow-sm slide-in-from-top-2">
-            <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-emerald-500 flex items-center justify-center">
-              <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-sm sm:text-base font-bold text-emerald-900 mb-1">Success!</h4>
-              <p className="m-0 text-xs text-emerald-800 sm:text-sm">{successMessage}</p>
-            </div>
-            <button
-              onClick={() => setSuccessMessage(null)}
-              className="flex-shrink-0 p-1.5 hover:bg-emerald-100 rounded-lg transition-colors"
-              aria-label="Dismiss"
-            >
-              <X className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-700" />
+          <div className="mb-4 flex items-start gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
+            <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            <span className="flex-1">{successMessage}</span>
+            <button type="button" onClick={() => setSuccessMessage(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline" aria-label="Dismiss">
+              Dismiss
             </button>
           </div>
         )}
 
-        {/* Clean responsive profile summary */}
-        {/* ring-* and inset shadows rather than border-*: preflight is disabled in
-            this app, so a bare `border` sets no border-style and draws nothing,
-            which left the buttons and dividers here invisible. */}
-        <div className="mb-4 min-w-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-          <div className="flex min-w-0 flex-col gap-3 px-4 py-4 xl:flex-row xl:items-center xl:justify-between sm:px-5">
-            <div className="flex min-w-0 items-center gap-3">
-              <Link href="/admin/users/list" className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-slate-500 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900 hover:ring-slate-300" title="Back to users list">
-                <ArrowLeft className="h-4 w-4" />
-              </Link>
-              {/* The avatar ring doubles as the account state light: emerald when
-                  the account is healthy, red once it is suspended or disabled. */}
-              <div
-                className={`inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl text-sm font-extrabold ring-2 ${
-                  user.suspendedAt || user.isDisabled
-                    ? "bg-red-50 text-red-700 ring-red-200"
-                    : "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                }`}
-              >
-                {(user.displayName || user.name || `U${user.id}`).split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
+        {/* Header: dark brand band, like the other admin records */}
+        <section className="relative mb-4 overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+          <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 items-start gap-4">
+                {/* The avatar ring doubles as the account state light. */}
+                <span className={`mt-1 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-white ring-2 ring-offset-2 ring-offset-[#0b2420] ${suspended ? "ring-rose-400" : "ring-emerald-400"}`}>
+                  {customerName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "?"}
+                </span>
+                <div className="min-w-0">
+                  <Link href="/admin/users/list" className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80 no-underline hover:text-emerald-200">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Customers
+                  </Link>
+                  <h1 className="m-0 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-bold tracking-tight text-white sm:text-2xl">
+                    <span className="min-w-0 truncate">{customerName}</span>
+                    <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-white/80">{sentenceCaseStatus(user.role)}</span>
+                    {suspended ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/20 px-2.5 py-0.5 text-xs font-semibold text-rose-200"><Ban className="h-3 w-3" /> Suspended</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200"><span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Active</span>
+                    )}
+                    {user.registrationStatus === "INCOMPLETE" && <span className="rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs font-semibold text-amber-200">Incomplete profile</span>}
+                  </h1>
+                  <p className="m-0 mt-1 max-w-2xl truncate text-sm text-white/60">
+                    Customer since {new Date(user.createdAt).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam" })} · Registered via {sourceName}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="m-0 truncate text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{user.displayName || user.name || `User #${user.id}`}</h1>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{sentenceCaseStatus(user.role)}</span>
-                  {user.registrationStatus === "INCOMPLETE" && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200">Incomplete profile</span>}
-                  {(user.suspendedAt || user.isDisabled) && <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 ring-1 ring-red-200"><Ban className="h-3 w-3" />Suspended</span>}
-                </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-slate-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
-                    ID #{user.id}
-                  </span>
-                  <span className="text-xs font-medium text-slate-500">
-                    Customer since {new Date(user.createdAt).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
-                  </span>
-                </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {user.phone && <a href={`tel:${user.phone}`} className={recordHeroButton}><Phone className="h-3.5 w-3.5" /> Call</a>}
+                {user.email && <a href={`mailto:${user.email}`} className={recordHeroButton}><Mail className="h-3.5 w-3.5" /> Email</a>}
+                {/* A printable record of everything this customer has used and
+                    paid for, for the case where they come back disputing it. */}
+                <Link href={recordHref("user", userId, { suffix: "/statement" })} className={recordHeroButton}><FileText className="h-3.5 w-3.5" /> Statement</Link>
+                {user.suspendedAt ? (
+                  <button type="button" onClick={handleUnsuspendClick} disabled={actionLoading} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-500 px-3 text-xs font-semibold text-[#0b2420] transition-colors hover:bg-emerald-400 disabled:opacity-60">
+                    <UserCheck className="h-3.5 w-3.5" /> Unsuspend
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleSuspendClick} disabled={actionLoading} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-rose-300/30 bg-rose-500/15 px-3 text-xs font-semibold text-rose-100 transition-colors hover:bg-rose-500/25 disabled:opacity-60">
+                    <Ban className="h-3.5 w-3.5" /> Suspend
+                  </button>
+                )}
               </div>
             </div>
 
-            <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap xl:flex-nowrap xl:justify-end">
-              {user.phone && <a href={`tel:${user.phone}`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><Phone className="h-3.5 w-3.5 text-emerald-600" />Call</a>}
-              {user.email && <a href={`mailto:${user.email}`} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><Mail className="h-3.5 w-3.5 text-blue-600" />Email</a>}
-              {/* A printable record of everything this customer has used and
-                  paid for, for the case where they come back disputing it. */}
-              <Link href={recordHref("user", userId, { suffix: "/statement" })} className="inline-flex h-9 min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 sm:min-w-[80px]"><FileText className="h-3.5 w-3.5 text-violet-600" />Statement</Link>
-              {user.suspendedAt ? (
-                <button onClick={handleUnsuspendClick} disabled={actionLoading} className="col-span-2 inline-flex h-9 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 sm:col-span-1"><UserCheck className="h-3.5 w-3.5" />Unsuspend</button>
-              ) : (
-                <button onClick={handleSuspendClick} disabled={actionLoading} className="col-span-2 inline-flex h-9 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-red-50 px-4 text-xs font-bold text-red-700 ring-1 ring-red-200 transition hover:bg-red-100 hover:ring-red-300 disabled:opacity-50 sm:col-span-1"><Ban className="h-3.5 w-3.5" />Suspend</button>
-              )}
+            <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
+              {headerFacts.map((fact, index) => (
+                <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
+                  <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
+                  <dd className="m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums text-white" title={fact.value}>{fact.value}</dd>
+                  <dd className="m-0 mt-1 truncate text-xs text-white/50" title={fact.detail}>{fact.detail}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        {/* Customer pass: the identifiers and contacts someone will ask for, ready to copy */}
+        <section className="mb-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm" aria-label="Customer pass">
+          <div className="grid gap-px bg-neutral-200 sm:grid-cols-2 xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+            <div className="min-w-0 bg-white px-5 py-4">
+              <p className="m-0 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400"><IdCard className="h-3.5 w-3.5" /> Account</p>
+              <p className="m-0 mt-0.5 flex items-center gap-1 font-mono text-2xl font-bold tracking-tight text-neutral-900">
+                #{user.id} {copyButton("account", String(user.id), "account number")}
+              </p>
+            </div>
+            <div className="min-w-0 bg-white px-5 py-4">
+              <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Contact</p>
+              <div className="mt-1.5 grid gap-1.5">
+                {contactRow("email", "mail", user.email)}
+                {contactRow("phone", "tel", user.phone)}
+              </div>
+            </div>
+            <div className="min-w-0 bg-white px-5 py-4">
+              <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Joined</p>
+              <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-900">{eatDateTime(user.createdAt)}</p>
+              <p className="m-0 mt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Registration</p>
+              <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-900">{sourceName}</p>
+            </div>
+            <div className="min-w-0 bg-white px-5 py-4">
+              <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Last activity</p>
+              <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-900">{stats.lastBooking?.createdAt ? eatDateTime(stats.lastBooking.createdAt) : "Nothing yet"}</p>
+              <p className="m-0 mt-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Services used</p>
+              <p className="m-0 mt-0.5 text-sm font-semibold text-neutral-900">{productBreakdown.length ? `${productBreakdown.length} of 4` : "None yet"}</p>
             </div>
           </div>
 
-          <div className="flex min-w-0 flex-wrap gap-2 bg-slate-50/70 p-2.5 shadow-[inset_0_1px_0_#e2e8f0] sm:p-3">
-            <div className="box-border flex w-full min-w-0 items-center gap-3 rounded-lg bg-white px-3 py-2.5 ring-1 ring-slate-200/80 sm:w-[calc(50%_-_0.25rem)] xl:w-[calc(25%_-_0.375rem)]">
-              <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><Mail className="h-4 w-4" /></span>
-              <div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Email</p><p className="m-0 break-all text-sm font-semibold leading-5 text-slate-900">{user.email || "Not provided"}</p></div>
-            </div>
-            <div className="box-border flex w-full min-w-0 items-center gap-3 rounded-lg bg-white px-3 py-2.5 ring-1 ring-slate-200/80 sm:w-[calc(50%_-_0.25rem)] xl:w-[calc(25%_-_0.375rem)]">
-              <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><Phone className="h-4 w-4" /></span>
-              <div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Phone</p><p className="m-0 break-words text-sm font-semibold leading-5 text-slate-900">{user.phone || "Not provided"}</p></div>
-            </div>
-            <div className="box-border flex w-full min-w-0 items-center gap-3 rounded-lg bg-white px-3 py-2.5 ring-1 ring-slate-200/80 sm:w-[calc(50%_-_0.25rem)] xl:w-[calc(25%_-_0.375rem)]">
-              <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><Calendar className="h-4 w-4" /></span>
-              <div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Joined</p><p className="m-0 text-sm font-semibold leading-5 text-slate-900">{new Date(user.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · {new Date(user.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div>
-            </div>
-            <div className="box-border flex w-full min-w-0 items-center gap-3 rounded-lg bg-white px-3 py-2.5 ring-1 ring-slate-200/80 sm:w-[calc(50%_-_0.25rem)] xl:w-[calc(25%_-_0.375rem)]">
-              <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><Activity className="h-4 w-4" /></span>
-              <div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Registration</p><p className="m-0 text-sm font-semibold capitalize leading-5 text-slate-900">{String(user.registrationSource || "Unknown").replaceAll("_", " ").toLowerCase()}</p></div>
-            </div>
+          {/* Always rendered: an account with nothing verified is exactly the one an admin needs to see. */}
+          <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-5 py-2.5">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Verification</span>
+            {chip(Boolean(user.emailVerifiedAt), "bg-blue-50 text-blue-700 ring-blue-200", <>{user.emailVerifiedAt ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}Email {user.emailVerifiedAt ? "verified" : "not verified"}</>, "email")}
+            {chip(Boolean(user.phoneVerifiedAt), "bg-emerald-50 text-emerald-700 ring-emerald-200", <>{user.phoneVerifiedAt ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}Phone {user.phoneVerifiedAt ? "verified" : "not verified"}</>, "phone")}
+            {chip(Boolean(user.twoFactorEnabled), "bg-violet-50 text-violet-700 ring-violet-200", <><Lock className="h-3.5 w-3.5" />2FA {user.twoFactorEnabled ? "enabled" : "off"}</>, "2fa")}
+            {user.isDisabled && <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700"><XCircle className="h-3.5 w-3.5" />Disabled</span>}
+
+            {/* Roles beyond the account role: one person is often several things at once. */}
+            {data?.roles && data.roles.hasAdditionalRoles ? (
+              <>
+                <span className="mx-1 hidden h-4 w-px bg-neutral-300 sm:inline-block" aria-hidden />
+                <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Also holds</span>
+                {data.roles.roles
+                  .filter((r) => r.additive)
+                  .map((r, i) => (
+                    <span
+                      key={`${r.source}-${r.code}-${i}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${r.active ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-neutral-50 text-neutral-500 ring-neutral-200"}`}
+                      title={[
+                        r.scope,
+                        r.detail,
+                        r.active ? null : `Status: ${sentenceCaseStatus(r.status)}`,
+                        r.since ? `Since ${new Date(r.since).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : null,
+                      ].filter(Boolean).join(" · ")}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${r.active ? "bg-emerald-500" : "bg-neutral-300"}`} aria-hidden />
+                      {r.label}
+                      {r.scope ? <span className="font-normal opacity-70">{r.scope}</span> : null}
+                      {/* A pending invite is a role on record, not a role in use. */}
+                      {r.active ? null : <span className="font-normal opacity-70">({sentenceCaseStatus(r.status)})</span>}
+                    </span>
+                  ))}
+              </>
+            ) : null}
           </div>
-
-          {/* Always rendered: an account with nothing verified is exactly the one
-              an admin needs to see the row for. */}
-          {(
-            <div className="flex flex-wrap items-center gap-2 bg-white px-4 py-2.5 shadow-[inset_0_1px_0_#f1f5f9] sm:px-5">
-              <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Verification</span>
-              {/* Unverified is worth showing too: a missing chip is easy to miss,
-                  a grey "not verified" chip is not. */}
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.emailVerifiedAt ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "bg-slate-50 text-slate-500 ring-1 ring-slate-200"}`}>
-                {user.emailVerifiedAt ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-                Email {user.emailVerifiedAt ? "verified" : "not verified"}
-              </span>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.phoneVerifiedAt ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-slate-50 text-slate-500 ring-1 ring-slate-200"}`}>
-                {user.phoneVerifiedAt ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-                Phone {user.phoneVerifiedAt ? "verified" : "not verified"}
-              </span>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${user.twoFactorEnabled ? "bg-violet-50 text-violet-700 ring-1 ring-violet-200" : "bg-slate-50 text-slate-500 ring-1 ring-slate-200"}`}>
-                <Lock className="h-3.5 w-3.5" />
-                2FA {user.twoFactorEnabled ? "enabled" : "off"}
-              </span>
-              {user.isDisabled && <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700"><XCircle className="h-3.5 w-3.5" />Disabled</span>}
-            </div>
-          )}
-
-          {/* Roles beyond the account role. One person is often several things
-              at once: a customer who also tends a bar and sells as a partner.
-              Reading User.role alone hides all of it. */}
-          {data?.roles && data.roles.hasAdditionalRoles ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-2 bg-white px-4 py-2.5 shadow-[inset_0_1px_0_#f1f5f9] sm:px-5">
-              <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Also holds</span>
-              {data.roles.roles
-                .filter((r) => r.additive)
-                .map((r, i) => (
-                  <span
-                    key={`${r.source}-${r.code}-${i}`}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-                      r.active
-                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                        : "bg-slate-50 text-slate-500 ring-1 ring-slate-200"
-                    }`}
-                    title={[
-                      r.scope,
-                      r.detail,
-                      r.active ? null : `Status: ${sentenceCaseStatus(r.status)}`,
-                      r.since ? `Since ${new Date(r.since).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : null,
-                    ].filter(Boolean).join(" · ")}
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${r.active ? "bg-emerald-500" : "bg-slate-300"}`} aria-hidden />
-                    {r.label}
-                    {r.scope ? <span className="font-normal opacity-70">{r.scope}</span> : null}
-                    {/* A pending invite is a role on record, not a role in use. */}
-                    {r.active ? null : <span className="font-normal opacity-70">({sentenceCaseStatus(r.status)})</span>}
-                  </span>
-                ))}
-            </div>
-          ) : null}
-        </div>
+        </section>
 
         {/* Suspend Form */}
         {showSuspendForm && (
@@ -1652,113 +1727,13 @@ function AdminUserDetail({ userId }: { userId: number }) {
           </div>
         )}
 
-        {/* Unified account metrics across every product, not just stays. */}
-        {(() => {
-          const activityStats = stats.activity;
-          const productBreakdown = (activityStats?.byProduct || []).filter((entry) => entry.records > 0);
-          const foreign = (activityStats?.byCurrency || []).filter((entry) => entry.currency !== "TZS");
-          // Only amounts that are not already folded into the TZS figure get
-          // their own line, so a currency is never counted twice on the tile.
-          const excludedForeign = foreign.filter((entry) => entry.unconvertedAmount > 0);
-          const totalValue = activityStats ? activityStats.valueTzs : stats.revenue.total;
-
-          const tile = "box-border flex w-full min-w-0 items-center gap-3 rounded-xl bg-white px-3.5 py-3 shadow-sm ring-1 ring-slate-200 sm:w-[calc(50%_-_0.25rem)] lg:w-[calc(25%_-_0.375rem)]";
-          const label = "m-0 text-[10px] font-bold uppercase tracking-wider text-slate-400";
-          // Toned down from text-2xl/font-black: at that weight four tiles in a
-          // row shouted over the rest of the page.
-          const figure = "m-0 text-xl font-bold leading-7 tracking-tight text-slate-900";
-          const note = "m-0 truncate text-[11px] leading-4 text-slate-500";
-
-          return (
-            <div className="mb-4 flex min-w-0 flex-wrap gap-2">
-              <div className={tile}>
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600"><ShoppingCart className="h-5 w-5" /></span>
-                <div className="min-w-0">
-                  <p className={label}>Total activity</p>
-                  <p className={figure}>{activityStats?.totalRecords ?? stats.booking.total}</p>
-                  {/* The per-service split is the tab bar directly below, so
-                      repeating it here only truncated it. This says what the
-                      tabs cannot: how many streams were actually used, and
-                      when the account was last active. */}
-                  <p className={note}>
-                    {productBreakdown.length
-                      ? `${productBreakdown.length} of 4 services used`
-                      : "No service used yet"}
-                    {stats.lastBooking?.createdAt
-                      ? ` · last ${new Date(stats.lastBooking.createdAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
-                      : ""}
-                  </p>
-                </div>
-              </div>
-
-              <div className={tile}>
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><CheckCircle className="h-5 w-5" /></span>
-                <div className="min-w-0">
-                  <p className={label}>Confirmed</p>
-                  <p className={figure}>{activityStats?.settled ?? stats.booking.confirmed}</p>
-                  <p className={note}>
-                    {activityStats
-                      ? [
-                          `${activityStats.canceled} canceled`,
-                          // Everything that is neither settled nor canceled is
-                          // still open. Leaving it out made the numbers look
-                          // like they did not add up.
-                          activityStats.totalRecords - activityStats.settled - activityStats.canceled > 0
-                            ? `${activityStats.totalRecords - activityStats.settled - activityStats.canceled} still open`
-                            : null,
-                        ].filter(Boolean).join(" · ")
-                      : "Ready or completed stays"}
-                  </p>
-                </div>
-              </div>
-
-              <div className={tile}>
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><DollarSign className="h-5 w-5" /></span>
-                <div className="min-w-0">
-                  <p className={label}>Total value</p>
-                  <p className={figure}>
-                    {totalValue.toLocaleString()}
-                    <span className="ml-1 text-[11px] font-semibold text-slate-500">TZS</span>
-                  </p>
-                  {/* Currencies are listed, never summed together. Only amounts
-                      that are not already inside the TZS figure get their own
-                      line, so nothing is counted twice. The tooltip carries the
-                      reason so the tile itself stays plain. */}
-                  {excludedForeign.length > 0 ? (
-                    excludedForeign.map((entry) => (
-                      <p
-                        key={entry.currency}
-                        className="m-0 truncate text-sm font-semibold leading-5 text-slate-700"
-                        title={`${entry.unconvertedAmount.toLocaleString()} ${entry.currency} recorded separately from the TZS total`}
-                      >
-                        {entry.unconvertedAmount.toLocaleString()}
-                        <span className="ml-1 text-[11px] font-semibold text-slate-500">{entry.currency}</span>
-                      </p>
-                    ))
-                  ) : (
-                    <p className={note}>All products, money of record</p>
-                  )}
-                </div>
-              </div>
-
-              <div className={tile}>
-                <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><CreditCard className="h-5 w-5" /></span>
-                <div className="min-w-0">
-                  <p className={label}>Invoices</p>
-                  <p className={figure}>{stats.revenue.invoiceCount}</p>
-                  <p className={note}>Documents issued</p>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
 
         {/* Tabs */}
-        <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
           {/* One row of product tabs. Every customer-facing stream this profile
               knows about gets its own tab, so there is no combined feed. */}
-          <div className="bg-white p-2 shadow-[inset_0_-1px_0_#e2e8f0]">
-            <div className="flex min-w-0 flex-wrap gap-1 rounded-xl bg-slate-50 p-1 ring-1 ring-slate-200">
+          <div className="bg-white">
+            <div className="flex min-w-0 gap-1 overflow-x-auto border-0 border-b border-solid border-neutral-200 px-2" role="tablist" aria-label="Customer records">
               {([
                 { key: "stays", label: "Stays", count: bookings.length, total: allBookings.length, icon: Home },
                 { key: "tours", label: "Tours", count: activityByTab.tours.length, total: allActivityByTab.tours, icon: MapIcon },
@@ -1775,20 +1750,21 @@ function AdminUserDetail({ userId }: { userId: number }) {
                   <button
                     key={entry.key}
                     type="button"
+                    role="tab"
                     onClick={() => setTab(entry.key)}
+                    aria-selected={active}
                     aria-current={active ? "page" : undefined}
                     // appearance-none, border-0, and an explicit background are
                     // required, not redundant: Tailwind preflight is disabled, so
                     // a <button> with no background class falls back to the UA
                     // grey buttonface and renders as a solid block.
-                    className={`inline-flex flex-1 appearance-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border-0 px-3 py-2 text-xs font-bold transition-all duration-150 sm:px-4 ${
-                      active
-                        ? `${accent.activePill} shadow-sm`
-                        : `bg-transparent text-slate-500 ${accent.idleHover} hover:shadow-sm`
+                    className={`relative inline-flex h-12 flex-shrink-0 appearance-none items-center justify-center gap-2 whitespace-nowrap border-0 bg-transparent px-3 text-sm font-semibold transition-colors sm:px-4 ${
+                      active ? "text-neutral-900" : "text-neutral-500 hover:text-neutral-800"
                     }`}
                   >
-                    <TabIcon className={`h-3.5 w-3.5 ${active ? accent.activeIcon : accent.idleIcon}`} />
+                    <TabIcon className={`h-4 w-4 ${active ? accent.activeIcon : "text-neutral-400"}`} />
                     {entry.label}
+                    {active && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-[#02665e]" aria-hidden />}
                     {entry.count !== null && (
                       <span
                         title={
@@ -1797,7 +1773,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                             : undefined
                         }
                         className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
-                          active ? accent.activeBadge : "bg-slate-200/80 text-slate-600"
+                          active ? "bg-[#0b2420] text-emerald-300" : "bg-neutral-100 text-neutral-600"
                         }`}
                       >
                         {entry.count}
@@ -1817,7 +1793,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
               all answer the same question at once. Behaviour receives the date
               range through its own endpoint. */}
           <div className="bg-white px-2 pb-2">
-            <div className="rounded-xl bg-slate-50 ring-1 ring-slate-200">
+            <div className="rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-300">
               <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
@@ -1867,7 +1843,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                   <button
                     type="button"
                     onClick={() => setProfileFiltersOpen((open) => !open)}
-                    className="inline-flex appearance-none items-center gap-1.5 rounded-lg border-0 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-100"
+                    className="inline-flex appearance-none items-center gap-1.5 rounded-lg border-0 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-100"
                   >
                     {profileFiltersOpen ? "Hide" : "Open"}
                     {profileFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -1876,7 +1852,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
               </div>
 
               {profileFiltersOpen && (
-                <div id="admin-user-filters" className="px-3 pb-3 pt-3 shadow-[inset_0_1px_0_#e2e8f0]">
+                <div id="admin-user-filters" className="px-3 pb-3 pt-3 shadow-[inset_0_1px_0_#cbd5e1]">
                   {/* Tailwind preflight is disabled in this app, so nothing sets
                       border-box. Without this, a w-full input plus padding and a
                       ring renders wider than its grid column and overflows. */}
@@ -1895,7 +1871,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                           value={profileFilters.search}
                           onChange={(event) => setProfileFilters((current) => ({ ...current, search: event.target.value }))}
                           placeholder="Reference, title, or ID"
-                          className="h-10 w-full rounded-xl border-0 bg-white pl-9 pr-8 text-sm text-slate-800 shadow-sm ring-1 ring-slate-200 outline-none transition placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-300"
+                          className="h-10 w-full rounded-xl border-0 bg-white pl-9 pr-8 text-sm text-slate-800 ring-1 ring-inset ring-slate-300 outline-none transition placeholder:text-slate-400 hover:ring-slate-400 focus:ring-2 focus:ring-[#02665e]/40"
                         />
                         {profileFilters.search && (
                           <button
@@ -1924,6 +1900,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                             label="From"
                             size="sm"
                             widthClassName="w-full"
+                            strongBorder
                             value={profileFilters.from}
                             max={profileFilters.to || undefined}
                             onChangeAction={(next) => setProfileFilters((current) => ({ ...current, from: next }))}
@@ -1935,6 +1912,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                             label="To"
                             size="sm"
                             widthClassName="w-full"
+                            strongBorder
                             value={profileFilters.to}
                             min={profileFilters.from || undefined}
                             onChangeAction={(next) => setProfileFilters((current) => ({ ...current, to: next }))}
@@ -1969,7 +1947,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                           onChange={(event) =>
                             setProfileFilters((current) => ({ ...current, minAmount: event.target.value.replace(/[^0-9]/g, "") }))
                           }
-                          className="h-10 w-full min-w-0 rounded-xl border-0 bg-white px-3 text-sm tabular-nums text-slate-800 shadow-sm ring-1 ring-slate-200 outline-none transition placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-300"
+                          className="h-10 w-full min-w-0 rounded-xl border-0 bg-white px-3 text-sm tabular-nums text-slate-800 ring-1 ring-inset ring-slate-300 outline-none transition placeholder:text-slate-400 hover:ring-slate-400 focus:ring-2 focus:ring-[#02665e]/40"
                         />
                         <span className="flex-shrink-0 text-xs text-slate-400">to</span>
                         <input
@@ -1981,7 +1959,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                           onChange={(event) =>
                             setProfileFilters((current) => ({ ...current, maxAmount: event.target.value.replace(/[^0-9]/g, "") }))
                           }
-                          className="h-10 w-full min-w-0 rounded-xl border-0 bg-white px-3 text-sm tabular-nums text-slate-800 shadow-sm ring-1 ring-slate-200 outline-none transition placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-300"
+                          className="h-10 w-full min-w-0 rounded-xl border-0 bg-white px-3 text-sm tabular-nums text-slate-800 ring-1 ring-inset ring-slate-300 outline-none transition placeholder:text-slate-400 hover:ring-slate-400 focus:ring-2 focus:ring-[#02665e]/40"
                         />
                       </div>
                     </div>
@@ -2020,10 +1998,10 @@ function AdminUserDetail({ userId }: { userId: number }) {
                                   statuses: active ? [] : [status],
                                 }))
                               }
-                              className={`inline-flex appearance-none items-center gap-1 rounded-full border-0 px-3 py-1 text-xs font-semibold transition ${activityStatusTone(status)} ${
+                              className={`inline-flex appearance-none items-center gap-1 rounded-full border-0 px-3 py-1 text-xs font-semibold ring-1 ring-inset ring-black/10 transition ${activityStatusTone(status)} ${
                                 active
-                                  ? "shadow-sm ring-2 ring-current"
-                                  : "opacity-70 hover:opacity-100 hover:shadow-sm"
+                                  ? "shadow-sm ring-2 ring-current ring-offset-1"
+                                  : "opacity-80 hover:opacity-100 hover:shadow-sm"
                               }`}
                             >
                               {active && <CheckCircle className="h-3 w-3" />}
@@ -2069,7 +2047,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                         <button
                           type="button"
                           onClick={() => setProfileFilters(PROFILE_FILTERS_DEFAULT)}
-                          className="mt-3 appearance-none rounded-lg border-0 bg-white px-4 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-100"
+                          className="mt-3 appearance-none rounded-lg border-0 bg-white px-4 py-2 text-xs font-bold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-100"
                         >
                           Clear filters
                         </button>
@@ -3334,7 +3312,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                       <button
                         type="button"
                         onClick={() => setProfileFilters(PROFILE_FILTERS_DEFAULT)}
-                        className="mt-3 appearance-none rounded-lg border-0 bg-white px-4 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-100"
+                        className="mt-3 appearance-none rounded-lg border-0 bg-white px-4 py-2 text-xs font-bold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-100"
                       >
                         Clear filters
                       </button>
