@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import QRCode from "qrcode";
-import { buildProFormaSnapshot, defaultProFormaDates } from "./nrmsProForma.js";
+import { buildProFormaSnapshot, defaultProFormaDates, proFormaReceiptNumber, renderProFormaReceiptPdf } from "./nrmsProForma.js";
 import { generateNrmsProFormaPdf } from "./pdfDocuments.js";
 
 describe("NRMS agency Pro Forma", () => {
@@ -100,5 +100,16 @@ describe("NRMS agency Pro Forma", () => {
 
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     expect(pdf.length).toBeGreaterThan(10_000);
+  });
+});
+
+describe("NRMS Pro Forma receipt", () => {
+  it("pairs the receipt number with its Pro Forma", () => {
+    expect(proFormaReceiptNumber("PF-2026-000007-R1")).toBe("RCT-2026-000007-R1");
+  });
+
+  it("refuses a receipt before any payment is received", async () => {
+    const record = { number: "PF-2026-000007-R1", quotedTotal: 1_125_000, paidAtIssue: 0, balanceDue: 1_125_000, bankAccountNumberEnc: "", masterFolio: { payments: [], refunds: [] } };
+    await expect(renderProFormaReceiptPdf(record)).rejects.toThrow("NRMS_PRO_FORMA_NOT_PAID");
   });
 });

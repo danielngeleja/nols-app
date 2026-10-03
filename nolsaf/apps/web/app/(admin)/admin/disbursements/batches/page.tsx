@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, ChevronRight, Layers, Loader2, PlusCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type BatchListItem = {
   id: number;
@@ -49,6 +50,7 @@ function errorMessage(cause: any, fallback: string) {
 }
 
 export default function DisbursementBatchesPage() {
+  const recordHref = useAdminHref();
   const [batches, setBatches] = useState<BatchListItem[]>([]);
   const [abandonedCount, setAbandonedCount] = useState(0);
   // Closed shells are hidden by default so they never compete with live
@@ -213,7 +215,7 @@ export default function DisbursementBatchesPage() {
                     <td className="px-4 py-3 text-xs text-slate-600">{actorLabel(batch.authorizedBy)}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{new Date(batch.createdAt).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
-                      <Link href={`/admin/disbursements/batches/${batch.id}`} className={`${actionClass} no-underline`}>
+                      <Link href={recordHref("disbursement-batch", batch.id)} className={`${actionClass} no-underline`}>
                         Open <ChevronRight className="h-3.5 w-3.5" />
                       </Link>
                     </td>

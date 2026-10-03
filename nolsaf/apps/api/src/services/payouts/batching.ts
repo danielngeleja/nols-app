@@ -38,7 +38,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma, type Disbursement, type PayoutAccount } from "@prisma/client";
 import { computeApprovalFingerprint, computeBatchFingerprint, toBatchFingerprintMember } from "./fingerprint.js";
-import { assessDisbursementRisk } from "./riskScoring.js";
+import { assessDisbursementRisk, loadPayoutSafeguards } from "./riskScoring.js";
 import { azamPayNameLookup } from "../azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import type { AzamPayDisburseBankName } from "../azampay/disbursement/types.js";
@@ -266,6 +266,7 @@ export async function formBatch(actorId: number): Promise<FormBatchResult> {
 async function formBatchLocked(actorId: number): Promise<FormBatchResult> {
   const itemCap = batchItemCap();
   const totalCeiling = batchTotalCeiling();
+  const safeguards = await loadPayoutSafeguards();
 
   const candidates = await prisma.disbursement.findMany({
     where: { status: "APPROVED", batchId: null },
@@ -303,9 +304,13 @@ async function formBatchLocked(actorId: number): Promise<FormBatchResult> {
       continue;
     }
 
-    // 3. Risk scoring — HIGH/CRITICAL never enters a batch automatically.
-    const risk = await assessDisbursementRisk(item, item.payoutAccount);
-    if (risk.level === "HIGH" || risk.level === "CRITICAL") {
+    // 3. Risk scoring — HIGH/CRITICAL never enters a batch automatically,
+    //    unless a second admin already cleared this exact payout. The cleared
+    //    fingerprint must equal the current one (verified in step 2), so any
+    //    change to the amount or destination since clearance holds it again.
+    const risk = await assessDisbursementRisk(item, item.payoutAccount, safeguards);
+    const clearedAsIs = Boolean(item.securityClearedFingerprint) && item.securityClearedFingerprint === currentFingerprint;
+    if ((risk.level === "HIGH" || risk.level === "CRITICAL") && !clearedAsIs) {
       const reason = `Risk score ${risk.level}: ${risk.flags.join(", ") || "no specific flag"}`;
       await flagSecurityReview(item.id, reason, actorId, risk.level, risk.flags);
       excluded.push({ disbursementId: item.id, reason });

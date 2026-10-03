@@ -20,6 +20,7 @@ const ROLE_LABELS: Record<string, string> = {
   RESTAURANT: "Restaurant staff",
   BAR: "Bar staff",
   OUTLET_SUPERVISOR: "Outlet supervisor",
+  STOREKEEPER: "Storekeeper",
 };
 
 function ConfirmContent() {

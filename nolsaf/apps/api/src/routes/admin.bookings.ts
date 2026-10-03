@@ -17,9 +17,27 @@ import {
   updateNoLsafBookingStatus,
 } from "../lib/nolsafMarketplaceNrms.js";
 import { findUnitConflicts, getRoomTypeAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
+import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
+
+// Admin pages address a booking by its opaque reference (bk_...), never the
+// row id. Turn a reference into the id here so every /:id route below keeps
+// working unchanged. Numeric ids still resolve for internal callers.
+router.param("id", (async (req, res, next, value) => {
+  try {
+    const raw = String(value || "");
+    if (raw.startsWith("bk_") || /^BKG-/i.test(raw)) {
+      const bookingId = await resolveAdminBookingReference(raw);
+      if (!bookingId) return res.status(404).json({ error: "Booking not found" });
+      req.params.id = String(bookingId);
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}) as any);
 
 /** Hours an unpaid booking draft stays payable before it flips to EXPIRED.
  *  Mirrors BOOKING_DRAFT_WINDOW_HOURS in customer.bookings.ts / PAYMENT_ACCESS_TOKEN_HOURS. */
@@ -281,6 +299,7 @@ router.get("/", async (req, res) => {
       
       return {
       id: b.id,
+      reference: adminBookingReference(b.id),
       status: b.status,
       checkIn: b.checkIn,
       checkOut: b.checkOut,
@@ -531,6 +550,7 @@ router.get("/:id", async (req, res) => {
     
     const response: any = {
       ...b,
+      reference: adminBookingReference(b.id),
       cancelReason: latestCancellation?.reason ?? null,
       canceledAt: latestCancellation?.createdAt ?? null,
       cancelRefundPercent: latestCancellation?.policyRefundPercent ?? null,

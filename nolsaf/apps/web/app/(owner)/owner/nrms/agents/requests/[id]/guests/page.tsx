@@ -24,7 +24,9 @@ type Invoice = { id: number; number: string; revision: number; status: string; c
 const fmt = (value: string) => new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 const stayNights = (checkIn: string, checkOut: string) => Math.max(1, Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86_400_000));
 const money = (value: number) => Math.round(value).toLocaleString();
-const fieldLabel = "text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-500";
+const fieldLabel = "text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500";
+const primaryBtn = "box-border inline-flex h-10 flex-none cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-4 text-sm font-bold text-white no-underline shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50";
+const secondaryBtn = "box-border inline-flex h-10 flex-none cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3.5 text-sm font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50";
 const OWNER_METHOD_LABELS: Record<string, string> = { BANK: "Bank transfer", CARD: "Card", MOBILE: "Mobile money", CASH: "Cash" };
 const ownerMethodLabel = (value: string | null) => (value ? OWNER_METHOD_LABELS[value] ?? value : "Not stated");
 // sentAt is a real timestamp, so it can carry a clock time. dueAt cannot: it is
@@ -131,7 +133,6 @@ export default function HotelAgentManifestReviewPage() {
   // Cards exist to be reviewed one at a time. Once the identities are verified
   // the desk is reading a list, not judging it, so it reads as a list.
   const verified = data.manifest.status === "VERIFIED";
-  const progress = data.manifest.requiredGuests > 0 ? Math.min(100, Math.round((data.manifest.guestsAdded / data.manifest.requiredGuests) * 100)) : 0;
 
   const paymentStatus = data.booking.financials.balance <= 0 && data.booking.financials.total > 0 ? "Paid in full" : data.booking.financials.invoice?.payerMarkedPaidAt ? "Agency says paid · verify account" : data.booking.financials.invoice?.sentAt ? "Invoice sent" : data.booking.financials.invoice ? "Invoice draft" : "Awaiting invoice";
   const invoice = data.booking.financials.invoice;
@@ -143,83 +144,244 @@ export default function HotelAgentManifestReviewPage() {
   const dueInDays = invoice ? daysFromToday(invoice.dueAt) : 0;
   const dueLabel = dueInDays === 0 ? "Falls due today" : dueInDays > 0 ? `${dueInDays} day${dueInDays === 1 ? "" : "s"} from today` : `Overdue by ${Math.abs(dueInDays)} day${Math.abs(dueInDays) === 1 ? "" : "s"}`;
 
-  return <div className="flex w-full min-w-0 flex-col gap-4 pb-8">
+  const currency = data.booking.financials.currency;
+  const nights = stayNights(data.booking.checkIn, data.booking.checkOut);
+  const agencyName = data.booking.agency?.tradingName || data.booking.agency?.legalName || "Travel agency";
+  const approved = data.booking.status === "CONFIRMED" || settled;
+  const partPaid = data.booking.financials.amountPaid > 0 && !settled;
+  const manifestStatus = data.manifest.status;
+  const travellersSubmitted = ["SUBMITTED", "VERIFIED"].includes(manifestStatus);
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  // Where the booking stands, in the order the desk works it.
+  const steps: Array<{ key: string; label: string; state: "done" | "current" | "waiting"; detail: string }> = [
+    { key: "approve", label: "Approved", state: approved ? "done" : "current", detail: approved ? "Booking confirmed" : "Owner review needed" },
+    { key: "invoice", label: "Invoiced", state: invoice?.sentAt ? "done" : approved ? "current" : "waiting", detail: invoice?.sentAt ? `Sent ${fmt(invoice.sentAt)}` : invoice ? "Draft, not sent" : "Not issued" },
+    { key: "paid", label: "Paid", state: settled ? "done" : invoice?.sentAt ? "current" : "waiting", detail: settled ? "Paid in full" : partPaid ? `${currency} ${money(data.booking.financials.balance)} due` : invoice?.payerMarkedPaidAt ? "Agency says paid" : invoice ? (dueInDays < 0 ? `Overdue ${Math.abs(dueInDays)}d` : `Due ${fmt(invoice.dueAt)}`) : "Awaiting invoice" },
+    { key: "travellers", label: "Travellers", state: travellersSubmitted ? "done" : data.manifest.guestsAdded > 0 ? "current" : "waiting", detail: `${data.manifest.guestsAdded} of ${data.manifest.requiredGuests} added` },
+    { key: "verified", label: "Verified", state: verified ? "done" : manifestStatus === "SUBMITTED" ? "current" : "waiting", detail: verified ? "Identities checked" : manifestStatus === "SUBMITTED" ? "Ready to review" : manifestStatus === "RETURNED" ? "Sent back to agency" : "Not submitted" },
+    { key: "rooms", label: "Rooms", state: data.rooms?.groupId ? "done" : verified ? "current" : "waiting", detail: data.rooms?.groupId ? `${data.rooms.stays.filter((stay) => stay.roomCode).length} of ${data.rooms.stays.length} assigned` : "Not split" },
+  ];
+
+  // The one thing to do now, with its action attached.
+  const nextStep: { tone: "action" | "wait" | "alert" | "done"; title: string; detail: string; action?: ReactNode } = !approved
+    ? { tone: "action", title: "Approve the booking request", detail: "The stay has to be confirmed before an invoice can be issued.", action: <Link href="/owner/nrms/agents/requests" className={primaryBtn}>Open requests <ArrowRight className="h-4 w-4" /></Link> }
+    : !invoice
+      ? { tone: "action", title: "Issue the invoice", detail: `Set any discount and the pay-by date, then generate the invoice for ${currency} ${money(finalTotal)}.`, action: <button type="button" onClick={() => scrollTo("commercial")} className={primaryBtn}><FilePlus2 className="h-4 w-4" /> Go to invoice</button> }
+      : !invoice.sentAt
+        ? { tone: "action", title: "Send the invoice to the agency", detail: `${invoice.number} is ready as a draft. The agency cannot pay until it is sent.`, action: <button type="button" disabled={commercialBusy !== null} onClick={() => void sendInvoice()} className={primaryBtn}>{commercialBusy === "send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to agency</button> }
+        : invoice.payerMarkedPaidAt && !settled
+          ? { tone: "alert", title: "The agency says it has paid", detail: "Find the money in the property account, then record the receipt. Their declaration alone is not proof.", action: <button type="button" onClick={() => scrollTo("commercial")} className={primaryBtn}><ReceiptText className="h-4 w-4" /> Verify and record</button> }
+          : !settled && dueInDays < 0
+            ? { tone: "alert", title: `Payment is ${Math.abs(dueInDays)} day${Math.abs(dueInDays) === 1 ? "" : "s"} overdue`, detail: `${currency} ${money(data.booking.financials.balance)} was due on ${fmt(invoice.dueAt)}. Follow up with ${agencyName}.` }
+            : manifestStatus === "SUBMITTED"
+              ? { tone: "action", title: "Review the traveller identities", detail: `${data.guests.length} travellers are waiting. Verify them all, or return the ones that need correcting.`, action: <button type="button" onClick={() => scrollTo("travellers")} className={primaryBtn}><BadgeCheck className="h-4 w-4" /> Review travellers</button> }
+              : verified && !data.rooms?.groupId
+                ? { tone: "action", title: "Split the booking into rooms", detail: "Give each traveller their own room, folio, check-in and check-out.", action: <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className={primaryBtn}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BedDouble className="h-4 w-4" />} Split into rooms</button> }
+                : data.rooms?.groupId
+                  ? { tone: "done", title: "Assign rooms and run the stay", detail: "Room assignment, check-in and check-out happen in the group workspace.", action: <Link href={data.rooms.groupReference ? `/owner/nrms/groups?group=${encodeURIComponent(data.rooms.groupReference)}` : "/owner/nrms/groups"} className={primaryBtn}>Open group workspace <ArrowRight className="h-4 w-4" /></Link> }
+                  : !settled
+                    ? { tone: "wait", title: "Waiting for the agency's payment", detail: `${currency} ${money(data.booking.financials.balance)} due by ${fmt(invoice.dueAt)} (${dueLabel.toLowerCase()}).` }
+                    : { tone: "wait", title: "Waiting for traveller details", detail: "The agency has not submitted names and identity documents yet. This page updates as they do." };
+  const nextTone = {
+    action: "border-emerald-200 bg-emerald-50/60",
+    alert: "border-amber-300 bg-amber-50",
+    wait: "border-neutral-200 bg-neutral-50",
+    done: "border-emerald-200 bg-emerald-50/60",
+  }[nextStep.tone];
+
+  return <div className="flex w-full min-w-0 flex-col gap-5 pb-8">
     <Link href="/owner/nrms/agents/requests" className="inline-flex w-fit items-center gap-1.5 text-xs font-bold text-neutral-500 no-underline hover:text-neutral-900"><ArrowLeft className="h-4 w-4" /> Agent bookings</Link>
+
+    {/* Header, progress and next step: where this booking stands at a glance */}
     <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
-      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-center">
-        <div className="flex min-w-0 items-start gap-3.5"><span className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck className="h-5 w-5" /></span><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Secure identity review</p><h1 className="m-0 mt-1 truncate text-xl font-extrabold text-neutral-950 sm:text-2xl">{data.booking.agency?.tradingName || data.booking.agency?.legalName || "Travel agency"}</h1><p className="m-0 mt-1 text-[13px] text-neutral-500">Agent booking for <b className="font-semibold text-neutral-700">{data.booking.property.title}</b></p></div></div>
-        <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-3.5"><div className="flex items-center justify-between gap-3"><div><span className="block text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">Traveller readiness</span><b className="mt-1 block text-sm text-neutral-900">{data.manifest.guestsAdded} of {data.manifest.requiredGuests} complete</b></div><span className={`w-fit rounded-full px-2.5 py-1 text-[10px] font-bold ${data.manifest.status === "VERIFIED" ? "bg-emerald-100 text-emerald-700" : data.manifest.status === "SUBMITTED" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>{data.manifest.status.replace(/_/g, " ")}</span></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-200"><span className="block h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${progress}%` }} /></div></div>
-      </div>
-      <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 bg-neutral-50/70 md:grid-cols-2 xl:grid-cols-5">
-        <SummaryCell tone="sky" icon={<CalendarDays className="h-4 w-4" />} label="Stay dates" value={`${fmt(data.booking.checkIn)} → ${fmt(data.booking.checkOut)}`} detail={`${stayNights(data.booking.checkIn, data.booking.checkOut)} night${stayNights(data.booking.checkIn, data.booking.checkOut) === 1 ? "" : "s"}`} />
-        <SummaryCell tone="violet" icon={<BedDouble className="h-4 w-4" />} label="Rooms & reference" value={`${data.booking.rooms} room${data.booking.rooms === 1 ? "" : "s"}`} detail={data.booking.receiptNumber || "No receipt yet"} />
-        <SummaryCell tone="amber" icon={<Users className="h-4 w-4" />} label="Booked occupancy" value={`${data.booking.adults + data.booking.children} travellers`} detail={`${data.booking.adults} adult${data.booking.adults === 1 ? "" : "s"}${data.booking.children ? ` · ${data.booking.children} child${data.booking.children === 1 ? "" : "ren"}` : ""}`} />
-        <SummaryCell tone="emerald" icon={<CreditCard className="h-4 w-4" />} label="Payment" value={`${data.booking.financials.currency} ${money(data.booking.financials.amountPaid)} received`} detail={`${paymentStatus} · ${data.booking.financials.currency} ${money(data.booking.financials.balance)} due`} />
-        <SummaryCell tone="rose" icon={<WalletCards className="h-4 w-4" />} label="Food, drinks & extras" value={data.manifest.incidentalCover?.headline ?? "Not declared"} detail={data.manifest.incidentalCover?.detail ?? "Declared billing responsibility"} />
-      </div>
-    </section>
-    {data.rooms?.groupId ? <section className="flex flex-col gap-3 rounded-2xl border border-solid border-emerald-200 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-start gap-2.5">
-        <span className="grid h-9 w-9 flex-none place-items-center rounded-xl bg-emerald-700 text-white"><BedDouble className="h-4 w-4" /></span>
-        <div className="min-w-0">
-          <h2 className="m-0 text-sm font-extrabold text-neutral-900">Rooms are split into individual stays</h2>
-          <p className="m-0 mt-0.5 text-[11px] leading-4 text-emerald-900">Assign rooms, check in and check out each traveller in the group workspace. Block {data.rooms.blockReference}.</p>
-        </div>
-      </div>
-      <div className="flex flex-none flex-wrap items-center gap-2">
-        {/* A booking split before the double-charge was found still carries the
-            duplicate room lines that reopened its bill, so the desk can put it
-            right without support touching the database. */}
-        {data.booking.financials.status !== "SETTLED" ? <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className="box-border inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3 text-xs font-bold text-emerald-800 disabled:opacity-60">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Re-check agency bill</button> : null}
-        <Link href={data.rooms.groupReference ? `/owner/nrms/groups?group=${encodeURIComponent(data.rooms.groupReference)}` : "/owner/nrms/groups"} className="box-border inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white no-underline">Open group workspace <ArrowRight className="h-4 w-4" /></Link>
-      </div>
-    </section> : null}
-    {verified && !data.rooms?.groupId ? <section className="flex flex-col gap-3 rounded-2xl border border-solid border-amber-200 bg-amber-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-start gap-2.5">
-        <span className="grid h-9 w-9 flex-none place-items-center rounded-xl bg-amber-500 text-white"><BedDouble className="h-4 w-4" /></span>
-        <div className="min-w-0">
-          <h2 className="m-0 text-sm font-extrabold text-neutral-900">This booking is still one record for every room</h2>
-          <p className="m-0 mt-0.5 text-[11px] leading-4 text-amber-900">Split it to give each traveller their own room, folio, check-in and check-out.</p>
-        </div>
-      </div>
-      <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className="box-border inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border-0 bg-neutral-950 px-4 text-xs font-bold text-white disabled:bg-neutral-300">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BedDouble className="h-4 w-4" />} Split into rooms</button>
-    </section> : null}
-    {notice ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div> : null}
-    {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-
-    <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">Commercial review</p><h2 className="m-0 mt-1 text-lg font-extrabold text-neutral-950">{settled ? "Settled and receipted" : "Invoice and property-direct settlement"}</h2>{settled ? null : <p className="m-0 mt-1 max-w-3xl text-xs leading-5 text-neutral-500">Approve the stay, decide any discount, and issue the property invoice. An agency payment declaration is an alert only. You must verify the receiving account before recording the receipt.</p>}</div>{data.booking.financials.invoice && !settled ? <a href={`/api/owner/nrms/agents/requests/${requestId}/invoices/${data.booking.financials.invoice.id}/pdf`} target="_blank" rel="noreferrer" className="inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-200 px-3 text-xs font-bold text-neutral-700 no-underline"><Download className="h-4 w-4" /> {data.booking.financials.invoice.number}</a> : null}</div>
-      {data.booking.status !== "CONFIRMED" ? <div className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-800"><b>Owner review required.</b> Approve the booking request before issuing any invoice.</div> : settled ? <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        {data.booking.financials.invoice ? <DocumentCard href={`/api/owner/nrms/agents/requests/${requestId}/invoices/${data.booking.financials.invoice.id}/pdf`} icon={<FileText className="h-4 w-4" />} kind="Invoice" number={data.booking.financials.invoice.number} detail={`${data.booking.financials.currency} ${money(data.booking.financials.invoice.quotedTotal)}`} /> : null}
-        {latestPayment ? <DocumentCard href={`/api/owner/nrms/agents/requests/${requestId}/payments/${latestPayment.id}/receipt`} icon={<ReceiptText className="h-4 w-4" />} kind="Receipt" number={latestPayment.receiptNumber} detail={`${data.booking.financials.currency} ${money(latestPayment.amount)} on ${fmt(latestPayment.createdAt)}`} tone="emerald" /> : null}
-      </div> : <>
-        <div className="mt-4 flex flex-wrap items-end gap-2.5 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-3">
-          <div className="w-full sm:w-28"><Control label="Discount %"><input type="number" min="0" max="100" step="0.5" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} className="tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" /></Control></div>
-          <div className="w-full min-w-0 flex-1 sm:min-w-[220px]"><Control label="Discount reason"><input disabled={discountPct <= 0} value={discountReason} onChange={(event) => setDiscountReason(event.target.value)} placeholder={discountPct > 0 ? "Why this rate was reduced" : "No discount applied"} /></Control></div>
-          <div className="flex w-full min-w-0 flex-col gap-1 sm:w-48"><span className={fieldLabel}>Total after discount</span><div className="box-border flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-3"><b className="truncate text-xs font-extrabold tabular-nums text-emerald-900">{data.booking.financials.currency} {money(finalTotal)}</b>{discountPct > 0 ? <span className="flex-none text-[10px] font-bold tabular-nums text-emerald-700">{money(discountValue)} off</span> : null}</div></div>
-          <div className="flex w-full min-w-0 flex-col gap-1 sm:w-44"><span className={fieldLabel}>Pay by</span><DatePickerField label="Invoice due date" value={dueAt} onChangeAction={setDueAt} allowPast={false} min={new Date().toISOString().slice(0, 10)} twoMonths={false} size="sm" widthClassName="w-full box-border" /></div>
-          <button disabled={commercialBusy !== null || finalTotal <= 0 || (discountPct > 0 && !discountReason.trim())} onClick={() => void generateInvoice()} className="box-border inline-flex h-10 w-full flex-none items-center justify-center gap-1.5 rounded-xl bg-neutral-950 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-neutral-800 disabled:opacity-50 sm:w-auto">{commercialBusy === "generate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} {data.booking.financials.invoice ? "Generate revision" : "Generate invoice"}</button>
-        </div>
-        {invoice ? <div className="mt-3 grid gap-4 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_auto] md:items-center">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <InvoiceStat label="Final invoice" value={`${invoice.currency} ${money(invoice.quotedTotal)}`} detail={`Revision ${invoice.revision}`} />
-            <InvoiceStat label="Due" value={fmt(invoice.dueAt)} detail={dueLabel} tone={dueInDays < 0 ? "danger" : dueInDays <= 3 ? "warn" : "muted"} />
-            <InvoiceStat label="Delivery" value={invoice.sentAt ? fmtDateTime(invoice.sentAt) : "Draft"} detail={invoice.sentAt ? `Sent to ${invoice.sentToEmail || "the agency"}` : "Not sent to the agency yet"} tone={invoice.sentAt ? "ok" : "warn"} />
+      <div className="flex flex-col gap-4 px-5 pb-5 pt-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
+        <div className="flex min-w-0 items-start gap-3.5">
+          <span className="grid h-12 w-12 flex-none place-items-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><ShieldCheck className="h-6 w-6" /></span>
+          <div className="min-w-0">
+            <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-700">Agent booking</p>
+            <h1 className="m-0 mt-0.5 truncate text-2xl font-extrabold tracking-tight text-neutral-950">{agencyName}</h1>
+            <p className="m-0 mt-1 text-sm text-neutral-500">
+              {data.booking.property.title} · {fmt(data.booking.checkIn)} to {fmt(data.booking.checkOut)} · {nights} nights · {data.booking.rooms} room{data.booking.rooms === 1 ? "" : "s"}
+            </p>
           </div>
-          {!invoice.sentAt ? <button disabled={commercialBusy !== null} onClick={() => void sendInvoice()} className="box-border inline-flex h-10 w-full flex-none items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50 md:w-auto">{commercialBusy === "send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to agency</button> : null}
-        </div> : null}
-        {data.booking.financials.invoice?.payerMarkedPaidAt ? <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="mb-3"><b className="text-sm text-amber-950">Agency declared this invoice paid</b><p className="m-0 mt-1 text-xs text-amber-800">Declared {fmt(data.booking.financials.invoice.payerMarkedPaidAt)}. This is the agency's claim only. Find the credit in the property account before recording the receipt.</p><dl className="m-0 mt-2 grid gap-x-4 gap-y-2 sm:grid-cols-3"><Meta label="Agency says paid by" value={ownerMethodLabel(data.booking.financials.invoice.payerPaymentMethod)} />{data.booking.financials.invoice.payerPaymentAccountName ? <Meta label="From account" value={data.booking.financials.invoice.payerPaymentAccountName} /> : null}{data.booking.financials.invoice.payerPaymentReference ? <Meta label="Reference" value={data.booking.financials.invoice.payerPaymentReference} /> : null}</dl></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[180px_190px_minmax(180px,1fr)_auto] lg:items-end"><Control label="Amount received"><input type="number" min="0.01" max={data.booking.financials.balance} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></Control><Control label="Method"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="BANK_TRANSFER">Bank transfer</option><option value="MOBILE_MONEY">Mobile money</option><option value="CASH">Cash</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></Control><Control label="Property reference"><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Bank / receipt reference" /></Control><button disabled={commercialBusy !== null || Number(paymentAmount) <= 0} onClick={() => void confirmPayment()} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white disabled:opacity-50">{commercialBusy === "payment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />} Confirm received</button></div></div> : null}
-      </>}
+        </div>
+        <div className="flex flex-none flex-wrap items-center gap-2">
+          <StatusPill tone={settled ? "ok" : invoice?.payerMarkedPaidAt ? "warn" : dueInDays < 0 && invoice?.sentAt ? "danger" : "muted"}>{paymentStatus}</StatusPill>
+          <StatusPill tone={verified ? "ok" : manifestStatus === "SUBMITTED" ? "info" : "muted"}>Manifest {manifestStatus.replace(/_/g, " ").toLowerCase()}</StatusPill>
+        </div>
+      </div>
+
+      <ol className="m-0 grid list-none grid-cols-2 gap-px border-0 border-t border-solid border-neutral-200 bg-neutral-200 p-0 sm:grid-cols-3 xl:grid-cols-6">
+        {steps.map((step, index) => (
+          <li key={step.key} className={`flex min-w-0 items-start gap-2.5 px-4 py-3.5 ${step.state === "current" ? "bg-emerald-50/50" : "bg-white"}`}>
+            <span className={`mt-0.5 grid h-6 w-6 flex-none place-items-center rounded-full text-[11px] font-bold ${step.state === "done" ? "bg-emerald-600 text-white" : step.state === "current" ? "bg-white text-emerald-700 ring-2 ring-emerald-500" : "bg-neutral-100 text-neutral-400"}`}>
+              {step.state === "done" ? <BadgeCheck className="h-3.5 w-3.5" /> : index + 1}
+            </span>
+            <span className="min-w-0">
+              <span className={`block text-sm font-bold ${step.state === "waiting" ? "text-neutral-400" : "text-neutral-900"}`}>{step.label}</span>
+              <span className={`mt-0.5 block truncate text-xs ${step.state === "current" ? "font-semibold text-emerald-700" : "text-neutral-500"}`}>{step.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+
+      <div className={`m-4 flex flex-col gap-3 rounded-xl border border-solid p-4 sm:m-5 sm:flex-row sm:items-center sm:justify-between ${nextTone}`}>
+        <div className="min-w-0">
+          <p className={`m-0 text-[11px] font-bold uppercase tracking-[0.1em] ${nextStep.tone === "alert" ? "text-amber-800" : nextStep.tone === "wait" ? "text-neutral-500" : "text-emerald-700"}`}>{nextStep.tone === "wait" ? "Nothing to do right now" : "Next step"}</p>
+          <p className="m-0 mt-1 text-base font-bold text-neutral-950">{nextStep.title}</p>
+          <p className="m-0 mt-0.5 max-w-2xl text-sm leading-6 text-neutral-600">{nextStep.detail}</p>
+        </div>
+        {nextStep.action ? <div className="flex flex-none">{nextStep.action}</div> : null}
+      </div>
     </section>
 
-    {data.guests.length === 0 ? <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-solid border-neutral-300 bg-white p-5 sm:flex-row sm:items-center"><span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-neutral-100 text-neutral-500"><ReceiptText className="h-5 w-5" /></span><div><h2 className="m-0 text-base font-extrabold text-neutral-800">Traveller details have not been started</h2><p className="mb-0 mt-1 max-w-3xl text-[13px] leading-5 text-neutral-500">The booking is secured, but the agency has not submitted guest names or identity documents yet. This page will populate automatically as their manifest progresses.</p></div></section> : verified ? <VerifiedTravellerTable guests={data.guests} requestId={requestId} stays={data.rooms?.stays ?? []} /> : <div className="grid gap-3 lg:grid-cols-2">{data.guests.map((guest) => <section key={guest.id} className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-neutral-100"><Users className="h-4 w-4 text-neutral-600" /></span><div><h2 className="m-0 text-sm font-extrabold text-neutral-900">{guest.fullName || "Traveller details in progress"}</h2><p className="m-0 mt-0.5 text-[10px] text-neutral-500">Room {guest.roomNumber} · {guest.guestType.toLowerCase()}{guest.isLead ? " · lead guest" : ""}</p></div></div>{guest.status === "ACCEPTED" ? <BadgeCheck className="h-5 w-5 text-emerald-600" /> : null}</div>
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-0 border-t border-solid border-neutral-100 pt-3"><Meta label="Nationality" value={guest.nationality || "Not provided"} /><Meta label="Date of birth" value={guest.dateOfBirth ? fmt(guest.dateOfBirth) : "Not provided"} /><Meta label="Document" value={guest.documentType && guest.documentNumber ? `${guest.documentType.replace(/_/g, " ")} · ${guest.documentNumber}` : "Not provided"} /><Meta label="Valid until" value={guest.documentExpiry ? fmt(guest.documentExpiry) : "Not provided"} /><Meta label="Phone" value={guest.phone || "Not provided"} /><Meta label="Email" value={guest.email || "Not provided"} /></dl>
-      {guest.documentUploaded ? <a href={`/api/owner/nrms/agents/requests/${requestId}/guests/${guest.id}/document`} target="_blank" rel="noreferrer" className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 no-underline hover:border-neutral-400"><FileSearch className="h-4 w-4" /> Review protected document</a> : <span className="mt-3 inline-flex h-9 items-center rounded-lg bg-neutral-100 px-3 text-xs font-semibold text-neutral-500">Document not uploaded</span>}
-      {reviewable ? <label className="mt-3 block text-[10px] font-bold uppercase tracking-wide text-neutral-500">Correction for this traveller (only if needed)<textarea value={issues[guest.id] || ""} onChange={(event) => setIssues((current) => ({ ...current, [guest.id]: event.target.value }))} placeholder="Example: passport image is unreadable" className="mt-1 min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-xs font-normal normal-case tracking-normal text-neutral-800 outline-none focus:border-amber-400" /></label> : null}
-    </section>)}</div>}
+    {notice ? <div role="status" className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</div> : null}
+    {error ? <div role="alert" className="rounded-xl border border-solid border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
 
-    {reviewable ? <section className="sticky bottom-3 z-10 rounded-2xl border border-solid border-neutral-200 bg-white/95 p-3 shadow-lg backdrop-blur"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional overall review note" className="min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-xs outline-none focus:border-emerald-400" /><div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button disabled={busy} onClick={() => void decide("RETURN")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-800"><RotateCcw className="h-4 w-4" /> Return for correction</button><button disabled={busy} onClick={() => void decide("VERIFY")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Verify all travellers</button></div></section> : null}
+    <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="flex min-w-0 flex-col gap-5">
+        {/* Invoice and payment */}
+        <section id="commercial" className="scroll-mt-4 rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="m-0 text-lg font-extrabold text-neutral-950">{settled ? "Invoice settled" : "Invoice and payment"}</h2>
+              {settled ? null : <p className="m-0 mt-1 max-w-3xl text-sm leading-6 text-neutral-500">The agency pays the property directly. A payment the agency declares is only an alert: find the money in the property account before recording the receipt.</p>}
+            </div>
+          </div>
+
+          {!approved ? <div className="mt-4 rounded-xl bg-amber-50 p-3.5 text-sm text-amber-900"><b>Owner review required.</b> Approve the booking request before issuing any invoice.</div> : settled ? <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {invoice ? <DocumentCard href={`/api/owner/nrms/agents/requests/${requestId}/invoices/${invoice.id}/pdf`} icon={<FileText className="h-4 w-4" />} kind="Invoice" number={invoice.number} detail={`${currency} ${money(invoice.quotedTotal)}`} /> : null}
+            {latestPayment ? <DocumentCard href={`/api/owner/nrms/agents/requests/${requestId}/payments/${latestPayment.id}/receipt`} icon={<ReceiptText className="h-4 w-4" />} kind="Receipt" number={latestPayment.receiptNumber} detail={`${currency} ${money(latestPayment.amount)} on ${fmt(latestPayment.createdAt)}`} tone="emerald" /> : null}
+          </div> : <>
+            {invoice ? <div className="mt-5 grid gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-4">
+              <InvoiceStat label="Invoice" value={invoice.number} detail={`Revision ${invoice.revision}`} />
+              <InvoiceStat label="Amount" value={`${invoice.currency} ${money(invoice.quotedTotal)}`} detail={data.booking.financials.amountPaid > 0 ? `${currency} ${money(data.booking.financials.amountPaid)} received` : "Nothing received yet"} tone={data.booking.financials.amountPaid > 0 ? "ok" : "muted"} />
+              <InvoiceStat label="Due" value={fmt(invoice.dueAt)} detail={dueLabel} tone={dueInDays < 0 ? "danger" : dueInDays <= 3 ? "warn" : "muted"} />
+              <InvoiceStat label="Delivery" value={invoice.sentAt ? fmtDateTime(invoice.sentAt) : "Draft"} detail={invoice.sentAt ? `Sent to ${invoice.sentToEmail || "the agency"}` : "Not sent yet"} tone={invoice.sentAt ? "ok" : "warn"} />
+            </div> : null}
+            {invoice ? <div className="mt-3 flex flex-wrap items-center gap-2">
+              <a href={`/api/owner/nrms/agents/requests/${requestId}/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer" className={secondaryBtn}><Download className="h-4 w-4" /> Download {invoice.number}</a>
+              {!invoice.sentAt ? <button type="button" disabled={commercialBusy !== null} onClick={() => void sendInvoice()} className={primaryBtn}>{commercialBusy === "send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to agency</button> : null}
+            </div> : null}
+
+            {invoice?.payerMarkedPaidAt ? <div className="mt-5 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4">
+              <p className="m-0 text-sm font-bold text-amber-950">The agency declared this invoice paid</p>
+              <p className="m-0 mt-1 text-sm leading-6 text-amber-900">Declared {fmt(invoice.payerMarkedPaidAt)}. Confirm the credit in the property account, then record it here.</p>
+              <dl className="m-0 mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-3"><Meta label="Paid by" value={ownerMethodLabel(invoice.payerPaymentMethod)} />{invoice.payerPaymentAccountName ? <Meta label="From account" value={invoice.payerPaymentAccountName} /> : null}{invoice.payerPaymentReference ? <Meta label="Their reference" value={invoice.payerPaymentReference} /> : null}</dl>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[180px_190px_minmax(180px,1fr)_auto] lg:items-end">
+                <Control label="Amount received"><input type="number" min="0.01" max={data.booking.financials.balance} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></Control>
+                <Control label="Method"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}><option value="BANK_TRANSFER">Bank transfer</option><option value="MOBILE_MONEY">Mobile money</option><option value="CASH">Cash</option><option value="CARD">Card</option><option value="OTHER">Other</option></select></Control>
+                <Control label="Property reference"><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="Bank or receipt reference" /></Control>
+                <button type="button" disabled={commercialBusy !== null || Number(paymentAmount) <= 0} onClick={() => void confirmPayment()} className={primaryBtn}>{commercialBusy === "payment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ReceiptText className="h-4 w-4" />} Confirm received</button>
+              </div>
+            </div> : null}
+
+            <details className="group mt-5 overflow-hidden rounded-xl border border-solid border-sky-200 bg-white transition-colors open:border-sky-300" open={!invoice}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-sky-50/70 px-4 py-3 transition-colors hover:bg-sky-100/70 [&::-webkit-details-marker]:hidden">
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-sky-600 text-white shadow-sm"><FilePlus2 className="h-4 w-4" /></span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-sky-950">{invoice ? "Issue a revised invoice" : "Issue the invoice"}</span>
+                    <span className="block text-xs text-sky-800/80">{invoice ? "Change the discount or pay-by date and replace the current invoice" : "Set any discount and the pay-by date"}</span>
+                  </span>
+                </span>
+                <span className="inline-flex flex-none items-center gap-1.5 rounded-lg border border-solid border-sky-300 bg-white px-3 py-1.5 text-xs font-bold text-sky-800">
+                  <span className="group-open:hidden">Open</span><span className="hidden group-open:inline">Close</span>
+                  <ArrowRight className="h-3.5 w-3.5 transition group-open:rotate-90" />
+                </span>
+              </summary>
+              <div className="space-y-4 border-0 border-t border-solid border-sky-100 p-4 sm:p-5">
+                {/* Row 1: what the desk decides */}
+                <div className="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)_11rem]">
+                  <Control label="Discount %"><input type="number" min="0" max="100" step="0.5" value={discountPercent} onChange={(event) => setDiscountPercent(event.target.value)} className="tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" /></Control>
+                  <Control label={discountPct > 0 ? "Discount reason (required)" : "Discount reason"}><input disabled={discountPct <= 0} value={discountReason} onChange={(event) => setDiscountReason(event.target.value)} placeholder={discountPct > 0 ? "Why this rate was reduced, for example: repeat agency rate" : "No discount applied"} /></Control>
+                  <div className="flex min-w-0 flex-col gap-1"><span className={fieldLabel}>Pay by</span><DatePickerField label="Invoice due date" value={dueAt} onChangeAction={setDueAt} allowPast={false} min={new Date().toISOString().slice(0, 10)} twoMonths={false} size="sm" widthClassName="w-full box-border" /></div>
+                </div>
+
+                {/* Row 2: the arithmetic in full, then the action */}
+                <div className="flex flex-col gap-4 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <dl className="m-0 flex flex-wrap items-end gap-x-5 gap-y-3">
+                    <div>
+                      <dt className={fieldLabel}>Current total</dt>
+                      <dd className="m-0 mt-1 text-base font-bold tabular-nums text-neutral-800">{currency} {money(grossTotal)}</dd>
+                    </div>
+                    <span className="pb-0.5 text-lg font-bold text-neutral-300" aria-hidden>−</span>
+                    <div>
+                      <dt className={fieldLabel}>Discount {discountPct > 0 ? `${discountPct}%` : ""}</dt>
+                      <dd className={`m-0 mt-1 text-base font-bold tabular-nums ${discountPct > 0 ? "text-amber-700" : "text-neutral-400"}`}>{currency} {money(discountValue)}</dd>
+                    </div>
+                    <span className="pb-0.5 text-lg font-bold text-neutral-300" aria-hidden>=</span>
+                    <div>
+                      <dt className={`${fieldLabel} text-emerald-700`}>New invoice total</dt>
+                      <dd className="m-0 mt-1 text-2xl font-extrabold tracking-tight tabular-nums text-emerald-800">{currency} {money(finalTotal)}</dd>
+                    </div>
+                  </dl>
+                  <div className="flex flex-col items-stretch gap-1.5 lg:items-end">
+                    <button type="button" disabled={commercialBusy !== null || finalTotal <= 0 || (discountPct > 0 && !discountReason.trim())} onClick={() => void generateInvoice()} className="box-border inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-sky-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50">
+                      {commercialBusy === "generate" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FilePlus2 className="h-4 w-4" />} {invoice ? "Generate revision" : "Generate invoice"}
+                    </button>
+                    {discountPct > 0 && !discountReason.trim()
+                      ? <span className="text-xs font-semibold text-amber-700">Add a reason for the discount first.</span>
+                      : invoice
+                        ? <span className="text-xs text-neutral-500">Replaces {invoice.number}. Send the new revision afterwards.</span>
+                        : null}
+                  </div>
+                </div>
+              </div>
+            </details>
+          </>}
+        </section>
+
+        {/* Travellers */}
+        <div id="travellers" className="scroll-mt-4">
+          {data.guests.length === 0 ? <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-neutral-300 bg-white p-6 sm:flex-row sm:items-center">
+            <span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-neutral-100 text-neutral-500"><Users className="h-5 w-5" /></span>
+            <div><h2 className="m-0 text-base font-extrabold text-neutral-800">No travellers yet</h2><p className="mb-0 mt-1 max-w-3xl text-sm leading-6 text-neutral-500">The agency has not submitted guest names or identity documents. This section fills in automatically as they do.</p></div>
+          </section> : verified ? <VerifiedTravellerTable guests={data.guests} requestId={requestId} stays={data.rooms?.stays ?? []} /> : <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2 px-1"><h2 className="m-0 text-base font-extrabold text-neutral-900">Travellers to review</h2><span className="text-xs font-semibold text-neutral-500">{data.guests.length} submitted</span></div>
+            <div className="grid gap-3 lg:grid-cols-2">{data.guests.map((guest) => <section key={guest.id} className="rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2.5"><span className="grid h-9 w-9 place-items-center rounded-lg bg-neutral-100"><Users className="h-4 w-4 text-neutral-600" /></span><div><h3 className="m-0 text-sm font-extrabold text-neutral-900">{guest.fullName || "Traveller details in progress"}</h3><p className="m-0 mt-0.5 text-xs text-neutral-500">Room {guest.roomNumber} · {guest.guestType.toLowerCase()}{guest.isLead ? " · lead guest" : ""}</p></div></div>{guest.status === "ACCEPTED" ? <BadgeCheck className="h-5 w-5 text-emerald-600" /> : null}</div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 border-0 border-t border-solid border-neutral-100 pt-3"><Meta label="Nationality" value={guest.nationality || "Not provided"} /><Meta label="Date of birth" value={guest.dateOfBirth ? fmt(guest.dateOfBirth) : "Not provided"} /><Meta label="Document" value={guest.documentType && guest.documentNumber ? `${guest.documentType.replace(/_/g, " ")} · ${guest.documentNumber}` : "Not provided"} /><Meta label="Valid until" value={guest.documentExpiry ? fmt(guest.documentExpiry) : "Not provided"} /><Meta label="Phone" value={guest.phone || "Not provided"} /><Meta label="Email" value={guest.email || "Not provided"} /></dl>
+              {guest.documentUploaded ? <a href={`/api/owner/nrms/agents/requests/${requestId}/guests/${guest.id}/document`} target="_blank" rel="noreferrer" className={`${secondaryBtn} mt-3`}><FileSearch className="h-4 w-4" /> Review protected document</a> : <span className="mt-3 inline-flex h-9 items-center rounded-lg bg-neutral-100 px-3 text-xs font-semibold text-neutral-500">Document not uploaded</span>}
+              {reviewable ? <label className="mt-3 block text-[11px] font-bold uppercase tracking-wide text-neutral-500">Correction for this traveller (only if needed)<textarea value={issues[guest.id] || ""} onChange={(event) => setIssues((current) => ({ ...current, [guest.id]: event.target.value }))} placeholder="Example: passport image is unreadable" className="mt-1 box-border min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-sm font-normal normal-case tracking-normal text-neutral-800 outline-none focus:border-amber-400" /></label> : null}
+            </section>)}</div>
+          </div>}
+        </div>
+
+        {reviewable ? <section className="sticky bottom-3 z-10 rounded-2xl border border-solid border-neutral-200 bg-white/95 p-3 shadow-lg backdrop-blur"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional overall review note" className="box-border min-h-16 w-full resize-y rounded-lg border border-solid border-neutral-200 p-2.5 text-sm outline-none focus:border-emerald-400" /><div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={busy} onClick={() => void decide("RETURN")} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-amber-50 px-4 text-xs font-bold text-amber-800"><RotateCcw className="h-4 w-4" /> Return for correction</button><button type="button" disabled={busy} onClick={() => void decide("VERIFY")} className={primaryBtn}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />} Verify all travellers</button></div></section> : null}
+      </div>
+
+      {/* Sidebar: the facts, documents and rooms, read rather than worked */}
+      <aside className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-4">
+        <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm">
+          <h2 className="m-0 text-sm font-extrabold text-neutral-900">Booking details</h2>
+          <dl className="m-0 mt-3 divide-y divide-neutral-100">
+            <FactRow icon={<CalendarDays className="h-4 w-4" />} label="Stay" value={`${fmt(data.booking.checkIn)} to ${fmt(data.booking.checkOut)}`} detail={`${nights} night${nights === 1 ? "" : "s"}`} />
+            <FactRow icon={<BedDouble className="h-4 w-4" />} label="Rooms" value={`${data.booking.rooms} room${data.booking.rooms === 1 ? "" : "s"}`} detail={data.booking.receiptNumber || "No voucher reference yet"} />
+            <FactRow icon={<Users className="h-4 w-4" />} label="Travellers" value={`${data.booking.adults + data.booking.children} booked`} detail={`${data.booking.adults} adult${data.booking.adults === 1 ? "" : "s"}${data.booking.children ? ` · ${data.booking.children} child${data.booking.children === 1 ? "" : "ren"}` : ""}`} />
+            <FactRow icon={<CreditCard className="h-4 w-4" />} label="Payment" value={`${currency} ${money(data.booking.financials.amountPaid)} received`} detail={settled ? "Paid in full" : `${currency} ${money(data.booking.financials.balance)} due`} />
+          </dl>
+        </section>
+
+        <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm">
+          <h2 className="m-0 flex items-center gap-2 text-sm font-extrabold text-neutral-900"><WalletCards className="h-4 w-4 text-neutral-500" /> Food, drinks and extras</h2>
+          <p className="m-0 mt-2 text-sm font-semibold text-neutral-800">{data.manifest.incidentalCover?.headline ?? "Not declared"}</p>
+          <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">{data.manifest.incidentalCover?.detail ?? "The agency has not declared who pays for extras."}</p>
+        </section>
+
+        {data.rooms?.groupId ? <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-5 shadow-sm">
+          <h2 className="m-0 flex items-center gap-2 text-sm font-extrabold text-neutral-900"><BedDouble className="h-4 w-4 text-neutral-500" /> Rooms</h2>
+          <p className="m-0 mt-2 text-xs leading-5 text-neutral-500">Split into individual stays under block <span className="font-mono">{data.rooms.blockReference}</span>.</p>
+          <div className="mt-3 flex flex-col gap-2">
+            <Link href={data.rooms.groupReference ? `/owner/nrms/groups?group=${encodeURIComponent(data.rooms.groupReference)}` : "/owner/nrms/groups"} className={`${secondaryBtn} justify-center`}>Open group workspace <ArrowRight className="h-4 w-4" /></Link>
+            {/* A booking split before the double-charge was found still carries
+                the duplicate room lines that reopened its bill. */}
+            {!settled ? <button type="button" disabled={busy} onClick={() => void splitIntoRooms()} className={`${secondaryBtn} justify-center`}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Re-check agency bill</button> : null}
+          </div>
+        </section> : null}
+      </aside>
+    </div>
   </div>;
 }
 
@@ -343,28 +505,37 @@ function DocumentCard({ href, icon, kind, number, detail, tone = "neutral" }: { 
 const invoiceStatTones = { muted: "text-neutral-500", ok: "text-emerald-700", warn: "text-amber-700", danger: "text-rose-700" } as const;
 
 function InvoiceStat({ label, value, detail, tone = "muted" }: { label: string; value: string; detail: string; tone?: keyof typeof invoiceStatTones }) {
-  return <div className="min-w-0">
+  return <div className="min-w-0 bg-white px-4 py-3.5">
     <span className={`block ${fieldLabel}`}>{label}</span>
     <b className="mt-1 block break-words text-sm font-extrabold leading-5 tracking-tight text-neutral-950">{value}</b>
-    <span className={`mt-0.5 block break-words text-[11px] font-semibold leading-4 ${invoiceStatTones[tone]}`}>{detail}</span>
+    <span className={`mt-0.5 block break-words text-xs font-semibold leading-4 ${invoiceStatTones[tone]}`}>{detail}</span>
   </div>;
 }
 
-function Meta({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><dt className="text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">{label}</dt><dd className="m-0 mt-0.5 break-words text-[11px] font-semibold text-neutral-700">{value}</dd></div>; }
+function Meta({ label, value }: { label: string; value: string }) { return <div className="min-w-0"><dt className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">{label}</dt><dd className="m-0 mt-0.5 break-words text-[13px] font-semibold text-neutral-700">{value}</dd></div>; }
 
-// Each summary cell carries its own hue so the five facts stay tellable apart
-// at a glance. The colour marks the category, never the value's status.
-const summaryTones = {
-  sky: { chip: "bg-sky-50 text-sky-700 ring-sky-200", label: "text-sky-700" },
-  violet: { chip: "bg-violet-50 text-violet-700 ring-violet-200", label: "text-violet-700" },
-  amber: { chip: "bg-amber-50 text-amber-700 ring-amber-200", label: "text-amber-700" },
-  emerald: { chip: "bg-emerald-50 text-emerald-700 ring-emerald-200", label: "text-emerald-700" },
-  rose: { chip: "bg-rose-50 text-rose-700 ring-rose-200", label: "text-rose-700" },
+const pillTones = {
+  ok: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  info: "bg-blue-50 text-blue-700 ring-blue-200",
+  warn: "bg-amber-50 text-amber-800 ring-amber-200",
+  danger: "bg-red-50 text-red-700 ring-red-200",
+  muted: "bg-neutral-100 text-neutral-600 ring-neutral-200",
 } as const;
 
-function SummaryCell({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: string; detail: string; tone: keyof typeof summaryTones }) {
-  const palette = summaryTones[tone];
-  return <div className="flex min-w-0 items-start gap-3 border-0 border-b border-solid border-neutral-200 p-4 last:border-b-0 md:[&:nth-child(odd)]:border-r xl:border-b-0 xl:border-r xl:last:border-r-0"><span className={`mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-lg shadow-sm ring-1 ${palette.chip}`}>{icon}</span><div className="min-w-0"><span className={`block text-[9px] font-bold uppercase tracking-[0.08em] ${palette.label}`}>{label}</span><b className="mt-1 block break-words text-[12px] text-neutral-800">{value}</b><span className="mt-0.5 block break-words text-[10px] leading-4 text-neutral-500">{detail}</span></div></div>;
+function StatusPill({ tone, children }: { tone: keyof typeof pillTones; children: ReactNode }) {
+  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ${pillTones[tone]}`}>{children}</span>;
+}
+
+/** One quiet line in the sidebar: an icon, what it is, and the value. */
+function FactRow({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
+  return <div className="flex min-w-0 items-start gap-3 py-3 first:pt-0 last:pb-0">
+    <span className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-lg bg-neutral-100 text-neutral-500">{icon}</span>
+    <div className="min-w-0">
+      <dt className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-400">{label}</dt>
+      <dd className="m-0 mt-0.5 break-words text-sm font-semibold text-neutral-900">{value}</dd>
+      <dd className="m-0 mt-0.5 break-words text-xs text-neutral-500">{detail}</dd>
+    </div>
+  </div>;
 }
 
 function Control({ label, children }: { label: string; children: ReactNode }) {

@@ -1,5 +1,9 @@
 import { getMaxLoginAttempts, getAccountLockoutDurationMinutes, shouldLogFailedLoginAttempts } from './securitySettings.js';
 import { getRedis } from './redis.js';
+import { raiseSecurityAlert } from './securityAlerts.js';
+
+// Failed attempts from one address within an hour that raise an admin alert.
+const IP_BURST_ALERT_THRESHOLD = 20;
 
 // Redis key prefixes
 const REDIS_ATTEMPT_PREFIX = 'login:attempt:';
@@ -91,11 +95,15 @@ export async function recordFailedAttempt(email: string, ip: string): Promise<vo
         if (shouldLog) {
           console.warn(`[SECURITY] Account locked: ${email} for ${lockoutSec}s after ${count} failed attempts`);
         }
+        void raiseSecurityAlert('security_account_locked', key, { identifier: email, ip, attempts: count, lockoutMinutes: Math.round((lockoutSec || 300) / 60) });
       }
 
-      // IP tracking (informational, 1 h window)
-      await r.incr(ipKey);
+      // IP tracking (1 h window); crossing the burst threshold alerts once
+      const ipCount = await r.incr(ipKey);
       await r.expire(ipKey, 3600);
+      if (ipCount === IP_BURST_ALERT_THRESHOLD) {
+        void raiseSecurityAlert('security_ip_burst', ip, { ip, attempts: ipCount });
+      }
       return;
     }
   } catch (err) {
@@ -114,12 +122,16 @@ export async function recordFailedAttempt(email: string, ip: string): Promise<vo
     if (emailAttempt.count >= maxAttempts) {
       emailAttempt.lockedUntil = now + lockoutMs;
       if (shouldLog) console.warn(`[SECURITY] Account locked (mem): ${email} until ${new Date(emailAttempt.lockedUntil).toISOString()}`);
+      void raiseSecurityAlert('security_account_locked', key, { identifier: email, ip, attempts: emailAttempt.count, lockoutMinutes: Math.round(lockoutMs / 60000) });
     }
     memEmail.set(key, emailAttempt);
     const ipAttempt = memIp.get(ip) || { count: 0, lastAttempt: now };
     ipAttempt.count += 1;
     ipAttempt.lastAttempt = now;
     memIp.set(ip, ipAttempt);
+    if (ipAttempt.count === IP_BURST_ALERT_THRESHOLD) {
+      void raiseSecurityAlert('security_ip_burst', ip, { ip, attempts: ipAttempt.count });
+    }
     if (shouldLog) console.warn(`[SECURITY] Failed login (mem): ${email} from ${ip} (attempt ${emailAttempt.count}/${maxAttempts})`);
   } catch (err) {
     console.error('[recordFailedAttempt] Fallback error:', err);

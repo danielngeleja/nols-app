@@ -4,9 +4,13 @@ import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
 import { accrueNrmsSalesCommission } from "./salesCommission.js";
 import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
-import { shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
+import { hotelCalendarDayKey, shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Statement/token creation can follow bulk usage writes on a slow database.
+// Keep that entire change atomic, but allow more than Prisma's 5-second default.
+export const NRMS_STATEMENT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function utcDay(value: Date): Date {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -152,10 +156,20 @@ export type NrmsCheckoutDeclaration = {
   actorId?: number | null;
 };
 
-export function checkoutDepartureFacts(plannedCheckOut: Date, businessDate: string) {
-  const actualDepartureDate = shiftDateOnly(businessDate);
+/**
+ * The physical departure is a calendar fact. A business day held open by an
+ * unfinished Night Audit must never make a guest look like they left early,
+ * and must never cut billing short of nights that really happened, so the
+ * departure day is the later of the open business day and today's EAT date.
+ */
+export function checkoutDepartureFacts(plannedCheckOut: Date, businessDate: string, now: Date = new Date()) {
+  const calendarDate = hotelCalendarDayKey(now);
+  const departureDateKey = businessDate > calendarDate ? businessDate : calendarDate;
+  const actualDepartureDate = shiftDateOnly(departureDateKey);
   return {
     actualDepartureDate,
+    departureDateKey,
+    businessDayBehind: businessDate < calendarDate,
     earlyDeparture: actualDepartureDate < utcDay(plannedCheckOut),
   };
 }
@@ -272,7 +286,9 @@ export async function finalizeNrmsCheckout(
         usageEvents: result.usageEvents,
         billableAmount: result.billableAmount,
         plannedCheckOut: new Date(reservation.checkOut).toISOString(),
-        actualDepartureDate: businessDate,
+        actualDepartureDate: departure.departureDateKey,
+        businessDate,
+        ...(departure.businessDayBehind ? { businessDayBehind: true } : {}),
         earlyDeparture: departure.earlyDeparture,
         earlyDepartureReason,
         roomVacantConfirmed: Boolean(declaration.roomVacantConfirmed),
@@ -285,7 +301,7 @@ export async function finalizeNrmsCheckout(
       },
     },
   });
-  return result;
+  return { ...result, businessDate, businessDayBehind: departure.businessDayBehind };
 }
 
 export type NrmsPaymentReconcileInput = {
@@ -301,7 +317,17 @@ export async function reconcileNrmsPayment(tx: any, input: NrmsPaymentReconcileI
   if (!token) throw new Error("NRMS_TOKEN_NOT_FOUND");
   // A repeated callback for the token that already won is idempotent. It must
   // never create another payment or reduce the account balance twice.
-  if (token.payment) return { payment: token.payment, statementId: token.statementId };
+  if (token.payment) {
+    if (
+      input.provider === "CORALCOMMERCE" &&
+      (
+        token.payment.provider !== input.provider ||
+        token.payment.providerRef !== input.providerRef ||
+        Number(token.payment.amount) !== input.amount
+      )
+    ) throw new Error("NRMS_TOKEN_ALREADY_SETTLED_BY_ANOTHER_PAYMENT");
+    return { payment: token.payment, statementId: token.statementId };
+  }
   const tokenStatus = String(token.status || "").toUpperCase();
   if (!["PENDING", "PROCESSING"].includes(tokenStatus)) throw new Error("NRMS_TOKEN_INVALID_STATUS");
   if (token.expiresAt <= new Date()) throw new Error("NRMS_TOKEN_EXPIRED");
@@ -356,8 +382,38 @@ export async function reconcileNrmsPaymentAndAccrue(
 ) {
   // Keep the authoritative payment transaction short. Commission attribution
   // performs several independent reads and must never consume the transaction's
-  // timeout or poison its commit when that secondary work is slow.
-  const settled = await client.$transaction((tx: any) => reconcileNrmsPayment(tx, input));
+  // timeout or poison its commit when that secondary work is slow. The staging
+  // database can take over five seconds for the settlement writes alone, so the
+  // default interactive transaction timeout is too short for this path.
+  let settled: { payment: any; statementId: number } | null = null;
+  try {
+    settled = await client.$transaction(
+      (tx: any) => reconcileNrmsPayment(tx, input),
+      { maxWait: 10_000, timeout: 20_000 },
+    );
+  } catch (error) {
+    // Callback and browser postback can settle the same token concurrently.
+    // After a losing transaction rolls back, check the committed state. Only
+    // acknowledge it as a retry if this exact token has a verified payment
+    // for the same provider transaction and amount.
+    try {
+      const token = await client.nrmsServicePaymentToken.findUnique({
+        where: { token: input.token },
+        include: { payment: true, statement: { select: { status: true } } },
+      });
+      if (
+        token?.statement?.status === "PAID" &&
+        token.payment?.status === "VERIFIED" &&
+        token.payment.provider === input.provider &&
+        token.payment.providerRef === input.providerRef &&
+        Number(token.payment.amount) === input.amount
+      ) {
+        settled = { payment: token.payment, statementId: token.statementId };
+      }
+    } catch { /* Preserve the original settlement error. */ }
+    if (!settled) throw error;
+  }
+  if (!settled) throw new Error("NRMS_SETTLEMENT_RESULT_MISSING");
   await accrueNrmsSalesCommissionAfterCommit(client, settled.statementId, context);
   return settled.payment;
 }

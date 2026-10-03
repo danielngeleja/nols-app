@@ -5,6 +5,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { Activity, AlertTriangle, ArrowLeft, Building2, Clock3, Coins, FileText, Loader2, RefreshCw, Search, Wallet } from "lucide-react";
 import { CountPill, EmptyState, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Account = {
   id: number; propertyId: number; propertyTitle: string;
@@ -39,6 +40,7 @@ function clampPercent(part: number, whole: number): number {
 }
 
 export default function AdminNrmsBillingPage() {
+  const recordHref = useAdminHref();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [openStatements, setOpenStatements] = useState<OpenStatement[]>([]);
   const [processingTokens, setProcessingTokens] = useState<ProcessingToken[]>([]);
@@ -134,7 +136,7 @@ export default function AdminNrmsBillingPage() {
                     <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-neutral-900"><span className="truncate">{a.propertyTitle}</span><span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${style.badge}`}>{a.status.replaceAll("_", " ")}</span></p>
                     <p className="mb-0 mt-1 text-[10px] text-neutral-400">{a.owner.name}<span> · trial ends {a.trialEndsAt ? shortDate(a.trialEndsAt) : "Not recorded"}</span></p>
                   </div>
-                  <Link href={`/admin/nrms/${a.propertyId}`} className="shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">View</Link>
+                  <Link href={recordHref("property", a.propertyId)} className="shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">View</Link>
                 </div>
                 <div className="mt-2.5">
                   <div className="flex items-baseline justify-between gap-2">
@@ -165,7 +167,7 @@ export default function AdminNrmsBillingPage() {
                     <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{a.trialEndsAt ? shortDate(a.trialEndsAt) : "Not recorded"}</td>
                     <td className={`px-4 py-3 text-right tabular-nums ${a.unpaidBalance > 0 ? "font-bold text-neutral-900" : "text-neutral-400"}`}>{a.unpaidBalance.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-neutral-500">{a.unpaidLimit.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right sm:px-5"><Link href={`/admin/nrms/${a.propertyId}`} className="rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">View</Link></td>
+                    <td className="px-4 py-3 text-right sm:px-5"><Link href={recordHref("property", a.propertyId)} className="rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">View</Link></td>
                   </tr>
                 );
               })}

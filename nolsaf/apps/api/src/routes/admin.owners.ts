@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { toCsv } from "../lib/csv.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
+import { deliverOwnerNotice, findReachableOwner } from "../lib/ownerNotice.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -1409,46 +1410,45 @@ router.post("/:id/notes", async (req, res) => {
   res.json({ ok: true, note });
 });
 
-/** POST /admin/owners/:id/notify {subject, message} - Send notification to owner */
+/**
+ * POST /admin/owners/:id/notify {subject, message}
+ * Puts an admin message in the owner's in-app inbox. It used to only write an
+ * audit row and broadcast the message to every connected client (other owners
+ * and guests included) while reporting success; nothing reached the owner.
+ */
 router.post("/:id/notify", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { subject, message } = req.body as { subject?: string; message?: string };
-    
-    if (!subject || !subject.trim()) {
-      return res.status(400).json({ error: "Subject is required" });
-    }
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: "Message is required" });
-    }
+    const body = (req.body ?? {}) as { subject?: unknown; message?: unknown };
+    const subject = typeof body.subject === "string" ? body.subject.trim() : "";
+    const message = typeof body.message === "string" ? body.message.trim() : "";
 
-    const owner = await prisma.user.findUnique({ where: { id } });
-    if (!owner || owner.role !== "OWNER") {
-      return res.status(404).json({ error: "Owner not found" });
-    }
+    if (!subject) return res.status(400).json({ error: "Subject is required" });
+    if (!message) return res.status(400).json({ error: "Message is required" });
+    if (subject.length > 150) return res.status(400).json({ error: "Keep the subject under 150 characters" });
+    if (message.length > 4000) return res.status(400).json({ error: "Keep the message under 4,000 characters" });
 
-    // Create admin audit log
+    const owner = await findReachableOwner(id);
+    if (!owner) return res.status(404).json({ error: "This owner account cannot receive messages (not found, removed or disabled)" });
+
+    const delivered = await deliverOwnerNotice(owner.id, {
+      title: subject,
+      body: message,
+      type: "admin",
+      meta: { notificationKind: "admin_message", fromAdminId: (req.user as any)?.id ?? null },
+    });
+    if (!delivered) return res.status(502).json({ error: "The message could not be delivered. Please try again." });
+
     await prisma.adminAudit.create({
       data: {
         adminId: (req.user as any).id,
         targetUserId: id,
         action: "NOTIFY_OWNER",
-        details: `Subject: ${subject.trim()}\nMessage: ${message.trim()}`,
+        details: { subject, message },
       },
     });
 
-    // Emit socket event for real-time notification (if owner is online)
-    req.app.get("io")?.emit?.("admin:owner:notification", {
-      ownerId: id,
-      subject: subject.trim(),
-      message: message.trim(),
-      adminId: (req.user as any).id,
-    });
-
-    // TODO: In the future, you can add email/SMS sending here
-    // For now, we just log it and emit a socket event
-
-    res.json({ ok: true, message: "Notification sent successfully" });
+    res.json({ ok: true, message: "Message delivered to the owner's inbox" });
   } catch (err: any) {
     console.error("Error sending notification:", err);
     res.status(500).json({ error: "Failed to send notification" });

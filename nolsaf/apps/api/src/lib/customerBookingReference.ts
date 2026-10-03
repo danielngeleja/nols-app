@@ -1,7 +1,11 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { publicLinkSecrets, publicLinkSigningSecret } from "./publicLinkSecrets.js";
 
-export type CustomerRecordKind = "booking" | "ride" | "tour" | "group-stay" | "owner-invoice" | "nrms-reservation" | "nrms-agent-request" | "agent-account";
+export type CustomerRecordKind =
+  | "booking" | "ride" | "tour" | "group-stay" | "owner-invoice" | "nrms-reservation" | "nrms-agent-request" | "agent-account"
+  // Admin page addresses (see adminRecordReference.ts): opaque, so URLs never carry row ids.
+  | "user" | "owner" | "driver" | "agent" | "cancellation" | "tour-case" | "disbursement-batch" | "property"
+  | "merchant-application" | "transport-payout";
 
 const PREFIX_BY_KIND: Record<CustomerRecordKind, string> = {
   booking: "bk",
@@ -12,8 +16,18 @@ const PREFIX_BY_KIND: Record<CustomerRecordKind, string> = {
   "nrms-reservation": "rs",
   "nrms-agent-request": "ar",
   "agent-account": "ag",
+  user: "us",
+  owner: "ow",
+  driver: "dv",
+  agent: "op",
+  cancellation: "cx",
+  "tour-case": "tc",
+  "disbursement-batch": "db",
+  property: "pp",
+  "merchant-application": "ma",
+  "transport-payout": "tp",
 };
-const REFERENCE_PATTERN = /^(bk|rd|tr|gs|iv|rs|ar)_[A-Za-z0-9_-]{22}$/;
+const REFERENCE_PATTERN = /^(bk|rd|tr|gs|iv|rs|ar|us|ow|dv|op|cx|tc|db|pp|ma|tp)_[A-Za-z0-9_-]{22}$/;
 const LEGACY_REFERENCE_PATTERN = /^BKG-([A-F0-9]{4})-([A-F0-9]{4})-([A-F0-9]{4})$/i;
 
 function digest(kind: CustomerRecordKind, recordId: number, secret: string): Buffer {

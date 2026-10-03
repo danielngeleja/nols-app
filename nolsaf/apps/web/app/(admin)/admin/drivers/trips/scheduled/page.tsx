@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import TableRow from "@/components/TableRow";
 import { useSocket } from "@/hooks/useSocket";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
 const api = apiClient;
@@ -172,6 +173,7 @@ function compactLocation(loc: { address: string | null; ward: string | null; dis
 }
 
 export default function AdminScheduledTripsPage() {
+  const recordHref = useAdminHref();
   const [stage, setStage] = useState<"waiting" | "claim_open" | "assigned" | "in_progress" | "completed" | "all" | "driver_left">("waiting");
   const [vehicleType, setVehicleType] = useState<string>("");
   const [searchInput, setSearchInput] = useState("");
@@ -975,7 +977,7 @@ export default function AdminScheduledTripsPage() {
                                         </button>
 
                                         <Link
-                                          href={`/admin/drivers/audit/${details.booking.driver.id}`}
+                                          href={recordHref("driver", details.booking.driver.id)}
                                           className="inline-flex items-center justify-center h-10 w-full rounded-lg bg-white text-emerald-700 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 hover:text-emerald-800"
                                           title="View driver assignment audit"
                                           aria-label="View driver assignment audit"

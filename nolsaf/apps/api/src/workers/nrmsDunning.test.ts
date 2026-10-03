@@ -62,6 +62,7 @@ describe("NRMS dunning: stuck PAYMENT_PENDING recovery", () => {
     // Balance 62,400 over a 50,000 limit with grace elapsed: back to PAYMENT_REQUIRED,
     // so the owner can generate a fresh token and pay again.
     expect(mocks.accountUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3 }, data: expect.objectContaining({ status: "PAYMENT_REQUIRED" }) }));
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 30_000 });
   });
 
   it("never runs the live-attempt lookup for accounts that are not PAYMENT_PENDING", async () => {

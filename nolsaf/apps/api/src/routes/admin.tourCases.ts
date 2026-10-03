@@ -192,6 +192,9 @@ router.post("/:id/action", async (req: any, res) => {
         where: { tourBookingId: item.booking.id, kind: "PAYOUT", status: { in: ["DISBURSED", "PAID"] } },
         select: { amount: true },
       });
+      // Includes paid advance tranches (kind PAYOUT, metadata.tranche ADVANCE).
+      // The operatorPayoutAmount fallback covers legacy payouts that predate
+      // payout transaction rows; it must not apply when only an advance left.
       const disbursedTotal = disbursedPayouts.length
         ? disbursedPayouts.reduce((sum, entry) => sum + Number(entry.amount), 0)
         : Number(item.booking.operatorPayoutAmount || 0);
@@ -223,6 +226,19 @@ router.post("/:id/action", async (req: any, res) => {
         tourBookingId: item.booking.id, kind: "REFUND", status: "APPROVED", currency: item.booking.currency,
         amount: breakdown.finalRefundAmount, idempotencyKey: `tour-refund-case:${caseId}`, metadata: { caseId, breakdown, approvedBy: adminId } as any,
       } });
+      // An advance still moving through finance must never be paid on a
+      // cancelled booking: stop it here (the ledger also refuses it).
+      const inFlightAdvances = await tx.tourFinancialTransaction.findMany({
+        where: { tourBookingId: item.booking.id, kind: "PAYOUT", status: { in: ["CLAIMED", "VERIFIED", "APPROVED"] } },
+        select: { id: true, metadata: true },
+      });
+      for (const advance of inFlightAdvances) {
+        if ((advance.metadata as any)?.tranche !== "ADVANCE") continue;
+        await tx.tourFinancialTransaction.update({
+          where: { id: advance.id },
+          data: { status: "REJECTED", metadata: { ...((advance.metadata as any) || {}), rejectedReason: `Booking cancelled (case #${caseId})`, rejectedAt: new Date().toISOString(), rejectedBy: adminId } as any },
+        });
+      }
       if (recoveryRequired) await tx.tourFinancialTransaction.create({ data: {
         tourBookingId: item.booking.id, kind: "PAYOUT_RECOVERY", status: "PENDING", currency: item.booking.currency,
         amount: recovery!.recoveryAmount, idempotencyKey: `tour-recovery-case:${caseId}`,

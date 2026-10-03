@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 import Link from "next/link";
 import { ArrowLeft, Printer, Calendar, FileText, Clock, Users, Wallet, Activity } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
@@ -241,8 +243,15 @@ function buildStatementReference(customerId: number, coverage: { from: string | 
 
 export default function CustomerStatementPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
-  const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const customerId = Number(idParam);
+  return (
+    <AdminRecordGate kind="user" param={routeParams?.id} backHref="/admin/users/list">
+      {(customerId) => <CustomerStatement customerId={customerId} />}
+    </AdminRecordGate>
+  );
+}
+
+function CustomerStatement({ customerId }: { customerId: number }) {
+  const recordHref = useAdminHref();
 
   const [data, setData] = useState<Statement | null>(null);
   const [behaviour, setBehaviour] = useState<Behaviour | null>(null);
@@ -691,7 +700,7 @@ export default function CustomerStatementPage() {
         </div>
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           <Link
-            href={`/admin/users/${customerId}`}
+            href={recordHref("user", customerId)}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-sm font-medium text-neutral-700 no-underline ring-1 ring-neutral-200 transition hover:bg-neutral-50"
           >
             <ArrowLeft className="h-4 w-4" />

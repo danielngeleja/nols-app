@@ -7,9 +7,9 @@
  *  1. The net payable was optional. Sales read `approvedAmount ?? requestedAmount`
  *     and owner read `netPayable ?? total`, so a missing net figure fell back
  *     to a gross one instead of refusing.
- *  2. Approval was treated as evidence of collection. An owner invoice could
- *     reach APPROVED without the guest ever paying, and the payout came out of
- *     NoLSAF's own float.
+ *  2. The owner claim (OINV-*) and customer checkout invoice (INV-*) are
+ *     separate rows for one booking. Collection evidence must follow bookingId
+ *     to the customer invoice without weakening the provider-confirmed gate.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,6 +37,7 @@ function invoice(overrides: Record<string, unknown> = {}) {
   return {
     id: 123,
     ownerId: 44,
+    bookingId: 987,
     status: "APPROVED",
     netPayable: dec("150000.00"),
     total: dec("180000.00"),
@@ -58,7 +59,7 @@ function salesPayout(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Confirmed customer money on file for the invoice under test. */
+/** Confirmed customer money on file for the booking's INV-* checkout invoice. */
 function collected(amount: string | number | null, currency = "TZS") {
   mocks.groupPaymentEvents.mockResolvedValue(
     amount == null ? [] : [{ currency, _sum: { amount: dec(amount) } }]
@@ -128,9 +129,7 @@ describe("owner invoice amount", () => {
 
 describe("owner invoice solvency gate", () => {
   it("refuses an approved invoice with no confirmed customer payment", async () => {
-    // The unpaid-booking walk: an admin can issue a check-in code outside the
-    // payment path, mark it owner-validated, and approve the invoice. None of
-    // that is evidence that a guest paid, so no money may leave.
+    // Approval and check-in are not substitutes for a provider-confirmed event.
     mocks.findInvoice.mockResolvedValue(invoice());
     collected(null);
 
@@ -148,7 +147,7 @@ describe("owner invoice solvency gate", () => {
     );
   });
 
-  it("counts only SUCCESS payment events", async () => {
+  it("loads SUCCESS payment events from the booking's separate INV-* invoice", async () => {
     mocks.findInvoice.mockResolvedValue(invoice());
     collected("180000.00");
 
@@ -156,9 +155,28 @@ describe("owner invoice solvency gate", () => {
 
     expect(mocks.groupPaymentEvents).toHaveBeenCalledWith({
       by: ["currency"],
-      where: { invoiceId: 123, status: "SUCCESS" },
+      where: {
+        invoice: {
+          is: {
+            bookingId: 987,
+            invoiceNumber: { startsWith: "INV-" },
+          },
+        },
+        status: "SUCCESS",
+      },
       _sum: { amount: true },
     });
+  });
+
+  it("does not look for customer payment on the OINV-* source id", async () => {
+    mocks.findInvoice.mockResolvedValue(invoice({ id: 123, bookingId: 987 }));
+    collected("180000.00");
+
+    await loadEligiblePayoutSource("OWNER_INVOICE", 123);
+
+    const query = mocks.groupPaymentEvents.mock.calls[0]?.[0];
+    expect(query.where.invoiceId).toBeUndefined();
+    expect(query.where.invoice.is.bookingId).toBe(987);
   });
 
   it("rejects a successful payment recorded in the wrong currency", async () => {

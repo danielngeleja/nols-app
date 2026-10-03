@@ -19,6 +19,7 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
+  CreditCard,
   Loader2,
   Lock,
   Plus,
@@ -55,6 +56,7 @@ type PublicList = {
   submitterName: string | null;
   submitterEmail: string | null;
   property: string;
+  paymentLink: { amount: number; currency: string; status: string; expiresAt: string; url: string } | null;
   block: { name: string; reference: string; agencyName: string | null; checkIn: string; checkOut: string; nights: number; namesDueBy: string };
   roomTypes: PublicRoomType[];
   rows: PublicRow[];
@@ -393,6 +395,33 @@ export default function PublicRoomingListPage({ params }: { params: Promise<{ to
               <StatusBanner tone="emerald" icon={<CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />} title="The property has confirmed this list">
                 Every name below is booked. Contact the property directly to change anything now.
               </StatusBanner>
+            )}
+
+            {readOnly && list.paymentLink && (
+              <section className="overflow-hidden rounded-2xl border border-solid border-emerald-300 bg-white shadow-sm">
+                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
+                      <CreditCard className="h-5 w-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">AzamPay secure checkout</p>
+                      <h2 className="mb-0 mt-1 text-lg font-bold text-neutral-950">
+                        {new Intl.NumberFormat("en-TZ", { style: "currency", currency: list.paymentLink.currency, maximumFractionDigits: 0 }).format(list.paymentLink.amount)}
+                      </h2>
+                      <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">
+                        Mobile money and bank payment are available until {new Date(list.paymentLink.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+                      </p>
+                    </div>
+                  </div>
+                  <a
+                    href={list.paymentLink.url}
+                    className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white no-underline transition hover:bg-emerald-800"
+                  >
+                    Choose payment method <ArrowUpRight className="h-4 w-4" />
+                  </a>
+                </div>
+              </section>
             )}
 
             {!readOnly && list.status === "RETURNED" && list.deskNotes && (

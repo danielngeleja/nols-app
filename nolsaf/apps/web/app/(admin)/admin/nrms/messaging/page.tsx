@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { CountPill, EmptyState } from "../_components/CommercialUi";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Connection = {
   id: number;
@@ -226,6 +227,7 @@ function formatEvidence(value: string | number | boolean | null) {
 }
 
 export default function AdminMetaMessagingPage() {
+  const recordHref = useAdminHref();
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -674,7 +676,7 @@ export default function AdminMetaMessagingPage() {
                   </div>
                 </td>
                 <td className={`px-4 py-3 ${rule}`}>
-                  <Link href={`/admin/nrms/${connection.propertyId}`} className="font-bold text-neutral-800 no-underline hover:text-emerald-700">{connection.property.title}</Link>
+                  <Link href={recordHref("property", connection.propertyId)} className="font-bold text-neutral-800 no-underline hover:text-emerald-700">{connection.property.title}</Link>
                   <p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-400">{ownerName(connection)}</p>
                 </td>
                 <td className={`px-4 py-3 ${rule}`}>

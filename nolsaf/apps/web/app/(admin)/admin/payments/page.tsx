@@ -1,6 +1,6 @@
 "use client";
 
-import { Wallet, CreditCard, Eye, Smartphone, Search, X, Clock, CheckCircle, User, Building, Download, CheckSquare, Square, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, Landmark, ReceiptText, ShieldAlert } from "lucide-react";
+import { Wallet, CreditCard, Eye, Smartphone, Search, X, Clock, CheckCircle, User, Building, Download, CheckSquare, Square, AlertCircle, ChevronUp, ChevronDown, ChevronsUpDown, ArrowRight, ChevronRight, Landmark, ReceiptText, RefreshCw, ShieldAlert } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import apiClient from "@/lib/apiClient";
 import Image from "next/image";
@@ -817,102 +817,68 @@ export default function Page() {
   };
 
   return (
-    <div className="payments-workspace box-border w-full min-w-0 max-w-none space-y-5 px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-      {/* Header + Summary */}
-      <div
-        className="relative overflow-hidden rounded-2xl shadow-lg"
-        style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 20px 50px -24px rgba(2,102,94,0.65)" }}
-      >
-        {/* ── Decorative sparkline viz (revenue-card style) ── */}
-        <svg
-          aria-hidden
-          className="absolute inset-0 w-full h-full pointer-events-none select-none"
-          preserveAspectRatio="xMidYMid slice"
-          viewBox="0 0 900 260"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Arcs top-right (revenue card style) */}
-          <circle cx="860" cy="55"  r="230" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none" />
-          <circle cx="860" cy="55"  r="175" stroke="white" strokeOpacity="0.055" strokeWidth="1" fill="none" />
-          <circle cx="820" cy="25"  r="130" stroke="white" strokeOpacity="0.045" strokeWidth="1" fill="none" />
-          {/* Arc bottom-left */}
-          <circle cx="30"  cy="238" r="150" stroke="white" strokeOpacity="0.045" strokeWidth="1" fill="none" />
-          {/* Horizontal grid lines */}
-          {[52, 104, 156, 208].map((y) => (
-            <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="rgba(255,255,255,0.032)" strokeWidth="1" />
-          ))}
-          {/* Sparkline 1 — main wave */}
-          <polyline
-            points="0,218 75,195 150,208 225,175 300,188 375,155 450,168 525,132 600,148 675,112 750,128 825,98 900,115"
-            fill="none" stroke="white" strokeOpacity="0.16" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-          />
-          <polygon
-            points="0,218 75,195 150,208 225,175 300,188 375,155 450,168 525,132 600,148 675,112 750,128 825,98 900,115 900,260 0,260"
-            fill="white" fillOpacity="0.028"
-          />
-          {/* Sparkline 2 — secondary offset wave */}
-          <polyline
-            points="0,235 90,220 180,228 270,205 360,215 450,192 540,200 630,178 720,188 810,165 900,172"
-            fill="none" stroke="white" strokeOpacity="0.08" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-          />
-          {/* Glow dots at peaks */}
-          {([[675,112],[525,132],[825,98],[225,175]] as [number,number][]).map(([px,py]) => (
-            <circle key={`${px}-${py}`} cx={px} cy={py} r="3.5" fill="white" fillOpacity="0.22" />
-          ))}
-          {/* Radial glow centre */}
-          <radialGradient id="payRevGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(10,92,130,0.50)" />
-            <stop offset="100%" stopColor="rgba(10,92,130,0)" />
-          </radialGradient>
-          <ellipse cx="450" cy="130" rx="320" ry="160" fill="url(#payRevGlow)" />
-        </svg>
-
-        {/* ── Content ── */}
-        <div className="relative z-10 px-4 py-5 sm:px-5 sm:py-5">
-          <div className="flex items-center gap-4 text-left">
-          {/* Icon orb */}
-          <div
-            className="inline-flex shrink-0 items-center justify-center rounded-2xl"
-            style={{
-              width: 52, height: 52,
-              background: "rgba(255,255,255,0.10)",
-              border: "1.5px solid rgba(255,255,255,0.18)",
-              boxShadow: "0 0 0 8px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35)",
-            }}
-          >
-            <Wallet className="h-6 w-6" style={{ color: "rgba(255,255,255,0.92)" }} aria-hidden />
-          </div>
-            <div className="min-w-0">
-              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">Finance operations</p>
-              <h1 className="m-0 mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">Payments</h1>
-              <p className="m-0 mt-1 text-xs text-white/60 sm:text-sm">Monitor booking settlements, NRMS billing, owner payouts and reconciliation exceptions.</p>
-            </div>
-          </div>
-
-          <div className="payments-summary mt-4 grid min-w-0 grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-white/15 bg-white/10 p-4 text-left backdrop-blur-sm">
-              <div className="flex items-center justify-between"><ReceiptText className="h-5 w-5 text-sky-200" /><span className="text-[9px] font-bold uppercase tracking-wider text-white/45">Booking settlements</span></div>
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => { setActiveTab("waiting"); setPage(1); }} className={`rounded-lg border p-2.5 text-left transition ${activeTab === "waiting" ? "border-amber-300/60 bg-amber-300/15" : "border-white/10 bg-black/10 hover:bg-white/10"}`}><span className="block text-xl font-black text-white">{summaryLoading || summaryError ? "—" : summary.booking.waiting.toLocaleString()}</span><span className="text-[10px] font-bold uppercase tracking-wide text-amber-200">Awaiting</span></button>
-                <button type="button" onClick={() => { setActiveTab("paid"); setPage(1); }} className={`rounded-lg border p-2.5 text-left transition ${activeTab === "paid" ? "border-emerald-300/60 bg-emerald-300/15" : "border-white/10 bg-black/10 hover:bg-white/10"}`}><span className="block text-xl font-black text-white">{summaryLoading || summaryError ? "—" : summary.booking.paid.toLocaleString()}</span><span className="text-[10px] font-bold uppercase tracking-wide text-emerald-200">Paid</span></button>
+    <div className="payments-workspace box-border w-full min-w-0 max-w-none space-y-4">
+      {/* Header: the money pipeline, left to right */}
+      {(() => {
+        const n = (v: number) => (summaryLoading ? "..." : summaryError ? "n/a" : v.toLocaleString());
+        const stages: Array<{ key: string; label: string; value: string; sub: string; icon: typeof Wallet; href?: string; onClick?: () => void; active?: boolean; tone: string }> = [
+          { key: "awaiting", label: "Awaiting settlement", value: n(summary.booking.waiting), sub: "approved booking invoices", icon: Clock, onClick: () => { setActiveTab("waiting"); setPage(1); clearSelection(); }, active: activeTab === "waiting", tone: summary.booking.waiting > 0 ? "text-amber-700" : "text-slate-900" },
+          { key: "paid", label: "Settled", value: n(summary.booking.paid), sub: "booking invoices paid", icon: CheckCircle, onClick: () => { setActiveTab("paid"); setPage(1); clearSelection(); }, active: activeTab === "paid", tone: "text-emerald-700" },
+          { key: "nrms", label: "NRMS payable", value: n(summary.nrms.waiting), sub: `${summaryLoading ? "..." : summary.nrms.paid.toLocaleString()} statements paid`, icon: ReceiptText, href: "/admin/nrms/reconciliation", tone: "text-slate-900" },
+          { key: "payouts", label: "Open payouts", value: n(summary.payouts.open), sub: `${summaryLoading ? "..." : summary.payouts.paid.toLocaleString()} completed`, icon: Landmark, href: "/admin/disbursements", tone: "text-slate-900" },
+          { key: "exceptions", label: "Exceptions", value: n(summary.exceptions.total), sub: `${summary.exceptions.unmatched} unmatched · ${summary.exceptions.variance} variance`, icon: ShieldAlert, href: "/admin/action-center", tone: summary.exceptions.total > 0 ? "text-rose-700" : "text-emerald-700" },
+        ];
+        return (
+          <header className="min-w-0 rounded-lg border border-solid border-slate-200 bg-white">
+            <div className="flex flex-wrap items-start gap-4 px-5 py-5">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#02665e] text-white"><Wallet className="h-5 w-5" aria-hidden /></span>
+              <div className="min-w-0 flex-1">
+                <h1 className="m-0 text-xl font-bold tracking-tight text-slate-900">Payments</h1>
+                <p className="m-0 mt-1 text-sm text-slate-500">
+                  {summaryLoading
+                    ? "Reading the money pipeline..."
+                    : summaryError
+                      ? "Booking settlements, NRMS billing, owner payouts and reconciliation exceptions."
+                      : summary.exceptions.total > 0
+                        ? <><b className="text-rose-700">{summary.exceptions.total} reconciliation exception{summary.exceptions.total === 1 ? "" : "s"}</b> need a look. {summary.booking.waiting} booking invoice{summary.booking.waiting === 1 ? "" : "s"} await settlement.</>
+                        : summary.booking.waiting > 0
+                          ? <><b className="text-amber-700">{summary.booking.waiting} booking invoice{summary.booking.waiting === 1 ? "" : "s"}</b> await settlement. No reconciliation exceptions.</>
+                          : "Everything is settled and reconciled. Nothing is waiting on you."}
+                </p>
               </div>
+              <button type="button" onClick={() => { void loadSummary(); void loadPayments(); }} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                <RefreshCw className={`h-3.5 w-3.5 ${summaryLoading || loading ? "animate-spin" : ""}`} /> Refresh
+              </button>
             </div>
-            <Link href="/admin/nrms/reconciliation" className="group rounded-xl border border-white/15 bg-white/10 p-4 text-left text-white no-underline backdrop-blur-sm transition hover:bg-white/15">
-              <div className="flex items-center justify-between"><Wallet className="h-5 w-5 text-emerald-200" /><ArrowRight className="h-4 w-4 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white" /></div>
-              <span className="mt-4 block text-2xl font-black">{summaryLoading || summaryError ? "—" : summary.nrms.waiting.toLocaleString()}</span><span className="block text-[10px] font-bold uppercase tracking-wide text-white/60">NRMS payable</span><span className="mt-1 block text-[11px] text-white/45">{summaryError ? "Unavailable" : summaryLoading ? "Loading…" : `${summary.nrms.paid.toLocaleString()} paid statements`}</span>
-            </Link>
-            <Link href="/admin/disbursements" className="group rounded-xl border border-white/15 bg-white/10 p-4 text-left text-white no-underline backdrop-blur-sm transition hover:bg-white/15">
-              <div className="flex items-center justify-between"><Landmark className="h-5 w-5 text-cyan-200" /><ArrowRight className="h-4 w-4 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white" /></div>
-              <span className="mt-4 block text-2xl font-black">{summaryLoading || summaryError ? "—" : summary.payouts.open.toLocaleString()}</span><span className="block text-[10px] font-bold uppercase tracking-wide text-white/60">Open payouts</span><span className="mt-1 block text-[11px] text-white/45">{summaryError ? "Unavailable" : summaryLoading ? "Loading…" : `${summary.payouts.paid.toLocaleString()} payouts completed`}</span>
-            </Link>
-            <Link href="/admin/action-center" className="group rounded-xl border border-white/15 bg-white/10 p-4 text-left text-white no-underline backdrop-blur-sm transition hover:bg-white/15">
-              <div className="flex items-center justify-between"><ShieldAlert className={`h-5 w-5 ${summary.exceptions.total > 0 ? "text-amber-200" : "text-emerald-200"}`} /><ArrowRight className="h-4 w-4 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white" /></div>
-              <span className="mt-4 block text-2xl font-black">{summaryLoading || summaryError ? "—" : summary.exceptions.total.toLocaleString()}</span><span className="block text-[10px] font-bold uppercase tracking-wide text-white/60">Reconciliation exceptions</span><span className="mt-1 block text-[11px] text-white/45">{summaryError ? "Unavailable" : summaryLoading ? "Loading…" : `${summary.exceptions.unmatched} unmatched · ${summary.exceptions.variance} variance`}</span>
-            </Link>
-          </div>
-          {summaryError ? <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200/30 bg-amber-100/10 px-3 py-2 text-xs text-amber-100"><span>{summaryError}</span><button type="button" onClick={() => void loadSummary()} className="rounded-md border border-amber-100/25 bg-white/10 px-2.5 py-1 font-bold text-white transition hover:bg-white/20">Retry summary</button></div> : null}
-        </div>
-      </div>
+            <ol className="m-0 grid list-none grid-cols-2 gap-px border-0 border-t border-solid border-slate-200 bg-slate-200 p-0 md:grid-cols-5">
+              {stages.map((st, i) => {
+                const body = (
+                  <>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500"><st.icon className="h-3.5 w-3.5" />{st.label}</span>
+                      {st.href ? <ArrowRight className="h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-500" /> : i < stages.length - 1 ? <ChevronRight className="h-3.5 w-3.5 text-slate-300" /> : null}
+                    </span>
+                    <span className={`mt-1.5 block text-2xl font-bold tabular-nums ${st.tone}`}>{st.value}</span>
+                    <span className="block truncate text-[11px] text-slate-500">{st.sub}</span>
+                  </>
+                );
+                const cls = `group block h-full min-w-0 px-5 py-3.5 text-left no-underline transition hover:no-underline ${st.active ? "bg-[#02665e]/[0.05] shadow-[inset_0_-2px_0_#02665e]" : "bg-white hover:bg-slate-50"}`;
+                return (
+                  <li key={st.key} className="min-w-0">
+                    {st.href ? <Link href={st.href} className={cls}>{body}</Link> : <button type="button" onClick={st.onClick} aria-pressed={st.active} className={`${cls} w-full border-0`}>{body}</button>}
+                  </li>
+                );
+              })}
+            </ol>
+            {summaryError ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-900">
+                <span>{summaryError}</span>
+                <button type="button" onClick={() => void loadSummary()} className="rounded-md border border-solid border-amber-300 bg-white px-2.5 py-1 font-semibold hover:bg-amber-100">Retry</button>
+              </div>
+            ) : null}
+          </header>
+        );
+      })()}
 
       {/* Page Error */}
       {error && (
@@ -935,16 +901,15 @@ export default function Page() {
       )}
 
       {/* Table */}
-      <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm" aria-labelledby="booking-settlements-title">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-4 py-4 sm:px-5">
+      <section className="w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-solid border-slate-200 bg-white" aria-labelledby="booking-settlements-title">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4">
           <div className="min-w-0 flex-1 basis-72">
-            <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Booking money</p>
-            <h2 id="booking-settlements-title" className="m-0 mt-1 text-lg font-extrabold tracking-tight text-neutral-950">Booking settlement invoices</h2>
-            <p className="m-0 mt-1 text-xs text-neutral-500">Approved invoices awaiting settlement and completed booking payments.</p>
+            <h2 id="booking-settlements-title" className="m-0 text-base font-bold tracking-tight text-slate-900">Booking settlement invoices</h2>
+            <p className="m-0 mt-0.5 text-xs text-slate-500">{activeTab === "waiting" ? "Approved invoices waiting for the owner to be paid." : "Booking invoices already settled to owners."}</p>
           </div>
-          <div className="grid max-w-full shrink-0 grid-cols-2 rounded-xl bg-neutral-100 p-1" role="tablist" aria-label="Booking settlement status">
-            <button type="button" role="tab" aria-selected={activeTab === "waiting"} onClick={() => { setActiveTab("waiting"); setPage(1); clearSelection(); }} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${activeTab === "waiting" ? "bg-white text-amber-700 shadow-sm" : "text-neutral-500 hover:text-neutral-800"}`}><Clock className="mr-1.5 inline h-3.5 w-3.5" />Awaiting ({summary.booking.waiting})</button>
-            <button type="button" role="tab" aria-selected={activeTab === "paid"} onClick={() => { setActiveTab("paid"); setPage(1); clearSelection(); }} className={`rounded-lg px-3 py-2 text-xs font-bold transition ${activeTab === "paid" ? "bg-white text-emerald-700 shadow-sm" : "text-neutral-500 hover:text-neutral-800"}`}><CheckCircle className="mr-1.5 inline h-3.5 w-3.5" />Paid ({summary.booking.paid})</button>
+          <div className="grid max-w-full shrink-0 grid-cols-2 rounded-md border border-solid border-slate-200 bg-slate-50 p-0.5" role="tablist" aria-label="Booking settlement status">
+            <button type="button" role="tab" aria-selected={activeTab === "waiting"} onClick={() => { setActiveTab("waiting"); setPage(1); clearSelection(); }} className={`rounded border-0 px-3 py-1.5 text-xs font-semibold transition ${activeTab === "waiting" ? "bg-white text-amber-700 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}><Clock className="mr-1.5 inline h-3.5 w-3.5" />Awaiting ({summary.booking.waiting})</button>
+            <button type="button" role="tab" aria-selected={activeTab === "paid"} onClick={() => { setActiveTab("paid"); setPage(1); clearSelection(); }} className={`rounded border-0 px-3 py-1.5 text-xs font-semibold transition ${activeTab === "paid" ? "bg-white text-emerald-700 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-800"}`}><CheckCircle className="mr-1.5 inline h-3.5 w-3.5" />Paid ({summary.booking.paid})</button>
           </div>
         </div>
         {/* Bulk Actions Bar */}
@@ -976,7 +941,7 @@ export default function Page() {
           </div>
         )}
         {/* Search + Export */}
-        <div className="p-3 sm:p-4 border-b border-gray-200">
+        <div className="border-0 border-b border-solid border-slate-200 px-5 py-3">
           {exportNeedsVerification && (
             <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <span>Verify finance access, then click Export CSV again. No file has been downloaded.</span>
@@ -989,7 +954,7 @@ export default function Page() {
               <input
                 type="text"
                 aria-label="Search booking settlement invoices"
-                className="box-border block w-full min-w-0 max-w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none text-sm shadow-sm"
+                className="box-border block h-9 w-full min-w-0 max-w-full rounded-md border border-solid border-slate-300 pl-10 pr-10 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
                 placeholder="Search by invoice number, owner name, property..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
@@ -1018,7 +983,7 @@ export default function Page() {
                 type="button"
                 onClick={handleExportCSV}
                 disabled={exportLoading}
-                className="w-full justify-center whitespace-nowrap px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-800 shadow-sm hover:shadow-md hover:bg-gray-50 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 sm:w-auto"
+                className="inline-flex h-9 w-full items-center justify-center gap-2 whitespace-nowrap rounded-md border border-solid border-slate-300 bg-white px-3.5 text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                 title="Export CSV"
               >
                 <Download className="h-4 w-4" aria-hidden="true" />
@@ -1087,9 +1052,10 @@ export default function Page() {
           </>
         ) : payments.length === 0 ? (
           <div className="px-6 py-12 text-center">
-            <Wallet className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">No {activeTab === 'waiting' ? 'pending' : 'completed'} payments found.</p>
-            <p className="text-xs text-gray-400 mt-1">Try adjusting your search query or switch tabs.</p>
+            <span className="mx-auto grid h-10 w-10 place-items-center rounded-md bg-[#02665e]/10 text-[#02665e]">{activeTab === "waiting" && !q ? <CheckCircle className="h-5 w-5" /> : <Wallet className="h-5 w-5" />}</span>
+            <p className="m-0 mt-3 text-sm font-semibold text-slate-900">{q ? `No invoice matches “${q}”` : activeTab === "waiting" ? "Nothing waiting for settlement" : "No settled invoices yet"}</p>
+            <p className="m-0 mt-1 text-xs text-slate-500">{q ? "Try an invoice number, owner or property name." : activeTab === "waiting" ? "Every approved booking invoice has been paid to its owner." : "Settled booking invoices appear here."}</p>
+            {activeTab === "waiting" && !q && summary.booking.paid > 0 ? <button type="button" onClick={() => { setActiveTab("paid"); setPage(1); clearSelection(); }} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">See the {summary.booking.paid} settled</button> : null}
           </div>
         ) : (
           <>

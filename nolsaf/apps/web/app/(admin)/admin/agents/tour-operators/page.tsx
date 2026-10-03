@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Building2, ChevronDown, ChevronsUpDown, ChevronUp, Eye, Filter, Info, RefreshCw, Search, ShieldCheck, ShieldOff } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, ClipboardList, Clock, Filter, Mail, MapPin, Phone, RefreshCw, Search, ShieldCheck, ShieldOff, Users, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import TableRow from "@/components/TableRow";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -52,15 +52,70 @@ function fmtTime(iso: string | null | undefined) {
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+type AccountFilter = "" | "ACTIVE" | "PENDING" | "HIRED" | "REJECTED" | "SUSPENDED";
+
+const STATUS_TABS: Array<{ value: AccountFilter; label: string; hint: string; dot: string }> = [
+  { value: "", label: "All operators", hint: "Every operator account", dot: "bg-neutral-400" },
+  { value: "ACTIVE", label: "Active", hint: "Live and taking tours", dot: "bg-emerald-500" },
+  { value: "PENDING", label: "Pending", hint: "Applications in review", dot: "bg-amber-500" },
+  { value: "HIRED", label: "Hired", hint: "Applications approved", dot: "bg-teal-500" },
+  { value: "REJECTED", label: "Rejected", hint: "Applications declined", dot: "bg-red-500" },
+  { value: "SUSPENDED", label: "Suspended", hint: "Accounts on hold", dot: "bg-violet-500" },
+];
+
+function titleCase(value: string) {
+  const v = value.replace(/_/g, " ").toLowerCase();
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
+
+function Initials({ name, muted = false }: { name: string; muted?: boolean }) {
+  const letters = name.trim().split(/\s+/).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
+  return (
+    <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${muted ? "bg-neutral-100 text-neutral-400" : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"}`} aria-hidden>
+      {letters}
+    </span>
+  );
+}
+
+function ContactCell({ email, phone }: { email?: string | null; phone?: string | null }) {
+  if (!email && !phone) return <span className="text-neutral-400">No contact</span>;
+  return (
+    <span className="block min-w-0 space-y-0.5">
+      {email ? (
+        <a href={`mailto:${email}`} className="flex min-w-0 items-center gap-1.5 text-neutral-700 no-underline hover:text-emerald-700">
+          <Mail className="h-3 w-3 shrink-0 text-neutral-400" aria-hidden /> <span className="truncate">{email}</span>
+        </a>
+      ) : null}
+      {phone ? (
+        <a href={`tel:${phone}`} className="flex min-w-0 items-center gap-1.5 text-[11px] text-neutral-500 no-underline hover:text-emerald-700">
+          <Phone className="h-3 w-3 shrink-0 text-neutral-400" aria-hidden /> <span className="truncate">{phone}</span>
+        </a>
+      ) : null}
+    </span>
+  );
+}
+
+function DateCell({ iso }: { iso?: string | null }) {
+  if (!iso) return <span className="text-neutral-400">Not recorded</span>;
+  return (
+    <span className="block">
+      <span className="block whitespace-nowrap font-semibold text-neutral-700">{fmtDate(iso)}</span>
+      <span className="block text-[11px] text-neutral-400">{fmtTime(iso)}</span>
+    </span>
+  );
+}
+
 export default function AdminAgentsTourOperatorsPage() {
+  const recordHref = useAdminHref();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<OperatorRow[]>([]);
   const [applicationRows, setApplicationRows] = useState<ApplicationRow[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
+  const [qInput, setQInput] = useState("");
   const [page, setPage] = useState(1);
-  const [accountFilter, setAccountFilter] = useState<"" | "ACTIVE" | "PENDING" | "HIRED" | "REJECTED" | "SUSPENDED">("");
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>("");
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [regionFilter, setRegionFilter] = useState("");
   const [hiredFrom, setHiredFrom] = useState("");
@@ -108,9 +163,14 @@ export default function AdminAgentsTourOperatorsPage() {
       setActiveCount(Number(activePayload.total ?? 0));
       setSuspendedCount(Number(suspendedPayload.total ?? 0));
 
-      const hiredTotal = Number(hiredRes?.data?.total ?? 0);
-      const pendingTotal = Number(pendingRes?.data?.total ?? 0) + Number(reviewingRes?.data?.total ?? 0) + Number(shortlistedRes?.data?.total ?? 0);
-      const rejectedTotal = Number(rejectedRes?.data?.total ?? 0);
+      const hiredPayload = hiredRes?.data?.data ?? hiredRes?.data ?? {};
+      const pendingPayload = pendingRes?.data?.data ?? pendingRes?.data ?? {};
+      const reviewingPayload = reviewingRes?.data?.data ?? reviewingRes?.data ?? {};
+      const shortlistedPayload = shortlistedRes?.data?.data ?? shortlistedRes?.data ?? {};
+      const rejectedPayload = rejectedRes?.data?.data ?? rejectedRes?.data ?? {};
+      const hiredTotal = Number(hiredPayload.total ?? 0);
+      const pendingTotal = Number(pendingPayload.total ?? 0) + Number(reviewingPayload.total ?? 0) + Number(shortlistedPayload.total ?? 0);
+      const rejectedTotal = Number(rejectedPayload.total ?? 0);
 
       setHiredCount(hiredTotal);
       setPendingCount(pendingTotal);
@@ -127,7 +187,7 @@ export default function AdminAgentsTourOperatorsPage() {
         );
 
         const merged = appReqs.flatMap((r) => {
-          const p = r?.data ?? {};
+          const p = r?.data?.data ?? r?.data ?? {};
           return Array.isArray(p.applications) ? (p.applications as ApplicationRow[]) : [];
         });
         setApplicationRows(merged);
@@ -148,7 +208,18 @@ export default function AdminAgentsTourOperatorsPage() {
     void load();
   }, [load]);
 
-  const statusCounts = useMemo(() => {
+  // Search waits for a pause in typing before it asks the API
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      if (qInput !== q) {
+        setPage(1);
+        setQ(qInput);
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [qInput, q]);
+
+  const statusCounts = useMemo<Record<AccountFilter, number>>(() => {
     return {
       "": total,
       ACTIVE: activeCount,
@@ -282,407 +353,373 @@ export default function AdminAgentsTourOperatorsPage() {
   };
 
   const renderSortIcon = (field: TableSortKey) => {
-    if (sortBy !== field) return <ChevronsUpDown className="h-3.5 w-3.5 text-slate-400" />;
+    if (sortBy !== field) return <ChevronsUpDown className="h-3 w-3 text-neutral-300" />;
     return sortDir === "asc"
-      ? <ChevronUp className="h-3.5 w-3.5 text-[#02665e]" />
-      : <ChevronDown className="h-3.5 w-3.5 text-[#02665e]" />;
+      ? <ChevronUp className="h-3 w-3 text-emerald-700" />
+      : <ChevronDown className="h-3 w-3 text-emerald-700" />;
   };
 
   const showingApplications = accountFilter === "PENDING" || accountFilter === "REJECTED";
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
+  const shownCount = showingApplications ? filteredApplicationRows.length : filteredRows.length;
+  const firstShown = shownCount ? (page - 1) * pageSize + 1 : 0;
+  const lastShown = (page - 1) * pageSize + shownCount;
+  const activeChips = [
+    regionFilter.trim() ? { key: "region", label: `Location: ${regionFilter.trim()}`, clear: () => setRegionFilter("") } : null,
+    hiredFrom ? { key: "from", label: `From ${fmtDate(hiredFrom)}`, clear: () => setHiredFrom("") } : null,
+    hiredTo ? { key: "to", label: `To ${fmtDate(hiredTo)}`, clear: () => setHiredTo("") } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>;
+
+  const selectFilter = (value: AccountFilter) => {
+    setPage(1);
+    setAccountFilter(value);
+  };
+
+  const sortHeader = (field: TableSortKey, label: string) => (
+    <button
+      type="button"
+      onClick={() => handleSort(field)}
+      className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400 hover:text-neutral-700"
+    >
+      {label} {renderSortIcon(field)}
+    </button>
+  );
+
   return (
-    <div className="box-border w-full min-w-0 max-w-full overflow-x-hidden space-y-4 px-3 py-4 sm:space-y-6 sm:px-4 sm:py-6 lg:px-6 xl:px-8">
-      <section
-        className="relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl shadow-2xl"
-        style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)" }}
-      >
-        <svg
-          aria-hidden
-          className="absolute inset-0 w-full h-full pointer-events-none select-none"
-          preserveAspectRatio="xMidYMid slice"
-          viewBox="0 0 900 220"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle cx="860" cy="45" r="200" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none" />
-          <circle cx="860" cy="45" r="155" stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-          <circle cx="820" cy="15" r="115" stroke="white" strokeOpacity="0.045" strokeWidth="1" fill="none" />
-          <circle cx="28" cy="208" r="130" stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-          {[44, 88, 132, 176].map((y) => (
-            <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="rgba(255,255,255,0.030)" strokeWidth="1" />
-          ))}
-          <polyline
-            points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78"
-            fill="none"
-            stroke="white"
-            strokeOpacity="0.16"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <polygon
-            points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78 900,220 0,220"
-            fill="white"
-            fillOpacity="0.026"
-          />
-          {([[720, 90], [560, 108], [880, 78], [240, 145]] as [number, number][]).map(([px, py]) => (
-            <circle key={`${px}-${py}`} cx={px} cy={py} r="3" fill="white" fillOpacity="0.22" />
-          ))}
-          <radialGradient id="tourOperatorHeaderGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(10,92,130,0.45)" />
-            <stop offset="100%" stopColor="rgba(10,92,130,0)" />
-          </radialGradient>
-          <ellipse cx="450" cy="110" rx="300" ry="140" fill="url(#tourOperatorHeaderGlow)" />
-        </svg>
+    <div id="tour-operators" className="w-full min-w-0 space-y-4">
+      {/* Preflight is disabled in this project; scope border-box so w-full pieces don't overflow */}
+      <style>{`#tour-operators, #tour-operators * { box-sizing: border-box; }`}</style>
 
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full text-white transition-all duration-150 hover:bg-white/15 focus:outline-none"
-          style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.15)" }}
-          title="Refresh tour operators"
-          aria-label="Refresh tour operators"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </button>
-
-        <div className="relative z-10 flex flex-col items-center px-4 py-10 text-center sm:px-6 sm:py-14 md:items-start md:px-8 md:text-left lg:px-10">
-          <div
-            className="mb-5 inline-flex items-center justify-center rounded-full"
-            style={{
-              width: 64,
-              height: 64,
-              background: "rgba(255,255,255,0.10)",
-              border: "1.5px solid rgba(255,255,255,0.18)",
-              boxShadow: "0 0 0 8px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35)",
-            }}
-          >
-            <Building2 className="h-7 w-7" style={{ color: "rgba(255,255,255,0.92)" }} aria-hidden />
-          </div>
-
-          <h1
-            className="text-2xl sm:text-3xl font-bold tracking-tight"
-            style={{ color: "#ffffff", textShadow: "0 2px 12px rgba(0,0,0,0.4)" }}
-          >
-            Tour Operator
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm sm:text-base" style={{ color: "rgba(255,255,255,0.60)" }}>
-            Hired, pending and approved tour operators managed as a company workflow.
-          </p>
-
-          <div className="mt-4 flex w-full flex-wrap items-center justify-center gap-2 md:justify-start">
-            <div className="relative group/tooltip inline-flex">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150 focus:outline-none"
-                style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.70)" }}
-                aria-label="Tour operator workflow info"
-                onClick={(e) => {
-                  e.preventDefault();
-                  try {
-                    (e.currentTarget as HTMLButtonElement).focus();
-                  } catch {
-                    // ignore
-                  }
-                }}
-              >
-                <Info className="h-3.5 w-3.5" aria-hidden />
-                <span>Operator workflow</span>
-              </button>
-              <div
-                role="tooltip"
-                className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 z-50 mb-2 w-72 max-w-[calc(100vw-1rem)] whitespace-normal break-words rounded-xl px-3 py-2.5 text-left text-xs opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
-                style={{ background: "#0b2a38", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(255,255,255,0.85)" }}
-              >
-                <div className="font-semibold mb-1" style={{ color: "#fff" }}>Tour operator workflow</div>
-                <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.60)" }}>
-                  Review active operators and applicant stages from the same operational list.
-                </div>
+      {/* Workspace header */}
+      <section className="relative overflow-hidden rounded-2xl border border-solid border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-solid border-white/[0.06]" aria-hidden="true" />
+        <div className="relative flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-solid border-emerald-100 bg-white text-emerald-700 shadow-sm">
+                <Building2 className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Agents module</p>
+                <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Tour Operators</h1>
+                <p className="m-0 mt-1 text-xs leading-5 text-emerald-100/80 sm:text-sm">
+                  Active operator companies and the applications on their way in, in one list.
+                </p>
               </div>
             </div>
-
-            <Link
-              href="/admin/agents"
-              className="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-medium text-white no-underline transition-all duration-150 hover:bg-white/15"
-              style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.15)" }}
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              suppressHydrationWarning
+              title="Refresh tour operators"
+              aria-label="Refresh tour operators"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-solid border-white/20 bg-white/10 text-white transition hover:bg-white/20 disabled:cursor-wait"
             >
-              Open Agents Module
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
+            </button>
           </div>
+          <nav aria-label="Related workspaces" className="flex flex-wrap gap-2 border-0 border-t border-solid border-white/15 pt-4">
+            {[
+              { href: "/admin/agents", label: "Agents module", Icon: Users },
+              { href: "/admin/agents/tour-bookings", label: "Tour bookings", Icon: ClipboardList },
+              { href: "/admin/agents/tour-experience", label: "Tour experience", Icon: BarChart3 },
+            ].map(({ href, label, Icon }) => (
+              <Link key={href} href={href} className="inline-flex items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 py-2 text-xs font-bold text-emerald-50 no-underline transition hover:bg-white/15">
+                <Icon className="h-4 w-4" aria-hidden /> {label}
+              </Link>
+            ))}
+          </nav>
         </div>
       </section>
 
+      {/* Status strip: every count is also the filter for it */}
       <section
-        className="w-full min-w-0 max-w-full overflow-hidden rounded-xl"
-        style={{ background: "linear-gradient(135deg, #0a1a19 0%, #0d2320 60%, #0a1f2e 100%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)" }}
+        aria-label="Filter by status"
+        className="grid min-w-0 grid-cols-2 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] sm:grid-cols-3 xl:grid-cols-6 [&>*]:border-0 [&>*]:border-b [&>*]:border-r [&>*]:border-solid [&>*]:border-neutral-100"
       >
-        <div className="p-3 sm:p-4 lg:p-6">
-        <div className="flex flex-col gap-3 sm:gap-4">
-          <div className="w-full min-w-0 max-w-full">
-            <div className="relative w-full min-w-0 max-w-full">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 sm:left-3 sm:h-5 sm:w-5" style={{ color: "rgba(255,255,255,0.40)" }} />
+        {STATUS_TABS.map((s) => {
+          const on = accountFilter === s.value;
+          const count = statusCounts[s.value] ?? 0;
+          return (
+            <button
+              key={s.value || "all"}
+              type="button"
+              aria-pressed={on}
+              onClick={() => selectFilter(s.value)}
+              className={`relative flex min-w-0 cursor-pointer flex-col items-start gap-1 bg-transparent p-3.5 text-left transition sm:p-4 ${on ? "bg-emerald-50/70" : "hover:bg-neutral-50"}`}
+            >
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
+                <span className={`h-2 w-2 rounded-full ${s.dot}`} aria-hidden /> {s.label}
+              </span>
+              <span className={`text-xl font-black leading-none tabular-nums ${on ? "text-emerald-800" : "text-neutral-950"}`}>{count}</span>
+              <span className="text-[11px] leading-snug text-neutral-500">{s.hint}</span>
+              {on ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-emerald-700" aria-hidden /> : null}
+            </button>
+          );
+        })}
+      </section>
+
+      {/* Nudge when applications are waiting */}
+      {pendingCount > 0 && accountFilter !== "PENDING" ? (
+        <div className="flex flex-col gap-3 rounded-2xl border border-solid border-amber-200 bg-amber-50/70 p-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <p className="m-0 flex items-center gap-2.5 text-sm text-amber-900">
+            <Clock className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+            <span>
+              <span className="font-bold">{pendingCount} {pendingCount === 1 ? "application is" : "applications are"} waiting for review.</span>{" "}
+              <span className="text-amber-800/80">Pending, reviewing and shortlisted combined.</span>
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => selectFilter("PENDING")}
+            className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 self-start rounded-lg border border-solid border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800 transition hover:bg-amber-100 sm:self-auto"
+          >
+            Review now <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      ) : null}
+
+      {/* Register */}
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+        <div className="flex flex-col gap-2.5 border-0 border-b border-solid border-neutral-100 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
             <input
-              value={q}
-              onChange={(e) => {
-                setPage(1);
-                setQ(e.target.value);
-              }}
-              placeholder="Search name, email, or phone"
-              className="box-border w-full min-w-0 max-w-full rounded-lg py-2 pl-9 pr-10 text-xs outline-none transition-all sm:py-2.5 sm:pl-10 sm:text-sm"
-              style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.90)" }}
+              value={qInput}
+              onChange={(e) => setQInput(e.target.value)}
+              placeholder="Search company, email or phone"
+              aria-label="Search tour operators"
+              className="block min-h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white py-1.5 pl-9 pr-9 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
             />
-            </div>
-          </div>
-
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 sm:gap-2">
-            {[
-              { label: "All", value: "" },
-              { label: "Active", value: "ACTIVE" },
-              { label: "Pending", value: "PENDING" },
-              { label: "Hired", value: "HIRED" },
-              { label: "Rejected", value: "REJECTED" },
-              { label: "Suspended", value: "SUSPENDED" },
-            ].map((s) => {
-              const isActive = accountFilter === s.value;
-              type PillColors = { activeBg: string; activeBorder: string; activeText: string; inactiveBg: string; inactiveBorder: string; badgeBg: string; badgeText: string };
-              const colorMap: Record<string, PillColors> = {
-                "": { activeBg: "rgba(255,255,255,0.18)", activeBorder: "rgba(255,255,255,0.38)", activeText: "#ffffff", inactiveBg: "rgba(255,255,255,0.06)", inactiveBorder: "rgba(255,255,255,0.12)", badgeBg: "rgba(255,255,255,0.15)", badgeText: "#e2e8f0" },
-                ACTIVE: { activeBg: "rgba(16,185,129,0.25)", activeBorder: "rgba(16,185,129,0.55)", activeText: "#6ee7b7", inactiveBg: "rgba(16,185,129,0.08)", inactiveBorder: "rgba(16,185,129,0.20)", badgeBg: "rgba(16,185,129,0.20)", badgeText: "#6ee7b7" },
-                PENDING: { activeBg: "rgba(245,158,11,0.25)", activeBorder: "rgba(245,158,11,0.55)", activeText: "#fcd34d", inactiveBg: "rgba(245,158,11,0.08)", inactiveBorder: "rgba(245,158,11,0.20)", badgeBg: "rgba(245,158,11,0.20)", badgeText: "#fcd34d" },
-                HIRED: { activeBg: "rgba(20,184,166,0.25)", activeBorder: "rgba(20,184,166,0.55)", activeText: "#5eead4", inactiveBg: "rgba(20,184,166,0.08)", inactiveBorder: "rgba(20,184,166,0.20)", badgeBg: "rgba(20,184,166,0.20)", badgeText: "#5eead4" },
-                REJECTED: { activeBg: "rgba(239,68,68,0.25)", activeBorder: "rgba(239,68,68,0.55)", activeText: "#fca5a5", inactiveBg: "rgba(239,68,68,0.08)", inactiveBorder: "rgba(239,68,68,0.20)", badgeBg: "rgba(239,68,68,0.20)", badgeText: "#fca5a5" },
-                SUSPENDED: { activeBg: "rgba(99,102,241,0.25)", activeBorder: "rgba(99,102,241,0.55)", activeText: "#c4b5fd", inactiveBg: "rgba(99,102,241,0.08)", inactiveBorder: "rgba(99,102,241,0.20)", badgeBg: "rgba(99,102,241,0.20)", badgeText: "#c4b5fd" },
-              };
-              const colors = colorMap[s.value] ?? colorMap[""];
-              const btnStyle = isActive
-                ? { background: colors.activeBg, border: `1.5px solid ${colors.activeBorder}`, color: colors.activeText }
-                : { background: colors.inactiveBg, border: `1.5px solid ${colors.inactiveBorder}`, color: "rgba(255,255,255,0.65)" };
-              const badgeStyle = { background: colors.badgeBg, color: colors.badgeText };
-              const count = (statusCounts as any)[s.value] ?? 0;
-              return (
+            {qInput ? (
               <button
-                key={s.value || "all"}
                 type="button"
-                  onClick={() => {
-                    setPage(1);
-                    setAccountFilter(s.value as "" | "ACTIVE" | "PENDING" | "HIRED" | "REJECTED" | "SUSPENDED");
-                  }}
-                  className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-xs transition-all duration-200 sm:px-2.5 sm:py-1.5 sm:gap-1.5"
-                  style={btnStyle}
+                onClick={() => setQInput("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
               >
-                  <span className="whitespace-nowrap">{s.label}</span>
-                  <span className="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] sm:px-2 sm:text-xs" style={badgeStyle}>{count}</span>
+                <X className="h-3.5 w-3.5" aria-hidden />
               </button>
-              );
-            })}
-
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => setShowAdvancedFilters((v) => !v)}
-              className="flex flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2 py-1 text-xs transition-all sm:px-2.5 sm:py-1.5"
-              style={showAdvancedFilters ? { background: "rgba(2,102,94,0.30)", border: "1.5px solid rgba(2,102,94,0.65)", color: "#5eead4" } : { background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.14)", color: "rgba(255,255,255,0.75)" }}
+            aria-expanded={showAdvancedFilters}
+            className={`inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid px-3 text-xs font-bold transition ${showAdvancedFilters || activeChips.length ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}
           >
-              <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            Advanced Filters
+            <Filter className="h-3.5 w-3.5" aria-hidden />
+            Filters{activeChips.length ? ` (${activeChips.length})` : ""}
           </button>
-        </div>
         </div>
 
         {showAdvancedFilters ? (
-          <div className="mt-4 space-y-3 pt-3 sm:space-y-4 sm:pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.10)" }}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
-              <label className="min-w-0">
-                <span className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Region or District</span>
+          <div className="grid grid-cols-1 gap-3 border-0 border-b border-solid border-neutral-100 bg-neutral-50/60 px-4 py-3 sm:grid-cols-3 sm:px-5">
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Region or district</span>
               <input
                 value={regionFilter}
                 onChange={(e) => setRegionFilter(e.target.value)}
-                placeholder="Filter by location"
-                  className="box-border w-full rounded-lg px-3 py-2 text-xs outline-none transition-all sm:text-sm"
-                  style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.85)" }}
+                placeholder="Arusha, Moshi, Serengeti"
+                className="block min-h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
               />
             </label>
-              <label className="min-w-0">
-                <span className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Hired From</span>
-                <DatePickerField
-                  label="Hired From"
-                  value={hiredFrom}
-                  onChangeAction={setHiredFrom}
-                  max={hiredTo || undefined}
-                  widthClassName="w-full"
-                  size="sm"
-                />
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Joined or applied from</span>
+              <DatePickerField label="From" value={hiredFrom} onChangeAction={setHiredFrom} max={hiredTo || undefined} widthClassName="w-full" size="sm" />
             </label>
-              <label className="min-w-0">
-                <span className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Hired To</span>
-                <DatePickerField
-                  label="Hired To"
-                  value={hiredTo}
-                  onChangeAction={setHiredTo}
-                  min={hiredFrom || undefined}
-                  widthClassName="w-full"
-                  size="sm"
-                />
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-bold text-neutral-500">Joined or applied to</span>
+              <DatePickerField label="To" value={hiredTo} onChangeAction={setHiredTo} min={hiredFrom || undefined} widthClassName="w-full" size="sm" />
             </label>
-            </div>
           </div>
         ) : null}
-        </div>
-      </section>
 
-      <section className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4 lg:p-6">
+        {activeChips.length ? (
+          <div className="flex flex-wrap items-center gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-2.5 sm:px-5">
+            {activeChips.map((chip) => (
+              <span key={chip.key} className="inline-flex items-center gap-1 rounded-full border border-solid border-emerald-200 bg-emerald-50 py-0.5 pl-2.5 pr-1 text-[11px] font-bold text-emerald-800">
+                {chip.label}
+                <button type="button" onClick={chip.clear} aria-label={`Remove ${chip.label}`} className="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-emerald-700 hover:bg-emerald-100">
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => { setRegionFilter(""); setHiredFrom(""); setHiredTo(""); }}
+              className="cursor-pointer border-0 bg-transparent p-0 text-[11px] font-bold text-neutral-500 underline-offset-2 hover:text-neutral-900 hover:underline"
+            >
+              Clear all
+            </button>
+          </div>
+        ) : null}
 
-        {error ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+        {error ? (
+          <div className="m-4 flex items-start gap-2.5 rounded-xl border border-solid border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700 sm:mx-5" role="alert">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> <span>{error}</span>
+          </div>
+        ) : null}
 
-        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-          <table className="min-w-[1050px] w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
-              <tr>
-                <th className="w-[88px] whitespace-nowrap px-4 py-3">S/N</th>
-                <th className="w-[220px] whitespace-nowrap px-4 py-3">
-                  <button type="button" onClick={() => handleSort("company")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-slate-900">
-                    Company {renderSortIcon("company")}
-                  </button>
-                </th>
-                <th className="w-[220px] whitespace-nowrap px-4 py-3">
-                  <button type="button" onClick={() => handleSort("contact")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-slate-900">
-                    Contact {renderSortIcon("contact")}
-                  </button>
-                </th>
-                <th className="whitespace-nowrap px-4 py-3">
-                  <button type="button" onClick={() => handleSort("location")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-slate-900">
-                    Location {renderSortIcon("location")}
-                  </button>
-                </th>
-                <th className="w-[130px] whitespace-nowrap px-4 py-3">
-                  <button type="button" onClick={() => handleSort("hiredAt")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-slate-900">
-                    Hired At {renderSortIcon("hiredAt")}
-                  </button>
-                </th>
-                <th className="whitespace-nowrap px-4 py-3">
-                  <button type="button" onClick={() => handleSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-slate-900">
-                    Status {renderSortIcon("status")}
-                  </button>
-                </th>
-                <th className="whitespace-nowrap px-4 py-3 text-center">Actions</th>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] table-fixed border-collapse text-left">
+            <caption className="sr-only">{showingApplications ? "Tour operator applications" : "Tour operators"}</caption>
+            <colgroup>
+              <col className="w-[30%]" />
+              <col className="w-[22%]" />
+              <col className="w-[17%]" />
+              <col className="w-[13%]" />
+              <col className="w-[12%]" />
+              <col className="w-[6%]" />
+            </colgroup>
+            <thead>
+              <tr className="border-0 border-b border-solid border-neutral-100">
+                <th className="px-4 py-2.5 sm:px-5">{sortHeader("company", showingApplications ? "Applicant" : "Company")}</th>
+                <th className="px-3 py-2.5">{sortHeader("contact", "Contact")}</th>
+                <th className="px-3 py-2.5">{sortHeader("location", "Location")}</th>
+                <th className="px-3 py-2.5">{sortHeader("hiredAt", showingApplications ? "Applied" : "Joined")}</th>
+                <th className="px-3 py-2.5">{sortHeader("status", "Status")}</th>
+                <th className="px-3 py-2.5"><span className="sr-only">Open</span></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody>
               {loading ? (
-                <TableRow hover={false}>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">Loading tour operator records...</td>
-                </TableRow>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`sk-${i}`} className="border-0 border-b border-solid border-neutral-50">
+                    <td className="px-4 py-3.5 sm:px-5" colSpan={6}>
+                      <div className="flex items-center gap-3">
+                        <span className="h-9 w-9 animate-pulse rounded-full bg-neutral-100" />
+                        <span className="h-3 w-1/3 animate-pulse rounded bg-neutral-100" />
+                        <span className="ml-auto h-3 w-1/5 animate-pulse rounded bg-neutral-100" />
+                      </div>
+                    </td>
+                  </tr>
+                ))
               ) : (showingApplications ? sortedApplicationRows.length === 0 : sortedRows.length === 0) ? (
-                <TableRow hover={false}>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                    {showingApplications
-                      ? "No applications found for this filter."
-                      : "No hired tour operators found for this filter."}
+                <tr>
+                  <td colSpan={6} className="px-5 py-12 text-center">
+                    <p className="m-0 text-sm font-bold text-neutral-700">{showingApplications ? "No applications here" : "No operators match"}</p>
+                    <p className="m-0 mt-1 text-xs text-neutral-400">
+                      {q || activeChips.length ? "Try a different search or clear the filters." : "Nothing in this status yet."}
+                    </p>
                   </td>
-                </TableRow>
+                </tr>
               ) : showingApplications ? (
-                sortedApplicationRows.map((r, index) => (
-                  <TableRow key={`app-${r.id}`}>
-                    <td className="px-4 py-3 text-slate-700">{String(index + 1).padStart(2, "0")}</td>
-                    <td className="w-[220px] px-4 py-3 text-slate-700">Application Stage</td>
-                    <td className="w-[220px] px-4 py-3">
-                      <div className="text-slate-700">{r.email || "-"}</div>
-                      <div className="text-xs text-slate-500">{r.phone || "-"}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">-</td>
-                    <td className="px-4 py-3 text-slate-700">
-                      <div className="whitespace-nowrap">{fmtDate(r.submittedAt)}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{fmtTime(r.submittedAt)}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                        String(r.status).toUpperCase() === "REJECTED"
-                          ? "border-rose-200 bg-rose-50 text-rose-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
-                      }`}>
-                        {String(r.status).toUpperCase() === "REJECTED" ? "Rejected" : "Pending"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Link
-                        href={`/admin/careers/applications/${r.id}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#02665e]/25 text-[#02665e] no-underline hover:bg-[#02665e]/10"
-                        title="View application"
-                        aria-label="View application"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Link>
-                    </td>
-                  </TableRow>
-                ))
+                sortedApplicationRows.map((r, index) => {
+                  const rejected = String(r.status).toUpperCase() === "REJECTED";
+                  return (
+                    <tr key={`app-${r.id}`} className={`border-0 border-b border-solid border-neutral-50 text-xs transition hover:bg-emerald-50/70 ${index % 2 === 1 ? "bg-emerald-50/30" : "bg-white"}`}>
+                      <td className="px-4 py-3 sm:px-5">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Initials name={r.fullName || r.email || "Applicant"} />
+                          <span className="min-w-0">
+                            <span className="block truncate text-[13px] font-bold text-neutral-900">{r.fullName || "Unnamed applicant"}</span>
+                            <span className="block truncate text-[11px] text-neutral-400">Application #{r.id}</span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3"><ContactCell email={r.email} phone={r.phone} /></td>
+                      <td className="px-3 py-3 text-neutral-400">Shared after hiring</td>
+                      <td className="px-3 py-3"><DateCell iso={r.submittedAt} /></td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex items-center rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${rejected ? "border-red-100 bg-red-50 text-red-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}>
+                          {rejected ? "Rejected" : titleCase(String(r.status || "Pending"))}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <Link href={`/admin/management/careers?tab=applications&applicationId=${encodeURIComponent(String(r.id))}`} title="Open application" aria-label="Open application" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 no-underline transition hover:bg-emerald-50 hover:text-emerald-700">
+                          <ChevronRight className="h-4 w-4" aria-hidden />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
-                sortedRows.map((r, index) => (
-                  <TableRow key={r.id}>
-                    <td className="px-4 py-3 text-slate-700">{String(index + 1).padStart(2, "0")}</td>
-                    <td className="w-[220px] px-4 py-3 text-slate-700">{r.user?.fullName || r.user?.name || "Company profile pending"}</td>
-                    <td className="w-[220px] px-4 py-3">
-                      <div className="text-slate-700">{r.user?.email || "-"}</div>
-                      <div className="text-xs text-slate-500">{r.user?.phone || "-"}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{[r.user?.region, r.user?.district].filter(Boolean).join(", ") || "-"}</td>
-                    <td className="px-4 py-3 text-slate-700">
-                      <div className="whitespace-nowrap">{fmtDate(r.createdAt)}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{fmtTime(r.createdAt)}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {String(r.status).toUpperCase() === "SUSPENDED" ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
-                          <ShieldOff className="h-3.5 w-3.5" />
-                          Suspended
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                          <ShieldCheck className="h-3.5 w-3.5" />
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Link
-                        href={`/admin/agents/${r.id}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#02665e]/25 text-[#02665e] no-underline hover:bg-[#02665e]/10"
-                        title="View tour operator details"
-                        aria-label="View tour operator details"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Link>
-                    </td>
-                  </TableRow>
-                ))
+                sortedRows.map((r, index) => {
+                  const suspended = String(r.status).toUpperCase() === "SUSPENDED";
+                  const name = r.user?.fullName || r.user?.name || "";
+                  const tags = [...(r.specializations ?? []), ...(r.areasOfOperation ?? [])].filter(Boolean);
+                  return (
+                    <tr key={r.id} className={`border-0 border-b border-solid border-neutral-50 text-xs transition hover:bg-emerald-50/70 ${index % 2 === 1 ? "bg-emerald-50/30" : "bg-white"}`}>
+                      <td className="px-4 py-3 sm:px-5">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Initials name={name || "Operator"} muted={suspended} />
+                          <span className="min-w-0">
+                            <span className="block truncate text-[13px] font-bold text-neutral-900">{name || "Company profile pending"}</span>
+                            {tags.length ? (
+                              <span className="mt-1 flex min-w-0 gap-1">
+                                {tags.slice(0, 2).map((tag) => (
+                                  <span key={tag} className="truncate rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-600">{tag}</span>
+                                ))}
+                                {tags.length > 2 ? <span className="shrink-0 text-[10px] font-semibold text-neutral-400">+{tags.length - 2}</span> : null}
+                              </span>
+                            ) : (
+                              <span className="block text-[11px] text-neutral-400">Operator #{r.id}</span>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3"><ContactCell email={r.user?.email} phone={r.user?.phone} /></td>
+                      <td className="px-3 py-3">
+                        {r.user?.region || r.user?.district ? (
+                          <span className="flex min-w-0 items-center gap-1.5 text-neutral-700">
+                            <MapPin className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-hidden />
+                            <span className="truncate">{[r.user?.district, r.user?.region].filter(Boolean).join(", ")}</span>
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400">Not set</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3"><DateCell iso={r.createdAt} /></td>
+                      <td className="px-3 py-3">
+                        {suspended ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-solid border-red-100 bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-700"><ShieldOff className="h-3 w-3" aria-hidden /> Suspended</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-solid border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700"><ShieldCheck className="h-3 w-3" aria-hidden /> Active</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <Link href={recordHref("agent", r.id)} title="Open operator" aria-label="Open operator" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 no-underline transition hover:bg-emerald-50 hover:text-emerald-700">
+                          <ChevronRight className="h-4 w-4" aria-hidden />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
-        <div className="mt-4 overflow-x-auto">
-          <div className="flex min-w-[860px] items-center justify-between text-sm">
-            <div className="text-slate-500 whitespace-nowrap">
-              Page {page} of {pages} · Total hired: {hiredCount} · Pending applications: {pendingCount} · Rejected applications: {rejectedCount} · Showing: {showingApplications ? filteredApplicationRows.length : filteredRows.length}
-            </div>
-            <div className="flex items-center gap-2 pl-4">
+        <div className="flex flex-col gap-2 border-0 border-t border-solid border-neutral-100 px-4 py-3 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <span className="text-neutral-500">
+            {shownCount ? <>Showing <span className="font-bold text-neutral-800">{firstShown} to {lastShown}</span>{showingApplications ? "" : <> of <span className="font-bold text-neutral-800">{total}</span></>}</> : "Nothing to show"}
+          </span>
+          {!showingApplications && pages > 1 ? (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
+                suppressHydrationWarning
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Prev
+                <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> Prev
               </button>
+              <span className="tabular-nums text-neutral-500">Page {page} of {pages}</span>
               <button
                 type="button"
+                suppressHydrationWarning
                 disabled={page >= pages}
                 onClick={() => setPage((p) => Math.min(pages, p + 1))}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 font-bold text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Next
+                Next <ChevronRight className="h-3.5 w-3.5" aria-hidden />
               </button>
             </div>
-          </div>
+          ) : null}
         </div>
       </section>
     </div>

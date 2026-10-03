@@ -14,6 +14,8 @@ function authify() {}
 
 type Row = {
   id: number;
+  /** Opaque id for the booking URL. */
+  reference?: string;
   status: string;
   checkIn: string;
   checkOut: string;
@@ -598,7 +600,7 @@ export default function AdminBookingsPage() {
                       <div id={`booking-${b.id}-details`} className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
                         <span className="text-gray-400">Room: <span className="font-medium text-gray-700">{b.roomCode ?? '—'}</span></span>
                         <a
-                          href={`/admin/bookings/${b.id}`}
+                          href={`/admin/bookings/${b.reference ?? b.id}`}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#02665e] border border-[#02665e]/40 rounded-lg hover:bg-[#02665e] hover:text-white transition"
                         >
                           <Eye className="h-3.5 w-3.5" /> View
@@ -733,7 +735,7 @@ export default function AdminBookingsPage() {
                                 case 'actions':
                                   return (
                                     <a
-                                      href={`/admin/bookings/${b.id}`}
+                                      href={`/admin/bookings/${b.reference ?? b.id}`}
                                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#02665e] border border-[#02665e]/40 rounded-lg hover:bg-[#02665e] hover:text-white transition group-hover:border-[#02665e]/70"
                                     >
                                       <Eye className="h-3.5 w-3.5" /> View

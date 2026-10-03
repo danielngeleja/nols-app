@@ -106,6 +106,13 @@ export type GroupBlock = {
     payments: Array<{ id: number; amount: number; method: string; reference: string | null; receiptNumber: string; note: string | null; createdAt: string; voidedAt: string | null; voidReason: string | null }>;
     refunds: Array<{ id: number; amount: number; method: string; reference: string | null; refundNumber: string; reason: string; createdAt: string; voidedAt: string | null; voidReason: string | null }>;
   } | null;
+  /** Summary of the agency's rooming list; SUBMITTED means names are waiting for the desk. */
+  roomingList?: {
+    status: string;
+    submittedAt: string | null;
+    submitterName: string | null;
+    rowCount: number | null;
+  } | null;
   chargeRegister: Array<{
     id: string;
     occurredAt: string;
@@ -770,6 +777,10 @@ export function GroupBlockDetailModal({
   const [proFormaError, setProFormaError] = useState<{ message: string; code?: string } | null>(null);
   const [proFormaNotice, setProFormaNotice] = useState<string | null>(null);
   const [statementNotice, setStatementNotice] = useState<string | null>(null);
+  const [onlinePaymentLink, setOnlinePaymentLink] = useState<{ amount: number; currency: string; expiresAt: string; url: string } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [showManualBank, setShowManualBank] = useState(false);
   const [showManualAccountNumber, setShowManualAccountNumber] = useState(false);
   const [manualBankBusy, setManualBankBusy] = useState(false);
@@ -935,6 +946,7 @@ export function GroupBlockDetailModal({
         reference: agencyPaymentReference.trim() || null,
       });
       agencyPaymentRequest.current = null;
+      setOnlinePaymentLink(null);
       await reload();
       setAgencyPaymentAmount("");
       setAgencyPaymentReference("");
@@ -943,6 +955,34 @@ export function GroupBlockDetailModal({
       setAgencyPaymentError(e?.response?.data?.error || "Failed to record the agency payment");
     } finally {
       setBusy(false);
+    }
+  };
+
+  // The link has its own busy and error state so it neither spins with, nor
+  // reports into, the unrelated payment form further down the modal.
+  const generateOnlinePaymentLink = async () => {
+    if (!block?.masterFolio) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    setLinkCopied(false);
+    try {
+      const response = await apiClient.post<any>(`/api/owner/nrms/group-blocks/blocks/${blockId}/master-folio/payment-link`, {});
+      setOnlinePaymentLink(response.data?.paymentLink ?? null);
+    } catch (e: any) {
+      setLinkError(e?.response?.data?.error || "The payment link could not be created. Try again.");
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
+  const copyOnlinePaymentLink = async () => {
+    if (!onlinePaymentLink) return;
+    try {
+      await navigator.clipboard.writeText(onlinePaymentLink.url);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      setLinkError("Copy was blocked by the browser. Select the link and copy it manually.");
     }
   };
 
@@ -1152,6 +1192,7 @@ export function GroupBlockDetailModal({
   const canManageBlockAgreement = ["OWNER", "MANAGER", "SALES_EXECUTIVE"].includes(accessRole);
   const canVoidAgencyPayment = accessRole === "OWNER" || accessRole === "MANAGER";
   const canManageAgencyRefunds = accessRole === "OWNER" || accessRole === "MANAGER";
+  const namesWaiting = block?.roomingList?.status === "SUBMITTED";
   const hasPaidConfirmedRooms = block?.chargeRegister.some((row) => row.sourceType === "ROOM" && ["PAID_BY_AGENCY", "GUEST_FOLIO_SETTLED"].includes(row.settlementStatus)) ?? false;
 
   return (
@@ -1181,6 +1222,30 @@ export function GroupBlockDetailModal({
             </div>
           </div>
 
+          {namesWaiting && (
+            <div role="status" className="flex flex-col gap-3 rounded-xl border border-solid border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="relative mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                  <UserPlus className="h-4 w-4" />
+                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-solid border-amber-50 bg-amber-500" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="m-0 text-sm font-bold text-amber-950">The agency sent guest names</p>
+                  <p className="m-0 mt-0.5 text-[13px] leading-5 text-amber-900">
+                    {block.roomingList?.rowCount != null ? `${block.roomingList.rowCount} ${block.roomingList.rowCount === 1 ? "name" : "names"}` : "The rooming list"} submitted
+                    {block.roomingList?.submitterName ? ` by ${block.roomingList.submitterName}` : ""}
+                    {block.roomingList?.submittedAt ? ` on ${fmtDateTime(block.roomingList.submittedAt)}` : ""}. Review and confirm them to pick up the rooms.
+                  </p>
+                </div>
+              </div>
+              {canWorkRoomingList && (
+                <button type="button" onClick={() => setShowRoomingList(true)} disabled={busy} className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-amber-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-amber-700 disabled:opacity-50">
+                  <Link2 className="h-3.5 w-3.5" /> Review names
+                </button>
+              )}
+            </div>
+          )}
+
           {block.billingMode !== "INDIVIDUAL" && accessRole !== "SALES_EXECUTIVE" && (
             <div className="rounded-xl border border-solid border-sky-200 bg-sky-50 p-4">
               {!block.masterFolio ? (
@@ -1192,138 +1257,301 @@ export function GroupBlockDetailModal({
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-sky-600">{block.masterFolio.reference}</p>
+                      <p className="m-0 text-xs font-bold uppercase tracking-[0.14em] text-sky-600">{block.masterFolio.reference}</p>
                       <p className="m-0 mt-1 text-sm font-bold text-sky-950">Bill to {block.masterFolio.billToName}</p>
                       <p className="m-0 mt-0.5 text-xs text-sky-800">{block.billingMode === "SPLIT" ? "Rooms on agency; extras on guests" : "Rooms and extras on agency"}</p>
                     </div>
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${block.masterFolio.status === "SETTLED" ? "bg-emerald-100 text-emerald-800" : block.masterFolio.status === "CREDIT" ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${block.masterFolio.status === "SETTLED" ? "bg-emerald-100 text-emerald-800" : block.masterFolio.status === "CREDIT" ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"}`}>
                       {block.masterFolio.status}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Quoted</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.quoted.toLocaleString()}</p></div>
-                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Billed</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.billed.toLocaleString()}</p></div>
-                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">Net paid</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.paid.toLocaleString()}</p>{block.masterFolio.refunded > 0 && <p className="m-0 mt-0.5 text-[9px] text-neutral-500">Received {block.masterFolio.paymentsReceived.toLocaleString()} · refunded {block.masterFolio.refunded.toLocaleString()}</p>}</div>
-                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-[10px] font-semibold uppercase text-neutral-400">{block.masterFolio.credit > 0.005 ? "Credit to refund" : "Payment due"}</p><p className={`m-0 mt-1 text-sm font-bold tabular-nums ${block.masterFolio.credit > 0.005 ? "text-blue-800" : "text-sky-950"}`}>{(block.masterFolio.credit > 0.005 ? block.masterFolio.credit : block.masterFolio.paymentDue).toLocaleString()} {block.masterFolio.currency}</p></div>
+                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-xs font-semibold uppercase text-neutral-400">Quoted</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.quoted.toLocaleString()}</p></div>
+                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-xs font-semibold uppercase text-neutral-400">Billed</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.billed.toLocaleString()}</p></div>
+                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-xs font-semibold uppercase text-neutral-400">Net paid</p><p className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{block.masterFolio.paid.toLocaleString()}</p>{block.masterFolio.refunded > 0 && <p className="m-0 mt-0.5 text-[11px] text-neutral-500">Received {block.masterFolio.paymentsReceived.toLocaleString()} · refunded {block.masterFolio.refunded.toLocaleString()}</p>}</div>
+                    <div className="rounded-lg bg-white p-3"><p className="m-0 text-xs font-semibold uppercase text-neutral-400">{block.masterFolio.credit > 0.005 ? "Credit to refund" : "Payment due"}</p><p className={`m-0 mt-1 text-sm font-bold tabular-nums ${block.masterFolio.credit > 0.005 ? "text-blue-800" : "text-sky-950"}`}>{(block.masterFolio.credit > 0.005 ? block.masterFolio.credit : block.masterFolio.paymentDue).toLocaleString()} {block.masterFolio.currency}</p></div>
                   </div>
 
-                  <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><FileText className="h-4 w-4" /></span>
-                        <div className="min-w-0">
-                          <p className="m-0 text-sm font-bold text-neutral-950">{block.masterFolio.status === "SETTLED" ? "Previous Pro Forma" : "Pro Forma invoice"}</p>
-                          <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">{block.masterFolio.status === "SETTLED" ? "A record of the original payment request. The current agency account is settled." : "Request payment directly to the property's selected bank account."}</p>
-                        </div>
+                  {/* The statement reports where the account stands, so it sits with
+                      the account figures, not with the payment request steps. */}
+                  <div className="flex flex-col gap-2 rounded-lg bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <FileText className="h-4 w-4 shrink-0 text-sky-700" />
+                      <div className="min-w-0">
+                        <p className="m-0 text-[13px] font-bold text-neutral-900">{block.masterFolio.status === "SETTLED" ? "Final payment receipt" : "Account statement"}</p>
+                        <p className="m-0 text-xs text-neutral-500">Charges, payments, refunds and the balance in one document.</p>
+                        {statementNotice && <p className="m-0 mt-0.5 text-xs font-semibold text-emerald-700">{statementNotice}</p>}
                       </div>
-                      {block.masterFolio.status !== "SETTLED" && block.masterFolio.paymentDue > 0.005 && (
-                        <button type="button" onClick={() => void generateProForma()} disabled={busy} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50">
-                          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} {block.masterFolio.proFormas.length ? "Generate revision" : "Generate Pro Forma"}
-                        </button>
-                      )}
                     </div>
-                    {proFormaError && (
-                      <div role="alert" className="mt-3 flex items-start gap-2.5 rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2.5">
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
-                        <div className="min-w-0 flex-1">
-                          <p className="m-0 text-[11px] font-semibold leading-4 text-red-800">{proFormaError.message}</p>
-                          {proFormaError.code === "VERIFIED_BANK_REQUIRED" && (
-                            accessRole === "OWNER" ? (
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <button type="button" onClick={openManualBank} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-red-700 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-red-800"><Landmark className="h-3 w-3" /> Add bank details here</button>
-                                <a href="/owner/profile" className="inline-flex items-center rounded-md border border-solid border-red-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-red-700 no-underline hover:bg-red-100">Use a verified My Profile bank</a>
-                              </div>
-                            ) : (
-                              <p className="m-0 mt-1 text-[10px] leading-4 text-red-700">Ask the property owner to add the bank instructions or select a verified payout bank.</p>
-                            )
-                          )}
+                    <div className="flex shrink-0 gap-2">
+                      <button type="button" onClick={() => void downloadMasterStatement()} disabled={busy} className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"><Download className="h-3.5 w-3.5" /> Download PDF</button>
+                      <button type="button" onClick={() => void sendMasterStatement()} disabled={busy} className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"><Mail className="h-3.5 w-3.5" /> Email agency</button>
+                    </div>
+                  </div>
+
+                  <div>
+                  <p className="m-0 mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-[10px] text-white">1</span> Request payment
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-sm">
+                  {(proFormaError || proFormaNotice) && (
+                    <div className="space-y-2 border-0 border-b border-solid border-neutral-100 p-4 pb-3">
+                      {proFormaError && (
+                        <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2.5">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600" />
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 text-[13px] font-semibold leading-5 text-red-800">{proFormaError.message}</p>
+                            {proFormaError.code === "VERIFIED_BANK_REQUIRED" && (
+                              accessRole === "OWNER" ? (
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button type="button" onClick={openManualBank} className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-red-700 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-red-800"><Landmark className="h-3.5 w-3.5" /> Add bank details here</button>
+                                  <a href="/owner/profile" className="inline-flex items-center rounded-md border border-solid border-red-200 bg-white px-2.5 py-1.5 text-xs font-bold text-red-700 no-underline hover:bg-red-100">Use a verified My Profile bank</a>
+                                </div>
+                              ) : (
+                                <p className="m-0 mt-1 text-xs leading-4 text-red-700">Ask the property owner to add the bank instructions or select a verified payout bank.</p>
+                              )
+                            )}
+                          </div>
+                          <button type="button" aria-label="Dismiss Pro Forma error" onClick={() => setProFormaError(null)} className="cursor-pointer border-0 bg-transparent p-0 text-sm leading-none text-red-400 hover:text-red-700">×</button>
                         </div>
-                        <button type="button" aria-label="Dismiss Pro Forma error" onClick={() => setProFormaError(null)} className="cursor-pointer border-0 bg-transparent p-0 text-sm leading-none text-red-400 hover:text-red-700">×</button>
+                      )}
+                      {proFormaNotice && <div role="status" className="flex items-start gap-2.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5"><Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" /><p className="m-0 flex-1 text-[13px] font-semibold leading-5 text-emerald-800">{proFormaNotice}</p><button type="button" aria-label="Dismiss bank notice" onClick={() => setProFormaNotice(null)} className="cursor-pointer border-0 bg-transparent p-0 text-sm leading-none text-emerald-500 hover:text-emerald-800">×</button></div>}
+                    </div>
+                  )}
+
+                  {block.masterFolio.proFormas.length === 0 ? (
+                    <div className="p-4 sm:p-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><FileText className="h-5 w-5" /></span>
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-bold text-neutral-950">Pro Forma invoice</p>
+                            <p className="m-0 mt-0.5 text-[13px] leading-5 text-neutral-500">The agency's official payment request, paid to the property's bank account.</p>
+                          </div>
+                        </div>
+                        {block.masterFolio.status !== "SETTLED" && block.masterFolio.paymentDue > 0.005 && (
+                          <button type="button" onClick={() => void generateProForma()} disabled={busy} className="inline-flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50">
+                            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} Generate Pro Forma
+                          </button>
+                        )}
                       </div>
-                    )}
-                    {proFormaNotice && <div role="status" className="mt-3 flex items-start gap-2.5 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5"><Landmark className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" /><p className="m-0 flex-1 text-[11px] font-semibold leading-4 text-emerald-800">{proFormaNotice}</p><button type="button" aria-label="Dismiss bank notice" onClick={() => setProFormaNotice(null)} className="cursor-pointer border-0 bg-transparent p-0 text-sm leading-none text-emerald-500 hover:text-emerald-800">×</button></div>}
-                    {block.masterFolio.proFormas.length === 0 ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-0 border-t border-solid border-neutral-100 pt-3">
+                      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
                         {["Charges and payments", "Bank instructions", "Secure QR verification"].map((item) => (
-                          <span key={item} className="inline-flex items-center gap-2 text-[10px] font-semibold text-neutral-500">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {item}
+                          <span key={item} className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500">
+                            <Check className="h-3.5 w-3.5 text-emerald-600" /> {item}
                           </span>
                         ))}
-                        {accessRole === "OWNER" && <button type="button" onClick={openManualBank} className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-[10px] font-bold text-emerald-700 underline decoration-emerald-200 underline-offset-4 hover:text-emerald-900">Use another bank for this Pro Forma</button>}
+                        {accessRole === "OWNER" && <button type="button" onClick={openManualBank} className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-xs font-bold text-emerald-700 hover:text-emerald-900">Use another bank</button>}
                       </div>
-                    ) : (() => {
-                      const proForma = block.masterFolio!.proFormas[0];
-                      const accountSettled = block.masterFolio!.status === "SETTLED";
-                      return (
-                        <div className="mt-3 overflow-hidden rounded-lg border border-solid border-neutral-200 bg-neutral-50">
-                          {accountSettled && (
-                            <div className="flex items-center gap-2 border-0 border-b border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[11px] font-bold text-emerald-800">
-                              <Check className="h-3.5 w-3.5" /> Current account settled. Nothing to pay.
+                    </div>
+                  ) : (() => {
+                    const proForma = block.masterFolio!.proFormas[0];
+                    const accountSettled = block.masterFolio!.status === "SETTLED";
+                    const canRevise = !accountSettled && block.masterFolio!.paymentDue > 0.005;
+                    const statusPill = accountSettled
+                      ? { label: "Previous request", cls: "bg-neutral-100 text-neutral-600" }
+                      : proForma.paymentStatus === "PAID"
+                        ? { label: "Paid", cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" }
+                        : proForma.paymentStatus === "PARTIALLY_PAID"
+                          ? { label: "Part paid", cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-200" }
+                          : { label: "Unpaid", cls: "bg-amber-50 text-amber-800 ring-1 ring-amber-200" };
+                    return (
+                      <div className="p-4 sm:p-5">
+                        {accountSettled && (
+                          <p className="m-0 mb-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
+                            <Check className="h-4 w-4" /> The current account is settled. This Pro Forma is kept as a record.
+                          </p>
+                        )}
+
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><FileText className="h-5 w-5" /></span>
+                            <div className="min-w-0">
+                              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Pro Forma invoice</p>
+                              <p className="m-0 mt-0.5 flex flex-wrap items-center gap-2 text-sm font-bold text-neutral-950">
+                                <span className="font-mono tracking-tight">{proForma.number}</span>
+                                <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-600">Rev {proForma.revision}</span>
+                              </p>
+                              <p className="m-0 mt-1 text-xs text-neutral-500">
+                                Issued {fmtLongDate(proForma.issuedAt.slice(0, 10))} · Due {fmtLongDate(proForma.dueAt.slice(0, 10))} · Bank ····{proForma.bankAccountLast4}
+                              </p>
                             </div>
-                          )}
-                          <div className="p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <p className="m-0 text-xs font-bold text-neutral-900">{proForma.number} <span className="font-semibold text-neutral-500">· Rev {proForma.revision}</span></p>
-                              <p className="m-0 mt-1 text-[10px] text-neutral-500">Issued {fmtLongDate(proForma.issuedAt.slice(0, 10))} · Due {fmtLongDate(proForma.dueAt.slice(0, 10))} · Account ending {proForma.bankAccountLast4}</p>
-                              {proForma.bankSource === "MANUAL_UNVERIFIED" && <p className="m-0 mt-1 text-[9px] font-bold uppercase tracking-wide text-amber-700">Manual bank · Not verified by NoLSAF or AzamPay</p>}
-                            </div>
-                            <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${accountSettled ? "bg-neutral-200 text-neutral-700" : proForma.paymentStatus === "PAID" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{accountSettled ? "PREVIOUS REQUEST" : proForma.paymentStatus.replace(/_/g, " ")}</span>
                           </div>
-                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                            <div className="rounded-md bg-white px-2.5 py-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Original request</p><p className="m-0 mt-1 text-[11px] font-bold tabular-nums text-neutral-900">{proForma.quotedTotal.toLocaleString()} {proForma.currency}</p></div>
-                            <div className="rounded-md bg-white px-2.5 py-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Payment recorded</p><p className="m-0 mt-1 text-[11px] font-bold tabular-nums text-neutral-900">{proForma.paidNow.toLocaleString()} {proForma.currency}</p></div>
-                            <div className="rounded-md bg-white px-2.5 py-2"><p className="m-0 text-[9px] font-semibold uppercase tracking-wide text-neutral-400">{accountSettled ? "No longer payable" : "Amount due"}</p><p className={`m-0 mt-1 text-[11px] font-bold tabular-nums ${accountSettled ? "text-neutral-500" : "text-amber-800"}`}>{proForma.liveBalance.toLocaleString()} {proForma.currency}</p></div>
+                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${statusPill.cls}`}>{statusPill.label}</span>
+                        </div>
+
+                        {proForma.bankSource === "MANUAL_UNVERIFIED" && (
+                          <p className="m-0 mt-3 flex items-center gap-2 text-xs text-amber-800">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> Bank details were entered by hand and are not verified by NoLSAF or AzamPay.
+                          </p>
+                        )}
+
+                        <dl className="m-0 mt-4 grid grid-cols-3 overflow-hidden rounded-xl border border-solid border-neutral-200">
+                          <div className="px-3 py-3 sm:px-4">
+                            <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-400">Requested</dt>
+                            <dd className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{proForma.quotedTotal.toLocaleString()} <span className="text-xs font-semibold text-neutral-400">{proForma.currency}</span></dd>
                           </div>
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-neutral-200 pt-3">
-                            <p className="m-0 text-[10px] text-neutral-500">{proForma.sentAt ? `Sent to ${proForma.sentToEmail}` : "Not sent yet"}{proForma.viewCount ? ` · Viewed ${proForma.viewCount} time${proForma.viewCount === 1 ? "" : "s"}` : ""}</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              <button type="button" onClick={() => void downloadProForma(proForma.id, proForma.number)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-solid border-neutral-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"><Download className="h-3 w-3" /> PDF</button>
-                              <a href={proForma.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md border border-solid border-neutral-300 bg-white px-2.5 py-1.5 text-[10px] font-bold text-neutral-700 no-underline hover:bg-neutral-100"><Link2 className="h-3 w-3" /> Verify</a>
-                              {!accountSettled && <button type="button" onClick={() => void sendProForma(proForma.id)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1 rounded-md border-0 bg-emerald-700 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-emerald-800 disabled:opacity-50">{proForma.sentAt ? <Mail className="h-3 w-3" /> : <Send className="h-3 w-3" />} {proForma.sentAt ? "Resend" : `Send to ${block.contactEmail}`}</button>}
-                            </div>
+                          <div className="border-0 border-l border-solid border-neutral-200 px-3 py-3 sm:px-4">
+                            <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-400">Received</dt>
+                            <dd className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-900">{proForma.paidNow.toLocaleString()} <span className="text-xs font-semibold text-neutral-400">{proForma.currency}</span></dd>
                           </div>
+                          <div className={`border-0 border-l border-solid border-neutral-200 px-3 py-3 sm:px-4 ${accountSettled ? "" : "bg-amber-50/60"}`}>
+                            <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-400">{accountSettled ? "No longer payable" : "Due"}</dt>
+                            <dd className={`m-0 mt-1 text-sm font-bold tabular-nums ${accountSettled ? "text-neutral-400" : "text-amber-800"}`}>{proForma.liveBalance.toLocaleString()} <span className="text-xs font-semibold opacity-70">{proForma.currency}</span></dd>
+                          </div>
+                        </dl>
+
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="m-0 flex items-center gap-1.5 text-xs text-neutral-500">
+                            {proForma.sentAt ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Send className="h-3.5 w-3.5 text-neutral-400" />}
+                            {proForma.sentAt ? `Sent to ${proForma.sentToEmail}` : "Not sent yet"}
+                            {proForma.viewCount ? <span className="text-neutral-400">· Opened {proForma.viewCount} {proForma.viewCount === 1 ? "time" : "times"}</span> : null}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button type="button" onClick={() => void downloadProForma(proForma.id, proForma.number)} disabled={busy} title="Download PDF" className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50"><Download className="h-3.5 w-3.5" /> PDF</button>
+                            <a href={proForma.publicUrl} target="_blank" rel="noreferrer" title="Open the agency's verification page" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 no-underline transition hover:bg-neutral-50"><Link2 className="h-3.5 w-3.5" /> Verify</a>
+                            {canRevise && (
+                              <button type="button" onClick={() => void generateProForma()} disabled={busy} title="Issue a new revision with the current charges" className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-50">
+                                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} New revision
+                              </button>
+                            )}
+                            {!accountSettled && (
+                              <button type="button" onClick={() => void sendProForma(proForma.id)} disabled={busy} className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50">
+                                {proForma.sentAt ? <Mail className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />} {proForma.sentAt ? "Resend" : "Send to agency"}
+                              </button>
+                            )}
                           </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-
-                  <div className="flex flex-col gap-3 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${block.masterFolio.status === "SETTLED" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`}><FileText className="h-4 w-4" /></span>
-                      <div className="min-w-0">
-                        <p className="m-0 text-sm font-bold text-neutral-950">{block.masterFolio.status === "SETTLED" ? "Final payment receipt" : "Agency account statement"}</p>
-                        <p className="m-0 mt-0.5 text-[11px] leading-4 text-neutral-500">Consolidated charges, payments, refunds and the current balance, issued directly by this property.</p>
-                        {statementNotice && <p className="m-0 mt-1 text-[10px] font-semibold text-emerald-700">{statementNotice}</p>}
+                        {!proForma.sentAt && !accountSettled && <p className="m-0 mt-2 text-right text-[11px] text-neutral-400">Sends to {block.contactEmail}</p>}
                       </div>
+                    );
+                  })()}
+
+                  {block.masterFolio.paymentDue > 0.005 && (
+                    <div className="border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-4 py-3.5 sm:px-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700 ring-1 ring-neutral-200"><Link2 className="h-4 w-4" /></span>
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-bold text-neutral-950">Online payment link</p>
+                            <p className="m-0 mt-0.5 text-[13px] leading-5 text-neutral-500">Mobile money or bank through AzamPay. Valid 3 hours; the agency can also start one from its Pro Forma.</p>
+                          </div>
+                        </div>
+                        {!onlinePaymentLink && (
+                          <button
+                            type="button"
+                            onClick={() => void generateOnlinePaymentLink()}
+                            disabled={linkBusy}
+                            className="inline-flex min-h-10 min-w-[11rem] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg border border-solid border-emerald-600 bg-white px-4 text-emerald-800 shadow-sm transition hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-70"
+                          >
+                            {linkBusy ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Link2 className="h-4 w-4 shrink-0" />}
+                            <span className="whitespace-nowrap text-xs font-bold leading-none">{linkBusy ? "Creating link..." : "Create payment link"}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {linkError && (
+                        <p role="alert" className="m-0 mt-3 flex items-start gap-2 rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" /> {linkError}
+                        </p>
+                      )}
+
+                      {onlinePaymentLink && (() => {
+                        const expiresAt = new Date(onlinePaymentLink.expiresAt);
+                        const expiresLabel = expiresAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" });
+                        const phoneDigits = (block.contactPhone ?? "").replace(/\D/g, "").replace(/^0/, "255");
+                        const message = `Payment link for ${block.name}: ${onlinePaymentLink.amount.toLocaleString()} ${onlinePaymentLink.currency}. Pay by mobile money or bank before ${expiresLabel} EAT: ${onlinePaymentLink.url}`;
+                        return (
+                          <div className="mt-3 overflow-hidden rounded-xl border border-solid border-emerald-200 bg-white">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-emerald-100 bg-emerald-50/70 px-3.5 py-2.5">
+                              <p className="m-0 flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                                <Check className="h-3.5 w-3.5" /> Link ready for {onlinePaymentLink.amount.toLocaleString()} {onlinePaymentLink.currency}
+                              </p>
+                              <p className="m-0 text-xs font-semibold text-emerald-700">Expires {expiresLabel} EAT</p>
+                            </div>
+                            <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
+                              <input
+                                readOnly
+                                value={onlinePaymentLink.url}
+                                onFocus={(event) => event.currentTarget.select()}
+                                aria-label="Payment link"
+                                className="box-border h-10 min-w-0 flex-1 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 font-mono text-xs text-neutral-700 outline-none focus:border-emerald-400"
+                              />
+                              <div className="flex shrink-0 gap-2">
+                                <button type="button" onClick={() => void copyOnlinePaymentLink()} className={`inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-3.5 text-xs font-bold text-white shadow-sm transition ${linkCopied ? "bg-emerald-600" : "bg-emerald-700 hover:bg-emerald-800"}`}>
+                                  {linkCopied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />} {linkCopied ? "Copied" : "Copy link"}
+                                </button>
+                                {phoneDigits.length >= 9 && (
+                                  <a href={`https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 no-underline transition hover:bg-neutral-50">
+                                    <Send className="h-3.5 w-3.5" /> WhatsApp
+                                  </a>
+                                )}
+                                <a href={onlinePaymentLink.url} target="_blank" rel="noreferrer" title="Open the checkout the agency will see" className="inline-flex min-h-10 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 no-underline transition hover:bg-neutral-50">Open</a>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-neutral-100 px-3.5 py-2">
+                              <p className="m-0 text-[11px] text-neutral-500">Creating a new link cancels this one.</p>
+                              <button type="button" onClick={() => void generateOnlinePaymentLink()} disabled={linkBusy} className="inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs font-bold text-emerald-700 hover:text-emerald-900 disabled:opacity-50">
+                                {linkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />} Create a new link
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
-                    <div className="grid shrink-0 grid-cols-2 gap-2">
-                      <button type="button" onClick={() => void downloadMasterStatement()} disabled={busy} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[10px] font-bold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"><Download className="h-3 w-3" /> Download PDF</button>
-                      <button type="button" onClick={() => void sendMasterStatement()} disabled={busy} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-sky-700 px-3 text-[10px] font-bold text-white hover:bg-sky-800 disabled:opacity-50"><Mail className="h-3 w-3" /> Email agency</button>
-                    </div>
+                  )}
+                  </div>
                   </div>
 
                   {block.masterFolio.paymentDue > 0.005 && (
-                    <div className="grid gap-2 sm:grid-cols-[1fr_160px_1fr_auto]">
-                      <input
-                        className={`${inputCls} ${agencyPaymentError ? "border-red-400 focus:border-red-500 focus:ring-red-500/15" : ""}`}
-                        type="number"
-                        min="0.01"
-                        max={block.masterFolio.paymentDue}
-                        step="0.01"
-                        value={agencyPaymentAmount}
-                        onChange={(e) => { setAgencyPaymentAmount(e.target.value); setAgencyPaymentError(null); }}
-                        placeholder={`Amount (max ${block.masterFolio.paymentDue.toLocaleString()})`}
-                        aria-invalid={Boolean(agencyPaymentError)}
-                        aria-describedby={agencyPaymentError ? "agency-payment-error" : undefined}
-                      />
-                      <select className={inputCls} value={agencyPaymentMethod} onChange={(e) => setAgencyPaymentMethod(e.target.value)}>
-                        <option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="CASH">Cash</option><option value="OTHER">Other</option>
-                      </select>
-                      <input className={inputCls} value={agencyPaymentReference} onChange={(e) => setAgencyPaymentReference(e.target.value)} placeholder="Transfer reference (optional)" />
-                      <button type="button" onClick={() => void recordAgencyPayment()} disabled={busy} className="cursor-pointer rounded-xl border-0 bg-sky-700 px-4 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-50">Record payment</button>
-                      {agencyPaymentError && <p id="agency-payment-error" className="m-0 text-xs font-semibold text-red-700 sm:col-span-4">{agencyPaymentError}</p>}
+                    <div>
+                      <p className="m-0 mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-[10px] text-white">2</span> Record a payment received
+                      </p>
+                      <div className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3">
+                          <div className="min-w-0">
+                            <p className="m-0 text-sm font-semibold text-neutral-700">Still to collect from {block.masterFolio.billToName}</p>
+                            <p className="m-0 mt-0.5 text-xs text-neutral-500">Only for money that reached the property outside NoLSAF, such as a bank transfer, cash or mobile money paid to the hotel. Online link payments record themselves.</p>
+                          </div>
+                          <p className="m-0 text-lg font-bold tabular-nums text-neutral-950">{block.masterFolio.paymentDue.toLocaleString()} <span className="text-sm font-semibold text-neutral-500">{block.masterFolio.currency}</span></p>
+                        </div>
+
+                        <div className="grid gap-3 p-4 sm:grid-cols-[1.2fr_0.9fr_1.2fr_auto] sm:items-end">
+                          <label className="block min-w-0">
+                            <span className="mb-1.5 flex items-center justify-between gap-2 text-xs font-semibold text-neutral-700">
+                              Amount
+                              <button type="button" onClick={() => { setAgencyPaymentAmount(String(block.masterFolio!.paymentDue)); setAgencyPaymentError(null); }} className="cursor-pointer border-0 bg-transparent p-0 text-[11px] font-bold text-emerald-700 hover:text-emerald-900">Full amount</button>
+                            </span>
+                            <input
+                              className={`${inputCls} ${agencyPaymentError ? "border-red-400 focus:border-red-500 focus:ring-red-500/15" : ""}`}
+                              type="number"
+                              min="0.01"
+                              max={block.masterFolio.paymentDue}
+                              step="0.01"
+                              value={agencyPaymentAmount}
+                              onChange={(e) => { setAgencyPaymentAmount(e.target.value); setAgencyPaymentError(null); }}
+                              placeholder={`Up to ${block.masterFolio.paymentDue.toLocaleString()}`}
+                              aria-invalid={Boolean(agencyPaymentError)}
+                              aria-describedby={agencyPaymentError ? "agency-payment-error" : undefined}
+                            />
+                          </label>
+                          <label className="block min-w-0">
+                            <span className="mb-1.5 block text-xs font-semibold text-neutral-700">Paid by</span>
+                            <select className={inputCls} value={agencyPaymentMethod} onChange={(e) => setAgencyPaymentMethod(e.target.value)}>
+                              <option value="BANK">Bank</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="CASH">Cash</option><option value="OTHER">Other</option>
+                            </select>
+                          </label>
+                          <label className="block min-w-0">
+                            <span className="mb-1.5 block text-xs font-semibold text-neutral-700">Reference <span className="font-normal text-neutral-400">(optional)</span></span>
+                            <input className={inputCls} value={agencyPaymentReference} onChange={(e) => setAgencyPaymentReference(e.target.value)} placeholder="Bank or transfer reference" />
+                          </label>
+                          <button type="button" onClick={() => void recordAgencyPayment()} disabled={busy} className="inline-flex h-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl border-0 bg-emerald-700 px-5 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:opacity-50">
+                            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Record payment
+                          </button>
+                          {agencyPaymentError && <p id="agency-payment-error" className="m-0 text-xs font-semibold text-red-700 sm:col-span-4">{agencyPaymentError}</p>}
+                        </div>
+                      </div>
                     </div>
                   )}
                   {block.masterFolio.payments.length > 0 && (
@@ -1333,8 +1561,8 @@ export function GroupBlockDetailModal({
                           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
                             <div className={payment.voidedAt ? "opacity-50 line-through" : ""}>
                               <p className="m-0 text-xs font-bold text-neutral-900">{payment.amount.toLocaleString()} {block.masterFolio!.currency} · {payment.method.replace(/_/g, " ")}</p>
-                              <p className="m-0 mt-0.5 text-[10px] text-neutral-500">{payment.receiptNumber}{payment.reference ? ` · ${payment.reference}` : ""}</p>
-                              <p className="m-0 mt-1 text-[10px] font-semibold text-neutral-600">Paid at: {fmtDateTime(payment.createdAt)}</p>
+                              <p className="m-0 mt-0.5 text-xs text-neutral-500">{payment.receiptNumber}{payment.reference ? ` · ${payment.reference}` : ""}</p>
+                              <p className="m-0 mt-1 text-xs font-semibold text-neutral-600">Paid at: {fmtDateTime(payment.createdAt)}</p>
                             </div>
                             {!payment.voidedAt && canVoidAgencyPayment && (
                               <button
@@ -1345,22 +1573,22 @@ export function GroupBlockDetailModal({
                                   setAgencyPaymentVoidReason("");
                                   setAgencyPaymentVoidError(null);
                                 }}
-                                className="cursor-pointer rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                                className="cursor-pointer rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
                               >
                                 Void
                               </button>
                             )}
                           </div>
                           {payment.voidedAt && (
-                            <p className="mx-3 mb-2 mt-0 rounded-md bg-neutral-50 px-2.5 py-2 text-[10px] text-neutral-600">
+                            <p className="mx-3 mb-2 mt-0 rounded-md bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
                               <span className="font-bold">Voided at:</span> {fmtDateTime(payment.voidedAt)}{payment.voidReason ? ` · Reason: ${payment.voidReason}` : ""}
                             </p>
                           )}
                           {voidingAgencyPaymentId === payment.id && (
                             <div className="border-0 border-t border-solid border-red-100 bg-red-50 p-3">
                               <p className="m-0 text-xs font-bold text-red-950">Void this agency payment?</p>
-                              <p className="m-0 mt-1 text-[10px] leading-4 text-red-800">The payment will no longer settle the master folio. Enter the audit reason before continuing.</p>
-                              <label className="mt-3 block text-[10px] font-bold uppercase tracking-wide text-red-900" htmlFor={`agency-payment-void-reason-${payment.id}`}>Reason for voiding</label>
+                              <p className="m-0 mt-1 text-xs leading-4 text-red-800">The payment will no longer settle the master folio. Enter the audit reason before continuing.</p>
+                              <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-red-900" htmlFor={`agency-payment-void-reason-${payment.id}`}>Reason for voiding</label>
                               <textarea
                                 id={`agency-payment-void-reason-${payment.id}`}
                                 value={agencyPaymentVoidReason}
@@ -1371,12 +1599,12 @@ export function GroupBlockDetailModal({
                                 placeholder="For example: Card transaction was entered twice"
                                 className="mt-1.5 box-border w-full resize-y rounded-lg border border-solid border-red-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/15"
                               />
-                              {agencyPaymentVoidError && <p className="m-0 mt-2 text-[10px] font-semibold text-red-700">{agencyPaymentVoidError}</p>}
+                              {agencyPaymentVoidError && <p className="m-0 mt-2 text-xs font-semibold text-red-700">{agencyPaymentVoidError}</p>}
                               <div className="mt-3 flex flex-wrap gap-2">
-                                <button type="button" disabled={busy} onClick={() => void voidAgencyPayment()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-red-700 px-3 py-2 text-[10px] font-bold text-white transition hover:bg-red-800 disabled:opacity-50">
+                                <button type="button" disabled={busy} onClick={() => void voidAgencyPayment()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-red-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-red-800 disabled:opacity-50">
                                   {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />} Confirm void
                                 </button>
-                                <button type="button" disabled={busy} onClick={() => { setVoidingAgencyPaymentId(null); setAgencyPaymentVoidReason(""); setAgencyPaymentVoidError(null); }} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-[10px] font-bold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50">Keep payment</button>
+                                <button type="button" disabled={busy} onClick={() => { setVoidingAgencyPaymentId(null); setAgencyPaymentVoidReason(""); setAgencyPaymentVoidError(null); }} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:bg-neutral-100 disabled:opacity-50">Keep payment</button>
                               </div>
                             </div>
                           )}
@@ -1388,7 +1616,7 @@ export function GroupBlockDetailModal({
                     <div className="rounded-xl border border-solid border-blue-200 bg-blue-50 p-3">
                       <div className="mb-3">
                         <p className="m-0 text-xs font-bold text-blue-950">Record money returned to the agency</p>
-                        <p className="m-0 mt-0.5 text-[10px] leading-4 text-blue-800">Available credit: {block.masterFolio.credit.toLocaleString()} {block.masterFolio.currency}. Record this only after the refund has actually been sent.</p>
+                        <p className="m-0 mt-0.5 text-xs leading-4 text-blue-800">Available credit: {block.masterFolio.credit.toLocaleString()} {block.masterFolio.currency}. Record this only after the refund has actually been sent.</p>
                       </div>
                       <div className="grid gap-2 sm:grid-cols-[1fr_150px_1fr]">
                         <input className={inputCls} type="number" min="0.01" max={block.masterFolio.credit} step="0.01" value={agencyRefundAmount} onChange={(e) => { setAgencyRefundAmount(e.target.value); setAgencyRefundError(null); }} placeholder={`Refund amount (max ${block.masterFolio.credit.toLocaleString()})`} />
@@ -1399,30 +1627,30 @@ export function GroupBlockDetailModal({
                         <input className={inputCls} value={agencyRefundReason} onChange={(e) => { setAgencyRefundReason(e.target.value); setAgencyRefundError(null); }} maxLength={300} placeholder="Reason, for example: one room released after advance payment" />
                         <button type="button" onClick={() => void recordAgencyRefund()} disabled={busy} className="min-h-11 shrink-0 cursor-pointer rounded-xl border-0 bg-blue-700 px-4 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50">Confirm refund sent</button>
                       </div>
-                      {agencyRefundError && <p className="m-0 mt-2 text-[10px] font-semibold text-red-700">{agencyRefundError}</p>}
+                      {agencyRefundError && <p className="m-0 mt-2 text-xs font-semibold text-red-700">{agencyRefundError}</p>}
                     </div>
                   )}
                   {block.masterFolio.refunds.length > 0 && (
                     <div className="overflow-hidden rounded-lg border border-solid border-blue-200 bg-white">
-                      <div className="border-0 border-b border-solid border-blue-100 bg-blue-50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-blue-800">Agency refunds</div>
+                      <div className="border-0 border-b border-solid border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-blue-800">Agency refunds</div>
                       {block.masterFolio.refunds.map((refund) => (
                         <div key={refund.id} className="border-0 border-b border-solid border-blue-100 last:border-b-0">
                           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
                             <div className={refund.voidedAt ? "opacity-50 line-through" : ""}>
                               <p className="m-0 text-xs font-bold text-neutral-900">-{refund.amount.toLocaleString()} {block.masterFolio!.currency} · {refund.method.replace(/_/g, " ")}</p>
-                              <p className="m-0 mt-0.5 text-[10px] text-neutral-500">{refund.refundNumber}{refund.reference ? ` · ${refund.reference}` : ""}</p>
-                              <p className="m-0 mt-1 text-[10px] text-neutral-600">{refund.reason} · {fmtDateTime(refund.createdAt)}</p>
+                              <p className="m-0 mt-0.5 text-xs text-neutral-500">{refund.refundNumber}{refund.reference ? ` · ${refund.reference}` : ""}</p>
+                              <p className="m-0 mt-1 text-xs text-neutral-600">{refund.reason} · {fmtDateTime(refund.createdAt)}</p>
                             </div>
-                            {!refund.voidedAt && canManageAgencyRefunds && <button type="button" disabled={busy} onClick={() => { setVoidingAgencyRefundId(refund.id); setAgencyRefundVoidReason(""); setAgencyRefundError(null); }} className="cursor-pointer rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold text-red-700 hover:bg-red-100 disabled:opacity-50">Void</button>}
+                            {!refund.voidedAt && canManageAgencyRefunds && <button type="button" disabled={busy} onClick={() => { setVoidingAgencyRefundId(refund.id); setAgencyRefundVoidReason(""); setAgencyRefundError(null); }} className="cursor-pointer rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-50">Void</button>}
                           </div>
-                          {refund.voidedAt && <p className="mx-3 mb-2 mt-0 rounded-md bg-neutral-50 px-2.5 py-2 text-[10px] text-neutral-600"><span className="font-bold">Voided at:</span> {fmtDateTime(refund.voidedAt)}{refund.voidReason ? ` · Reason: ${refund.voidReason}` : ""}</p>}
+                          {refund.voidedAt && <p className="mx-3 mb-2 mt-0 rounded-md bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600"><span className="font-bold">Voided at:</span> {fmtDateTime(refund.voidedAt)}{refund.voidReason ? ` · Reason: ${refund.voidReason}` : ""}</p>}
                           {voidingAgencyRefundId === refund.id && (
                             <div className="border-0 border-t border-solid border-red-100 bg-red-50 p-3">
                               <p className="m-0 text-xs font-bold text-red-950">Void this refund record?</p>
-                              <p className="m-0 mt-1 text-[10px] text-red-800">Use this only when the refund was entered incorrectly; it restores the agency credit.</p>
+                              <p className="m-0 mt-1 text-xs text-red-800">Use this only when the refund was entered incorrectly; it restores the agency credit.</p>
                               <textarea value={agencyRefundVoidReason} onChange={(e) => { setAgencyRefundVoidReason(e.target.value); setAgencyRefundError(null); }} rows={2} maxLength={300} autoFocus placeholder="Reason for voiding" className="mt-2 box-border w-full resize-y rounded-lg border border-solid border-red-200 bg-white px-3 py-2 text-xs outline-none focus:border-red-500" />
-                              {agencyRefundError && <p className="m-0 mt-2 text-[10px] font-semibold text-red-700">{agencyRefundError}</p>}
-                              <div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void voidAgencyRefund()} className="cursor-pointer rounded-lg border-0 bg-red-700 px-3 py-2 text-[10px] font-bold text-white disabled:opacity-50">Confirm void</button><button type="button" disabled={busy} onClick={() => { setVoidingAgencyRefundId(null); setAgencyRefundVoidReason(""); setAgencyRefundError(null); }} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-[10px] font-bold text-neutral-700">Keep refund</button></div>
+                              {agencyRefundError && <p className="m-0 mt-2 text-xs font-semibold text-red-700">{agencyRefundError}</p>}
+                              <div className="mt-2 flex gap-2"><button type="button" disabled={busy} onClick={() => void voidAgencyRefund()} className="cursor-pointer rounded-lg border-0 bg-red-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Confirm void</button><button type="button" disabled={busy} onClick={() => { setVoidingAgencyRefundId(null); setAgencyRefundVoidReason(""); setAgencyRefundError(null); }} className="cursor-pointer rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-700">Keep refund</button></div>
                             </div>
                           )}
                         </div>
@@ -1457,7 +1685,7 @@ export function GroupBlockDetailModal({
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead>
-                  <tr className="border-b border-solid border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
+                  <tr className="border-0 border-b border-solid border-neutral-200 bg-neutral-50 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-500">
                     <th className="px-4 py-2.5">Room type</th>
                     <th className="px-4 py-2.5 text-center">Agreed</th>
                     <th className="whitespace-nowrap px-4 py-2.5 text-center">Picked up</th>
@@ -1468,7 +1696,7 @@ export function GroupBlockDetailModal({
                 </thead>
                 <tbody>
                   {block.rooms.map((room) => (
-                    <tr key={room.id} className="border-b border-solid border-neutral-100 last:border-b-0">
+                    <tr key={room.id} className="border-0 border-b border-solid border-neutral-200 last:border-b-0">
                       <td className="px-4 py-2.5 font-semibold text-neutral-900">{room.roomTypeName ?? "Room type"}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums text-neutral-700">{room.quantity}</td>
                       <td className="px-4 py-2.5 text-center tabular-nums text-neutral-700">{room.pickedUp}</td>
@@ -1479,9 +1707,9 @@ export function GroupBlockDetailModal({
                           <button
                             type="button"
                             onClick={() => { setNamingLine(room); setNameError(null); }}
-                            className="inline-flex cursor-pointer appearance-none items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-2.5 py-1.5 text-[11px] font-bold text-white transition hover:bg-emerald-800"
+                            className="inline-flex cursor-pointer appearance-none items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-2.5 py-1.5 text-[13px] font-bold text-white transition hover:bg-emerald-800"
                           >
-                            <UserPlus className="h-3 w-3" /> Name a guest
+                            <UserPlus className="h-3.5 w-3.5" /> Name a guest
                           </button>
                         )}
                       </td>
@@ -1562,7 +1790,7 @@ export function GroupBlockDetailModal({
             <div ref={editorRef} className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-4">
               <p className="m-0 mb-3 text-sm font-bold text-neutral-900">Edit block details</p>
               <div className="grid gap-3 sm:grid-cols-2">
-                <p className="m-0 text-[11px] font-semibold text-neutral-500 sm:col-span-2"><RequiredMark /> Required fields</p>
+                <p className="m-0 text-[13px] font-semibold text-neutral-500 sm:col-span-2"><RequiredMark /> Required fields</p>
                 <label className="block">
                   <span className={labelCls}>Block name<RequiredMark /></span>
                   <input className={inputCls} required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
@@ -1594,12 +1822,12 @@ export function GroupBlockDetailModal({
                     twoMonths={false}
                     widthClassName="w-full"
                   />
-                  <p className="m-0 mt-1.5 text-[11px] leading-4 text-neutral-500">Push this back if the agency needs longer.</p>
+                  <p className="m-0 mt-1.5 text-[13px] leading-4 text-neutral-500">Push this back if the agency needs longer.</p>
                 </div>
               </div>
               {block.roomsPickedUp === 0 && (
                 <div className="mt-3 rounded-xl border border-solid border-neutral-200 bg-white p-3">
-                  <div className="mb-2 flex items-baseline justify-between gap-3"><p className="m-0 text-xs font-bold text-neutral-800">Room amendment</p><p className="m-0 text-[10px] text-neutral-500">Updates availability and supersedes the current Pro Forma.</p></div>
+                  <div className="mb-2 flex items-baseline justify-between gap-3"><p className="m-0 text-xs font-bold text-neutral-800">Room amendment</p><p className="m-0 text-xs text-neutral-500">Updates availability and supersedes the current Pro Forma.</p></div>
                   <div className="space-y-2">
                     {roomAmendments.map((room, index) => (
                       <div key={room.id} className="grid items-end gap-2 sm:grid-cols-[1fr_110px_160px]">
@@ -1614,10 +1842,10 @@ export function GroupBlockDetailModal({
               <div className="mt-3">
                 <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                   <span className="text-xs font-semibold text-neutral-700">Who settles the bill<RequiredMark /></span>
-                  <span className="text-[10px] text-neutral-500">Choose where room charges and guest extras will settle.</span>
+                  <span className="text-xs text-neutral-500">Choose where room charges and guest extras will settle.</span>
                 </div>
                 <BillingModeCards value={draft.billingMode} onChange={(billingMode) => setDraft({ ...draft, billingMode })} name="editBillingMode" disabled={block.roomsPickedUp > 0} />
-                {block.roomsPickedUp > 0 && <p className="m-0 mt-1.5 text-[11px] text-neutral-500">Billing responsibility is fixed after the first room is picked up.</p>}
+                {block.roomsPickedUp > 0 && <p className="m-0 mt-1.5 text-[13px] text-neutral-500">Billing responsibility is fixed after the first room is picked up.</p>}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => void saveEdit()} disabled={busy} className="inline-flex cursor-pointer appearance-none items-center gap-2 rounded-lg border-0 bg-emerald-700 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:opacity-50">
@@ -1636,8 +1864,17 @@ export function GroupBlockDetailModal({
                 </button>
               )}
               {canWorkRoomingList && (
-                <button type="button" onClick={() => setShowRoomingList(true)} disabled={busy} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-emerald-300 bg-white px-3.5 py-2 text-xs font-bold text-emerald-800 transition hover:bg-emerald-50 disabled:opacity-50">
+                <button type="button" onClick={() => setShowRoomingList(true)} disabled={busy} className={`relative inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid px-3.5 py-2 text-xs font-bold transition disabled:opacity-50 ${namesWaiting ? "border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100" : "border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-50"}`}>
                   <Link2 className="h-3.5 w-3.5" /> Rooming list
+                  {namesWaiting && (
+                    <>
+                      <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">New names</span>
+                      <span className="absolute -right-1 -top-1 flex h-3 w-3" aria-hidden="true">
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                        <span className="relative inline-flex h-3 w-3 rounded-full border-2 border-solid border-white bg-amber-500" />
+                      </span>
+                    </>
+                  )}
                 </button>
               )}
               {canManageBlockAgreement && block.roomsPickedUp === 0 && (
@@ -1673,9 +1910,9 @@ export function GroupBlockDetailModal({
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 id="manual-bank-title" className="m-0 text-base font-bold text-neutral-950">Bank instructions for Pro Forma</h2>
-                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-amber-800">Manual · Not verified</span>
+                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-800">Manual · Not verified</span>
                   </div>
-                  <p className="m-0 mt-1 text-[11px] leading-4 text-neutral-500">Saved only for this property&apos;s Pro Formas. Not added to My Profile or AzamPay.</p>
+                  <p className="m-0 mt-1 text-[13px] leading-4 text-neutral-500">Saved only for this property&apos;s Pro Formas. Not added to My Profile or AzamPay.</p>
                 </div>
               </div>
               <button type="button" aria-label="Close manual bank details" disabled={manualBankBusy} onClick={() => setShowManualBank(false)} className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-neutral-100 p-0 text-neutral-500 hover:bg-neutral-200 disabled:opacity-50"><X className="h-4 w-4" /></button>
@@ -1686,12 +1923,12 @@ export function GroupBlockDetailModal({
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
                 <div>
                   <p className="m-0 text-xs font-bold text-amber-950">The property owner is responsible for these instructions</p>
-                  <p className="m-0 mt-1 text-[11px] leading-5 text-amber-900">NoLSAF and AzamPay will not validate this account. The agency will be told to independently confirm the bank details with the property before transferring money.</p>
+                  <p className="m-0 mt-1 text-[13px] leading-5 text-amber-900">NoLSAF and AzamPay will not validate this account. The agency will be told to independently confirm the bank details with the property before transferring money.</p>
                 </div>
               </div>
 
               <div>
-                <div className="mb-3 flex items-center gap-2"><Building2 className="h-4 w-4 text-neutral-400" /><p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">Required bank details</p></div>
+                <div className="mb-3 flex items-center gap-2"><Building2 className="h-4 w-4 text-neutral-400" /><p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-neutral-500">Required bank details</p></div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block"><span className={labelCls}>Bank name</span><input className={inputCls} value={manualBank.bankName} onChange={(event) => setManualBank({ ...manualBank, bankName: event.target.value })} placeholder="Bank of Tanzania" autoFocus /></label>
                   <label className="block"><span className={labelCls}>Account currency</span><input className={`${inputCls} uppercase`} value={manualBank.accountCurrency} maxLength={3} onChange={(event) => setManualBank({ ...manualBank, accountCurrency: event.target.value.toUpperCase().replace(/[^A-Z]/g, "") })} placeholder="TZS" /></label>
@@ -1702,13 +1939,13 @@ export function GroupBlockDetailModal({
                       <input className={`${inputCls} pr-11 font-mono tracking-wide`} type={showManualAccountNumber ? "text" : "password"} autoComplete="off" value={manualBank.accountNumber} onChange={(event) => setManualBank({ ...manualBank, accountNumber: event.target.value })} placeholder="Enter the complete account number" />
                       <button type="button" aria-label={showManualAccountNumber ? "Hide account number" : "Show account number"} onClick={() => setShowManualAccountNumber((current) => !current)} className="absolute right-1.5 top-1.5 inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700">{showManualAccountNumber ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
                     </span>
-                    <span className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500"><LockKeyhole className="h-3 w-3" /> Encrypted before it is stored.</span>
+                    <span className="mt-1.5 flex items-center gap-1 text-xs text-neutral-500"><LockKeyhole className="h-3 w-3" /> Encrypted before it is stored.</span>
                   </label>
                 </div>
               </div>
 
               <details className="group rounded-xl border border-solid border-neutral-200 bg-neutral-50">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-bold text-neutral-800">International and branch details <span className="text-[10px] font-semibold text-neutral-400 group-open:hidden">Optional</span><span className="hidden text-[10px] font-semibold text-neutral-400 group-open:inline">Hide</span></summary>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-bold text-neutral-800">International and branch details <span className="text-xs font-semibold text-neutral-400 group-open:hidden">Optional</span><span className="hidden text-xs font-semibold text-neutral-400 group-open:inline">Hide</span></summary>
                 <div className="grid gap-4 border-0 border-t border-solid border-neutral-200 p-4 sm:grid-cols-2">
                   <label className="block"><span className={labelCls}>Branch name <span className="font-normal text-neutral-400">(optional)</span></span><input className={inputCls} value={manualBank.branchName} onChange={(event) => setManualBank({ ...manualBank, branchName: event.target.value })} /></label>
                   <label className="block"><span className={labelCls}>SWIFT / BIC <span className="font-normal text-neutral-400">(optional)</span></span><input className={`${inputCls} uppercase`} value={manualBank.swiftCode} onChange={(event) => setManualBank({ ...manualBank, swiftCode: event.target.value.toUpperCase() })} placeholder="ABCDEFGH" /></label>
@@ -1724,8 +1961,8 @@ export function GroupBlockDetailModal({
                 <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors duration-200 ${manualBankPolicyAccepted ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}><ShieldCheck className="h-4 w-4" /></span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2"><strong className="text-xs text-neutral-950">Manual bank verification policy</strong><span className={`rounded-full px-2 py-0.5 text-[8px] font-bold uppercase tracking-wide ${manualBankPolicyAccepted ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{manualBankPolicyAccepted ? "Accepted" : "Required"}</span></span>
-                  <span className="mt-1.5 block text-[11px] leading-5 text-neutral-600">I confirm I am authorised to provide this account, the details are accurate, and I accept responsibility for confirming them with the agency.</span>
-                  <span className="mt-1 block text-[10px] leading-4 text-neutral-500">This account is not verified by NoLSAF or AzamPay and will not be added to My Profile or used for payouts.</span>
+                  <span className="mt-1.5 block text-[13px] leading-5 text-neutral-600">I confirm I am authorised to provide this account, the details are accurate, and I accept responsibility for confirming them with the agency.</span>
+                  <span className="mt-1 block text-xs leading-4 text-neutral-500">This account is not verified by NoLSAF or AzamPay and will not be added to My Profile or used for payouts.</span>
                 </span>
                 <span aria-hidden="true" className={`relative mt-1 h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-out ${manualBankPolicyAccepted ? "bg-emerald-600" : "bg-neutral-300"}`}>
                   <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-300 ease-out ${manualBankPolicyAccepted ? "translate-x-5" : "translate-x-0"}`} />

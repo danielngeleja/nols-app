@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 
 type NotificationItem = {
   id: number;
@@ -33,12 +34,12 @@ type NotificationItem = {
 type NotificationResponse = { items: NotificationItem[]; totalUnread: number };
 const SOUND_KEY = "nolsaf:admin-notification-sound";
 
-function notificationHref(item: NotificationItem) {
+function notificationHref(item: NotificationItem, recordHref: ReturnType<typeof useAdminHref>) {
   const meta = item.meta ?? {};
   if (meta.conversationId && String(item.type) === "chatbot") return `/admin/agents/ai?conversation=${encodeURIComponent(String(meta.conversationId))}`;
-  if (meta.propertyId) return `/admin/properties/previews?previewId=${encodeURIComponent(String(meta.propertyId))}`;
-  if (meta.invoiceId) return `/admin/revenue/${encodeURIComponent(String(meta.invoiceId))}`;
-  if (meta.requestId && String(item.type).toLowerCase().includes("cancel")) return `/admin/cancellations/${encodeURIComponent(String(meta.requestId))}`;
+  if (meta.propertyId) return `/admin/properties/previews?previewId=${encodeURIComponent(adminRefOrId("property", meta.propertyId))}`;
+  if (meta.invoiceId) return recordHref("owner-invoice", meta.invoiceId);
+  if (meta.requestId && String(item.type).toLowerCase().includes("cancel")) return recordHref("cancellation", meta.requestId);
   if (meta.tourBookingId) return "/admin/agents/tour-revenue";
   if (meta.transportBookingId) return "/admin/drivers/invoices";
   if (meta.groupBookingId) return "/admin/group-stays/bookings";
@@ -64,6 +65,7 @@ function relativeTime(value: string) {
 }
 
 export default function AdminNotificationDrawer() {
+  const recordHref = useAdminHref();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -222,7 +224,7 @@ export default function AdminNotificationDrawer() {
                     </div>
                     {item.body ? <p className="mt-1.5 line-clamp-3 text-[13px] leading-5 text-slate-600">{item.body}</p> : null}
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <Link href={notificationHref(item)} onClick={() => { void markRead(item); setOpen(false); }} className="inline-flex items-center gap-1 rounded-lg bg-[#02665e]/10 px-2.5 py-1.5 text-xs font-semibold text-[#02665e] no-underline transition-colors hover:bg-[#02665e]/15 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30">{String(item.type) === "chatbot" ? "Open chat" : "View details"} <ChevronRight className="h-3.5 w-3.5" /></Link>
+                      <Link href={notificationHref(item, recordHref)} onClick={() => { void markRead(item); setOpen(false); }} className="inline-flex items-center gap-1 rounded-lg bg-[#02665e]/10 px-2.5 py-1.5 text-xs font-semibold text-[#02665e] no-underline transition-colors hover:bg-[#02665e]/15 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30">{String(item.type) === "chatbot" ? "Open chat" : "View details"} <ChevronRight className="h-3.5 w-3.5" /></Link>
                       <div className="flex items-center gap-1">
                         {item.unread ? <button onClick={() => void markRead(item)} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-[#02665e] hover:shadow-sm" title="Mark as read" aria-label="Mark as read"><Check className="h-4 w-4" /><span className="hidden sm:inline">Done</span></button> : <button onClick={() => void remove(item)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700" title="Delete viewed notification" aria-label="Delete viewed notification"><Trash2 className="h-4 w-4" /></button>}
                       </div>

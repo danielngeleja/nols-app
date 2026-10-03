@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BedDouble, Building2, ChevronRight, Clock8, Coffee, GlassWater, Loader2, Receipt, ShieldCheck, Sparkles, User, UsersRound, UtensilsCrossed, Wallet } from "lucide-react";
+import { BedDouble, Building2, ChevronRight, Clock8, Coffee, GlassWater, Loader2, Package, Receipt, ShieldCheck, Sparkles, User, UsersRound, UtensilsCrossed, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type StaffProperty = {
@@ -21,7 +21,15 @@ const ROLE_META: Record<string, RoleMeta> = {
   RESTAURANT: { label: "Restaurant staff", Icon: UtensilsCrossed },
   BAR: { label: "Bar staff", Icon: GlassWater },
   OUTLET_SUPERVISOR: { label: "Outlet supervisor", Icon: Coffee },
+  STOREKEEPER: { label: "Storekeeper", Icon: Package },
 };
+
+/** Where a staff member's workspace opens: the role's own first screen. */
+function staffLanding(list: StaffProperty[]): string {
+  if (list.length && list.every((property) => property.nrmsAccessRole === "SALES_EXECUTIVE")) return "/owner/nrms/inquiries";
+  if (list.length && list.every((property) => property.nrmsAccessRole === "STOREKEEPER")) return "/owner/nrms/stock";
+  return "/owner/nrms/orders";
+}
 
 const roleMeta = (role?: string): RoleMeta => ROLE_META[role ?? ""] ?? { label: role ? role.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "Staff", Icon: Building2 };
 
@@ -36,9 +44,7 @@ export default function NrmsWorkspaceChoicePage() {
 
   // The length guard matters: an empty list is still in flight, and every() on
   // it would send a mixed-role staff member to the sales desk.
-  const staffHref = properties.length && properties.every((property) => property.nrmsAccessRole === "SALES_EXECUTIVE")
-    ? "/owner/nrms/inquiries"
-    : "/owner/nrms/orders";
+  const staffHref = staffLanding(properties);
 
   useEffect(() => {
     (async () => {
@@ -55,7 +61,7 @@ export default function NrmsWorkspaceChoicePage() {
         if (forceChooser && typeof window !== "undefined") localStorage.removeItem(REMEMBER_KEY);
         const remembered = !forceChooser && typeof window !== "undefined" ? localStorage.getItem(REMEMBER_KEY) : null;
         if (remembered === "staff") {
-          router.replace(list.every((property) => property.nrmsAccessRole === "SALES_EXECUTIVE") ? "/owner/nrms/inquiries" : "/owner/nrms/orders");
+          router.replace(staffLanding(list));
           return;
         }
         if (remembered === "personal") {

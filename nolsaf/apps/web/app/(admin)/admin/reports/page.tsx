@@ -7,6 +7,7 @@ import {
   Building2,
   Car,
   Compass,
+  Info,
   Landmark,
   Lock,
   Printer,
@@ -1078,26 +1079,66 @@ export default function AdminReportsPage() {
         />
 
         <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-          <KpiCard icon={Wallet} label="Gross payment volume" value={`TZS ${fmtMoneyTZS(totalRevenue)}`} footer="Customer payment turnover, not NoLSAF revenue.">
-            <div className="mt-3 space-y-1.5 border-0 border-t border-solid border-neutral-100 pt-2.5 text-[13px]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-neutral-500">Property invoices</span>
-                <span className="font-semibold tabular-nums text-neutral-900">TZS {fmtMoneyTZS(grossPaymentBreakdown.propertyTzs)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-neutral-500">Transport</span>
-                <span className="font-semibold tabular-nums text-neutral-900">TZS {fmtMoneyTZS(grossPaymentBreakdown.transportTzs)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-neutral-500">Tour (settled separately)</span>
-                <span className="font-semibold tabular-nums text-amber-700">{tourCommissionCurrency} {fmtMoneyUSD(grossPaymentBreakdown.tourUsd)}</span>
-              </div>
-            </div>
+          <KpiCard icon={Wallet} tone="emerald" label="Gross payment volume" value={`TZS ${fmtMoneyTZS(totalRevenue)}`} footer="Customer payment turnover, not NoLSAF revenue.">
+            {(() => {
+              const tzsTotal = grossPaymentBreakdown.propertyTzs + grossPaymentBreakdown.transportTzs;
+              const propertyShare = tzsTotal > 0 ? (grossPaymentBreakdown.propertyTzs / tzsTotal) * 100 : 0;
+              return (
+                <div className="mt-3 border-0 border-t border-solid border-neutral-100 pt-3">
+                  <div className="flex h-1.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+                    {tzsTotal > 0 ? (
+                      <>
+                        <span className="block h-full bg-emerald-500" style={{ width: `${propertyShare}%` }} />
+                        <span className="block h-full bg-sky-500" style={{ width: `${100 - propertyShare}%` }} />
+                      </>
+                    ) : null}
+                  </div>
+                  <div className="mt-2.5 space-y-1.5 text-xs">
+                    <BreakdownRow dot="bg-emerald-500" label="Property invoices" value={`TZS ${fmtMoneyTZS(grossPaymentBreakdown.propertyTzs)}`} share={tzsTotal > 0 ? propertyShare : null} />
+                    <BreakdownRow dot="bg-sky-500" label="Transport" value={`TZS ${fmtMoneyTZS(grossPaymentBreakdown.transportTzs)}`} share={tzsTotal > 0 ? 100 - propertyShare : null} />
+                    <BreakdownRow
+                      dot="bg-amber-500"
+                      label="Tours"
+                      tag="Settled separately"
+                      value={`${tourCommissionCurrency} ${fmtMoneyUSD(grossPaymentBreakdown.tourUsd)}`}
+                      valueClass="text-amber-700"
+                    />
+                  </div>
+                </div>
+              );
+            })()}
           </KpiCard>
 
-          <KpiCard icon={Building2} label="Active properties" value={String(totalActive)} footer="Live supply on the platform right now." />
+          <KpiCard
+            icon={Building2}
+            tone="blue"
+            label="Active properties"
+            value={String(totalActive)}
+            badge={<span className="inline-flex items-center gap-1.5 rounded-full border border-solid border-emerald-100 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700 shadow-sm"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Live</span>}
+            footer="Approved supply on the platform right now, not limited to this period."
+          />
 
-          <KpiCard icon={ReceiptText} label="Invoices recorded" value={String(invoicesTotal)} footer="Every invoice state inside this period." />
+          <KpiCard icon={ReceiptText} tone="violet" label="Invoices recorded" value={String(invoicesTotal)} footer="Every invoice state inside this period.">
+            {(() => {
+              const entries = Object.entries(invoiceStatusCounts || {})
+                .map(([status, count]) => [status, Number(count) || 0] as const)
+                .filter(([, count]) => count > 0)
+                .sort((a, b) => b[1] - a[1]);
+              if (!entries.length) {
+                return <p className="m-0 mt-3 rounded-lg border border-dashed border-neutral-200 bg-neutral-50/70 px-3 py-2.5 text-center text-[11.5px] text-neutral-400">No invoices were issued in this period.</p>;
+              }
+              return (
+                <div className="mt-3 flex flex-wrap gap-1.5 border-0 border-t border-solid border-neutral-100 pt-3">
+                  {entries.slice(0, 6).map(([status, count]) => (
+                    <span key={status} className="inline-flex items-center gap-1.5 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[10px] font-bold text-neutral-600">
+                      {status.replaceAll("_", " ")}
+                      <span className="tabular-nums text-neutral-900">{count}</span>
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
+          </KpiCard>
         </div>
 
         <ReportPanel
@@ -1448,30 +1489,82 @@ function ReportPanel({
   );
 }
 
+const KPI_TONES = {
+  emerald: "from-emerald-500 to-emerald-700",
+  blue: "from-blue-500 to-blue-700",
+  violet: "from-violet-500 to-violet-700",
+  amber: "from-amber-400 to-amber-600",
+} as const;
+
+/** NRMS summary card: gradient icon, uppercase label, large value, optional detail and footer note. */
 function KpiCard({
   icon: Icon,
+  tone = "emerald",
   label,
   value,
+  badge,
   footer,
   children,
 }: {
   icon: LucideIcon;
+  tone?: keyof typeof KPI_TONES;
   label: string;
   value: string;
+  badge?: ReactNode;
   footer?: string;
   children?: ReactNode;
 }) {
   return (
-    <div className="box-border flex min-w-0 flex-col rounded-2xl border border-solid border-neutral-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#073c35]/10 text-[#073c35]">
-          <Icon className="h-3.5 w-3.5" aria-hidden />
+    <div className="box-border flex min-w-0 flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ring-inset ring-neutral-200/70 transition hover:ring-neutral-300 sm:p-5">
+      <div className="flex min-w-0 items-start gap-3.5">
+        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${KPI_TONES[tone]}`}>
+          <Icon className="h-5 w-5" aria-hidden />
         </span>
-        <span className="min-w-0 truncate text-[13px] font-semibold text-neutral-500">{label}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="m-0 truncate text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{label}</p>
+            {badge}
+          </div>
+          <p className="m-0 mt-1 break-words text-[24px] font-black leading-tight tabular-nums tracking-tight text-neutral-950">{value}</p>
+        </div>
       </div>
-      <div className="mt-2 break-words text-[26px] font-bold leading-tight tabular-nums text-neutral-950">{value}</div>
       {children}
-      {footer ? <div className="mt-auto pt-2 text-[12.5px] leading-4 text-neutral-400">{footer}</div> : null}
+      {footer ? (
+        <p className="m-0 mt-auto flex items-start gap-1.5 pt-3 text-[11px] leading-4 text-neutral-400">
+          <Info className="mt-px h-3 w-3 shrink-0" aria-hidden />
+          {footer}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function BreakdownRow({
+  dot,
+  label,
+  value,
+  share,
+  tag,
+  valueClass = "text-neutral-900",
+}: {
+  dot: string;
+  label: string;
+  value: string;
+  share?: number | null;
+  tag?: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      <span className="flex min-w-0 items-center gap-2 text-neutral-500">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden />
+        <span className="truncate">{label}</span>
+        {tag ? <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-[9.5px] font-bold text-amber-700">{tag}</span> : null}
+      </span>
+      <span className="flex shrink-0 items-center gap-2">
+        {typeof share === "number" ? <span className="text-[10.5px] tabular-nums text-neutral-400">{Math.round(share)}%</span> : null}
+        <span className={`font-bold tabular-nums ${valueClass}`}>{value}</span>
+      </span>
     </div>
   );
 }

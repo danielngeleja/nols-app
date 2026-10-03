@@ -6,6 +6,7 @@ import Image from "next/image";
 import { createPortal } from "react-dom";
 
 import Link from "next/link";
+import StayNotFound from "@/components/StayNotFound";
 
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 
@@ -2096,6 +2097,7 @@ export default function PublicPropertyDetailPage() {
   const [property, setProperty] = useState<PublicPropertyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsError, setReviewsError] = useState<string | null>(null);
   const [reviewsData, setReviewsData] = useState<ReviewsResponse | null>(null);
@@ -2333,9 +2335,14 @@ export default function PublicPropertyDetailPage() {
     const load = async () => {
       setLoading(true);
       setError(null);
+      setMissing(false);
       try {
         const res = await fetch(`/api/public/properties/${encodeURIComponent(slug)}`, { cache: "no-store" });
-        if (res.status === 404) throw new Error("This property is not available.");
+        if (res.status === 404) {
+          // A missing stay gets the room key tag page, not the generic error box.
+          if (mounted) { setMissing(true); setProperty(null); }
+          return;
+        }
         if (!res.ok) throw new Error(`Failed to load property (${res.status})`);
         const json = await res.json();
         if (!mounted) return;
@@ -2863,6 +2870,13 @@ export default function PublicPropertyDetailPage() {
             </aside>
           </div>
         </div>
+      </main>
+    );
+  }
+  if (missing) {
+    return (
+      <main className="min-h-screen bg-white text-slate-900 header-offset">
+        <StayNotFound />
       </main>
     );
   }

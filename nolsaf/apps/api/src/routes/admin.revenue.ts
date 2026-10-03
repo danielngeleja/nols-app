@@ -10,9 +10,16 @@ import { invalidateOwnerReports } from "../lib/cache.js";
 import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { decrypt } from "../lib/crypto.js";
 import { sendMail } from "../lib/mailer.js";
+import { sendSms } from "../lib/sms.js";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
+import { BASE_CURRENCY, getFxRates } from "../lib/fx.js";
+import {
+  isOwnerInvoiceReference,
+  matchesOwnerInvoiceReference,
+  ownerInvoiceReference,
+} from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as express.RequestHandler, requireRole("ADMIN") as express.RequestHandler);
@@ -35,6 +42,19 @@ function applyRevenueVisibility(where: any) {
   const currentAnd = Array.isArray(where?.AND) ? where.AND : [];
   where.AND = [...currentAnd, revenueVisibilityClause()];
   return where;
+}
+
+async function resolveAdminRevenueInvoiceId(identifier: unknown): Promise<number | null> {
+  const raw = String(identifier ?? "").trim();
+  const numericId = Number(raw);
+  if (/^\d+$/.test(raw) && Number.isSafeInteger(numericId) && numericId > 0) return numericId;
+  if (!isOwnerInvoiceReference(raw)) return null;
+
+  const candidates = await prisma.invoice.findMany({
+    where: revenueVisibilityClause(),
+    select: { id: true },
+  });
+  return candidates.find((candidate) => matchesOwnerInvoiceReference(raw, candidate.id))?.id ?? null;
 }
 
 async function createAdminAuditSafe(data: { adminId: number; targetUserId?: number | null; action: string; details?: any }) {
@@ -364,6 +384,7 @@ router.get("/invoices", async (req, res) => {
 
       return {
         ...inv,
+        invoiceReference: ownerInvoiceReference(inv.id),
         effectiveCommissionPercent,
         financialPreview: {
           grossTotal: breakdown.grossTotal,
@@ -392,13 +413,14 @@ router.get("/invoices", async (req, res) => {
   }
 });
 
-/** GET /admin/invoices/:id */
-router.get("/invoices/:id(\\d+)", async (req, res) => {
+/** GET an admin revenue invoice by its opaque iv_ reference (numeric IDs remain legacy-compatible). */
+async function getAdminRevenueInvoice(req: express.Request, res: express.Response) {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
+    const reference = String(req.params.reference || "").trim();
+    const id = await resolveAdminRevenueInvoiceId(reference);
+    if (!id) {
       res.setHeader('Content-Type', 'application/json');
-      return res.status(400).json({ error: "Invalid invoice ID" });
+      return res.status(404).json({ error: "Invoice not found" });
     }
     const inv = await prisma.invoice.findFirst({
       where: applyRevenueVisibility({ id }),
@@ -465,6 +487,7 @@ router.get("/invoices/:id(\\d+)", async (req, res) => {
     
     // Add accountNumber to response
     const response: any = { ...inv };
+    response.invoiceReference = ownerInvoiceReference(inv.id);
     response.accountNumber = accountNumber;
     response.ownerValidation = {
       required: true,
@@ -476,11 +499,19 @@ router.get("/invoices/:id(\\d+)", async (req, res) => {
     // Mirror invoices: for the same booking we may have both a public payment invoice (INV-...)
     // and an owner-claim invoice (OINV-...). Expose them so Admin can navigate without losing records.
     try {
-      response.relatedInvoices = await prisma.invoice.findMany({
+      const relatedInvoices = await prisma.invoice.findMany({
         where: { bookingId: (inv as any).bookingId, id: { not: (inv as any).id } },
         select: { id: true, invoiceNumber: true, status: true, receiptNumber: true, paymentRef: true, paidAt: true },
         orderBy: { id: "asc" },
       });
+      response.relatedInvoices = relatedInvoices.map((relatedInvoice) => ({
+        ...relatedInvoice,
+        invoiceReference: ownerInvoiceReference(relatedInvoice.id),
+        revenueVisible:
+          String(relatedInvoice.invoiceNumber || "").toUpperCase().startsWith("OINV-") ||
+          (String(relatedInvoice.invoiceNumber || "").toUpperCase().startsWith("INV-") &&
+            String(relatedInvoice.status || "").toUpperCase() === "PAID"),
+      }));
     } catch {
       response.relatedInvoices = [];
     }
@@ -534,113 +565,151 @@ router.get("/invoices/:id(\\d+)", async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json(response);
   } catch (err: any) {
-    console.error("Error in GET /admin/invoices/:id", err);
+    console.error("Error in GET /admin/invoices/:reference", err);
     res.setHeader('Content-Type', 'application/json');
     res.status(500).json({ error: "Internal server error", message: err?.message || "Unknown error" });
   }
-});
+}
+
+function ownerPayoutReady(payout: ReturnType<typeof normalizeOwnerPayout>): boolean {
+  if (payout.payoutPreferred === "BANK") return Boolean(payout.bankName && payout.bankAccountNumber);
+  if (payout.payoutPreferred === "MOBILE_MONEY") return Boolean(payout.mobileMoneyProvider && payout.mobileMoneyNumber);
+  return false;
+}
+
+router.get("/invoices/by-reference/:reference", getAdminRevenueInvoice);
+router.get("/invoices/:reference(\\d+)", getAdminRevenueInvoice);
+
+/**
+ * Builds a booking invoice's printable document on the shared customer
+ * template (lib/pdfGenerator.ts), the same one tour, group-stay and booking
+ * receipts use. `kind` decides the wording: a receipt confirms payment, an
+ * invoice shows what was billed and whether it is still owed.
+ */
+async function renderAdminInvoiceDocument(invoiceId: number, kind: "receipt" | "invoice") {
+  const inv = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      booking: {
+        include: {
+          property: {
+            select: adminInvoicePropertySelect,
+          },
+          code: true,
+          user: true,
+        } as any,
+      } as any,
+    } as any,
+  });
+  if (!inv) return { status: 404 as const, error: "Invoice not found" };
+  const booking: any = (inv as any).booking;
+  if (!booking) return { status: 404 as const, error: "Booking not found" };
+
+  const bookingCode = booking?.code?.codeVisible || booking?.code?.code || booking?.code?.codeHash || "BOOKING";
+  const invoiceStatus = String((inv as any).status || "").toUpperCase();
+  const paid = invoiceStatus === "PAID" || invoiceStatus === "CUSTOMER_PAID" || Boolean((inv as any).paidAt);
+  const total = Number((inv as any).total || booking.totalAmount || 0);
+  const invoiceNumber = (inv as any).invoiceNumber || `#${(inv as any).id}`;
+  const issuedAt = (inv as any).issuedAt ? new Date((inv as any).issuedAt) : null;
+  const issuedLabel = issuedAt && Number.isFinite(+issuedAt)
+    ? issuedAt.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT"
+    : null;
+
+  const bookingDetails: any = {
+    bookingId: booking.id,
+    bookingCode: String(bookingCode),
+    guestName: booking.guestName || booking.user?.name || "Guest",
+    guestPhone: booking.guestPhone || booking.user?.phone || undefined,
+    nationality: booking.nationality || undefined,
+    property: {
+      title: booking.property?.title || "Property",
+      type: booking.property?.type || "Property",
+      regionName: booking.property?.regionName || undefined,
+      district: booking.property?.district || undefined,
+      city: booking.property?.city || undefined,
+      country: booking.property?.country || "Tanzania",
+    },
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    roomType: (booking as any).roomType || booking.roomCode || undefined,
+    rooms: (booking as any).rooms || undefined,
+    totalAmount: total,
+    services: (booking as any).services || undefined,
+    invoice: {
+      invoiceNumber: (inv as any).invoiceNumber || undefined,
+      receiptNumber: (inv as any).receiptNumber || undefined,
+      paidAt: (inv as any).paidAt || undefined,
+    },
+    nights: undefined,
+  };
+
+  // Compute nights if dates are valid; otherwise let the HTML generator fall back safely.
+  try {
+    const ci = booking?.checkIn ? new Date(booking.checkIn) : null;
+    const co = booking?.checkOut ? new Date(booking.checkOut) : null;
+    if (ci && co && !Number.isNaN(ci.getTime()) && !Number.isNaN(co.getTime())) {
+      const diffDays = Math.ceil((co.getTime() - ci.getTime()) / (1000 * 60 * 60 * 24));
+      bookingDetails.nights = Number.isFinite(diffDays) && diffDays > 0 ? diffDays : 1;
+    }
+  } catch {
+    // Ignore date parsing issues; downstream HTML generation handles placeholders.
+  }
+
+  if (kind === "invoice") {
+    bookingDetails.document = {
+      title: "INVOICE",
+      documentNumber: invoiceNumber,
+      dateLine: issuedLabel ? `Issued ${issuedLabel}` : "Issued",
+      amountLabel: paid ? "Amount paid" : "Amount due",
+      balanceDue: paid ? 0 : total,
+      confirmationTitle: paid ? "Paid in full" : "Payment due",
+      confirmationCopy: paid
+        ? `This invoice was settled${(inv as any).receiptNumber ? ` under receipt ${(inv as any).receiptNumber}` : ""}. This document is not a fiscal tax receipt.`
+        : "Pay this invoice to confirm the reservation. The check-in code is issued once payment clears. This document is not a fiscal tax receipt.",
+    };
+  }
+
+  const { html } = await generateBookingPDF(bookingDetails);
+  if (!html || typeof html !== "string") {
+    throw new Error("Failed to generate HTML: invalid response from generateBookingPDF");
+  }
+  const filename = kind === "invoice"
+    ? `Invoice - ${invoiceNumber}.pdf`
+    : `Booking Receipt - ${(inv as any).receiptNumber || String(bookingCode)}.pdf`;
+  return { status: 200 as const, html, filename };
+}
+
+function sendAdminInvoiceDocument(kind: "receipt" | "invoice") {
+  return async (req: any, res: any) => {
+    try {
+      const invoiceId = Number(req.params.id);
+      if (!invoiceId || Number.isNaN(invoiceId)) return res.status(400).json({ error: "Invalid invoice ID" });
+      const out = await renderAdminInvoiceDocument(invoiceId, kind);
+      if (out.status !== 200) return res.status(out.status).json({ error: out.error });
+      const safeFilename = out.filename.replace(/"/g, '\\"');
+      res.status(200);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
+      res.setHeader("X-NoLSAF-Filename", safeFilename);
+      res.setHeader("Cache-Control", "private, no-store");
+      if (res.headersSent) return;
+      return res.send(out.html);
+    } catch (err: any) {
+      console.error(`Error in GET /admin/revenue/invoices/:id/${kind}.html`, err);
+      res.setHeader("Content-Type", "application/json");
+      return res.status(500).json({ error: `Failed to generate ${kind} template`, message: err?.message || "Unknown error" });
+    }
+  };
+}
 
 /**
  * GET /admin/revenue/invoices/:id/receipt.html
- * Admin-only receipt template (matches the legacy "Booking Reservation" PDF layout).
- *
- * Returns HTML intended for printing or client-side PDF generation.
+ * GET /admin/revenue/invoices/:id/invoice.html
+ * Admin copies of a booking's receipt and invoice, on the same template every
+ * customer document uses. Returned as HTML for printing or client-side PDF.
  */
-router.get("/invoices/:id(\\d+)/receipt.html", async (req, res) => {
-  try {
-    const invoiceId = Number(req.params.id);
-    if (!invoiceId || Number.isNaN(invoiceId)) return res.status(400).json({ error: "Invalid invoice ID" });
-    const inv = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: {
-        booking: {
-          include: {
-            property: {
-              select: adminInvoicePropertySelect,
-            },
-            code: true,
-            user: true,
-          } as any,
-        } as any,
-      } as any,
-    });
-    if (!inv) return res.status(404).json({ error: "Invoice not found" });
-    const booking: any = (inv as any).booking;
-    if (!booking) return res.status(404).json({ error: "Booking not found" });
-
-    const bookingCode = booking?.code?.codeVisible || booking?.code?.code || booking?.code?.codeHash || "BOOKING";
-
-    const bookingDetails: any = {
-      bookingId: booking.id,
-      bookingCode: String(bookingCode),
-      guestName: booking.guestName || booking.user?.name || "Guest",
-      guestPhone: booking.guestPhone || booking.user?.phone || undefined,
-      nationality: booking.nationality || undefined,
-      property: {
-        title: booking.property?.title || "Property",
-        type: booking.property?.type || "Property",
-        regionName: booking.property?.regionName || undefined,
-        district: booking.property?.district || undefined,
-        city: booking.property?.city || undefined,
-        country: booking.property?.country || "Tanzania",
-      },
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      roomType: (booking as any).roomType || booking.roomCode || undefined,
-      rooms: (booking as any).rooms || undefined,
-      totalAmount: Number((inv as any).total || booking.totalAmount || 0),
-      services: (booking as any).services || undefined,
-      invoice: {
-        invoiceNumber: (inv as any).invoiceNumber || undefined,
-        receiptNumber: (inv as any).receiptNumber || undefined,
-        paidAt: (inv as any).paidAt || undefined,
-      },
-      nights: undefined,
-    };
-
-    // Compute nights if dates are valid; otherwise let the HTML generator fall back safely.
-    try {
-      const ci = booking?.checkIn ? new Date(booking.checkIn) : null;
-      const co = booking?.checkOut ? new Date(booking.checkOut) : null;
-      const validCi = ci && !Number.isNaN(ci.getTime()) ? ci : null;
-      const validCo = co && !Number.isNaN(co.getTime()) ? co : null;
-      if (validCi && validCo) {
-        const diffDays = Math.ceil((validCo.getTime() - validCi.getTime()) / (1000 * 60 * 60 * 24));
-        bookingDetails.nights = Number.isFinite(diffDays) && diffDays > 0 ? diffDays : 1;
-      }
-    } catch {
-      // Ignore date parsing issues; downstream HTML generation handles placeholders.
-    }
-
-    const { html } = await generateBookingPDF(bookingDetails);
-    
-    if (!html || typeof html !== 'string') {
-      throw new Error('Failed to generate HTML: invalid response from generateBookingPDF');
-    }
-    
-    const filename = `Booking Reservation - ${String(bookingCode)}.pdf`;
-
-    // Set headers before sending
-    res.status(200);
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // Escape filename for Content-Disposition header to prevent issues with special characters
-    const safeFilename = filename.replace(/"/g, '\\"');
-    res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
-    res.setHeader("X-NoLSAF-Filename", safeFilename);
-    
-    // Check if response has already been sent
-    if (res.headersSent) {
-      return;
-    }
-
-    res.send(html);
-    return;
-  } catch (err: any) {
-    console.error("Error in GET /admin/revenue/invoices/:id/receipt.html", err);
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(500).json({ error: "Failed to generate receipt template", message: err?.message || "Unknown error" });
-  }
-});
+router.get("/invoices/:id(\\d+)/receipt.html", sendAdminInvoiceDocument("receipt"));
+router.get("/invoices/:id(\\d+)/invoice.html", sendAdminInvoiceDocument("invoice"));
 
 /** POST /admin/invoices/:id/verify { notes? } */
 router.post("/invoices/:id/verify", async (req, res) => {
@@ -675,6 +744,87 @@ router.post("/invoices/:id/verify", async (req, res) => {
   } catch (err: any) {
     console.error("Error in POST /admin/invoices/:id/verify", err);
     res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** POST /admin/revenue/invoices/:id/remind-payout { channel: "EMAIL" | "SMS" } */
+router.post("/invoices/:id/remind-payout", async (req, res) => {
+  const id = Number(req.params.id);
+  const channel = String(req.body?.channel ?? "").toUpperCase();
+  const adminId = Number((req.user as any)?.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid invoice ID" });
+  if (channel !== "EMAIL" && channel !== "SMS") return res.status(400).json({ error: "Choose EMAIL or SMS" });
+  if (!Number.isSafeInteger(adminId) || adminId <= 0) return res.status(401).json({ error: "Unauthorized" });
+
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true, invoiceNumber: true, status: true },
+    });
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    if (!String(invoice.invoiceNumber ?? "").toUpperCase().startsWith("OINV-") || ["PAID", "DISBURSED"].includes(invoice.status)) {
+      return res.status(409).json({ error: "This invoice is not awaiting owner payout setup" });
+    }
+
+    const owner = await prisma.user.findUnique({
+      where: { id: invoice.ownerId },
+      select: { id: true, email: true, phone: true, payout: true },
+    });
+    if (!owner) return res.status(404).json({ error: "Owner not found" });
+    if (ownerPayoutReady(normalizeOwnerPayout(owner.payout))) {
+      return res.status(409).json({ error: "Owner payout details are already complete. Refresh this invoice." });
+    }
+
+    const destination = channel === "EMAIL" ? owner.email?.trim() : owner.phone?.trim();
+    if (!destination) return res.status(422).json({ error: `Owner has no ${channel === "EMAIL" ? "email address" : "phone number"} on file` });
+
+    const recentlySent = await prisma.adminAudit.findFirst({
+      where: {
+        targetUserId: owner.id,
+        action: "OWNER_PAYOUT_REMINDER",
+        createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) },
+      },
+      select: { id: true },
+    });
+    if (recentlySent) return res.status(429).json({ error: "A payout reminder was sent to this owner recently. Try again in 15 minutes." });
+
+    const configuredOrigin = String(process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "").trim();
+    let profileUrl: string | null = null;
+    try {
+      const url = new URL("/owner/profile", configuredOrigin);
+      if (url.protocol === "https:" || (process.env.NODE_ENV !== "production" && url.protocol === "http:")) profileUrl = url.href;
+    } catch { /* The reminder still tells the owner where to go when no web origin is configured. */ }
+
+    const instruction = "Sign in to NoLSAF, open Owner Profile, and set your preferred payout method (bank or mobile money) with complete payout details.";
+    let delivery: { success: boolean; provider?: string; messageId?: string; error?: string };
+    try {
+      if (channel === "EMAIL") {
+        delivery = await sendMail(
+          destination,
+          "Action needed: complete your NoLSAF payout details",
+          `<p>Your owner payout claim is waiting for payout details.</p><p>${instruction}</p>${profileUrl ? `<p><a href="${profileUrl}">Open Owner Profile</a></p>` : ""}<p>Once saved, NoLSAF can continue processing your claim.</p>`,
+        );
+      } else {
+        delivery = await sendSms(destination, `NoLSAF: Your owner payout claim is waiting. ${instruction}${profileUrl ? ` ${profileUrl}` : ""}`);
+      }
+    } catch (error) {
+      console.error("Owner payout reminder delivery failed", { invoiceId: id, channel, error });
+      return res.status(502).json({ error: `Could not send ${channel === "EMAIL" ? "email" : "SMS"} reminder. Try again later.` });
+    }
+    if (!delivery.success || delivery.provider === "suppressed" || delivery.provider === "console") {
+      return res.status(502).json({ error: `The ${channel === "EMAIL" ? "email" : "SMS"} reminder was not delivered. Check the owner's notification eligibility or provider configuration.` });
+    }
+
+    await createAdminAuditSafe({
+      adminId,
+      targetUserId: owner.id,
+      action: "OWNER_PAYOUT_REMINDER",
+      details: { invoiceId: id, channel, provider: delivery.provider, messageId: delivery.messageId ?? null },
+    });
+    return res.json({ ok: true, channel, message: `${channel === "EMAIL" ? "Email" : "SMS"} reminder sent to the owner.` });
+  } catch (error) {
+    console.error("Error in POST /admin/revenue/invoices/:id/remind-payout", error);
+    return res.status(500).json({ error: "Could not send payout reminder" });
   }
 });
 
@@ -1381,31 +1531,51 @@ export default router;
 
 // GET /admin/properties
 // Returns aggregated revenue by property (top-N by total). Query: ?top=10
+function revenueAmountInTzs(amount: unknown, currency: unknown, rates: Record<string, number>): number {
+  const value = Number(amount ?? 0);
+  const code = String(currency || BASE_CURRENCY).toUpperCase();
+  if (code === BASE_CURRENCY) return value;
+  const rate = rates[code];
+  return Number.isFinite(rate) && rate > 0 ? value * rate : value;
+}
+
 router.get('/properties', async (req, res) => {
   try {
     const top = Math.max(1, Math.min(200, Number(req.query.top ?? 10)));
-    const rows: Array<any> = await prisma.$queryRaw`
+    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
       SELECT p.id AS id, p.title AS name,
-        COALESCE(SUM(i.total), 0) AS total,
-        COALESCE(SUM(i.commissionAmount), 0) AS commission_total,
-        0 AS subscription_total
+        COALESCE(SUM(i.commissionAmount), 0) AS commission_total
       FROM invoice i
       JOIN booking b ON i.bookingId = b.id
       JOIN property p ON b.propertyId = p.id
       WHERE i.status IN ('APPROVED', 'PAID')
       GROUP BY p.id, p.title
-      ORDER BY total DESC
-      LIMIT ${top}
-    ` as any;
+    `, prisma.$queryRaw<Array<any>>`
+      SELECT p.id AS id, p.title AS name, pay.currency AS currency,
+        COALESCE(SUM(pay.amount), 0) AS subscription_total
+      FROM nrms_service_payment pay
+      JOIN nrms_service_payment_token token ON token.id = pay.tokenId
+      JOIN nrms_billing_statement statement ON statement.id = token.statementId
+      JOIN owner_payg_account account ON account.id = statement.accountId
+      JOIN property p ON p.id = account.propertyId
+      WHERE pay.status IN ('VERIFIED', 'MANUALLY_VERIFIED')
+      GROUP BY p.id, p.title, pay.currency
+    `, getFxRates()]);
 
-    // Normalize numbers
-    const result = rows.map((r: any) => ({
-      id: r.id,
-      name: r.name,
-      total: Number(r.total ?? 0),
-      commission: Number(r.commission_total ?? 0),
-      subscription: Number(r.subscription_total ?? 0),
-    }));
+    const byProperty = new Map<number, { id: number; name: string; total: number; commission: number; subscription: number }>();
+    for (const row of commissionRows) {
+      const id = Number(row.id);
+      const commission = Number(row.commission_total ?? 0);
+      byProperty.set(id, { id, name: String(row.name ?? ''), total: commission, commission, subscription: 0 });
+    }
+    for (const row of subscriptionRows) {
+      const id = Number(row.id);
+      const current = byProperty.get(id) ?? { id, name: String(row.name ?? ''), total: 0, commission: 0, subscription: 0 };
+      current.subscription += revenueAmountInTzs(row.subscription_total, row.currency, fx.tzsPerUnit);
+      current.total = current.commission + current.subscription;
+      byProperty.set(id, current);
+    }
+    const result = [...byProperty.values()].sort((a, b) => b.total - a.total).slice(0, top);
     res.json(result);
   } catch (err: any) {
     console.error('Error in GET /admin/properties', err);
@@ -1430,18 +1600,36 @@ router.get('/series', async (req, res) => {
     if (interval === 'hour') fmt = '%Y-%m-%d %H:00';
     if (interval === 'month') fmt = '%Y-%m';
 
-    const rows: Array<any> = await prisma.$queryRaw`
+    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
       SELECT DATE_FORMAT(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00'), ${fmt}) AS label,
-        COALESCE(SUM(i.commissionAmount),0) AS commission_total,
-        0 AS subscription_total
+        COALESCE(SUM(i.commissionAmount),0) AS commission_total
       FROM invoice i
       WHERE i.status IN ('APPROVED','PAID') AND i.issuedAt BETWEEN ${sqlFromIso} AND ${sqlToIso}
       GROUP BY label
       ORDER BY label
-    ` as any;
+    `, prisma.$queryRaw<Array<any>>`
+      SELECT DATE_FORMAT(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00'), ${fmt}) AS label,
+        pay.currency AS currency, COALESCE(SUM(pay.amount), 0) AS subscription_total
+      FROM nrms_service_payment pay
+      WHERE pay.status IN ('VERIFIED', 'MANUALLY_VERIFIED')
+        AND pay.verifiedAt BETWEEN ${sqlFromIso} AND ${sqlToIso}
+      GROUP BY label, pay.currency
+    `, getFxRates()]);
 
-    // normalize
-    const result = rows.map((r: any) => ({ label: r.label, commission: Number(r.commission_total ?? 0), subscription: Number(r.subscription_total ?? 0) }));
+    const byLabel = new Map<string, { label: string; commission: number; subscription: number }>();
+    for (const row of commissionRows) {
+      if (row.label == null) continue;
+      const label = String(row.label);
+      byLabel.set(label, { label, commission: Number(row.commission_total ?? 0), subscription: 0 });
+    }
+    for (const row of subscriptionRows) {
+      if (row.label == null) continue;
+      const label = String(row.label);
+      const current = byLabel.get(label) ?? { label, commission: 0, subscription: 0 };
+      current.subscription += revenueAmountInTzs(row.subscription_total, row.currency, fx.tzsPerUnit);
+      byLabel.set(label, current);
+    }
+    const result = [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label));
     res.json(result);
   } catch (err: any) {
     console.error('Error in GET /admin/revenue/series', err);
@@ -1466,16 +1654,28 @@ router.get('/summary', async (req, res) => {
     const fromIso = yesterdayStart.toISOString();
     const toIso = todayEnd.toISOString();
 
-    const rows: Array<any> = await prisma.$queryRaw`
+    const [commissionRows, subscriptionRows, fx] = await Promise.all([prisma.$queryRaw<Array<any>>`
       SELECT
         COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${todayStart.toISOString()}, '+00:00', '+03:00')) THEN COALESCE(i.commissionAmount,0) ELSE 0 END),0) AS today_total,
         COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(i.issuedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${yesterdayStart.toISOString()}, '+00:00', '+03:00')) THEN COALESCE(i.commissionAmount,0) ELSE 0 END),0) AS yesterday_total
       FROM invoice i
       WHERE i.status IN ('APPROVED','PAID') AND i.issuedAt BETWEEN ${fromIso} AND ${toIso}
-    ` as any;
+    `, prisma.$queryRaw<Array<any>>`
+      SELECT pay.currency AS currency,
+        COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${todayStart.toISOString()}, '+00:00', '+03:00')) THEN pay.amount ELSE 0 END), 0) AS today_total,
+        COALESCE(SUM(CASE WHEN DATE(CONVERT_TZ(pay.verifiedAt, '+00:00', '+03:00')) = DATE(CONVERT_TZ(${yesterdayStart.toISOString()}, '+00:00', '+03:00')) THEN pay.amount ELSE 0 END), 0) AS yesterday_total
+      FROM nrms_service_payment pay
+      WHERE pay.status IN ('VERIFIED', 'MANUALLY_VERIFIED')
+        AND pay.verifiedAt BETWEEN ${fromIso} AND ${toIso}
+      GROUP BY pay.currency
+    `, getFxRates()]);
 
-    const today = Number(rows?.[0]?.today_total ?? 0);
-    const yesterday = Number(rows?.[0]?.yesterday_total ?? 0);
+    const today = Number(commissionRows?.[0]?.today_total ?? 0) + subscriptionRows.reduce(
+      (sum, row) => sum + revenueAmountInTzs(row.today_total, row.currency, fx.tzsPerUnit), 0,
+    );
+    const yesterday = Number(commissionRows?.[0]?.yesterday_total ?? 0) + subscriptionRows.reduce(
+      (sum, row) => sum + revenueAmountInTzs(row.yesterday_total, row.currency, fx.tzsPerUnit), 0,
+    );
     let deltaLabel = '0%';
     if (yesterday > 0) {
       const pct = Math.round(((today - yesterday) / yesterday) * 100);

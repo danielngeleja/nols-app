@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Wrench, Search, X, Calendar, MapPin, UsersRound, Truck, Bus, Coffee, User, Package, AlertCircle, RefreshCw, Loader2, TrendingUp, ExternalLink, Layers } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import Link from "next/link";
 import TablePagination from "@/components/TablePagination";
 
@@ -118,6 +119,7 @@ const inputCls =
   "h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-sm text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/15";
 
 export default function AdminGroupStaysArrangementsPage() {
+  useAdminHref();
   const [arrType, setArrType] = useState<string>("");
   const [groupType, setGroupType] = useState<string>("");
   const [status, setStatus] = useState<string>("");
@@ -836,7 +838,7 @@ export default function AdminGroupStaysArrangementsPage() {
                     Close
                   </button>
                   <Link
-                    href={`/admin/group-stays/bookings?bookingId=${encodeURIComponent(String(b.id))}`}
+                    href={`/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", b.id)}`}
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 text-sm font-semibold text-white no-underline transition-colors hover:bg-amber-700 hover:no-underline"
                   >
                     Open booking <ExternalLink className="h-3.5 w-3.5" />

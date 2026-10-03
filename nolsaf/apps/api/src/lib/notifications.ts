@@ -111,6 +111,22 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Paid but not settled, needs a human",
           body: `${data.target || "A payment"} received ${Number(data.amount || 0).toLocaleString("en-US")} TZS but has stayed unsettled for ${data.stuckMinutes || 0} minutes. The customer has paid. Settle or refund it manually.`
         },
+        security_account_locked: {
+          title: "Account locked after failed sign-ins",
+          body: `${data.identifier || "An account"} was locked for ${data.lockoutMinutes || 0} min after ${data.attempts || 0} failed sign-in attempts${data.ip ? ` (last from ${data.ip})` : ""}. If this was not the owner, consider resetting the password.`
+        },
+        security_ip_burst: {
+          title: "Many failed sign-ins from one address",
+          body: `${data.ip || "One address"} made ${data.attempts || 0} failed sign-in attempts in the last hour, possibly against several accounts. Consider blocking it at the firewall.`
+        },
+        security_admin_mfa_locked: {
+          title: "Admin verification failed repeatedly",
+          body: `Admin account ${data.identifier || `#${data.userId || ""}`} passed the password step but failed passkey or authenticator verification ${data.attempts || 0} times${data.ip ? ` from ${data.ip}` : ""}. The password may be compromised.`
+        },
+        security_admin_ip_blocked: {
+          title: "Admin access blocked by the IP allowlist",
+          body: `A request to the admin area from ${data.ip || "an unknown address"} was refused because it is not on the IP allowlist.`
+        },
         payment_unmatched: {
           title: "Payment received but not matched",
           body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`
@@ -132,7 +148,9 @@ export async function notifyAdmins(template: string, data: any) {
           body: templateData.body,
           unread: true,
           meta: { ...data, notificationKind: template },
-          type: template.startsWith("transport")
+          type: template.startsWith("security_")
+            ? "system"
+            : template.startsWith("transport")
             ? "ride"
             : template.startsWith("careers")
               ? "careers"
@@ -155,7 +173,8 @@ export async function notifyAdmins(template: string, data: any) {
         if (io && typeof io.to === "function") {
           const urgent = template === "transport_auto_dispatch_warning"
             || template === "transport_auto_dispatch_takeover"
-            || template === "nrms_payment_reconcile_needed";
+            || template === "nrms_payment_reconcile_needed"
+            || template.startsWith("security_");
 
           io.to("admin").emit("admin:notification:new", {
             id: created.id,
@@ -494,9 +513,26 @@ export async function notifyUser(userId: number, template: string, data: any) {
         title: "Payout Approved",
         body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been approved and is queued for disbursement.`
       },
-      agent_payout_disbursed: {
-        title: "Payout Disbursed",
-        body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. Check your revenues page for details.`
+      agent_payout_disbursed: data.tranche === "ADVANCE"
+        ? {
+            title: "Trip Advance Disbursed",
+            body: `Your advance${data.amount ? ` of ${[data.currency, Number(data.amount).toLocaleString("en-US")].filter(Boolean).join(" ")}` : ""} for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. The balance follows after the trip.`
+          }
+        : {
+            title: "Payout Disbursed",
+            body: `Your payout for booking ${data.bookingCode || `#${data.tourBookingId}`} has been disbursed${data.paymentRef ? ` (ref: ${data.paymentRef})` : ""}. Check your revenues page for details.`
+          },
+      agent_advance_approved: {
+        title: "Trip Advance Approved",
+        body: `Your advance for booking ${data.bookingCode || `#${data.tourBookingId}`} has been approved and is queued for disbursement.`
+      },
+      agent_advance_rejected: {
+        title: "Trip Advance Not Approved",
+        body: `Your advance request for booking ${data.bookingCode || `#${data.tourBookingId}`} was not approved. ${data.reason ? `Reason: ${data.reason}` : "Contact NoLSAF support for details."}`
+      },
+      agent_balance_claimable: {
+        title: "Trip Balance Ready to Claim",
+        body: `Booking ${data.bookingCode || `#${data.tourBookingId}`} is now completed. Claim your balance from the revenues page.`
       },
       agent_payout_rejected: {
         title: "Payout Claim Rejected",

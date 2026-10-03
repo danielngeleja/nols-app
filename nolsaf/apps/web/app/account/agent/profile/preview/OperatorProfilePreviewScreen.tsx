@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import OperatorPublicProfile, { type PublicOperatorProfileData } from "./OperatorPublicProfile";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 
 const api = apiClient;
@@ -519,6 +520,7 @@ export function OperatorProfilePreviewScreen({
   adminAgentId?: number;
   publicAgentKey?: string;
 } = {}) {
+  const recordHref = useAdminHref();
   const searchParams = useSearchParams();
   const adminAgentIdRaw = String(searchParams.get("adminAgentId") || "").trim();
   const adminAgentIdFromQuery = Number(adminAgentIdRaw);
@@ -532,7 +534,7 @@ export function OperatorProfilePreviewScreen({
   // Resolved agent ID used for booking links (public or admin preview)
   const effectiveAgentId = (isAdminPreview ? adminAgentId : resolvedPublicAgentId) || 0;
   const backHref = isAdminPreview
-    ? `/admin/agents/${adminAgentId}?tab=profile`
+    ? recordHref("agent", adminAgentId, { suffix: "?tab=profile" })
     : isPublicPreview
       ? "/public/tour-packages"
       : "/account/agent/profile";

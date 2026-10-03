@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { buildNrmsDocumentNumber, generateNrmsInvoicePdf } from "./pdfDocuments.js";
+import { buildNrmsDocumentNumber, generateNrmsBillingReceiptPdf, generateNrmsInvoicePdf } from "./pdfDocuments.js";
 
 describe("NRMS receipt documents", () => {
+  it("renders a paid billing statement as a single-page vector PDF", async () => {
+    const pdf = await generateNrmsBillingReceiptPdf({
+      reference: "NRMS-RCPT-10",
+      settlementReference: "NRMS-1098-39AD",
+      statementId: 1098,
+      propertyTitle: "Namibia Villa",
+      amount: 10_000,
+      currency: "TZS",
+      method: "CARD",
+      manual: false,
+      paidAt: "2026-09-29T14:38:00.000Z",
+      verifiedAt: "2026-09-29T14:38:00.000Z",
+      providerReference: "10292000000000024709",
+    });
+
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(pdf.length).toBeGreaterThan(3_000);
+    expect(pdf.toString("latin1").match(/\/Type \/Page\b/g)).toHaveLength(1);
+  });
+
   it("builds the enforced room-random-timestamp-bill reference", () => {
     const receiptNumber = buildNrmsDocumentNumber(5, "2026-07-15T08:30:00.000Z", "Double", "10", "K7Q");
     expect(receiptNumber).toBe("ND10-K7Q-26071511-00005");

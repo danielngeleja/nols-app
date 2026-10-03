@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { CalendarRange, ChevronDown } from "lucide-react";
 
 import DatePickerField from "@/components/DatePickerField";
+import { NoLSAFCardHeader } from "@/components/admin/reports/NoLSAFReportsFrame";
 
 const DAY_MS = 864e5;
 
@@ -230,36 +231,36 @@ export default function ReportPeriodPicker({
 
   return (
     <section
-      className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm"
+      className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]"
       aria-label="Reporting period"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 px-4 py-2.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <CalendarRange className="h-4 w-4 shrink-0 text-[#073c35]" aria-hidden />
-          <span className="text-[15px] font-bold text-neutral-950">Reporting period</span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {fromDate && toDate ? (
-            <span className="inline-flex items-center gap-2 text-[13px] font-medium text-neutral-600">
-              <span className={`h-2 w-2 rounded-full ${band.dot}`} aria-hidden />
-              {longLabel(fromDate)} to {longLabel(toDate)}
-            </span>
-          ) : null}
-          {days !== null ? (
-            <span className={`inline-flex items-center rounded-lg px-2 py-0.5 text-[13px] font-bold tabular-nums ${band.soft}`}>
-              {days} {days === 1 ? "day" : "days"}
-            </span>
-          ) : null}
-          {actions}
-        </div>
-      </div>
+      <NoLSAFCardHeader
+        icon={CalendarRange}
+        title="Reporting period"
+        subtitle="Pick dates, a ready range, or a whole month, quarter or year."
+        right={
+          <>
+            {fromDate && toDate ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-solid border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-bold text-neutral-600 shadow-sm">
+                <span className={`h-1.5 w-1.5 rounded-full ${band.dot}`} aria-hidden />
+                {longLabel(fromDate)} to {longLabel(toDate)}
+              </span>
+            ) : null}
+            {days !== null ? (
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tabular-nums ${band.soft}`}>
+                {days} {days === 1 ? "day" : "days"}
+              </span>
+            ) : null}
+            {actions}
+          </>
+        }
+      />
 
       <div className="min-w-0 space-y-3 p-3 sm:p-4">
         <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] lg:items-start">
           <div className="grid min-w-0 gap-2 sm:grid-cols-2">
             <div className="min-w-0">
-              <div className="mb-1 text-[13px] font-semibold text-neutral-500">From</div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">From</div>
               <DatePickerField
                 label="From date"
                 value={from}
@@ -272,7 +273,7 @@ export default function ReportPeriodPicker({
               />
             </div>
             <div className="min-w-0">
-              <div className="mb-1 text-[13px] font-semibold text-neutral-500">To</div>
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">To</div>
               <DatePickerField
                 label="To date"
                 value={to}
@@ -288,19 +289,19 @@ export default function ReportPeriodPicker({
           </div>
 
           <div className="min-w-0 lg:pl-4">
-            <div className="mb-1 text-[13px] font-semibold text-neutral-500">Ready ranges</div>
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Ready ranges</div>
             <div className="flex min-w-0 flex-wrap gap-2">
               {groups.map((group) => {
                 const tone = BAND[group.band];
                 return (
                   <div
                     key={group.band}
-                    className="box-border min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50 px-2 pb-2 pt-1.5"
+                    className="box-border flex min-w-0 items-center gap-1 rounded-xl bg-neutral-50 p-1 ring-1 ring-inset ring-neutral-200/80"
                   >
-                    <div className="mb-1 flex items-center gap-1.5 px-1 text-[12px] font-semibold text-neutral-500">
+                    <span className="flex items-center gap-1.5 pl-1.5 pr-1 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400" title={tone.label}>
                       <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
-                      {tone.label}
-                    </div>
+                      {group.band}
+                    </span>
                     <div className="flex flex-wrap gap-1" role="group" aria-label={tone.label}>
                       {group.items.map((item) => {
                         const active = from === item.from && to === item.to;
@@ -310,7 +311,7 @@ export default function ReportPeriodPicker({
                             type="button"
                             aria-pressed={active}
                             onClick={() => onChangeAction(item.from, item.to)}
-                            className={`box-border h-8 flex-none rounded-lg border-0 px-3 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#073c35]/25 ${
+                            className={`box-border h-8 flex-none cursor-pointer rounded-lg border-0 px-3 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[#073c35]/25 ${
                               active ? tone.on : tone.off
                             }`}
                           >
@@ -327,7 +328,7 @@ export default function ReportPeriodPicker({
         </div>
 
         <div className="border-0 border-t border-solid border-neutral-100 pt-3">
-          <div className="mb-1.5 text-[13px] font-semibold text-neutral-500">Jump to a whole period</div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Jump to a whole period</div>
           <div className="grid min-w-0 gap-2 sm:grid-cols-3">
             <PeriodSelect label="Month" value={matched(months)} options={months} onPick={(key) => jump(months, key)} />
             <PeriodSelect label="Quarter" value={matched(quarters)} options={quarters} onPick={(key) => jump(quarters, key)} />
@@ -362,8 +363,8 @@ function PeriodSelect({
       <select
         value={value}
         onChange={(event) => onPick(event.target.value)}
-        className={`box-border h-10 w-full appearance-none rounded-lg border border-solid bg-white pl-3 pr-9 text-[13.5px] outline-none transition focus:border-[#073c35] focus:ring-4 focus:ring-[#073c35]/10 ${
-          on ? "border-[#073c35] font-semibold text-[#073c35]" : "border-neutral-300 text-neutral-700"
+        className={`box-border h-9 w-full cursor-pointer appearance-none rounded-lg border border-solid pl-3 pr-9 text-xs font-bold outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 ${
+          on ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"
         }`}
       >
         <option value="">{label}</option>

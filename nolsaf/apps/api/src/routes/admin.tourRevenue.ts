@@ -3,6 +3,8 @@ import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { notifyUser } from "../lib/notifications.js";
+import { isAdvanceRow, loadAdvanceTotalsFor } from "../lib/tourPayouts.js";
+import { balanceAfterAdvances } from "../lib/tourPayoutPolicy.js";
 
 const router = Router();
 const PAYMENT_ACCESS_TOKEN_HOURS = 12;
@@ -386,6 +388,96 @@ router.post("/action", async (req: any, res) => {
 });
 
 /**
+ * POST /api/admin/tour-revenue/advances/:advanceId/action
+ * Finance review of a pre-trip advance (Tour Operator Disbursement Policy):
+ * CLAIMED -> VERIFIED -> APPROVED, or REJECTED at any point before payment.
+ * Approval only queues it: the money moves through the disbursement ledger as
+ * source TOUR_ADVANCE, which re-checks the booking, cases and the 70% cap.
+ */
+router.post("/advances/:advanceId/action", async (req: any, res) => {
+  try {
+    const adminId = Number(req.user?.id);
+    const advanceId = Number(req.params.advanceId);
+    const action = String(req.body?.action || "").toLowerCase();
+    const reason = String(req.body?.reason || "").trim();
+    if (!adminId) return res.status(401).json({ ok: false, error: "Unauthorized" });
+    if (!Number.isFinite(advanceId) || advanceId <= 0) return res.status(400).json({ ok: false, error: "Invalid advance id" });
+    if (!["verify", "approve", "reject"].includes(action)) return res.status(400).json({ ok: false, error: "Invalid action" });
+    if (!reason) return res.status(400).json({ ok: false, error: "A reason is required" });
+
+    const row = await prisma.tourFinancialTransaction.findUnique({
+      where: { id: advanceId },
+      select: { id: true, kind: true, status: true, amount: true, metadata: true, booking: { select: { id: true, bookingCode: true, status: true, operatorAgentId: true } } },
+    });
+    if (!row || row.kind !== "PAYOUT" || !isAdvanceRow(row.metadata)) {
+      return res.status(404).json({ ok: false, error: "Advance not found" });
+    }
+    const status = String(row.status || "").toUpperCase();
+    const next = action === "verify" ? "VERIFIED" : action === "approve" ? "APPROVED" : "REJECTED";
+    if (action === "verify" && status !== "CLAIMED") return res.status(409).json({ ok: false, error: "Only a CLAIMED advance can be verified" });
+    if (action === "approve" && status !== "VERIFIED") return res.status(409).json({ ok: false, error: "An advance must be VERIFIED before it is approved" });
+    if (action === "reject" && !["CLAIMED", "VERIFIED", "APPROVED"].includes(status)) {
+      return res.status(409).json({ ok: false, error: "Only an advance that has not been paid can be rejected" });
+    }
+    if (action === "approve" && ["CANCELED", "CANCELLED", "REFUNDED"].includes(String(row.booking.status || "").toUpperCase())) {
+      return res.status(409).json({ ok: false, error: "The booking is cancelled; reject this advance instead" });
+    }
+
+    const adminUser = await prisma.user.findUnique({ where: { id: adminId }, select: { fullName: true, name: true } });
+    const metadata = (row.metadata as Record<string, any>) || {};
+    const history = Array.isArray(metadata.history) ? metadata.history : [];
+    const nowIso = new Date().toISOString();
+    const updated = await prisma.tourFinancialTransaction.updateMany({
+      // Conditional on the status we read, so two admins cannot both move it.
+      where: { id: row.id, status },
+      data: {
+        status: next,
+        metadata: {
+          ...metadata,
+          history: [...history, { action: next, at: nowIso, reason, actor: { id: adminId, name: adminUser?.fullName || adminUser?.name || null } }],
+          ...(next === "REJECTED" ? { rejectedReason: reason, rejectedAt: nowIso, rejectedBy: adminId } : {}),
+        } as any,
+      },
+    });
+    if (updated.count !== 1) return res.status(409).json({ ok: false, error: "This advance was changed by someone else. Reload and try again." });
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorId: adminId,
+          actorRole: "ADMIN",
+          action: `TOUR_ADVANCE_${next}`,
+          entity: `tour-booking:${row.booking.id}`,
+          entityId: row.booking.id,
+          afterJson: { advanceId: row.id, amount: Number(row.amount), status: next, reason } as any,
+        },
+      });
+    } catch {
+      // Audit logging is optional
+    }
+    if (next !== "VERIFIED") {
+      try {
+        const operatorAgent = await prisma.agent.findUnique({ where: { id: row.booking.operatorAgentId }, select: { userId: true } });
+        if (operatorAgent?.userId) {
+          await notifyUser(operatorAgent.userId, next === "APPROVED" ? "agent_advance_approved" : "agent_advance_rejected", {
+            tourBookingId: row.booking.id,
+            bookingCode: row.booking.bookingCode,
+            reason: next === "REJECTED" ? reason : null,
+          });
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
+    return res.json({ ok: true, advance: { id: row.id, status: next } });
+  } catch (err: any) {
+    console.error("[POST /api/admin/tour-revenue/advances/:advanceId/action] Error:", err);
+    return res.status(500).json({ ok: false, error: "Action failed" });
+  }
+});
+
+/**
  * GET /api/admin/tour-revenue/:id
  * Admin detail view: Returns one tour revenue record with full booking context
  */
@@ -461,6 +553,7 @@ router.get("/:id", async (req: any, res) => {
       return res.status(404).json({ ok: false, error: "Revenue record not found" });
     }
 
+    const advanceTotals = await loadAdvanceTotalsFor(booking.id);
     const grossAmount = num((booking as any).grossAmount || 0);
     const commissionAmount = num((booking as any).commissionAmount || 0);
     const commissionPercent = num((booking as any).commissionPercent || 0);
@@ -588,6 +681,25 @@ router.get("/:id", async (req: any, res) => {
           phone: booking.customer?.phone || (booking as any).guestPhone || null,
         },
         auditTrail,
+        // Tour Operator Disbursement Policy: pre-trip advances on this booking
+        // and the balance left for the post-trip payout.
+        advancePaid: Math.round(advanceTotals.paid * 100) / 100,
+        advanceInFlight: Math.round(advanceTotals.inFlight * 100) / 100,
+        balanceAmount: balanceAfterAdvances(num((booking as any).operatorPayoutAmount || netAmount), advanceTotals.paid),
+        advances: advanceTotals.rows.map((row) => ({
+          id: row.id,
+          status: row.status,
+          amount: row.amount,
+          createdAt: row.createdAt,
+          percentOfNet: (row.metadata as any)?.percentOfNet ?? null,
+          inFullWindow: Boolean((row.metadata as any)?.inFullWindow),
+          hoursBeforeStart: (row.metadata as any)?.hoursBeforeStart ?? null,
+          operatorTier: (row.metadata as any)?.operatorTier ?? null,
+          evidence: Array.isArray((row.metadata as any)?.evidence) ? (row.metadata as any).evidence : [],
+          evidenceTotal: Number((row.metadata as any)?.evidenceTotal ?? 0) || 0,
+          history: (row.metadata as any)?.history ?? [],
+          rejectedReason: (row.metadata as any)?.rejectedReason ?? null,
+        })),
       },
       agentCommissionCurrency: (settings as any)?.agentCommissionCurrency ?? "TZS",
     });

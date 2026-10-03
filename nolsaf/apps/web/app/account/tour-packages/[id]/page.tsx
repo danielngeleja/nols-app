@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Copy,
   CreditCard,
+  FileCheck2,
   FileText,
   Loader2,
   MapPin,
@@ -874,7 +875,7 @@ export default function TourPackageDetailsPage() {
                 ) : null}
 
                 <Panel title="Trip documents" subtitle="Everything you may be asked for on the day.">
-                  <div className="grid gap-2.5 sm:grid-cols-3">
+                  <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
                     {/* Each document has its own colour so they read apart at a
                         glance: voucher gold (the ticket), receipt green (money),
                         itinerary blue (the calendar). Class strings stay literal
@@ -894,6 +895,11 @@ export default function TourPackageDetailsPage() {
                         href: `${detailBase}/timeline`, icon: CalendarDays, title: "Itinerary", text: "Day-by-day timetable",
                         tile: "border-sky-200 bg-sky-50/70 hover:border-sky-400 hover:shadow-[0_10px_24px_-18px_rgba(2,132,199,0.7)]",
                         icon_: "bg-sky-600 text-white", title_: "text-sky-950", text_: "text-sky-800/70", arrow: "text-sky-300 group-hover:text-sky-600",
+                      },
+                      {
+                        href: `${detailBase}/visa-itinerary`, icon: FileCheck2, title: "Visa itinerary", text: "Print for an application",
+                        tile: "border-violet-200 bg-violet-50/70 hover:border-violet-400 hover:shadow-[0_10px_24px_-18px_rgba(109,40,217,0.55)]",
+                        icon_: "bg-violet-600 text-white", title_: "text-violet-950", text_: "text-violet-800/70", arrow: "text-violet-300 group-hover:text-violet-600",
                       },
                     ].map((doc) => (
                       <Link

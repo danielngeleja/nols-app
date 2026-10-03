@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { BarChart3, Truck, Search, Calendar, DollarSign, Star, Loader2, Receipt, ShieldCheck, Wallet, MapPin } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import { useSearchParams } from "next/navigation";
 import DatePicker from "@/components/ui/DatePicker";
 
@@ -68,6 +69,7 @@ function formatDisplayDate(iso: string) {
 
 export default function AdminDriversStatsPage() {
   const searchParams = useSearchParams();
+  const queryDriverId = useAdminQueryId("driver", searchParams?.get("driverId"), "driverId");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
   const [statsData, setStatsData] = useState<StatsData | null>(null);
@@ -83,15 +85,14 @@ export default function AdminDriversStatsPage() {
   }, [selectedDate]);
 
   useEffect(() => {
-    const raw = searchParams?.get("driverId") || "";
-    const id = Number(raw);
+    const id = queryDriverId ?? 0;
     if (!Number.isFinite(id) || id <= 0) return;
     if (!drivers.length) return;
     if (selectedDriver === id) return;
     const exists = drivers.some((d) => d.id === id);
     if (!exists) return;
     setSelectedDriver(id);
-  }, [searchParams, drivers, selectedDriver]);
+  }, [queryDriverId, drivers, selectedDriver]);
 
   const loadDriverStats = useCallback(async (driverId: number) => {
     try {

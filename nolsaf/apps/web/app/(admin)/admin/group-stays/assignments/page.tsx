@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import { Users, User, Check, CheckCircle, Loader2, Search, Clock, XCircle, X, ChevronDown, ChevronRight, MapPin, Calendar, Building2, Mail, AlertCircle, Percent, FileText, History, Ban, Gavel } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import Link from "next/link";
@@ -231,6 +232,7 @@ type Property = {
 };
 
 export default function AdminGroupStayAssignmentsPage() {
+  useAdminHref();
   const [groupStays, setGroupStays] = useState<GroupStay[]>([]);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -1190,7 +1192,7 @@ export default function AdminGroupStayAssignmentsPage() {
                                 <FileText className="h-3.5 w-3.5" /> Settings
                               </button>
                               <Link
-                                href={`/admin/group-stays/claims?bookingId=${gs.id}`}
+                                href={`/admin/group-stays/claims?bookingId=${adminRefOrId("group-stay", gs.id)}`}
                                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white no-underline transition hover:bg-emerald-700 hover:no-underline"
                               >
                                 <Gavel className="h-3.5 w-3.5" /> Manage auction
@@ -1300,7 +1302,7 @@ export default function AdminGroupStayAssignmentsPage() {
                                 <p className="m-0 mt-1 text-xs leading-relaxed text-amber-800">
                                   Owners aren&apos;t assigned from here while the booking is under review. Send the three quoted options from the booking; the owner fills in automatically once the customer confirms.
                                 </p>
-                                <Link href={`/admin/group-stays/bookings?bookingId=${gs.id}`} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-900 no-underline hover:underline">
+                                <Link href={`/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", gs.id)}`} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-900 no-underline hover:underline">
                                   Open booking <ChevronRight className="h-3 w-3" />
                                 </Link>
                               </div>
@@ -1364,7 +1366,7 @@ export default function AdminGroupStayAssignmentsPage() {
                               <div className="rounded-lg bg-neutral-50 px-3 py-2.5">
                                 <p className="m-0 text-sm font-semibold text-neutral-800">No recommendations sent yet</p>
                                 <p className="m-0 mt-1 text-xs leading-relaxed text-neutral-500">Send the recommended options from the booking; they show here automatically.</p>
-                                <Link href={`/admin/group-stays/bookings?bookingId=${gs.id}`} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-neutral-800 no-underline hover:underline">
+                                <Link href={`/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", gs.id)}`} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-neutral-800 no-underline hover:underline">
                                   Open booking <ChevronRight className="h-3 w-3" />
                                 </Link>
                               </div>

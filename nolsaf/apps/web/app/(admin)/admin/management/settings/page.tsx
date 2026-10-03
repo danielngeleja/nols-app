@@ -1,8 +1,8 @@
 "use client";
 // AdminPageHeader removed in favor of a centered, compact header for this page
-import { Settings, ShieldCheck, Lock, AlertTriangle, Clock, CreditCard, Award, Crown, Bell, Flag, KeyRound, Globe, Gauge, Activity, FileText, CalendarClock, Gift, History } from "lucide-react";
+import { Settings, ShieldCheck, Lock, AlertTriangle, CreditCard, Award, Crown, Bell, Flag, KeyRound, Globe, Gauge, Activity, FileText, CalendarClock, Gift, History, RefreshCw, ChevronRight, CheckCircle2 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { sanitizeTrustedHtml } from "@/utils/html";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -10,16 +10,54 @@ import { AnimatePresence, motion } from "framer-motion";
 const api = apiClient;
 
 export default function SystemSettingsPage(){
-  const inputClass =
-    "w-full rounded-lg border border-slate-200/70 bg-white/80 px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-inset focus:ring-[#02665e]/18";
   const toggleTrackClass =
     "relative h-6 w-11 shrink-0 rounded-full bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#02665e]/15 peer-checked:bg-[#02665e] after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-slate-200 after:bg-white after:transition-all peer-checked:after:translate-x-full";
-  // Canonical button styles — every button on this page uses one of these so
-  // radius (rounded-xl), padding, and weight stay consistent.
-  const btnPrimary =
-    "inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 disabled:cursor-not-allowed disabled:opacity-60";
-  const btnSecondary =
-    "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#02665e]/15 disabled:cursor-not-allowed disabled:opacity-60";
+
+  // Sales-style pieces shared by the restyled sections: compact field, ruled section header, small caps label.
+  const fieldClass =
+    "box-border h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-2.5 text-sm font-medium tabular-nums text-neutral-900 outline-none transition-colors placeholder:text-neutral-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+  const sectionLabel = "m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400";
+  const sectionHead = (icon: ReactNode, title: string, subtitle: ReactNode, aside?: ReactNode) => (
+    <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0b2420] text-emerald-300">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <h2 className="m-0 text-sm font-bold text-neutral-900">{title}</h2>
+        <p className="m-0 text-xs text-neutral-400">{subtitle}</p>
+      </div>
+      {aside ? <div className="flex flex-wrap items-center gap-2">{aside}</div> : null}
+    </div>
+  );
+
+  const textareaClass =
+    "box-border block w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2 font-mono text-xs text-neutral-800 outline-none transition-colors placeholder:text-neutral-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+  const btnGhost =
+    "inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50";
+  const btnDark =
+    "inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#12342f] disabled:cursor-not-allowed disabled:opacity-50";
+  const switchControl = (label: string, checked: boolean, onChange: (v: boolean) => void) => (
+    <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+      <input type="checkbox" aria-label={label} checked={checked} className="peer sr-only" onChange={(e) => onChange(e.target.checked)} />
+      <div className={toggleTrackClass}><Lock className="pointer-events-none absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100" /></div>
+    </label>
+  );
+
+  // One tap to switch currency; replaces the select, which showed two chevrons.
+  const currencyPicker = (label: string, value: string, onChange: (c: string) => void) => (
+    <div role="radiogroup" aria-label={label} className="inline-flex shrink-0 rounded-lg bg-neutral-100 p-0.5 ring-1 ring-inset ring-neutral-300/70">
+      {["TZS", "USD", "EUR", "KSH", "AED"].map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={value === c}
+          onClick={() => onChange(c)}
+          className={`inline-flex h-8 min-w-[46px] items-center justify-center rounded-md border-0 px-2 text-xs font-semibold transition-colors ${value === c ? "bg-white text-neutral-900 shadow-sm ring-1 ring-neutral-300" : "bg-transparent text-neutral-500 hover:text-neutral-900"}`}
+        >
+          {c}
+        </button>
+      ))}
+    </div>
+  );
 
   const formatMoney = (value: unknown) => {
     const currency = (s?.currency || 'TZS').toUpperCase();
@@ -225,7 +263,8 @@ export default function SystemSettingsPage(){
     setPayoutCron(s.payoutCron ?? '');
     setSupportEmail(s.supportEmail ?? '');
     setSupportPhone(s.supportPhone ?? '');
-    setReferralPercentInput(s.referralCreditPercent != null ? String(Number(s.referralCreditPercent) * 100) : '');
+    // Round away float noise (0.00239 * 100 = 0.23900000000000002).
+    setReferralPercentInput(s.referralCreditPercent != null ? String(Number((Number(s.referralCreditPercent) * 100).toFixed(6))) : '');
     if ((s as any).agentTierLadder) setTierLadder((s as any).agentTierLadder);
     if ((s as any).agentTierLadderDefaults) setTierDefaults((s as any).agentTierLadderDefaults);
   }, [s]);
@@ -428,6 +467,14 @@ export default function SystemSettingsPage(){
   enableSecurityAuditLogging: Boolean(s.enableSecurityAuditLogging ?? true),
   logFailedLoginAttempts: Boolean(s.logFailedLoginAttempts ?? true),
   alertOnSuspiciousActivity: Boolean(s.alertOnSuspiciousActivity ?? false),
+  // Payout safeguards: only sent once the columns exist; blank means off.
+  ...((s as any).payoutSafeguardsAvailable
+    ? {
+        payoutReviewThresholdTzs: (s as any).payoutReviewThresholdTzs ?? null,
+        payoutDailyCapPerPayeeTzs: (s as any).payoutDailyCapPerPayeeTzs ?? null,
+        payoutRecentChangeHours: (s as any).payoutRecentChangeHours ?? 72,
+      }
+    : {}),
   supportEmail: supportEmail || s.supportEmail,
   supportPhone: supportPhone || s.supportPhone,
   driverLevelGoldThreshold: Number(s.driverLevelGoldThreshold ?? 500000),
@@ -655,987 +702,1043 @@ export default function SystemSettingsPage(){
       <div className="box-border w-full min-w-0 px-4 py-6 pb-6 sm:px-6 lg:px-8">
         <div className="space-y-5 flex flex-col">
 
-          {/* Header */}
-          <div className="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white/70 shadow-sm backdrop-blur">
-            <div className="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-slate-50 pointer-events-none" />
-            <div className="relative flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8">
-              <div className="flex items-center gap-4">
-                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#02665e]/10 to-slate-50 border border-slate-200/60 flex items-center justify-center shrink-0 shadow-sm">
-                  <Settings className="h-7 w-7 text-[#02665e]" />
-                </div>
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">System Settings</h1>
-                  <p className="mt-0.5 text-sm text-slate-600">Platform configuration and security controls.</p>
-                  {loading && <p className="mt-1 text-xs text-[#02665e] animate-pulse">Syncing latest settings...</p>}
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                {lastSavedAt && (
-                  <span className="inline-flex items-center gap-1.5 rounded-xl border border-[#02665e]/20 bg-[#02665e]/[0.07] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-[#02665e]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" />
-                    Saved {lastSavedAt.toLocaleTimeString()}
-                  </span>
-                )}
-                <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-400">
-                  <Lock className="h-3.5 w-3.5" />
-                  Save bar pinned below
-                </span>
-              </div>
-            </div>
-          </div>
+          {/* Header: Sales band with headline numbers, then a track of setting groups that jump to their sections */}
+          {(() => {
+            const latest = sessionPolicyAudit[0];
+            const latestActor = latest ? latest.actor?.name || latest.actor?.email || latest.actorRole || "Admin" : "";
+            const sinceLabel = (date: Date) => {
+              const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+              if (minutes < 1) return "Just now";
+              if (minutes < 60) return `${minutes} min ago`;
+              const hours = Math.floor(minutes / 60);
+              if (hours < 24) return `${hours} h ago`;
+              const days = Math.floor(hours / 24);
+              if (days < 31) return days === 1 ? "Yesterday" : `${days} days ago`;
+              const months = Math.floor(days / 30.4);
+              return months < 12 ? `${months} month${months === 1 ? "" : "s"} ago` : `${Math.floor(days / 365)} year${days >= 730 ? "s" : ""} ago`;
+            };
+            const protections = [
+              s?.enableIpAllowlist,
+              s?.forceLogoutOnPasswordChange,
+              s?.logFailedLoginAttempts,
+              s?.alertOnSuspiciousActivity,
+            ];
+            const protectionsOn = protections.filter(Boolean).length;
+            const channels = [s?.emailEnabled && "Email", s?.smsEnabled && "SMS"].filter(Boolean) as string[];
+            const heroButton =
+              "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline disabled:opacity-60";
+            const groups: Array<{
+              key: string;
+              label: string;
+              icon: ReactNode;
+              text: string;
+              bar: string;
+              value: string;
+              hint: string;
+              share: number | null;
+              links: Array<[string, string]>;
+            }> = [
+              {
+                key: "money",
+                label: "Money",
+                icon: <CreditCard className="h-3.5 w-3.5" />,
+                text: "text-emerald-700",
+                bar: "bg-emerald-500",
+                value: `${(s?.currency || "TZS").toUpperCase()} · tax ${s?.taxPercent ?? 0}%`,
+                hint: `Driver ${s?.driverCommissionPercent ?? 0}% · tour agent ${s?.agentCommissionPercent ?? 0}% · invoices ${s?.invoicePrefix || "INV"}`,
+                share: null,
+                links: [["payments", "Payments"], ["payoutsafeguards", "Safeguards"], ["invoicing", "Invoicing"], ["bonuses", "Bonuses"]],
+              },
+              {
+                key: "partners",
+                label: "Partner levels",
+                icon: <Award className="h-3.5 w-3.5" />,
+                text: "text-sky-700",
+                bar: "bg-sky-500",
+                value: s?.driverLevelGoldThreshold ? `Gold at ${s.driverLevelGoldThreshold.toLocaleString()}` : "2 ladders",
+                hint: s?.driverLevelDiamondThreshold ? `Driver Diamond at ${s.driverLevelDiamondThreshold.toLocaleString()}` : "Operator tiers and driver levels",
+                share: null,
+                links: [["operatortiers", "Operator tiers"], ["driverlevels", "Driver levels"]],
+              },
+              {
+                key: "security",
+                label: "Access and security",
+                icon: <ShieldCheck className="h-3.5 w-3.5" />,
+                text: protectionsOn === protections.length ? "text-emerald-700" : "text-amber-700",
+                bar: protectionsOn === protections.length ? "bg-emerald-500" : "bg-amber-400",
+                value: `${protectionsOn} of ${protections.length} on`,
+                hint: `Admin 2FA always on · ${s?.maxLoginAttempts ?? 5} tries, ${s?.accountLockoutDurationMinutes ?? 30} min lock`,
+                share: Math.round((protectionsOn / protections.length) * 100),
+                links: [["security", "Sessions"], ["passwords", "Passwords"], ["network", "Network"], ["ratelimit", "Rate limits"], ["auditmon", "Monitoring"]],
+              },
+              {
+                key: "platform",
+                label: "Platform",
+                icon: <Bell className="h-3.5 w-3.5" />,
+                text: channels.length === 2 ? "text-emerald-700" : "text-amber-700",
+                bar: channels.length === 2 ? "bg-emerald-500" : "bg-amber-400",
+                value: channels.length ? channels.join(" and ") : "Alerts off",
+                hint: payoutCron ? `Payout run ${payoutCron}` : "No payout schedule set",
+                share: Math.round((channels.length / 2) * 100),
+                links: [["notifications", "Notifications"], ["featureflags", "Feature flags"], ["scheduling", "Scheduling"]],
+              },
+            ];
+            return (
+              <>
+                <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+                  <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Platform</p>
+                        <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">System settings</h1>
+                        <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Fees, security, notifications and schedules for the whole platform. Every save is audited.</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <a href="#settings-audit" className={heroButton}><History className="h-3.5 w-3.5" /> Audit trail</a>
+                        <button type="button" onClick={() => { void load(); void loadSessionPolicyAudit(); }} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Reload settings" title="Reload">
+                          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                        </button>
+                      </div>
+                    </div>
 
-          {/* Settings Audit Trail — pinned to the bottom via order-last */}
-          <div className="order-last bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              {/* Header */}
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
-                    <History className="h-5 w-5 text-violet-600" />
+                    {/* Headline numbers */}
+                    <div className="mt-5 flex flex-wrap items-end gap-x-10 gap-y-3">
+                      <div>
+                        <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{loading ? "..." : `${s?.commissionPercent ?? 0}%`}</p>
+                        <p className="m-0 mt-1 text-xs text-white/55">Property commission</p>
+                      </div>
+                      <div>
+                        <p className={`m-0 text-3xl font-bold tabular-nums leading-none ${protectionsOn === protections.length ? "text-emerald-300" : "text-amber-300"}`}>{loading ? "..." : `${protectionsOn}/${protections.length}`}</p>
+                        <p className="m-0 mt-1 text-xs text-white/55">Security protections on</p>
+                      </div>
+                      <div>
+                        <p className="m-0 text-3xl font-bold leading-none text-white">{lastSavedAt ? "Just now" : latest ? sinceLabel(new Date(latest.createdAt)) : loading ? "..." : "Never"}</p>
+                        <p className="m-0 mt-1 text-xs text-white/55">
+                          {lastSavedAt
+                            ? `Saved ${lastSavedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`
+                            : latest ? `Last change by ${latestActor}` : "Last change"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Settings Audit Trail</h3>
-                    <p className="text-sm text-slate-500">Who changed what and when.</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {sessionPolicyAudit.length > 0 && (
-                    <span className="inline-flex items-center rounded-xl bg-violet-50 border border-violet-200 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-violet-700">
-                      {sessionPolicyAudit.length}
-                    </span>
-                  )}
-                  <button onClick={loadSessionPolicyAudit} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold uppercase tracking-[0.10em] text-slate-600 shadow-sm transition hover:bg-slate-50 active:scale-95" type="button">
-                    Refresh
-                  </button>
-                </div>
-              </div>
+                </section>
 
-              {sessionPolicyAudit.length === 0 ? (
-                <div className="rounded-[14px] border border-dashed border-slate-200 bg-slate-50 py-8 text-center">
-                  <p className="text-sm font-semibold text-slate-400">No audit entries yet.</p>
-                  <p className="mt-1 text-xs text-slate-300">Save settings above to start recording changes.</p>
-                </div>
-              ) : (
-                <div className="rounded-[14px] border border-slate-100 overflow-hidden divide-y divide-slate-100 max-h-[420px] overflow-y-auto">
-                  {sessionPolicyAudit.map((row, idx) => {
-                    const isLatest = idx === 0;
-                    const isSession = (row as any).action === 'ADMIN_SESSION_POLICY_UPDATE';
-                    const actorName = row.actor?.name || row.actor?.email || row.actorRole || 'Admin';
-                    const changedEntries = row.changes ? Object.entries(row.changes).filter(([, v]) => String(v?.from ?? '') !== String(v?.to ?? '')) : [];
-                    return (
-                      <div key={row.id} className={`flex items-start gap-3.5 px-4 py-4 sm:px-5 ${isLatest ? 'bg-violet-50/40' : 'bg-white hover:bg-slate-50/60'} transition-colors`}>
-                        <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full ${isLatest ? 'bg-violet-600 text-white shadow-sm' : isSession ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {isSession ? <Lock className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
+                {/* Setting groups: where each part of the platform stands, and a jump to its sections */}
+                <section className="rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm p-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                    {groups.map((group) => (
+                      <div key={group.key} className="flex min-w-0 flex-col rounded-xl bg-neutral-50 ring-1 ring-inset ring-neutral-200 p-3.5">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${group.text}`}>{group.icon} {group.label}</span>
+                          <span className="text-[11px] tabular-nums text-neutral-400">{group.links.length} sections</span>
                         </span>
+                        <span className="mt-2 block truncate text-2xl font-bold leading-none text-neutral-900">{loading ? "..." : group.value}</span>
+                        <span className="mt-1 block truncate text-[11px] text-neutral-500">{loading ? " " : group.hint}</span>
+                        {group.share !== null && (
+                          <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-neutral-200/70">
+                            <span className={`block h-full rounded-full ${group.bar}`} style={{ width: `${loading ? 0 : group.share}%` }} />
+                          </span>
+                        )}
+                        <span className="mt-auto flex flex-wrap gap-1 pt-3">
+                          {group.links.map(([id, label]) => (
+                            <a key={id} href={`#${id}`} className="inline-flex h-7 items-center gap-1 rounded-full border border-solid border-neutral-200 bg-white px-2.5 text-[11px] font-semibold text-neutral-600 no-underline transition-colors hover:border-neutral-900 hover:text-neutral-900 hover:no-underline">
+                              {label} <ChevronRight className="h-3 w-3 text-neutral-400" />
+                            </a>
+                          ))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </>
+            );
+          })()}
 
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isLatest && <span className="rounded-md bg-violet-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Latest</span>}
-                            <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${isSession ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-500'}`}>
-                              {isSession ? 'Session' : 'General'}
-                            </span>
-                            <span className="text-xs font-semibold text-slate-700 tabular-nums">
-                              {new Date(row.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </span>
+          {/* Settings audit trail: pinned to the bottom via order-last, ruled rows with readable field changes */}
+          {(() => {
+            const fieldName = (key: string) => {
+              const role = key.match(/^sessionMaxMinutes(\w+)$/);
+              if (role) return `${role[1] === "Customer" ? "Traveller" : role[1]} idle timeout`;
+              if (key === "sessionIdleMinutes") return "Default idle timeout";
+              const words = key.replace(/([A-Z])/g, " $1").toLowerCase().trim();
+              return words.charAt(0).toUpperCase() + words.slice(1);
+            };
+            const shown = (v: unknown) => (v === null || v === undefined || v === "" ? "blank" : String(v));
+            const ago = (iso: string) => {
+              const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+              if (minutes < 60) return minutes < 1 ? "Just now" : `${minutes} min ago`;
+              const hours = Math.floor(minutes / 60);
+              if (hours < 24) return `${hours} h ago`;
+              const days = Math.floor(hours / 24);
+              return days === 1 ? "Yesterday" : days < 31 ? `${days} days ago` : `${Math.floor(days / 30.4)} mo ago`;
+            };
+            return (
+              <section id="settings-audit" className="order-last scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <History className="h-4 w-4" />,
+                  "Audit trail",
+                  "Who changed what and when. Every save is recorded.",
+                  <>
+                    {sessionPolicyAudit.length > 0 && <span className="text-xs tabular-nums text-neutral-400">{sessionPolicyAudit.length} {sessionPolicyAudit.length === 1 ? "entry" : "entries"}</span>}
+                    <button type="button" onClick={loadSessionPolicyAudit} className={btnGhost}><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
+                  </>,
+                )}
+                {sessionPolicyAudit.length === 0 ? (
+                  <p className="m-0 px-4 py-8 text-center text-sm text-neutral-400 sm:px-5">No changes recorded yet. Saving settings starts the trail.</p>
+                ) : (
+                  <div className="max-h-[440px] overflow-y-auto">
+                    {sessionPolicyAudit.map((row, idx) => {
+                      const isSession = (row as any).action === "ADMIN_SESSION_POLICY_UPDATE";
+                      const actorName = row.actor?.name || row.actor?.email || row.actorRole || "Admin";
+                      const changed = row.changes ? Object.entries(row.changes).filter(([, v]) => String(v?.from ?? "") !== String(v?.to ?? "")) : [];
+                      return (
+                        <div key={row.id} className={`flex items-start gap-3 px-4 py-3 sm:px-5 ${idx ? "border-0 border-t border-solid border-neutral-200" : ""}`}>
+                          <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${idx === 0 ? "bg-neutral-900 text-white ring-2 ring-emerald-500 ring-offset-2" : "bg-neutral-100 text-neutral-500"}`}>
+                            {actorName.charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                              <span className="font-semibold text-neutral-900">{actorName}</span>
+                              <span className="text-neutral-400">{isSession ? "changed the session policy" : "saved settings"}</span>
+                              {idx === 0 && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Latest</span>}
+                            </p>
+                            {changed.length > 0 ? (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {changed.slice(0, 4).map(([k, v]) => (
+                                  <span key={k} className="inline-flex items-center gap-1.5 rounded-md bg-neutral-50 px-2 py-1 text-[11px] text-neutral-600 ring-1 ring-inset ring-neutral-200">
+                                    <span className="font-semibold text-neutral-800">{fieldName(k)}</span>
+                                    <span className="tabular-nums text-neutral-400 line-through">{shown(v?.from)}</span>
+                                    <ChevronRight className="h-3 w-3 text-neutral-300" />
+                                    <span className="font-semibold tabular-nums text-emerald-700">{shown(v?.to)}</span>
+                                  </span>
+                                ))}
+                                {changed.length > 4 && <span className="inline-flex items-center rounded-md px-2 py-1 text-[11px] text-neutral-400">+{changed.length - 4} more</span>}
+                              </div>
+                            ) : (
+                              <p className="m-0 mt-0.5 text-xs text-neutral-400">No field values changed.</p>
+                            )}
                           </div>
-
-                          {changedEntries.length > 0 ? (
-                            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                              {changedEntries.slice(0, 4).map(([k, v]) => (
-                                <span key={k} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-600 shadow-sm">
-                                  <span className={`font-semibold ${isLatest ? 'text-violet-600' : 'text-[#02665e]'}`}>{k}</span>
-                                  <span className="mx-0.5 text-red-400 line-through">{String(v?.from ?? '—')}</span>
-                                  <span className="text-slate-300">→</span>
-                                  <span className="font-semibold text-emerald-600">{String(v?.to ?? '—')}</span>
-                                </span>
-                              ))}
-                              {changedEntries.length > 4 && (
-                                <span className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-400">
-                                  +{changedEntries.length - 4} more
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <p className="m-0 mt-1.5 text-[11px] italic text-slate-400">No field changes recorded.</p>
-                          )}
+                          <div className="shrink-0 text-right">
+                            <p className="m-0 text-xs font-semibold text-neutral-700">{ago(row.createdAt)}</p>
+                            <p className="m-0 mt-0.5 text-[11px] tabular-nums text-neutral-400">
+                              {new Date(row.createdAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT
+                            </p>
+                          </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })()}
 
-                        <div className="shrink-0 pl-2 text-right">
-                          <p className="m-0 flex items-center justify-end gap-1.5 text-xs font-semibold text-slate-600"><span className="grid h-5 w-5 place-items-center rounded-full bg-slate-200 text-[9px] font-bold text-slate-600">{actorName.charAt(0).toUpperCase()}</span><span className="hidden truncate sm:inline">{actorName}</span>{row.actorId ? <span className="text-slate-400">#{row.actorId}</span> : null}</p>
-                          {row.ip && <p className="m-0 mt-1 hidden text-[10px] text-slate-300 tabular-nums sm:block">{row.ip}</p>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Payments */}
-          <section id="payments" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-6">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-xl bg-[#02665e]/10 flex items-center justify-center shrink-0">
-                    <CreditCard className="h-5 w-5 text-[#02665e]" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Payments</h3>
-                    <p className="text-sm text-slate-500">Platform fee and currency formatting.</p>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* Property Commission */}
-                <div className="flex h-full min-w-0 flex-col rounded-[14px] border border-slate-200 bg-slate-50/60 p-4">
-                  <div className="mb-4 min-h-[52px]">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Property Commission</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">Charged to property owners on accommodation bookings.</p>
-                  </div>
-                  <div className="mt-auto grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Rate</p>
-                      <div className="flex overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-sm focus-within:border-[#02665e]/50 focus-within:ring-2 focus-within:ring-[#02665e]/15">
-                        <input
-                          id="commissionPercent"
-                          type="number" min={0} max={100} step="0.01" inputMode="decimal" placeholder="10"
-                          value={s?.commissionPercent ?? 0}
-                          className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300"
-                          onChange={e=>setS((prev: any)=>({...(prev||{}), commissionPercent: Number(e.target.value)}))}
-                        />
-                        <div className="flex shrink-0 items-center border-l border-slate-100 bg-[#02665e]/8 px-2.5 text-xs font-bold text-[#02665e]">%</div>
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Currency</p>
-                      <select
-                        aria-label="Property commission currency"
-                        className="box-border w-full min-w-0 rounded-[10px] border border-slate-200 bg-white py-2 pl-3 pr-3 text-sm font-medium text-slate-800 outline-none focus:border-[#02665e]/50 focus:ring-2 focus:ring-[#02665e]/15"
-                        value={s?.commissionCurrency || 'TZS'}
-                        onChange={e=>setS((prev: any)=>({...(prev||{}), commissionCurrency: e.target.value}))}
-                      >
-                        <option value="TZS">TZS</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="KSH">KSH</option>
-                        <option value="AED">AED</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                {/* Driver Commission */}
-                <div className="flex h-full min-w-0 flex-col rounded-[14px] border border-slate-200 bg-slate-50/60 p-4">
-                  <div className="mb-4 min-h-[52px]">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Driver Commission</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">Deducted from driver transport trip payouts.</p>
-                  </div>
-                  <div className="mt-auto grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Rate</p>
-                      <div className="flex overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-sm focus-within:border-[#02665e]/50 focus-within:ring-2 focus-within:ring-[#02665e]/15">
-                        <input
-                          id="driverCommissionPercent"
-                          type="number" min={0} max={100} step="0.01" inputMode="decimal" placeholder="10"
-                          value={s?.driverCommissionPercent ?? 0}
-                          className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300"
-                          onChange={e=>setS((prev: any)=>({...(prev||{}), driverCommissionPercent: Number(e.target.value)}))}
-                        />
-                        <div className="flex shrink-0 items-center border-l border-slate-100 bg-[#02665e]/8 px-2.5 text-xs font-bold text-[#02665e]">%</div>
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Currency</p>
-                      <select
-                        aria-label="Driver commission currency"
-                        className="box-border w-full min-w-0 rounded-[10px] border border-slate-200 bg-white py-2 pl-3 pr-3 text-sm font-medium text-slate-800 outline-none focus:border-[#02665e]/50 focus:ring-2 focus:ring-[#02665e]/15"
-                        value={s?.driverCommissionCurrency || 'TZS'}
-                        onChange={e=>setS((prev: any)=>({...(prev||{}), driverCommissionCurrency: e.target.value}))}
-                      >
-                        <option value="TZS">TZS</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="KSH">KSH</option>
-                        <option value="AED">AED</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                {/* Tour Agent Commission */}
-                <div className="flex h-full min-w-0 flex-col rounded-[14px] border border-slate-200 bg-slate-50/60 p-4 sm:col-span-2 lg:col-span-1">
-                  <div className="mb-4 min-h-[52px]">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Tour Agent Commission</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">Platform fee deducted from agent tour earnings.</p>
-                  </div>
-                  <div className="mt-auto grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Rate</p>
-                      <div className="flex overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-sm focus-within:border-[#02665e]/50 focus-within:ring-2 focus-within:ring-[#02665e]/15">
-                        <input
-                          id="agentCommissionPercent"
-                          type="number" min={0} max={100} step="0.01" inputMode="decimal" placeholder="15"
-                          value={s?.agentCommissionPercent ?? 0}
-                          className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300"
-                          onChange={e=>setS((prev: any)=>({...(prev||{}), agentCommissionPercent: Number(e.target.value)}))}
-                        />
-                        <div className="flex shrink-0 items-center border-l border-slate-100 bg-[#02665e]/8 px-2.5 text-xs font-bold text-[#02665e]">%</div>
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Currency</p>
-                      <select
-                        aria-label="Agent commission currency"
-                        className="box-border w-full min-w-0 rounded-[10px] border border-slate-200 bg-white py-2 pl-3 pr-3 text-sm font-medium text-slate-800 outline-none focus:border-[#02665e]/50 focus:ring-2 focus:ring-[#02665e]/15"
-                        value={s?.agentCommissionCurrency || 'USD'}
-                        onChange={e=>setS((prev: any)=>({...(prev||{}), agentCommissionCurrency: e.target.value}))}
-                      >
-                        <option value="TZS">TZS</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="KSH">KSH</option>
-                        <option value="AED">AED</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                {/* Display Currency (global formatting) */}
-                <div className="flex min-w-0 flex-col gap-4 rounded-[14px] border border-[#02665e]/15 bg-[#02665e]/[0.035] p-4 sm:col-span-2 lg:col-span-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <label htmlFor="currency" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Display Currency</label>
-                    <p className="mt-0.5 text-[11px] text-slate-400">Default currency for displaying monetary values platform-wide.</p>
-                  </div>
-                  <div className="relative w-full shrink-0 lg:w-64">
-                    <select
-                      id="currency"
-                      className="box-border w-full min-w-0 rounded-[10px] border border-slate-200 bg-white py-2 pl-3 pr-3 text-sm font-medium text-slate-800 outline-none focus:border-[#02665e]/50 focus:ring-2 focus:ring-[#02665e]/15"
-                      value={s?.currency||"TZS"}
-                      onChange={e=>setS((prev: any)=>({...(prev||{}), currency: e.target.value}))}
-                    >
-                      <option value="TZS">TZS</option>
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="KSH">KSH</option>
-                      <option value="AED">AED</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Operator Tiers */}
-          <section id="operatortiers" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-6">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
-                    <Crown className="h-5 w-5 text-indigo-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Operator Tiers</h3>
-                    <p className="text-sm text-slate-500">Promotion thresholds for tour operators. A tier needs all four met; each must be ≥ the tier below. Revenue is in <span className="font-semibold text-slate-600">USD</span>.</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {[
-                  { key: 'SILVER', label: 'Silver', chip: 'border-slate-200 bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
-                  { key: 'GOLD', label: 'Gold', chip: 'border-amber-200 bg-amber-50 text-amber-700', dot: 'bg-amber-400' },
-                  { key: 'PLATINUM', label: 'Platinum', chip: 'border-indigo-200 bg-indigo-50 text-indigo-700', dot: 'bg-indigo-400' },
-                ].map((tier) => (
-                  <div key={tier.key} className="min-w-0 rounded-[14px] border border-slate-200 bg-slate-50/60 p-4">
-                    <div className="mb-3 flex items-center gap-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] ${tier.chip}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${tier.dot}`} />
-                        {tier.label}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      {[
-                        { key: 'minTours', label: 'Completed tours', step: '1', max: undefined as number | undefined, prefix: undefined as string | undefined, suffix: undefined as string | undefined },
-                        { key: 'minRevenue', label: 'NoLSAF revenue', step: '100', max: undefined as number | undefined, prefix: '$', suffix: undefined as string | undefined },
-                        { key: 'minRating', label: 'Min rating', step: '0.1', max: 5 as number | undefined, prefix: undefined as string | undefined, suffix: '★' },
-                        { key: 'minReviews', label: 'Min reviews', step: '1', max: undefined as number | undefined, prefix: undefined as string | undefined, suffix: undefined as string | undefined },
-                      ].map((f) => {
-                        const err = tierErrors[`${tier.key}.${f.key}`];
+          {/* Payments: one ruled table of commissions with a worked example, then the display currency */}
+          {(() => {
+            const rows = [
+              { id: "commissionPercent", label: "Property", applies: "Owners, on accommodation bookings", curKey: "commissionCurrency", fallback: "TZS" },
+              { id: "driverCommissionPercent", label: "Driver", applies: "Drivers, on transport trip payouts", curKey: "driverCommissionCurrency", fallback: "TZS" },
+              { id: "agentCommissionPercent", label: "Tour agent", applies: "Operators, on tour earnings", curKey: "agentCommissionCurrency", fallback: "USD" },
+            ] as const;
+            return (
+              <section id="payments" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(<CreditCard className="h-4 w-4" />, "Payments", "What NoLSAF keeps from each booking, and the currency prices are shown in.")}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="text-[11px] text-neutral-400">
+                        <th className="px-4 py-2.5 font-semibold sm:px-5">Commission</th>
+                        <th className="w-36 px-3 py-2.5 font-semibold">Rate</th>
+                        <th className="w-[1%] px-3 py-2.5 font-semibold">Currency</th>
+                        <th className="px-4 py-2.5 text-right font-semibold sm:px-5">On a 100,000 booking</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => {
+                        const rate = Number((s as any)?.[row.id] ?? 0);
+                        const cur = (s as any)?.[row.curKey] || row.fallback;
+                        const kept = Math.round((100000 * (Number.isFinite(rate) ? rate : 0)) / 100);
                         return (
-                          <div key={f.key} className="flex min-w-0 grow basis-[140px] flex-col">
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{f.label}</p>
-                            <div className={`flex overflow-hidden rounded-[10px] border bg-white shadow-sm focus-within:ring-2 ${err ? 'border-rose-300 focus-within:ring-rose-200' : 'border-slate-200 focus-within:border-[#02665e]/50 focus-within:ring-[#02665e]/15'}`}>
-                              {f.prefix ? <div className="flex shrink-0 items-center border-r border-slate-100 bg-slate-50 px-2.5 text-xs font-bold text-slate-400">{f.prefix}</div> : null}
-                              <input
-                                type="number" min={0} step={f.step} {...(f.max != null ? { max: f.max } : {})} inputMode="decimal"
-                                value={tierLadder?.[tier.key]?.[f.key] ?? ''}
-                                onChange={(e) => setTierField(tier.key, f.key, e.target.value)}
-                                className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                              />
-                              {f.suffix ? <div className="flex shrink-0 items-center border-l border-slate-100 bg-slate-50 px-2.5 text-xs font-bold text-amber-400">{f.suffix}</div> : null}
-                            </div>
-                            {err ? <p className="mt-1 text-[10px] font-medium text-rose-600">{err}</p> : null}
+                          <tr key={row.id} className="border-0 border-t border-solid border-neutral-200">
+                            <td className="px-4 py-3 sm:px-5">
+                              <label htmlFor={row.id} className="block font-semibold text-neutral-900">{row.label}</label>
+                              <span className="block text-xs text-neutral-400">{row.applies}</span>
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="relative">
+                                <input
+                                  id={row.id}
+                                  type="number" min={0} max={100} step="0.01" inputMode="decimal"
+                                  value={(s as any)?.[row.id] ?? 0}
+                                  onChange={(e) => setS((prev: any) => ({ ...(prev || {}), [row.id]: Number(e.target.value) }))}
+                                  className={`${fieldClass} pr-7`}
+                                />
+                                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400">%</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              {currencyPicker(`${row.label} commission currency`, cur, (c) => setS((prev: any) => ({ ...(prev || {}), [row.curKey]: c })))}
+                            </td>
+                            <td className="px-4 py-3 text-right sm:px-5">
+                              <span className="block font-semibold tabular-nums text-neutral-900">{kept.toLocaleString()} {cur} kept</span>
+                              <span className="block text-xs tabular-nums text-neutral-400">{(100000 - kept).toLocaleString()} {cur} to the partner</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-col gap-3 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Display currency</p>
+                    <span className="block text-xs text-neutral-400">Prices and totals across the platform are shown in this currency.</span>
+                  </div>
+                  {currencyPicker("Display currency", s?.currency || "TZS", (c) => setS((prev: any) => ({ ...(prev || {}), currency: c })))}
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* Payout safeguards: hard limits that send a payout to security review before it can be batched */}
+          {(() => {
+            const available = Boolean((s as any)?.payoutSafeguardsAvailable);
+            const fields = [
+              {
+                id: "payoutReviewThresholdTzs",
+                label: "Review any payout from",
+                suffix: "TZS",
+                placeholder: "Off",
+                hint: "One payout at or above this goes to security review, whatever the payee's history.",
+              },
+              {
+                id: "payoutDailyCapPerPayeeTzs",
+                label: "Daily limit per payee",
+                suffix: "TZS",
+                placeholder: "Off",
+                hint: "Paid or in flight to one payee in 24 hours, including this payout.",
+              },
+              {
+                id: "payoutRecentChangeHours",
+                label: "Treat a new payout account as new for",
+                suffix: "hours",
+                placeholder: "72",
+                hint: "24 to 336. An established payee paid to an account changed inside this window is held.",
+              },
+            ];
+            const value = (id: string) => {
+              const v = (s as any)?.[id];
+              return v === null || v === undefined ? "" : String(v);
+            };
+            return (
+              <section id="payoutsafeguards" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <ShieldCheck className="h-4 w-4" />,
+                  "Payout safeguards",
+                  "Limits that hold a payout for a second admin before it can be batched and sent.",
+                  available ? (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-[11px] font-semibold text-neutral-600"><KeyRound className="h-3 w-3" /> Loosening asks for your finance code</span>
+                  ) : (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Needs the database update</span>
+                  ),
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-3">
+                  {fields.map((f, i) => (
+                    <div key={f.id} className={`min-w-0 px-4 py-3.5 sm:px-5 ${i ? "border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0" : ""}`}>
+                      <label htmlFor={f.id} className={sectionLabel}>{f.label}</label>
+                      <div className="relative mt-1.5">
+                        <input
+                          id={f.id}
+                          type="number" min={0} step={f.suffix === "TZS" ? 1000 : 1} inputMode="numeric"
+                          disabled={!available}
+                          placeholder={f.placeholder}
+                          value={value(f.id)}
+                          onChange={(e) => setS((prev: any) => ({ ...(prev || {}), [f.id]: e.target.value === "" ? null : Number(e.target.value) }))}
+                          className={`${fieldClass} pr-14 disabled:cursor-not-allowed disabled:bg-neutral-50 ${validationErrors[f.id] ? "border-rose-300" : ""}`}
+                        />
+                        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">{f.suffix}</span>
+                      </div>
+                      <p className={`m-0 mt-1 text-[11px] ${validationErrors[f.id] ? "font-medium text-rose-600" : "text-neutral-400"}`}>{validationErrors[f.id] || f.hint}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="m-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-2.5 text-xs text-neutral-500 sm:px-5">
+                  Leave a limit blank to turn it off. A held payout is released from <a href="/admin/disbursements/security-review" className="font-semibold text-neutral-800">Security review</a> by an admin other than the one who approved it.
+                </p>
+              </section>
+            );
+          })()}
+
+          {/* Operator tiers: the promotion ladder as one ruled table, saved on its own */}
+          {(() => {
+            const tiers = [
+              { key: "SILVER", label: "Silver", text: "text-slate-600", dot: "bg-slate-400" },
+              { key: "GOLD", label: "Gold", text: "text-amber-700", dot: "bg-amber-400" },
+              { key: "PLATINUM", label: "Platinum", text: "text-indigo-700", dot: "bg-indigo-500" },
+            ];
+            const fields = [
+              { key: "minTours", label: "Completed tours", step: "1", max: undefined as number | undefined, suffix: "" },
+              { key: "minRevenue", label: "Revenue (USD)", step: "100", max: undefined as number | undefined, suffix: "$" },
+              { key: "minRating", label: "Min rating", step: "0.1", max: 5 as number | undefined, suffix: "★" },
+              { key: "minReviews", label: "Min reviews", step: "1", max: undefined as number | undefined, suffix: "" },
+            ];
+            const savedLadder = (s as any)?.agentTierLadder;
+            const tiersDirty = Boolean(savedLadder) && JSON.stringify(savedLadder) !== JSON.stringify(tierLadder);
+            return (
+              <section id="operatortiers" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <Crown className="h-4 w-4" />,
+                  "Operator tiers",
+                  "A tour operator moves up when all four are met. Each tier must be at least the one below.",
+                  <>
+                    {tiersDirty && (
+                      <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Unsaved changes
+                      </span>
+                    )}
+                    <button type="button" onClick={() => { setTierLadder(tierDefaults); setTierErrors({}); }} className="inline-flex h-8 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-50">
+                      Reset to defaults
+                    </button>
+                    <button type="button" onClick={saveTierLadder} disabled={savingTiers} className="inline-flex h-8 items-center rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#12342f] disabled:opacity-60">
+                      {savingTiers ? "Saving..." : "Save tiers"}
+                    </button>
+                  </>,
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="text-[11px] text-neutral-400">
+                        <th className="w-40 px-4 py-2.5 font-semibold sm:px-5">Tier</th>
+                        {fields.map((f) => <th key={f.key} className="px-3 py-2.5 font-semibold">{f.label}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-0 border-t border-solid border-neutral-200 bg-neutral-50/50">
+                        <td className="px-4 py-3 sm:px-5">
+                          <span className="inline-flex items-center gap-1.5 font-semibold text-orange-800"><span className="h-2 w-2 rounded-full bg-orange-300" /> Bronze</span>
+                        </td>
+                        <td colSpan={fields.length} className="px-3 py-3 text-xs text-neutral-400">Starting tier. Every approved operator begins here.</td>
+                      </tr>
+                      {tiers.map((tier) => (
+                        <tr key={tier.key} className="border-0 border-t border-solid border-neutral-200 align-top">
+                          <td className="px-4 py-3 sm:px-5">
+                            <span className={`inline-flex h-9 items-center gap-1.5 font-semibold ${tier.text}`}><span className={`h-2 w-2 rounded-full ${tier.dot}`} /> {tier.label}</span>
+                          </td>
+                          {fields.map((f) => {
+                            const err = tierErrors[`${tier.key}.${f.key}`];
+                            return (
+                              <td key={f.key} className="px-3 py-3">
+                                <div className="relative">
+                                  <input
+                                    type="number" min={0} step={f.step} {...(f.max != null ? { max: f.max } : {})} inputMode="decimal"
+                                    aria-label={`${tier.label} ${f.label}`}
+                                    value={tierLadder?.[tier.key]?.[f.key] ?? ""}
+                                    onChange={(e) => setTierField(tier.key, f.key, e.target.value)}
+                                    className={`${fieldClass} ${f.suffix ? "pr-7" : ""} ${err ? "border-rose-300 focus:border-rose-400 focus:ring-rose-200" : ""}`}
+                                  />
+                                  {f.suffix && <span className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold ${f.suffix === "★" ? "text-amber-400" : "text-neutral-400"}`}>{f.suffix}</span>}
+                                </div>
+                                {err && <p className="m-0 mt-1 text-[11px] font-medium text-rose-600">{err}</p>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="m-0 border-0 border-t border-solid border-neutral-200 px-4 py-2.5 text-xs text-neutral-400 sm:px-5">Saved on its own with Save tiers, not with the save bar.</p>
+              </section>
+            );
+          })()}
+
+          {/* Driver levels: the badge ladder left, the referral credit right, each with a worked example */}
+          {(() => {
+            const gold = Number(s?.driverLevelGoldThreshold ?? 0);
+            const diamond = Number(s?.driverLevelDiamondThreshold ?? 0);
+            const referral = Number(referralPercentInput);
+            const referralExample = Number.isFinite(referral) ? Math.round((200000 * referral) / 100) : 0;
+            const clearErrors = (...keys: string[]) => setValidationErrors((prev) => { const n = { ...prev }; keys.forEach((k) => delete n[k]); return n; });
+            const steps = [
+              { key: "standard", label: "Standard", dot: "bg-neutral-400", text: "text-neutral-600", hint: "Every new driver starts here." },
+              { key: "driverLevelGoldThreshold", label: "Gold", dot: "bg-amber-400", text: "text-amber-700", hint: "Lifetime earnings to reach Gold." },
+              { key: "driverLevelDiamondThreshold", label: "Diamond", dot: "bg-indigo-500", text: "text-indigo-700", hint: diamond > gold && gold > 0 ? `${(diamond - gold).toLocaleString()} TZS above Gold.` : "Must be at least the Gold amount." },
+            ];
+            return (
+              <section id="driverlevels" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(<Award className="h-4 w-4" />, "Driver levels and referrals", "Earnings that move a driver's badge up, and the credit paid for a referral. Live as soon as you save.")}
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                  <div className="min-w-0 p-4 sm:p-5">
+                    <p className={sectionLabel}>Badge ladder</p>
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {steps.map((step, idx) => {
+                        const err = validationErrors[step.key];
+                        return (
+                          <div key={step.key} className="relative min-w-0 rounded-xl bg-neutral-50 ring-1 ring-inset ring-neutral-200 p-3.5">
+                            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${step.text}`}><span className={`h-2 w-2 rounded-full ${step.dot}`} /> {step.label}</span>
+                            {step.key === "standard" ? (
+                              <span className="mt-2 flex h-9 items-center text-sm font-semibold tabular-nums text-neutral-900">From 0 TZS</span>
+                            ) : (
+                              <div className="relative mt-2">
+                                <input
+                                  id={step.key}
+                                  type="number" min={0} step="1000" inputMode="numeric"
+                                  value={(s as any)?.[step.key] ?? ""}
+                                  onChange={(e) => {
+                                    setS((prev: any) => ({ ...(prev || {}), [step.key]: Number(e.target.value) }));
+                                    clearErrors(step.key, "driverLevelDiamondThreshold");
+                                  }}
+                                  aria-label={`${step.label} threshold`}
+                                  className={`${fieldClass} pr-11 ${err ? "border-rose-300 focus:border-rose-400 focus:ring-rose-200" : ""}`}
+                                />
+                                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">TZS</span>
+                              </div>
+                            )}
+                            <span className={`mt-1.5 block text-[11px] ${err ? "font-medium text-rose-600" : "text-neutral-500"}`}>{err || step.hint}</span>
+                            {idx < steps.length - 1 && (
+                              <ChevronRight className="absolute -right-3.5 top-1/2 z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full bg-white p-0.5 text-neutral-300 ring-1 ring-neutral-200 sm:block" aria-hidden />
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button onClick={saveTierLadder} disabled={savingTiers} className={btnPrimary} type="button">
-                  {savingTiers ? 'Saving…' : 'Save operator tiers'}
-                </button>
-                <button type="button" onClick={() => { setTierLadder(tierDefaults); setTierErrors({}); }} className={btnSecondary}>
-                  Reset to defaults
-                </button>
-                <span className="text-xs text-slate-400">Saved separately from the main Save bar.</span>
-              </div>
-            </div>
-          </section>
-
-          {/* Driver Levels & Rewards */}
-          <section id="driverlevels" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-6">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                    <Award className="h-5 w-5 text-amber-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Driver Levels &amp; Rewards</h3>
-                    <p className="text-sm text-slate-500">Earnings thresholds that promote a driver&apos;s badge, plus the referral credit rate. Changes apply at runtime — no code deploy needed.</p>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* Gold threshold */}
-                <div className="flex h-full min-w-0 flex-col rounded-[14px] border border-slate-200 bg-slate-50/60 p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-amber-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                      Gold
-                    </span>
-                  </div>
-                  <p className="mb-3 text-[11px] text-slate-400">Lifetime earnings a driver must reach to become Gold.</p>
-                  <div className="mt-auto">
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Threshold</p>
-                    <div className={`flex overflow-hidden rounded-[10px] border bg-white shadow-sm focus-within:ring-2 ${validationErrors.driverLevelGoldThreshold ? 'border-rose-300 focus-within:ring-rose-200' : 'border-slate-200 focus-within:border-[#02665e]/50 focus-within:ring-[#02665e]/15'}`}>
-                      <input
-                        id="driverLevelGoldThreshold"
-                        type="number" min={0} step="1000" inputMode="numeric"
-                        value={s?.driverLevelGoldThreshold ?? ''}
-                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        onChange={e=>{ setS((prev: any)=>({...(prev||{}), driverLevelGoldThreshold: Number(e.target.value)})); setValidationErrors(prev=>{ const n={...prev}; delete n.driverLevelGoldThreshold; delete n.driverLevelDiamondThreshold; return n; }); }}
-                      />
-                      <div className="flex shrink-0 items-center border-l border-slate-100 bg-[#02665e]/8 px-2.5 text-xs font-bold text-[#02665e]">TZS</div>
-                    </div>
-                    {validationErrors.driverLevelGoldThreshold && <p className="mt-1 text-[10px] font-medium text-rose-600">{validationErrors.driverLevelGoldThreshold}</p>}
-                  </div>
-                </div>
-                {/* Diamond threshold */}
-                <div className="flex h-full min-w-0 flex-col rounded-[14px] border border-slate-200 bg-slate-50/60 p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-indigo-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
-                      Diamond
-                    </span>
-                  </div>
-                  <p className="mb-3 text-[11px] text-slate-400">Earnings for the top Diamond badge. Must be ≥ Gold.</p>
-                  <div className="mt-auto">
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Threshold</p>
-                    <div className={`flex overflow-hidden rounded-[10px] border bg-white shadow-sm focus-within:ring-2 ${validationErrors.driverLevelDiamondThreshold ? 'border-rose-300 focus-within:ring-rose-200' : 'border-slate-200 focus-within:border-[#02665e]/50 focus-within:ring-[#02665e]/15'}`}>
-                      <input
-                        id="driverLevelDiamondThreshold"
-                        type="number" min={0} step="1000" inputMode="numeric"
-                        value={s?.driverLevelDiamondThreshold ?? ''}
-                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        onChange={e=>{ setS((prev: any)=>({...(prev||{}), driverLevelDiamondThreshold: Number(e.target.value)})); setValidationErrors(prev=>{ const n={...prev}; delete n.driverLevelDiamondThreshold; return n; }); }}
-                      />
-                      <div className="flex shrink-0 items-center border-l border-slate-100 bg-[#02665e]/8 px-2.5 text-xs font-bold text-[#02665e]">TZS</div>
-                    </div>
-                    {validationErrors.driverLevelDiamondThreshold && <p className="mt-1 text-[10px] font-medium text-rose-600">{validationErrors.driverLevelDiamondThreshold}</p>}
-                  </div>
-                </div>
-                {/* Referral credit */}
-                <div className="flex h-full min-w-0 flex-col rounded-[14px] border border-slate-200 bg-slate-50/60 p-4 sm:col-span-2 lg:col-span-1">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-slate-600">
-                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                      Referral
-                    </span>
-                  </div>
-                  <p className="mb-3 text-[11px] text-slate-400">Credit awarded to a referrer as a percentage of the referred booking.</p>
-                  <div className="mt-auto">
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Credit rate</p>
-                    <div className={`flex overflow-hidden rounded-[10px] border bg-white shadow-sm focus-within:ring-2 ${validationErrors.referralCreditPercent ? 'border-rose-300 focus-within:ring-rose-200' : 'border-slate-200 focus-within:border-[#02665e]/50 focus-within:ring-[#02665e]/15'}`}>
+                  <div className="min-w-0 border-0 border-t border-solid border-neutral-200 p-4 sm:p-5 lg:border-l lg:border-t-0">
+                    <label htmlFor="referralCreditPercent" className={`block ${sectionLabel}`}>Referral credit</label>
+                    <div className="relative mt-3">
                       <input
                         id="referralCreditPercent"
                         type="number" min={0} max={100} step="0.01" inputMode="decimal" placeholder="0.35"
                         value={referralPercentInput}
-                        className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        onChange={e=>{ setReferralPercentInput(e.target.value); setValidationErrors(prev=>{ const n={...prev}; delete n.referralCreditPercent; return n; }); }}
+                        onChange={(e) => { setReferralPercentInput(e.target.value); clearErrors("referralCreditPercent"); }}
+                        className={`${fieldClass} pr-7 ${validationErrors.referralCreditPercent ? "border-rose-300 focus:border-rose-400 focus:ring-rose-200" : ""}`}
                       />
-                      <div className="flex shrink-0 items-center border-l border-slate-100 bg-[#02665e]/8 px-2.5 text-xs font-bold text-[#02665e]">%</div>
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400">%</span>
                     </div>
-                    {validationErrors.referralCreditPercent && <p className="mt-1 text-[10px] font-medium text-rose-600">{validationErrors.referralCreditPercent}</p>}
+                    {validationErrors.referralCreditPercent ? (
+                      <p className="m-0 mt-1.5 text-[11px] font-medium text-rose-600">{validationErrors.referralCreditPercent}</p>
+                    ) : (
+                      <p className="m-0 mt-1.5 text-[11px] text-neutral-500">Share of the referred booking paid to the referrer.</p>
+                    )}
+                    <div className="mt-3 rounded-lg bg-emerald-50/70 px-3 py-2.5 text-xs text-emerald-900">
+                      On a 200,000 TZS booking the referrer earns <span className="font-bold tabular-nums">{referralExample.toLocaleString()} TZS</span>.
+                    </div>
                   </div>
                 </div>
-              </div>
-              <p className="mt-4 text-[11px] text-slate-400">Use the <span className="font-semibold text-slate-500">Save Settings</span> button at the top to apply these values.</p>
+                <p className="m-0 border-0 border-t border-solid border-neutral-200 px-4 py-2.5 text-xs text-neutral-400 sm:px-5">Saved with the save bar.</p>
+              </section>
+            );
+          })()}
+
+          {/* Notifications: channel switches and the support contact on one ruled row */}
+          <section id="notifications" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+            {sectionHead(<Bell className="h-4 w-4" />, "Notifications", "Which channels the platform sends on, and the support contact shown to people.")}
+            <div className="grid grid-cols-1 sm:grid-cols-2">
+              {[
+                { key: "emailEnabled", label: "Email", hint: "Invoices, receipts and key account actions.", on: Boolean(s?.emailEnabled) },
+                { key: "smsEnabled", label: "SMS alerts", hint: "Urgent events and operational alerts.", on: Boolean(s?.smsEnabled) },
+              ].map((ch, i) => (
+                <div key={ch.key} className={`flex min-w-0 items-center gap-4 px-4 py-3.5 sm:px-5 ${i ? "border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0" : ""}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">{ch.label}</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">{ch.hint}</p>
+                  </div>
+                  <span className={`text-xs font-semibold ${ch.on ? "text-emerald-700" : "text-neutral-400"}`}>{ch.on ? "On" : "Off"}</span>
+                  {switchControl(ch.label, ch.on, (v) => setS((prev: any) => ({ ...(prev || {}), [ch.key]: v })))}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-3.5 sm:grid-cols-2 sm:px-5">
+              <label className="block min-w-0">
+                <span className={sectionLabel}>Support email</span>
+                <input className={`${fieldClass} mt-1.5`} value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} placeholder="support@nolsaf.com" type="email" />
+              </label>
+              <label className="block min-w-0">
+                <span className={sectionLabel}>Support phone</span>
+                <input className={`${fieldClass} mt-1.5`} value={supportPhone} onChange={(e) => setSupportPhone(e.target.value)} placeholder="+255 736 766 726" type="tel" />
+              </label>
             </div>
           </section>
 
-          {/* Notifications */}
-          <section id="notifications" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-6">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-xl bg-sky-50 flex items-center justify-center shrink-0">
-                    <Bell className="h-5 w-5 text-sky-600" />
+          {/* Feature flags and templates: two editors side by side, clearly marked as not saved yet */}
+          <section id="featureflags" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+            {sectionHead(
+              <Flag className="h-4 w-4" />,
+              "Feature flags and templates",
+              "Edit as JSON. These are a preview for now; saving them needs backend support.",
+              <>
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Not saved yet</span>
+                <button onClick={saveFlagsAndTemplates} className={btnGhost} type="button" disabled>Save</button>
+              </>,
+            )}
+            <div className="grid grid-cols-1 lg:grid-cols-2">
+              {[
+                { id: "featureFlags", label: "Feature flags", value: featureFlags, set: setFeatureFlags, placeholder: '{"new_ui": true}' },
+                { id: "notificationTemplates", label: "Notification templates", value: notificationTemplates, set: setNotificationTemplates, placeholder: '{"owner_payout": "Payout of {{amount}} processed"}' },
+              ].map((ed, i) => {
+                let valid = true;
+                try { JSON.parse(ed.value || "{}"); } catch { valid = false; }
+                return (
+                  <div key={ed.id} className={`min-w-0 px-4 py-3.5 sm:px-5 ${i ? "border-0 border-t border-solid border-neutral-200 lg:border-l lg:border-t-0" : ""}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <label htmlFor={ed.id} className={sectionLabel}>{ed.label}</label>
+                      <span className={`text-[11px] font-semibold ${valid ? "text-emerald-700" : "text-rose-600"}`}>{valid ? "Valid JSON" : "Invalid JSON"}</span>
+                    </div>
+                    <textarea id={ed.id} rows={5} className={`${textareaClass} mt-1.5`} value={ed.value} onChange={(e) => ed.set(e.target.value)} placeholder={ed.placeholder} />
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Notifications</h3>
-                    <p className="text-sm text-slate-500">Channels and customer support contact.</p>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900">Email notifications</div>
-                    <div className="mt-0.5 text-xs text-slate-500">Send emails for invoices and key actions.</div>
-                  </div>
-                  <label className="group relative inline-flex cursor-pointer items-center">
-                    <input type="checkbox" aria-label="Email notifications" checked={Boolean(s.emailEnabled)} className="peer sr-only" onChange={e=>setS({...s, emailEnabled: e.target.checked})} />
-                    <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                  </label>
-                </div>
-                <div className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900">SMS alerts</div>
-                    <div className="mt-0.5 text-xs text-slate-500">Urgent events and operational alerts.</div>
-                  </div>
-                  <label className="group relative inline-flex cursor-pointer items-center">
-                    <input type="checkbox" aria-label="SMS alerts" checked={Boolean(s.smsEnabled)} className="peer sr-only" onChange={e=>setS({...s, smsEnabled: e.target.checked})} />
-                    <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                  </label>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-2">
-                  <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Support Email</label>
-                    <input className={inputClass} value={supportEmail} onChange={e=>setSupportEmail(e.target.value)} placeholder="support@nolsaf.com" type="email" />
-                  </div>
-                  <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                    <label className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Support Phone</label>
-                    <input className={inputClass} value={supportPhone} onChange={e=>setSupportPhone(e.target.value)} placeholder="+255 736 766 726" type="tel" />
-                  </div>
-                </div>
-              </div>
+                );
+              })}
             </div>
           </section>
 
-          {/* Feature Flags & Templates */}
-          <section id="featureflags" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-6">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-                    <Flag className="h-5 w-5 text-slate-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Feature Flags &amp; Templates</h3>
-                    <p className="text-sm text-slate-500">Client-side preview only, backend persistence is pending.</p>
-                  </div>
-                </div>
-                <span className="inline-flex shrink-0 items-center rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-amber-700">Not saved</span>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="featureFlags" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Feature Flags (JSON)</label>
-                  <textarea id="featureFlags" className={`${inputClass} h-28 font-mono text-[12px]`} value={featureFlags} onChange={e=>setFeatureFlags(e.target.value)} placeholder='{"new_ui": true}' />
-                </div>
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="notificationTemplates" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Notification Templates (JSON)</label>
-                  <textarea id="notificationTemplates" className={`${inputClass} h-28 font-mono text-[12px]`} value={notificationTemplates} onChange={e=>setNotificationTemplates(e.target.value)} placeholder='{"owner_payout": "Payout of {{amount}} processed"}' />
-                </div>
-              </div>
-              <div className="mt-4 flex items-center gap-3">
-                <button onClick={saveFlagsAndTemplates} className={btnSecondary} type="button" disabled>Save (coming soon)</button>
-                <span className="text-xs text-slate-400">These fields are not persisted yet.</span>
-              </div>
-            </div>
-          </section>
+          {/* Sessions and sign-in: ruled rows, with idle timeouts by role and what each one means in practice */}
+          {(() => {
+            const asDuration = (minutes: number) => {
+              if (!Number.isFinite(minutes) || minutes <= 0) return "Not set";
+              if (minutes < 60) return `${minutes} min`;
+              const h = Math.floor(minutes / 60);
+              const m = minutes % 60;
+              return m ? `${h} h ${m} min` : `${h} h`;
+            };
+            const fallback = Number(s?.sessionIdleMinutes ?? 60);
+            const roles = [
+              { id: "sessionTtlDefault", key: "sessionIdleMinutes", label: "Default", dot: "bg-neutral-400" },
+              { id: "sessionTtlAdmin", key: "sessionMaxMinutesAdmin", label: "Admin", dot: "bg-emerald-500" },
+              { id: "sessionTtlOwner", key: "sessionMaxMinutesOwner", label: "Owner", dot: "bg-indigo-500" },
+              { id: "sessionTtlDriver", key: "sessionMaxMinutesDriver", label: "Driver", dot: "bg-amber-500" },
+              { id: "sessionTtlCustomer", key: "sessionMaxMinutesCustomer", label: "Traveller", dot: "bg-sky-500" },
+              { id: "sessionTtlAgent", key: "sessionMaxMinutesAgent", label: "Agent", dot: "bg-violet-500" },
+            ];
+            const toggle = (label: string, checked: boolean, onChange: (v: boolean) => void, id?: string) => (
+              <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+                <input id={id} type="checkbox" aria-label={label} checked={checked} className="peer sr-only" onChange={(e) => onChange(e.target.checked)} />
+                <div className={toggleTrackClass}><Lock className="pointer-events-none absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100" /></div>
+              </label>
+            );
+            const row = "flex min-w-0 items-center gap-4 border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:px-5";
+            return (
+              <section id="security" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <ShieldCheck className="h-4 w-4" />,
+                  "Sessions and sign-in",
+                  "How long people stay signed in. Enforced on the server and recorded in the audit trail.",
+                  <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-[11px] font-semibold text-neutral-600"><History className="h-3 w-3" /> Audited</span>,
+                )}
 
-          {/* Security & Sessions */}
-          <section id="security" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-start justify-between gap-4 mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-rose-50 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="h-5 w-5 text-rose-600" />
+                <div className={`${row} border-t-0`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Admin two-step sign-in</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">A password alone never opens the admin area. Every admin confirms with a passkey or authenticator code. This cannot be turned off.</p>
                   </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Security & Sessions</h3>
-                    <p className="text-sm text-slate-500">Role-based session TTL is enforced server-side and audited.</p>
-                  </div>
-                </div>
-                <span className="inline-flex items-center rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-rose-700">Audited</span>
-              </div>
-              <div className="space-y-3">
-                <div className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900">Require 2FA for admins</div>
-                    <div className="mt-0.5 text-xs text-slate-500">Enforce two-factor authentication for all admin accounts.</div>
-                  </div>
-                  <label className="group relative inline-flex cursor-pointer items-center">
-                    <input id="admin2fa" type="checkbox" aria-label="Require 2FA for admins" checked={Boolean(s?.requireAdmin2FA)} className="peer sr-only" onChange={e=>setS(prev=>({...(prev||{}), requireAdmin2FA: e.target.checked}))} />
-                    <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                  </label>
+                  <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-700"><Lock className="h-3 w-3" /> Always on</span>
                 </div>
 
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">Session TTL by role (minutes)</div>
-                      <div className="mt-0.5 text-xs text-slate-500">Blank role values fall back to Default.</div>
-                    </div>
-                    <span className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-slate-600">Audited</span>
+                <div className="border-0 border-t border-solid border-neutral-200 px-4 py-4 sm:px-5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Idle timeout by role</p>
+                    <p className="m-0 text-xs text-neutral-400">Minutes. Leave a role blank to use Default. Lowering one signs those people out on their next request.</p>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-                    <div className="rounded-[12px] border border-slate-200 bg-white p-3.5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-slate-400" />
-                        <label htmlFor="sessionTtlDefault" className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Default</label>
-                      </div>
-                      <input id="sessionTtlDefault" type="number" min={5} className={inputClass} value={(s?.sessionIdleMinutes ?? 60) as any} onChange={e=>setS(prev=>({...(prev||{}), sessionIdleMinutes: Number(e.target.value)}))} />
-                    </div>
-                    <div className="rounded-[12px] border border-[#02665e]/20 bg-[#02665e]/[0.04] p-3.5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-[#02665e]" />
-                        <label htmlFor="sessionTtlAdmin" className="text-xs font-bold uppercase tracking-[0.12em] text-[#02665e]">Admin</label>
-                      </div>
-                      <input id="sessionTtlAdmin" type="number" min={5} placeholder="(default)" className={inputClass} value={(s?.sessionMaxMinutesAdmin ?? "") as any} onChange={e=>setS(prev=>({...(prev||{}), sessionMaxMinutesAdmin: e.target.value === "" ? null : Number(e.target.value)}))} />
-                    </div>
-                    <div className="rounded-[12px] border border-indigo-200 bg-indigo-50/40 p-3.5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-indigo-500" />
-                        <label htmlFor="sessionTtlOwner" className="text-xs font-bold uppercase tracking-[0.12em] text-indigo-700">Owner</label>
-                      </div>
-                      <input id="sessionTtlOwner" type="number" min={5} placeholder="(default)" className={inputClass} value={(s?.sessionMaxMinutesOwner ?? "") as any} onChange={e=>setS(prev=>({...(prev||{}), sessionMaxMinutesOwner: e.target.value === "" ? null : Number(e.target.value)}))} />
-                    </div>
-                    <div className="rounded-[12px] border border-amber-200 bg-amber-50/40 p-3.5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-amber-500" />
-                        <label htmlFor="sessionTtlDriver" className="text-xs font-bold uppercase tracking-[0.12em] text-amber-700">Driver</label>
-                      </div>
-                      <input id="sessionTtlDriver" type="number" min={5} placeholder="(default)" className={inputClass} value={(s?.sessionMaxMinutesDriver ?? "") as any} onChange={e=>setS(prev=>({...(prev||{}), sessionMaxMinutesDriver: e.target.value === "" ? null : Number(e.target.value)}))} />
-                    </div>
-                    <div className="rounded-[12px] border border-sky-200 bg-sky-50/40 p-3.5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-sky-500" />
-                        <label htmlFor="sessionTtlCustomer" className="text-xs font-bold uppercase tracking-[0.12em] text-sky-700">Traveller</label>
-                      </div>
-                      <input id="sessionTtlCustomer" type="number" min={5} placeholder="(default)" className={inputClass} value={(s?.sessionMaxMinutesCustomer ?? "") as any} onChange={e=>setS(prev=>({...(prev||{}), sessionMaxMinutesCustomer: e.target.value === "" ? null : Number(e.target.value)}))} />
-                    </div>
-                    <div className="rounded-[12px] border border-violet-200 bg-violet-50/40 p-3.5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="h-2 w-2 rounded-full bg-violet-500" />
-                        <label htmlFor="sessionTtlAgent" className="text-xs font-bold uppercase tracking-[0.12em] text-violet-700">Agent</label>
-                      </div>
-                      <input id="sessionTtlAgent" type="number" min={5} placeholder="(default)" className={inputClass} value={(s?.sessionMaxMinutesAgent ?? "") as any} onChange={e=>setS(prev=>({...(prev||{}), sessionMaxMinutesAgent: e.target.value === "" ? null : Number(e.target.value)}))} />
-                    </div>
-                  </div>
-                  <div className="mt-3 rounded-[12px] border border-slate-200 bg-white p-3 text-xs text-slate-500">
-                    Reducing a role TTL forces re-login on the next authenticated request and disconnects expired live sessions.
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+                    {roles.map((role) => {
+                      const raw = (s as any)?.[role.key];
+                      const isDefault = role.key === "sessionIdleMinutes";
+                      const effective = isDefault ? Number(raw ?? 60) : raw == null || raw === "" ? fallback : Number(raw);
+                      return (
+                        <div key={role.id} className={`min-w-0 rounded-xl p-3 ${isDefault ? "bg-[#0b2420]/[0.04] ring-1 ring-inset ring-[#0b2420]/10" : "bg-neutral-50 ring-1 ring-inset ring-neutral-200"}`}>
+                          <label htmlFor={role.id} className="flex items-center gap-1.5 text-xs font-semibold text-neutral-700"><span className={`h-2 w-2 rounded-full ${role.dot}`} /> {role.label}</label>
+                          <input
+                            id={role.id}
+                            type="number" min={5} inputMode="numeric"
+                            placeholder={isDefault ? "60" : String(fallback)}
+                            value={isDefault ? (raw ?? 60) : (raw ?? "")}
+                            onChange={(e) => setS((prev: any) => ({ ...(prev || {}), [role.key]: isDefault ? Number(e.target.value) : e.target.value === "" ? null : Number(e.target.value) }))}
+                            className={`${fieldClass} mt-2`}
+                          />
+                          <span className="mt-1.5 block truncate text-[11px] text-neutral-500">
+                            {isDefault || (raw != null && raw !== "") ? asDuration(effective) : `Default, ${asDuration(effective)}`}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock className="h-4 w-4 text-slate-500" />
-                    <div className="text-sm font-semibold text-slate-900">Max session duration (hours)</div>
+                <div className={row}>
+                  <div className="min-w-0 flex-1">
+                    <label htmlFor="maxSessionDurationHours" className="block text-sm font-semibold text-neutral-900">Longest session</label>
+                    <p className={`m-0 mt-0.5 text-xs ${validationErrors.maxSessionDurationHours ? "font-medium text-rose-600" : "text-neutral-400"}`}>
+                      {validationErrors.maxSessionDurationHours || "Even an active session must sign in again after this long."}
+                    </p>
                   </div>
-                  <input
-                    id="maxSessionDurationHours"
-                    type="number"
-                    min={1}
-                    max={720}
-                    className={`${inputClass} ${validationErrors.maxSessionDurationHours ? "border-red-300" : ""}`}
-                    value={(s?.maxSessionDurationHours ?? 24) as any}
-                    onChange={e=>setS(prev=>({...(prev||{}), maxSessionDurationHours: Number(e.target.value)}))}
-                  />
-                  {validationErrors.maxSessionDurationHours && <p className="mt-1 text-xs text-red-600">{validationErrors.maxSessionDurationHours}</p>}
-                  <p className="mt-1.5 text-xs text-slate-400">Maximum session lifetime before requiring re-authentication.</p>
+                  <div className="relative w-28 shrink-0">
+                    <input
+                      id="maxSessionDurationHours"
+                      type="number" min={1} max={720} inputMode="numeric"
+                      value={(s?.maxSessionDurationHours ?? 24) as any}
+                      onChange={(e) => setS((prev: any) => ({ ...(prev || {}), maxSessionDurationHours: Number(e.target.value) }))}
+                      className={`${fieldClass} pr-7 ${validationErrors.maxSessionDurationHours ? "border-rose-300" : ""}`}
+                    />
+                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400">h</span>
+                  </div>
                 </div>
 
-                <div className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900">Force logout on password change</div>
-                    <div className="mt-0.5 text-xs text-slate-500">Automatically logout all sessions when password is changed.</div>
+                <div className={row}>
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Sign out everywhere on password change</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">Changing a password ends that account&apos;s other sessions.</p>
                   </div>
-                  <label className="group relative inline-flex cursor-pointer items-center">
-                    <input type="checkbox" aria-label="Force logout on password change" checked={Boolean(s?.forceLogoutOnPasswordChange ?? true)} className="peer sr-only" onChange={e=>setS(prev=>({...(prev||{}), forceLogoutOnPasswordChange: e.target.checked}))} />
-                    <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                  </label>
+                  <span className={`hidden text-xs font-semibold sm:inline ${(s?.forceLogoutOnPasswordChange ?? true) ? "text-emerald-700" : "text-neutral-400"}`}>{(s?.forceLogoutOnPasswordChange ?? true) ? "On" : "Off"}</span>
+                  {toggle("Force logout on password change", Boolean(s?.forceLogoutOnPasswordChange ?? true), (v) => setS((prev: any) => ({ ...(prev || {}), forceLogoutOnPasswordChange: v })))}
                 </div>
-              </div>
-            </div>
-          </section>
+              </section>
+            );
+          })()}
 
-          {/* Password Requirements */}
-          <section id="passwords" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-                  <KeyRound className="h-5 w-5 text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Password Requirements</h3>
-                  <p className="text-sm text-slate-500">Configure password complexity and security policies.</p>
-                </div>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4 mb-4">
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="minPasswordLength" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Min password length</label>
-                  <input
-                    id="minPasswordLength"
-                    type="number"
-                    min={8}
-                    max={128}
-                    className={`${inputClass} ${validationErrors.minPasswordLength ? "border-red-300" : ""}`}
-                    value={(s?.minPasswordLength ?? 8) as any}
-                    onChange={e=>setS(prev=>({...(prev||{}), minPasswordLength: Number(e.target.value)}))}
-                  />
-                  {validationErrors.minPasswordLength && <p className="mt-1 text-xs text-red-600">{validationErrors.minPasswordLength}</p>}
-                  <p className="mt-1.5 text-xs text-slate-400">Minimum number of characters required.</p>
-                </div>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {[
-                  { label: "Require uppercase letters", key: "requirePasswordUppercase", val: s?.requirePasswordUppercase, hint: "Must contain at least one uppercase letter." },
-                  { label: "Require lowercase letters", key: "requirePasswordLowercase", val: s?.requirePasswordLowercase, hint: "Must contain at least one lowercase letter." },
-                  { label: "Require numbers", key: "requirePasswordNumber", val: s?.requirePasswordNumber, hint: "Must contain at least one number." },
-                  { label: "Require special characters", key: "requirePasswordSpecial", val: s?.requirePasswordSpecial, hint: "Must contain at least one special character (!@#$%^&*)." },
-                ].map(({ label, key, val, hint }) => (
-                  <div key={key} className="flex items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-900">{label}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{hint}</div>
+          {/* Passwords: the length and the four rules in one band, with the shortest password that passes */}
+          {(() => {
+            const rules = [
+              { key: "requirePasswordUppercase", label: "Uppercase", hint: "A to Z", sample: "A" },
+              { key: "requirePasswordLowercase", label: "Lowercase", hint: "a to z", sample: "a" },
+              { key: "requirePasswordNumber", label: "Number", hint: "0 to 9", sample: "7" },
+              { key: "requirePasswordSpecial", label: "Symbol", hint: "! @ # $ % and similar", sample: "!" },
+            ];
+            const min = Number(s?.minPasswordLength ?? 8);
+            const active = rules.filter((r) => Boolean((s as any)?.[r.key]));
+            const head = active.map((r) => r.sample).join("");
+            const example = head + "x".repeat(Math.max(0, (Number.isFinite(min) ? min : 8) - head.length));
+            return (
+              <section id="passwords" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(<KeyRound className="h-4 w-4" />, "Passwords", "What every new or changed password must contain.", <span className="text-xs text-neutral-400">{active.length} of {rules.length} rules on</span>)}
+                <div className="grid grid-cols-2 lg:grid-cols-5">
+                  <div className="col-span-2 min-w-0 px-4 py-3.5 sm:px-5 lg:col-span-1">
+                    <label htmlFor="minPasswordLength" className={sectionLabel}>Minimum length</label>
+                    <div className="relative mt-1.5">
+                      <input
+                        id="minPasswordLength"
+                        type="number" min={8} max={128} inputMode="numeric"
+                        value={(s?.minPasswordLength ?? 8) as any}
+                        onChange={(e) => setS((prev: any) => ({ ...(prev || {}), minPasswordLength: Number(e.target.value) }))}
+                        className={`${fieldClass} pr-14 ${validationErrors.minPasswordLength ? "border-rose-300" : ""}`}
+                      />
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">chars</span>
                     </div>
-                    <label className="group relative inline-flex cursor-pointer items-center">
-                      <input type="checkbox" aria-label={label} checked={Boolean(val ?? false)} className="peer sr-only" onChange={e=>setS(prev=>({...(prev||{}), [key]: e.target.checked}))} />
-                      <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                    </label>
+                    {validationErrors.minPasswordLength && <p className="m-0 mt-1 text-[11px] font-medium text-rose-600">{validationErrors.minPasswordLength}</p>}
                   </div>
-                ))}
-              </div>
-            </div>
-          </section>
+                  {rules.map((r, i) => {
+                    const on = Boolean((s as any)?.[r.key]);
+                    return (
+                      <div key={r.key} className={`flex min-w-0 items-center gap-3 border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:px-5 lg:border-l lg:border-t-0 ${i % 2 ? "border-l" : ""}`}>
+                        <div className="min-w-0 flex-1">
+                          <p className="m-0 text-sm font-semibold text-neutral-900">{r.label}</p>
+                          <p className="m-0 mt-0.5 truncate text-xs text-neutral-400">{r.hint}</p>
+                        </div>
+                        {switchControl(`Require ${r.label.toLowerCase()}`, on, (v) => setS((prev: any) => ({ ...(prev || {}), [r.key]: v })))}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="m-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-2.5 text-xs text-neutral-500 sm:px-5">
+                  Shortest password that passes: <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[12px] text-neutral-800 ring-1 ring-inset ring-neutral-200">{example}</code>
+                </p>
+              </section>
+            );
+          })()}
 
-          {/* Network Security */}
-          <section id="network" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
-                  <Globe className="h-5 w-5 text-orange-600" />
+          {/* Network: enforcement switch first, then the list it enforces */}
+          {(() => {
+            const entries = String(s?.ipAllowlist || "").split(/[\s,]+/).filter(Boolean);
+            const on = Boolean(s?.enableIpAllowlist);
+            return (
+              <section id="network" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <Globe className="h-4 w-4" />,
+                  "Network",
+                  "Limit admin sign-in to trusted addresses.",
+                  <a href="/admin/management/ip-allowlist" className={`${btnGhost} no-underline hover:no-underline`}>Open IP allowlist <ChevronRight className="h-3.5 w-3.5" /></a>,
+                )}
+                <div className="flex min-w-0 items-center gap-4 px-4 py-3.5 sm:px-5">
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Enforce the allowlist</p>
+                    <p className={`m-0 mt-0.5 text-xs ${on && entries.length === 0 ? "font-medium text-amber-700" : "text-neutral-400"}`}>
+                      {on && entries.length === 0 ? "On, but the list is empty, so every address is allowed." : on ? `Admins can only sign in from ${entries.length} ${entries.length === 1 ? "entry" : "entries"} below.` : "Off. Admins can sign in from anywhere."}
+                    </p>
+                  </div>
+                  <span className={`text-xs font-semibold ${on ? "text-emerald-700" : "text-neutral-400"}`}>{on ? "On" : "Off"}</span>
+                  {switchControl("Enable IP allowlist enforcement", on, (v) => setS((prev: any) => ({ ...(prev || {}), enableIpAllowlist: v })))}
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Network Security</h3>
-                  <p className="text-sm text-slate-500">Restrict admin access by IP address and configure network policies.</p>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="ipAllowlist" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Admin IP Allowlist (CIDR format)</label>
+                <div className="border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:px-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label htmlFor="ipAllowlist" className={sectionLabel}>Allowed addresses</label>
+                    <span className="text-[11px] tabular-nums text-neutral-400">{entries.length} {entries.length === 1 ? "entry" : "entries"}</span>
+                  </div>
                   <textarea
                     id="ipAllowlist"
-                    className={`${inputClass} font-mono text-xs ${validationErrors.ipAllowlist ? "border-red-300" : ""}`}
+                    rows={2}
+                    className={`${textareaClass} mt-1.5 ${validationErrors.ipAllowlist ? "border-rose-300" : ""}`}
                     value={s?.ipAllowlist || ""}
-                    onChange={e=>setS(prev=>({...(prev||{}), ipAllowlist: e.target.value}))}
+                    onChange={(e) => setS((prev: any) => ({ ...(prev || {}), ipAllowlist: e.target.value }))}
                     onBlur={(e) => {
-                      const error = validateIPAllowlist(e.target.value);
-                      if (!error.valid && error.error) {
-                        setValidationErrors(prev => ({ ...prev, ipAllowlist: error.error || "Invalid IP allowlist format" }));
+                      const result = validateIPAllowlist(e.target.value);
+                      if (!result.valid && result.error) {
+                        setValidationErrors((prev) => ({ ...prev, ipAllowlist: result.error || "Invalid IP allowlist format" }));
                       } else {
-                        setValidationErrors(prev => { const n = { ...prev }; delete n.ipAllowlist; return n; });
+                        setValidationErrors((prev) => { const n = { ...prev }; delete n.ipAllowlist; return n; });
                       }
                     }}
                     placeholder="192.168.1.0/24, 10.0.0.0/8, 172.16.0.0/12"
-                    rows={4}
                   />
-                  {validationErrors.ipAllowlist && <p className="mt-1 text-xs text-red-600">{validationErrors.ipAllowlist}</p>}
-                  <p className="mt-1.5 text-xs text-slate-400">Enter IP addresses or CIDR ranges separated by commas. Leave empty to allow all IPs.</p>
+                  <p className={`m-0 mt-1 text-[11px] ${validationErrors.ipAllowlist ? "font-medium text-rose-600" : "text-neutral-400"}`}>
+                    {validationErrors.ipAllowlist || "Single addresses or CIDR ranges, separated by commas."}
+                  </p>
                 </div>
-                <div className="flex min-w-0 items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900">Enable IP allowlist enforcement</div>
-                    <div className="mt-0.5 text-xs text-slate-500">Restrict admin access to trusted networks only.</div>
+              </section>
+            );
+          })()}
+
+          {/* Rate limits: three numbers side by side, with what they mean for an attacker */}
+          <section id="ratelimit" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+            {sectionHead(<Gauge className="h-4 w-4" />, "Rate limits", "Slow down abuse and password guessing.")}
+            <div className="grid grid-cols-1 sm:grid-cols-3">
+              {[
+                { id: "apiRateLimitPerMinute", label: "API requests", suffix: "/ min", min: 10, max: 10000, value: s?.apiRateLimitPerMinute ?? 100, hint: "Per address, across the API." },
+                { id: "maxLoginAttempts", label: "Sign-in attempts", suffix: "tries", min: 3, max: 20, value: s?.maxLoginAttempts ?? 5, hint: "Failed tries before the account locks." },
+                { id: "accountLockoutDurationMinutes", label: "Lockout", suffix: "min", min: 5, max: 1440, value: s?.accountLockoutDurationMinutes ?? 30, hint: "How long a locked account waits." },
+              ].map((f, i) => (
+                <div key={f.id} className={`min-w-0 px-4 py-3.5 sm:px-5 ${i ? "border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0" : ""}`}>
+                  <label htmlFor={f.id} className={sectionLabel}>{f.label}</label>
+                  <div className="relative mt-1.5">
+                    <input
+                      id={f.id}
+                      type="number" min={f.min} max={f.max} inputMode="numeric"
+                      value={f.value as any}
+                      onChange={(e) => setS((prev: any) => ({ ...(prev || {}), [f.id]: Number(e.target.value) }))}
+                      className={`${fieldClass} pr-14 ${validationErrors[f.id] ? "border-rose-300" : ""}`}
+                    />
+                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">{f.suffix}</span>
                   </div>
-                  <label className="group relative inline-flex cursor-pointer items-center">
-                    <input type="checkbox" aria-label="Enable IP allowlist enforcement" checked={Boolean(s?.enableIpAllowlist ?? false)} className="peer sr-only" onChange={e=>setS(prev=>({...(prev||{}), enableIpAllowlist: e.target.checked}))} />
-                    <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                  </label>
+                  <p className={`m-0 mt-1 text-[11px] ${validationErrors[f.id] ? "font-medium text-rose-600" : "text-neutral-400"}`}>{validationErrors[f.id] || f.hint}</p>
                 </div>
-              </div>
+              ))}
             </div>
+            <p className="m-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-2.5 text-xs text-neutral-500 sm:px-5">
+              Someone guessing a password gets <span className="font-semibold text-neutral-800">{s?.maxLoginAttempts ?? 5} tries</span>, then waits <span className="font-semibold text-neutral-800">{s?.accountLockoutDurationMinutes ?? 30} min</span> before the next.
+            </p>
           </section>
 
-          {/* Rate Limiting */}
-          <section id="ratelimit" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
-                  <Gauge className="h-5 w-5 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Rate Limiting & DDoS Protection</h3>
-                  <p className="text-sm text-slate-500">Configure API rate limits and protect against abuse.</p>
-                </div>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="apiRateLimitPerMinute" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">API requests / minute</label>
-                  <input id="apiRateLimitPerMinute" type="number" min={10} max={10000} className={`${inputClass} ${validationErrors.apiRateLimitPerMinute ? "border-red-300" : ""}`} value={(s?.apiRateLimitPerMinute ?? 100) as any} onChange={e=>setS(prev=>({...(prev||{}), apiRateLimitPerMinute: Number(e.target.value)}))} />
-                  {validationErrors.apiRateLimitPerMinute && <p className="mt-1 text-xs text-red-600">{validationErrors.apiRateLimitPerMinute}</p>}
-                  <p className="mt-1.5 text-xs text-slate-400">Max API requests allowed per minute per IP.</p>
-                </div>
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="maxLoginAttempts" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Login attempts before lockout</label>
-                  <input id="maxLoginAttempts" type="number" min={3} max={20} className={`${inputClass} ${validationErrors.maxLoginAttempts ? "border-red-300" : ""}`} value={(s?.maxLoginAttempts ?? 5) as any} onChange={e=>setS(prev=>({...(prev||{}), maxLoginAttempts: Number(e.target.value)}))} />
-                  {validationErrors.maxLoginAttempts && <p className="mt-1 text-xs text-red-600">{validationErrors.maxLoginAttempts}</p>}
-                  <p className="mt-1.5 text-xs text-slate-400">Failed attempts before account lockout.</p>
-                </div>
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="accountLockoutDurationMinutes" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Lockout duration (minutes)</label>
-                  <input id="accountLockoutDurationMinutes" type="number" min={5} max={1440} className={`${inputClass} ${validationErrors.accountLockoutDurationMinutes ? "border-red-300" : ""}`} value={(s?.accountLockoutDurationMinutes ?? 30) as any} onChange={e=>setS(prev=>({...(prev||{}), accountLockoutDurationMinutes: Number(e.target.value)}))} />
-                  {validationErrors.accountLockoutDurationMinutes && <p className="mt-1 text-xs text-red-600">{validationErrors.accountLockoutDurationMinutes}</p>}
-                  <p className="mt-1.5 text-xs text-slate-400">Duration of account lockout after max login attempts.</p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Security Audit & Monitoring */}
-          <section id="auditmon" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-                  <Activity className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Security Audit & Monitoring</h3>
-                  <p className="text-sm text-slate-500">Configure security auditing and monitoring policies.</p>
-                </div>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {[
-                  { label: "Enable security audit logging", key: "enableSecurityAuditLogging", val: s?.enableSecurityAuditLogging ?? true, hint: "Log all security-related events and admin actions." },
-                  { label: "Log failed login attempts", key: "logFailedLoginAttempts", val: s?.logFailedLoginAttempts ?? true, hint: "Record all failed login attempts for security analysis." },
-                  { label: "Alert on suspicious activity", key: "alertOnSuspiciousActivity", val: s?.alertOnSuspiciousActivity ?? false, hint: "Send alerts when suspicious security events are detected." },
-                ].map(({ label, key, val, hint }) => (
-                  <div key={key} className="flex items-center justify-between gap-4 rounded-[14px] border border-slate-100 bg-slate-50/50 px-4 py-3.5">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-900">{label}</div>
-                      <div className="mt-0.5 text-xs text-slate-500">{hint}</div>
-                    </div>
-                    <label className="group relative inline-flex cursor-pointer items-center">
-                      <input type="checkbox" aria-label={label} checked={Boolean(val)} className="peer sr-only" onChange={e=>setS(prev=>({...(prev||{}), [key]: e.target.checked}))} />
-                      <div className={toggleTrackClass}><Lock className="absolute left-[6px] top-1/2 h-3 w-3 -translate-y-1/2 text-white opacity-0 transition-opacity duration-200 group-has-[:checked]:opacity-100 pointer-events-none" /></div>
-                    </label>
+          {/* Monitoring: three switches, one per column */}
+          <section id="auditmon" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+            {sectionHead(<Activity className="h-4 w-4" />, "Monitoring", "What gets recorded, and when admins are alerted.")}
+            <div className="grid grid-cols-1 sm:grid-cols-3">
+              {[
+                { key: "audit", label: "Audit logging", hint: "Admin actions and security events. Cannot be turned off.", on: true, fixed: true },
+                { key: "logFailedLoginAttempts", label: "Failed sign-ins", hint: "Write each failed attempt to the server log.", on: Boolean(s?.logFailedLoginAttempts ?? true), fixed: false },
+                { key: "alertOnSuspiciousActivity", label: "Suspicious activity alerts", hint: "Admin inbox alert on lockouts, failed admin verification, blocked addresses and sign-in bursts.", on: Boolean(s?.alertOnSuspiciousActivity ?? false), fixed: false },
+              ].map((t, i) => (
+                <div key={t.key} className={`flex min-w-0 items-center gap-3 px-4 py-3.5 sm:px-5 ${i ? "border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0" : ""}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">{t.label}</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">{t.hint}</p>
                   </div>
-                ))}
-              </div>
+                  {t.fixed ? <span className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-700"><Lock className="h-3 w-3" /> Always on</span> : switchControl(t.label, t.on, (v) => setS((prev: any) => ({ ...(prev || {}), [t.key]: v })))}
+                </div>
+              ))}
             </div>
           </section>
 
-          {/* Security Best Practices */}
-          <div className="rounded-[20px] border-2 border-amber-200/80 bg-amber-50/60 p-6 sm:p-8">
-            <div className="flex items-start gap-4">
-              <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-                <AlertTriangle className="h-5 w-5 text-amber-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-base font-bold text-amber-900 mb-3">Security Best Practices</h4>
-                <ul className="space-y-2">
-                  {[
-                    ["2FA", "Always require 2FA for admin accounts in production environments."],
-                    ["Password Policy", "Minimum 12 characters with mixed case, numbers, and special characters recommended."],
-                    ["IP Allowlist", "Configure IP allowlist to restrict admin access to trusted networks only."],
-                    ["Session Mgmt", "Set appropriate session timeout based on your security requirements."],
-                    ["Rate Limiting", "Enable rate limiting to protect against brute force and DDoS attacks."],
-                    ["Audit Logging", "Keep security audit logging enabled to track all security events."],
-                  ].map(([k, v]) => (
-                    <li key={k} className="flex items-start gap-2.5 text-sm text-amber-800">
-                      <span className="mt-1 h-4 w-4 rounded-full bg-amber-200 flex items-center justify-center shrink-0">
-                        <span className="h-1.5 w-1.5 rounded-full bg-amber-700" />
+          {/* Security checklist: the old best-practice tips, now checked against the live values */}
+          {(() => {
+            const adminIdle = Number(s?.sessionMaxMinutesAdmin ?? s?.sessionIdleMinutes ?? 60);
+            const strongPasswords =
+              Number(s?.minPasswordLength ?? 8) >= 12 && Boolean(s?.requirePasswordUppercase && s?.requirePasswordLowercase && s?.requirePasswordNumber && s?.requirePasswordSpecial);
+            const checks = [
+              { ok: Boolean(s?.alertOnSuspiciousActivity), title: "Suspicious activity alerts", detail: s?.alertOnSuspiciousActivity ? "Admins are alerted to lockouts and attacks." : "Off. Attacks are only visible in server logs.", href: "#auditmon" },
+              { ok: strongPasswords, title: "Strong passwords", detail: strongPasswords ? "12+ characters with all four rules." : `Now ${s?.minPasswordLength ?? 8} characters; 12 with all rules is advised.`, href: "#passwords" },
+              { ok: Boolean(s?.enableIpAllowlist && String(s?.ipAllowlist || "").trim()), title: "Admin network limited", detail: s?.enableIpAllowlist ? "Allowlist is enforced." : "Admins can sign in from any address.", href: "#network" },
+              { ok: adminIdle <= 60, title: "Short admin sessions", detail: `Admins are signed out after ${adminIdle} idle min.`, href: "#security" },
+              { ok: Number(s?.maxLoginAttempts ?? 5) <= 5, title: "Guessing is locked out", detail: `${s?.maxLoginAttempts ?? 5} tries, then ${s?.accountLockoutDurationMinutes ?? 30} min wait.`, href: "#ratelimit" },
+              { ok: Boolean(s?.logFailedLoginAttempts ?? true), title: "Failed sign-ins logged", detail: (s?.logFailedLoginAttempts ?? true) ? "Every failed attempt is written to the log." : "Failed attempts are not logged.", href: "#auditmon" },
+            ];
+            const met = checks.filter((c) => c.ok).length;
+            return (
+              <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <ShieldCheck className="h-4 w-4" />,
+                  "Security checklist",
+                  "Recommended settings, checked against what is set now.",
+                  <span className={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold ${met === checks.length ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                    {met} of {checks.length} met
+                  </span>,
+                )}
+                <div className="grid grid-cols-1 gap-px bg-neutral-200 sm:grid-cols-2 lg:grid-cols-3">
+                  {checks.map((c) => (
+                    <a
+                      key={c.title}
+                      href={c.href}
+                      className="flex min-w-0 items-start gap-3 bg-white px-4 py-3.5 text-left no-underline transition-colors hover:bg-neutral-50 hover:no-underline sm:px-5"
+                    >
+                      {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />}
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-neutral-900">{c.title}</span>
+                        <span className={`block text-xs ${c.ok ? "text-neutral-400" : "text-amber-700"}`}>{c.detail}</span>
                       </span>
-                      <span><strong>{k}:</strong> {v}</span>
-                    </li>
+                    </a>
                   ))}
-                </ul>
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* Invoicing: tax and numbering on one row, the template below, preview only once generated */}
+          <section id="invoicing" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+            {sectionHead(
+              <FileText className="h-4 w-4" />,
+              "Tax and invoicing",
+              "The tax rate and invoice numbering. The template is a preview only.",
+              <>
+                <button onClick={previewInvoice} className={btnGhost} type="button">Preview</button>
+                <button onClick={saveInvoicingSettings} className={btnDark} type="button">Save tax and prefix</button>
+              </>,
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3">
+              <div className="min-w-0 px-4 py-3.5 sm:px-5">
+                <label htmlFor="taxRate" className={sectionLabel}>Tax rate</label>
+                <div className="relative mt-1.5">
+                  <input id="taxRate" type="number" min={0} step="0.01" inputMode="decimal" className={`${fieldClass} pr-7`} value={s?.taxPercent ?? 0} onChange={(e) => setS((prev: any) => ({ ...(prev || {}), taxPercent: Number(e.target.value) }))} />
+                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400">%</span>
+                </div>
+              </div>
+              <div className="min-w-0 border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:border-l sm:border-t-0 sm:px-5">
+                <label htmlFor="invoicePrefix" className={sectionLabel}>Invoice prefix</label>
+                <input id="invoicePrefix" className={`${fieldClass} mt-1.5 font-mono`} value={s?.invoicePrefix || "INV-"} onChange={(e) => setS((prev: any) => ({ ...(prev || {}), invoicePrefix: e.target.value }))} />
+              </div>
+              <div className="min-w-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-3.5 sm:border-l sm:border-t-0 sm:px-5">
+                <p className={sectionLabel}>On 100,000 {(s?.currency || "TZS").toUpperCase()}</p>
+                <p className="m-0 mt-1.5 text-sm font-semibold tabular-nums text-neutral-900">{Math.round((100000 * Number(s?.taxPercent ?? 0)) / 100).toLocaleString()} tax</p>
+                <p className="m-0 mt-0.5 text-[11px] text-neutral-400">Numbers start with <span className="font-mono text-neutral-600">{s?.invoicePrefix || "INV-"}</span></p>
               </div>
             </div>
-          </div>
-
-          {/* Tax & Invoicing */}
-          <section id="invoicing" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-[#02665e]/10 flex items-center justify-center shrink-0">
-                  <FileText className="h-5 w-5 text-[#02665e]" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Tax & Invoicing</h3>
-                  <p className="text-sm text-slate-500">Numbering, tax rate, and invoice template preview.</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 mb-4">
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="taxRate" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Tax Rate (%)</label>
-                  <input id="taxRate" type="number" min={0} step="0.01" className={inputClass} value={s?.taxPercent ?? 0} onChange={e=>setS(prev=>({...(prev||{}), taxPercent: Number(e.target.value)}))} />
-                </div>
-                <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                  <label htmlFor="invoicePrefix" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Invoice Prefix</label>
-                  <input id="invoicePrefix" className={inputClass} value={s?.invoicePrefix || "INV-"} onChange={e=>setS(prev=>({...(prev||{}), invoicePrefix: e.target.value}))} />
-                </div>
-              </div>
-              <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4 mb-4">
-                <label htmlFor="invoiceTemplate" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Invoice Template (HTML)</label>
-                <textarea id="invoiceTemplate" className={`${inputClass} h-28 font-mono text-[12px]`} value={invoiceTemplate} onChange={e=>setInvoiceTemplate(e.target.value)} placeholder="<h1>Invoice {{invoiceNumber}}</h1>" />
-              </div>
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                <button onClick={saveInvoicingSettings} className={btnPrimary} type="button">Save tax &amp; prefix</button>
-                <button onClick={previewInvoice} className={btnSecondary} type="button">Preview</button>
-                <span className="text-xs text-slate-400">Template is preview-only.</span>
-              </div>
+            <div className="border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:px-5">
+              <label htmlFor="invoiceTemplate" className={sectionLabel}>Invoice template (HTML)</label>
+              <textarea id="invoiceTemplate" rows={4} className={`${textareaClass} mt-1.5`} value={invoiceTemplate} onChange={(e) => setInvoiceTemplate(e.target.value)} placeholder="<h1>Invoice {{invoiceNumber}}</h1>" />
+            </div>
+            {invoicePreviewHtml && (
               <div
                 id="invoicePreviewArea"
-                className="max-h-64 max-w-full overflow-x-hidden overflow-y-auto rounded-[14px] border border-slate-200 bg-white p-4 text-sm text-slate-700 [&_*]:max-w-full [&_img]:h-auto [&_img]:max-w-full [&_pre]:whitespace-pre-wrap [&_code]:break-words [&_p]:break-words [&_span]:break-words [&_a]:break-words [&_table]:block [&_table]:w-full [&_table]:max-w-full [&_table]:table-fixed [&_th]:break-words [&_td]:break-words"
-                dangerouslySetInnerHTML={{__html: invoicePreviewHtml || ""}}
+                className="max-h-64 max-w-full overflow-x-hidden overflow-y-auto border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-3.5 text-sm text-neutral-700 sm:px-5 [&_*]:max-w-full [&_img]:h-auto [&_img]:max-w-full [&_pre]:whitespace-pre-wrap [&_code]:break-words [&_p]:break-words [&_span]:break-words [&_a]:break-words [&_table]:block [&_table]:w-full [&_table]:max-w-full [&_table]:table-fixed [&_th]:break-words [&_td]:break-words"
+                dangerouslySetInnerHTML={{ __html: invoicePreviewHtml }}
               />
-            </div>
+            )}
           </section>
 
-          {/* Scheduling */}
-          <section id="scheduling" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 mb-6">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-xl bg-sky-50 flex items-center justify-center shrink-0">
-                    <CalendarClock className="h-5 w-5 text-sky-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-base font-bold text-slate-900">Scheduling</h3>
-                    <p className="text-sm text-slate-500">Operational automation (cron policy backend pending).</p>
-                  </div>
+          {/* Scheduling: the payout cron with a plain-language reading of it */}
+          {(() => {
+            const pad = (n: string) => n.padStart(2, "0");
+            const readCron = (expr: string) => {
+              const parts = expr.trim().split(/\s+/);
+              if (parts.length !== 5) return expr.trim() ? "Not a five-part cron expression." : "Uses the default: 02:00 on the 1st of each month.";
+              const [m, h, dom, mon, dow] = parts;
+              if (!/^\d+$/.test(m) || !/^\d+$/.test(h)) return "Custom schedule.";
+              const at = `${pad(h)}:${pad(m)}`;
+              const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+              if (dom === "*" && mon === "*" && dow === "*") return `Every day at ${at}.`;
+              if (/^\d+$/.test(dom) && mon === "*" && dow === "*") return `At ${at} on day ${dom} of every month.`;
+              if (dom === "*" && mon === "*" && /^[0-6]$/.test(dow)) return `Every ${days[Number(dow)]} at ${at}.`;
+              return "Custom schedule.";
+            };
+            return (
+              <section id="scheduling" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <CalendarClock className="h-4 w-4" />,
+                  "Scheduling",
+                  "When automatic payouts run. Saving the schedule needs backend support.",
+                  <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Coming soon</span>,
+                )}
+                <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-end sm:px-5">
+                  <label className="block min-w-0 sm:w-72">
+                    <span className={sectionLabel}>Payout cron</span>
+                    <input id="payoutCron" className={`${fieldClass} mt-1.5 font-mono`} placeholder="0 2 1 * *" value={payoutCron} onChange={(e) => setPayoutCron(e.target.value)} />
+                  </label>
+                  <p className="m-0 flex h-9 min-w-0 flex-1 items-center rounded-lg bg-neutral-50 px-3 text-sm text-neutral-700">{readCron(payoutCron)}</p>
+                  <button onClick={updatePayoutCron} className={`${btnGhost} h-9`} type="button">Save</button>
                 </div>
-                <span className="inline-flex shrink-0 items-center rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-amber-700">Coming soon</span>
-              </div>
-              <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                <label htmlFor="payoutCron" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Cron Expression</label>
-                <input id="payoutCron" className={`${inputClass} font-mono`} placeholder="e.g. 0 2 1 * *" value={payoutCron} onChange={e=>setPayoutCron(e.target.value)} />
-                <p className="mt-1.5 text-xs text-slate-400">Default: 02:00 on the 1st of each month.</p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button onClick={updatePayoutCron} className={btnSecondary} type="button">Save (pending)</button>
-                  <button onClick={()=>alert("Preview not implemented")} className={btnSecondary} type="button">Run Preview</button>
-                  <button onClick={()=>alert("Execute not implemented")} className={btnSecondary} type="button">Execute Now</button>
-                </div>
-                <pre id="payoutCronResult" className="mt-4 max-h-48 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-[12px] border border-slate-200 bg-white p-4 text-[12px] text-slate-700" />
-              </div>
-            </div>
-          </section>
+              </section>
+            );
+          })()}
 
-          {/* Bonuses */}
-          <section id="bonuses" className="bg-white rounded-[20px] border border-slate-200 shadow-[0_4px_24px_-8px_rgba(0,0,0,0.08)] overflow-hidden">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-violet-50 flex items-center justify-center shrink-0">
-                  <Gift className="h-5 w-5 text-violet-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Bonuses</h3>
-                  <p className="text-sm text-slate-500">Manual owner bonus preview/grant (recorded via admin audit).</p>
-                </div>
-              </div>
-              <div className="rounded-[14px] border border-slate-100 bg-slate-50/50 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900">Grant owner bonus</div>
-                    <p className="mt-0.5 text-xs text-slate-500">Preview uses owner paid invoices (last 30 days). Grant writes an audit entry.</p>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <button onClick={previewBonus} className={btnSecondary} type="button" disabled={!bonusOwnerId || !Number.isFinite(Number(bonusOwnerId)) || Number(bonusOwnerId) <= 0}>Preview</button>
-                    <button onClick={grantBonus} className={btnPrimary} type="button" disabled={!bonusOwnerId || !Number.isFinite(Number(bonusOwnerId)) || Number(bonusOwnerId) <= 0}>Grant</button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 items-stretch gap-4 border-t border-slate-200/70 pt-4 sm:grid-cols-2">
-                  <div className="flex h-full min-w-0 flex-col rounded-[12px] border border-slate-200 bg-white p-4">
-                    <label htmlFor="bonusOwnerId" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Owner ID</label>
-                    <div className="flex overflow-hidden rounded-[10px] border border-slate-200 bg-slate-50/50 shadow-sm transition-all focus-within:border-[#02665e]/40 focus-within:ring-2 focus-within:ring-[#02665e]/15">
-                      <input id="bonusOwnerId" className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-300" value={bonusOwnerId} onChange={e=>setBonusOwnerId(String(e.target.value || "").replace(/\D+/g, ""))} placeholder="e.g. 13" inputMode="numeric" />
-                      <div className="flex shrink-0 items-center border-l border-slate-200 bg-slate-100 px-3 text-xs font-bold text-slate-500">#</div>
+          {/* Bonuses: owner and percent on one row, the preview as a fact strip */}
+          {(() => {
+            const ownerIdValid = Boolean(bonusOwnerId) && Number.isFinite(Number(bonusOwnerId)) && Number(bonusOwnerId) > 0;
+            const data = (bonusPreview as any)?.data;
+            return (
+              <section id="bonuses" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <Gift className="h-4 w-4" />,
+                  "Owner bonus",
+                  "Preview a bonus on an owner's paid invoices from the last 30 days, then grant it. Grants are audited.",
+                  <>
+                    <button onClick={previewBonus} className={btnGhost} type="button" disabled={!ownerIdValid}>Preview</button>
+                    <button onClick={grantBonus} className={btnDark} type="button" disabled={!ownerIdValid}>Grant bonus</button>
+                  </>,
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2">
+                  <div className="min-w-0 px-4 py-3.5 sm:px-5">
+                    <label htmlFor="bonusOwnerId" className={sectionLabel}>Owner ID</label>
+                    <div className="relative mt-1.5">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400">#</span>
+                      <input id="bonusOwnerId" className={`${fieldClass} pl-6`} value={bonusOwnerId} onChange={(e) => setBonusOwnerId(String(e.target.value || "").replace(/\D+/g, ""))} placeholder="13" inputMode="numeric" />
                     </div>
-                    {!bonusOwnerId ? (
-                      <p className="mt-1.5 text-xs text-slate-400">Paste an Owner ID to auto-load the owner.</p>
-                    ) : !Number.isFinite(Number(bonusOwnerId)) || Number(bonusOwnerId) <= 0 ? (
-                      <p className="mt-1.5 text-xs font-medium text-rose-600">Enter a valid numeric owner ID.</p>
-                    ) : bonusOwnerLookupLoading ? (
-                      <p className="mt-1.5 text-xs text-slate-400">Looking up owner...</p>
-                    ) : bonusOwnerLookupError ? (
-                      <p className="mt-1.5 text-xs font-medium text-rose-600">{bonusOwnerLookupError}</p>
-                    ) : bonusOwnerLookup ? (
-                      <p className="mt-1.5 text-xs text-slate-500">Owner: <span className="font-semibold text-slate-700">{bonusOwnerLookup.name || `#${bonusOwnerLookup.id}`}</span>{bonusOwnerLookup.email ? <span className="text-slate-400"> &middot; {bonusOwnerLookup.email}</span> : null}</p>
-                    ) : (
-                      <p className="mt-1.5 text-xs text-slate-400">Owner receiving the bonus.</p>
-                    )}
+                    <p className={`m-0 mt-1 truncate text-[11px] ${bonusOwnerLookupError || (bonusOwnerId && !ownerIdValid) ? "font-medium text-rose-600" : "text-neutral-400"}`}>
+                      {!bonusOwnerId
+                        ? "Type an owner ID to look the owner up."
+                        : !ownerIdValid
+                          ? "Enter a valid numeric owner ID."
+                          : bonusOwnerLookupLoading
+                            ? "Looking up owner..."
+                            : bonusOwnerLookupError
+                              ? bonusOwnerLookupError
+                              : bonusOwnerLookup
+                                ? <>Owner: <span className="font-semibold text-neutral-700">{bonusOwnerLookup.name || `#${bonusOwnerLookup.id}`}</span>{bonusOwnerLookup.email ? ` · ${bonusOwnerLookup.email}` : ""}</>
+                                : "Owner receiving the bonus."}
+                    </p>
                   </div>
-                  <div className="flex h-full min-w-0 flex-col rounded-[12px] border border-slate-200 bg-white p-4">
-                    <label htmlFor="bonusPercentInput" className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Bonus (%)</label>
-                    <div className="flex overflow-hidden rounded-[10px] border border-slate-200 bg-slate-50/50 shadow-sm transition-all focus-within:border-[#02665e]/40 focus-within:ring-2 focus-within:ring-[#02665e]/15">
-                      <input id="bonusPercentInput" type="number" min={0} step="0.01" inputMode="decimal" className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-300" value={bonusPercentInput} onChange={e=>setBonusPercentInput(Number(e.target.value))} placeholder="e.g. 5" />
-                      <div className="flex shrink-0 items-center border-l border-slate-200 bg-slate-100 px-3 text-xs font-bold text-slate-500">%</div>
+                  <div className="min-w-0 border-0 border-t border-solid border-neutral-200 px-4 py-3.5 sm:border-l sm:border-t-0 sm:px-5">
+                    <label htmlFor="bonusPercentInput" className={sectionLabel}>Bonus</label>
+                    <div className="relative mt-1.5">
+                      <input id="bonusPercentInput" type="number" min={0} step="0.01" inputMode="decimal" className={`${fieldClass} pr-7`} value={bonusPercentInput} onChange={(e) => setBonusPercentInput(Number(e.target.value))} placeholder="5" />
+                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-neutral-400">%</span>
                     </div>
-                    <p className="mt-1.5 text-xs text-slate-400">Percent applied to eligible revenue for the preview window.</p>
+                    <p className="m-0 mt-1 text-[11px] text-neutral-400">Applied to eligible revenue in the preview window.</p>
                   </div>
                 </div>
                 {bonusPreview && (
-                  <div className="mt-4 rounded-[14px] border border-slate-200 bg-white p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between mb-4">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-900">Preview result</div>
-                        <p className="mt-0.5 text-xs text-slate-500">Review computed values before granting.</p>
-                      </div>
-                      <span className="inline-flex w-fit items-center rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.10em] text-slate-600">
-                        {(bonusPreview as any)?.ok === true ? "OK" : "Result"}
-                      </span>
-                    </div>
-                    {(bonusPreview as any)?.data && (
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 mb-4">
+                  <div className="border-0 border-t border-solid border-neutral-200 bg-neutral-50/60">
+                    {data && (
+                      <dl className="m-0 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
                         {[
-                          { label: "Owner", value: `#${String((bonusPreview as any).data.ownerId ?? bonusOwnerId)}` },
-                          { label: "Bonus", value: formatPercent((bonusPreview as any).data.bonusPercent ?? bonusPercentInput) },
-                          { label: "Eligible revenue", value: formatMoney((bonusPreview as any).data.totalRevenue) },
-                          { label: "Bonus amount", value: formatMoney((bonusPreview as any).data.bonusAmount) },
-                          { label: "Commission %", value: formatPercent((bonusPreview as any).data.commissionPercent) },
-                          { label: "Reference", value: String((bonusPreview as any).data.bonusPaymentRef ?? "\u2014") },
-                        ].map(({ label, value }) => (
-                          <div key={label} className="rounded-[10px] border border-slate-100 bg-slate-50 p-3">
-                            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</div>
-                            <div className="mt-1 text-sm font-semibold text-slate-900 truncate font-mono">{value}</div>
+                          { label: "Owner", value: `#${String(data.ownerId ?? bonusOwnerId)}` },
+                          { label: "Bonus", value: formatPercent(data.bonusPercent ?? bonusPercentInput) },
+                          { label: "Eligible revenue", value: formatMoney(data.totalRevenue) },
+                          { label: "Bonus amount", value: formatMoney(data.bonusAmount) },
+                          { label: "Commission", value: formatPercent(data.commissionPercent) },
+                          { label: "Reference", value: String(data.bonusPaymentRef ?? "None") },
+                        ].map((f) => (
+                          <div key={f.label} className="min-w-0 px-4 py-3 sm:px-5">
+                            <dt className={sectionLabel}>{f.label}</dt>
+                            <dd className="m-0 mt-1 truncate text-sm font-semibold tabular-nums text-neutral-900">{f.value}</dd>
                           </div>
                         ))}
-                      </div>
+                      </dl>
                     )}
-                    <details className="rounded-[12px] border border-slate-200 bg-slate-50 p-3">
-                      <summary className="cursor-pointer select-none text-xs font-semibold text-slate-600">Raw response</summary>
-                      <pre className="mt-3 max-h-64 max-w-full overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-[10px] border border-slate-200 bg-white p-4 text-[12px] text-slate-700">{JSON.stringify(bonusPreview, null, 2)}</pre>
+                    <details className="border-0 border-t border-solid border-neutral-200 px-4 py-2.5 sm:px-5">
+                      <summary className="cursor-pointer select-none text-xs font-semibold text-neutral-500">Raw response</summary>
+                      <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-[12px] text-neutral-700 ring-1 ring-inset ring-neutral-200">{JSON.stringify(bonusPreview, null, 2)}</pre>
                     </details>
                   </div>
                 )}
-              </div>
-            </div>
-          </section>
-
+              </section>
+            );
+          })()}
         </div>
 
         {/* Save bar — STICKY inside the content column (not viewport-fixed), so it

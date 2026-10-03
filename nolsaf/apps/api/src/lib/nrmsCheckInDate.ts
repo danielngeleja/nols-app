@@ -1,4 +1,4 @@
-import { shiftDayKey } from "./nrmsShifts.js";
+import { hotelCalendarDayKey } from "./nrmsShifts.js";
 
 export type NrmsCheckInDateConflict = {
   code: "CHECKIN_BEFORE_ARRIVAL";
@@ -12,7 +12,7 @@ export type NrmsCheckInDateConflict = {
  * in house. Payment and room assignment do not advance the arrival date.
  */
 export function nrmsCheckInDateConflict(checkIn: Date, businessDate: string): NrmsCheckInDateConflict | null {
-  const arrivalDate = shiftDayKey(checkIn);
+  const arrivalDate = hotelCalendarDayKey(checkIn);
   if (arrivalDate <= businessDate) return null;
   return {
     code: "CHECKIN_BEFORE_ARRIVAL",

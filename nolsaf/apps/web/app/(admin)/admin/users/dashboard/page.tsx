@@ -6,6 +6,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import Chart from "@/components/Chart";
 import type { ChartData } from "chart.js";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 function authify() {}
@@ -40,6 +41,7 @@ type SummaryData = {
 };
 
 export default function UsersDashboardPage() {
+  const recordHref = useAdminHref();
   const [summary, setSummary] = useState<SummaryData>({});
   const [loading, setLoading] = useState(true);
 
@@ -310,7 +312,7 @@ export default function UsersDashboardPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <Link
-                        href={`/admin/users/${customer.id}`}
+                        href={recordHref("user", customer.id)}
                         className="inline-flex items-center justify-center transition-colors no-underline"
                         style={{ color: "#6ee7b7" }}
                         title="View user details"

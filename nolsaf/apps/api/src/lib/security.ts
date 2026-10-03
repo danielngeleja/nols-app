@@ -114,6 +114,7 @@ export async function generatePasskeyRegistrationOptions(user: { id: string | nu
   const opts = await generateRegistrationOptions({
     rpName,
     rpID,
+    // SimpleWebAuthn v14 requires raw user-handle bytes, not a string.
     userID: new TextEncoder().encode(String(user.id)),
     userName: user.name || String(user.id),
     userDisplayName: user.displayName || user.name || String(user.id),
@@ -164,12 +165,12 @@ export async function verifyPasskeyAuthentication(response: any, expectedChallen
     expectedOrigin: expectedOrigins,
     expectedRPID: rpID,
     credential: {
-      id: credential?.credentialId,
+      id: String(credential?.credentialId || credential?.id || ""),
       counter: credential?.signCount || 0,
       publicKey: typeof credential?.publicKey === "string"
         ? Uint8Array.from(Buffer.from(credential.publicKey, "base64url"))
         : credential?.publicKey,
-    } as any,
+    },
   } as any).catch((e) => ({ verified: false, error: (e as Error).message }));
 
   return verification as any;

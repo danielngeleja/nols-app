@@ -208,12 +208,12 @@ describe("NRMS agent route hardening", () => {
 
   it("returns only actionable travel-agent workload for the sidebar marker", async () => {
     mocks.linkCount.mockResolvedValueOnce(2).mockResolvedValueOnce(1);
-    mocks.requestCount.mockResolvedValueOnce(3).mockResolvedValueOnce(2);
+    mocks.requestCount.mockResolvedValueOnce(3).mockResolvedValueOnce(2).mockResolvedValueOnce(1);
 
     const response = await request(app).get("/api/owner/nrms/agents/property/9/live-count");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ partnershipRequests: 2, acceptedInvites: 1, bookingRequests: 3, guestManifests: 2, total: 8 });
+    expect(response.body).toEqual({ partnershipRequests: 2, acceptedInvites: 1, bookingRequests: 3, guestManifests: 2, paymentDeclarations: 1, total: 9 });
     expect(mocks.linkCount).toHaveBeenNthCalledWith(1, {
       where: {
         propertyId: 9,
@@ -233,6 +233,13 @@ describe("NRMS agent route hardening", () => {
     });
     expect(mocks.requestCount).toHaveBeenNthCalledWith(2, {
       where: { propertyId: 9, status: "CONFIRMED", guestManifestStatus: "SUBMITTED" },
+    });
+    expect(mocks.requestCount).toHaveBeenNthCalledWith(3, {
+      where: {
+        propertyId: 9,
+        status: "CONFIRMED",
+        masterFolio: { is: { status: { notIn: ["SETTLED", "CREDIT"] }, proFormas: { some: { supersededAt: null, payerMarkedPaidAt: { not: null } } } } },
+      },
     });
   });
 });

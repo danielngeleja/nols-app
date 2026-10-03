@@ -12,6 +12,7 @@ import { revokeUserAuthorization } from '../lib/authorizationInvalidation.js';
 import { resolveUserRoles } from '../lib/userRoles.js';
 import { NRMS_STAFF_ROLES, nrmsStaffRoleLabel } from '../lib/nrmsStaffRoles.js';
 import { buildCustomerStatement } from '../lib/customerStatement.js';
+import { adminBookingReference } from '../lib/adminBookingReference.js';
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
@@ -875,6 +876,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
       ...bookings.map((item: any) => ({
         type: 'ACCOMMODATION_BOOKING',
         id: item.id,
+        // Opaque id for the admin booking URL; `reference` below is the check-in code.
+        routeRef: adminBookingReference(item.id),
         reference: item.code?.codeVisible || null,
         title: item.property?.title || 'Property not available',
         status: item.status,
@@ -1150,7 +1153,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     const responsePayload = {
       user,
       roles,
-      bookings,
+      bookings: bookings.map((b: any) => ({ ...b, reference: adminBookingReference(b.id) })),
       activities,
       activityCounts: {
         accommodationBookings: bookings.length,

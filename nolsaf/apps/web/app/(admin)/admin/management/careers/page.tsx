@@ -1,9 +1,10 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Plus, Edit, Trash2, Eye, X, Calendar, MapPin, Clock, CheckCircle2, AlertCircle, FileText, Users, Mail, Phone, ExternalLink, Download, CheckSquare, Square, Languages, Building2, Handshake, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { Briefcase, Plus, Edit, Trash2, Eye, X, Calendar, MapPin, Clock, CheckCircle2, FileText, Users, Download, Handshake, ChevronRight, LayoutGrid, List, Loader2, RefreshCw, Search } from "lucide-react";
+import TablePagination from "@/components/TablePagination";
+import ApplicationRecord, { APPLICATION_STAGES, applicationCompany, applicationReference, stageOf } from "./ApplicationRecord";
 import PDFViewer from "@/components/PDFViewer";
 import DatePicker from "@/components/ui/DatePicker";
-import { normalizePartnershipProfile } from "@/components/careers/partnershipProfile";
 import { useSearchParams } from "next/navigation";
 
 type Job = {
@@ -90,6 +91,7 @@ const EXPERIENCE_LEVELS = ["ENTRY", "MID", "SENIOR", "LEAD"];
 
 export default function CareersManagement() {
   const searchParams = useSearchParams();
+  const requestedApplicationId = Number(searchParams?.get("applicationId") || 0);
   const apiBase = typeof window === 'undefined'
     ? (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000")
     : '';
@@ -117,13 +119,42 @@ export default function CareersManagement() {
   const [auditTimelineLoading, setAuditTimelineLoading] = useState(false);
   const [applicationStatusFilter, setApplicationStatusFilter] = useState<string>('ALL');
   const [applicationJobFilter, setApplicationJobFilter] = useState<string>('ALL');
-  const applicationSearch = '';
-  const [selectedApplications, setSelectedApplications] = useState<number[]>([]);
+  // What the admin types, and the settled value sent to the API after a short pause.
+  const [applicationSearchInput, setApplicationSearchInput] = useState('');
+  const [applicationSearch, setApplicationSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setApplicationSearch(applicationSearchInput.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [applicationSearchInput]);
   const [applicationsPage, setApplicationsPage] = useState(1);
   const [applicationSortBy, setApplicationSortBy] = useState<"companyContact" | "partnershipForm" | "status" | "submitted">("submitted");
   const [applicationSortDir, setApplicationSortDir] = useState<"asc" | "desc">("desc");
   
-  const [, setStatistics] = useState<any>(null);
+  const [statistics, setStatistics] = useState<any>(null);
+  // Cards or list for the applications directory, remembered per admin like the Sales directory.
+  const [applicationView, setApplicationView] = useState<'cards' | 'list'>('cards');
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('admin.tourPartnerships.view');
+      if (saved === 'cards' || saved === 'list') setApplicationView(saved);
+    } catch {}
+  }, []);
+  const changeApplicationView = (next: 'cards' | 'list') => {
+    setApplicationView(next);
+    try { window.localStorage.setItem('admin.tourPartnerships.view', next); } catch {}
+  };
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  // Esc closes the application review.
+  const reviewOpen = Boolean(viewingApplication);
+  useEffect(() => {
+    if (!reviewOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setViewingApplication(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [reviewOpen]);
   const [, setStatisticsLoading] = useState(false);
   const [resumeViewUrl, setResumeViewUrl] = useState<string | null>(null);
   const [viewingResume, setViewingResume] = useState(false);
@@ -133,9 +164,9 @@ export default function CareersManagement() {
 
   useEffect(() => {
     const tab = String(searchParams?.get("tab") || "").toLowerCase();
-    if (tab === "applications") setActiveTab("applications");
+    if (tab === "applications" || (Number.isInteger(requestedApplicationId) && requestedApplicationId > 0)) setActiveTab("applications");
     if (tab === "jobs") setActiveTab("jobs");
-  }, [searchParams]);
+  }, [searchParams, requestedApplicationId]);
 
   const [formData, setFormData] = useState<JobFormData>({
     title: "",
@@ -188,6 +219,29 @@ export default function CareersManagement() {
       setApplicationsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!Number.isInteger(requestedApplicationId) || requestedApplicationId <= 0) return;
+
+    const controller = new AbortController();
+    const loadRequestedApplication = async () => {
+      try {
+        const url = `${apiBase.replace(/\/$/, '')}/api/admin/careers/applications/${requestedApplicationId}`;
+        const response = await fetch(url, { credentials: 'include', signal: controller.signal });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.error || `Failed to load application: ${response.status}`);
+        }
+        setViewingApplication(data);
+      } catch (error: any) {
+        if (error?.name === 'AbortError') return;
+        setError(error?.message || 'Failed to load application');
+      }
+    };
+
+    void loadRequestedApplication();
+    return () => controller.abort();
+  }, [apiBase, requestedApplicationId]);
 
   const loadContractWorkflow = useCallback(async (applicationId: number) => {
     setContractWorkflowLoading(true);
@@ -302,14 +356,6 @@ export default function CareersManagement() {
     }
   };
 
-  const toggleApplicationSelection = (id: number) => {
-    setSelectedApplications(prev => 
-      prev.includes(id) 
-        ? prev.filter(appId => appId !== id)
-        : [...prev, id]
-    );
-  };
-
   const sortedApplications = useMemo(() => {
     const rows = [...applications];
     const readValue = (app: any): string | number => {
@@ -346,35 +392,7 @@ export default function CareersManagement() {
   const applicationsEnd = applicationsStart + applicationsPageSize;
   const pagedApplications = sortedApplications.slice(applicationsStart, applicationsEnd);
 
-  const allVisibleSelected = pagedApplications.length > 0 && pagedApplications.every((app) => selectedApplications.includes(app.id));
 
-  const toggleSelectAll = () => {
-    const visibleIds = pagedApplications.map((app) => app.id);
-    if (visibleIds.length === 0) return;
-
-    if (allVisibleSelected) {
-      setSelectedApplications((prev) => prev.filter((id) => !visibleIds.includes(id)));
-      return;
-    }
-
-    setSelectedApplications((prev) => Array.from(new Set([...prev, ...visibleIds])));
-  };
-
-  const handleApplicationSort = (field: "companyContact" | "partnershipForm" | "status" | "submitted") => {
-    if (applicationSortBy === field) {
-      setApplicationSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setApplicationSortBy(field);
-    setApplicationSortDir(field === "submitted" ? "desc" : "asc");
-  };
-
-  const renderApplicationSortIcon = (field: "companyContact" | "partnershipForm" | "status" | "submitted") => {
-    if (applicationSortBy !== field) return <ChevronsUpDown size={14} className="text-gray-400" />;
-    return applicationSortDir === "asc"
-      ? <ChevronUp size={14} className="text-[#02665e]" />
-      : <ChevronDown size={14} className="text-[#02665e]" />;
-  };
 
   const loadJobs = useCallback(async () => {
     setLoading(true);
@@ -396,6 +414,12 @@ export default function CareersManagement() {
   useEffect(() => {
     loadJobs();
   }, [loadJobs]);
+
+  // The header and KPI row show application figures on both tabs.
+  useEffect(() => {
+    loadStatistics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'applications') {
@@ -665,16 +689,51 @@ export default function CareersManagement() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'PENDING': return 'bg-yellow-100 text-yellow-800';
-      case 'REVIEWING': return 'bg-blue-100 text-blue-800';
-      case 'SHORTLISTED': return 'bg-green-100 text-green-800';
-      case 'REJECTED': return 'bg-red-100 text-red-800';
-      case 'HIRED': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const downloadApplicationDocument = async (applicationId: number) => {
+    try {
+      const url = `${apiBase.replace(/\/$/, '')}/api/admin/careers/applications/${applicationId}/resume`;
+      const r = await fetch(url, { credentials: 'include' });
+      if (!r.ok) {
+        const errorData = await r.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to get document URL: ${r.status}`);
+      }
+      const data = await r.json();
+      if (!data.url) throw new Error('Application document URL not available');
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch (err: any) {
+      setError(err.message || 'Failed to download application document');
+      setTimeout(() => setError(null), 5000);
     }
   };
+
+  // Notes are saved on their own: the status update refuses an unchanged status,
+  // so routing notes through it never saved them.
+  const saveApplicationNotes = async (applicationId: number, notes: string) => {
+    if (savingNotes) return;
+    setSavingNotes(true);
+    try {
+      const url = `${apiBase.replace(/\/$/, '')}/api/admin/careers/applications/${applicationId}`;
+      const r = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ adminNotes: notes }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to save notes');
+      }
+      setApplications((prev) => prev.map((item) => (item.id === applicationId ? { ...item, adminNotes: notes } : item)));
+      setSuccess('Admin notes saved.');
+      setTimeout(() => setSuccess(null), 4000);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to save notes');
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
 
   const handleViewResume = async (applicationId: number) => {
     try {
@@ -805,107 +864,93 @@ export default function CareersManagement() {
     );
   }
 
+  const activeForms = jobs.filter((job) => job.status === 'ACTIVE').length;
+  const dist = (statistics?.statusDistribution || {}) as Record<string, number>;
+  const totalApplications = Number(statistics?.overview?.totalApplications ?? 0);
+  const awaitingReview = (dist.PENDING || 0) + (dist.REVIEWING || 0);
+  const approvedShare = totalApplications > 0 ? Math.round(((dist.HIRED || 0) / totalApplications) * 100) : 0;
+  // Ghost buttons sitting on the dark header, as on the Sales pages.
+  const heroButton = "inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="group overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-cyan-50 p-6 shadow-sm">
-        <div className="flex flex-col items-center text-center mb-5">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#02665e] text-white shadow-lg shadow-emerald-900/10">
-            <Handshake className="h-8 w-8" />
+    <div className="box-border w-full min-w-0 space-y-5">
+      {/* Header: dark brand band with headline numbers and the page's two views as tabs */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Tours</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Tour partnerships</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Open partnership forms, review tour company applications and approve operators into the tours workflow.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => { resetForm(); setShowForm(true); }} className={heroButton}>
+                <Plus className="h-3.5 w-3.5" /> Open partnership form
+              </button>
+              <button
+                type="button"
+                onClick={() => { void loadJobs(); void loadStatistics(); if (activeTab === 'applications') void loadApplications(); }}
+                disabled={loading || applicationsLoading}
+                className={`${heroButton} w-9 px-0`}
+                aria-label="Refresh"
+                title="Refresh"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading || applicationsLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
-          <h1 className="relative text-2xl sm:text-3xl font-semibold tracking-tight">
-            <span className="text-gray-900 transition-colors duration-300 group-focus-within:text-transparent">
-              Tour Partnerships Management
-            </span>
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#02665e] via-gray-900 to-[#02665e] bg-clip-text text-transparent opacity-0 transition-opacity duration-500 group-focus-within:opacity-100"
-            >
-              Tour Partnerships Management
-            </span>
-            <span
-              aria-hidden
-              className="pointer-events-none absolute left-1/2 top-full mt-2 h-[2px] w-0 -translate-x-1/2 bg-gradient-to-r from-transparent via-[#02665e]/60 to-transparent transition-[width] duration-500 group-focus-within:w-24"
-            />
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-gray-600">
-            Open partnership forms, review tour company applications, and approve operators into the tours workflow.
-          </p>
-        </div>
-        
-        {/* Tabs */}
-        <div className="flex justify-center mb-4">
-          <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-            <button
-              onClick={() => setActiveTab('jobs')}
-              className={`px-6 py-2.5 rounded-md font-medium transition-all duration-300 ease-in-out relative group ${
-                activeTab === 'jobs'
-                  ? 'bg-[#02665e] text-white shadow-md'
-                  : 'text-gray-600 hover:text-[#02665e] hover:bg-gray-50'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Building2 
-                  size={18} 
-                  className={`transition-all duration-300 ${
-                    activeTab === 'jobs' 
-                      ? 'scale-110' 
-                      : 'group-hover:scale-110'
-                  }`} 
-                />
-                <span className="relative z-10">Partnership Forms</span>
-              </div>
-            </button>
-            <button
-              onClick={() => setActiveTab('applications')}
-              className={`px-6 py-2.5 rounded-md font-medium transition-all duration-300 ease-in-out relative group ${
-                activeTab === 'applications'
-                  ? 'bg-[#02665e] text-white shadow-md'
-                  : 'text-gray-600 hover:text-[#02665e] hover:bg-gray-50'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Users 
-                  size={18} 
-                  className={`transition-all duration-300 ${
-                    activeTab === 'applications' 
-                      ? 'scale-110' 
-                      : 'group-hover:scale-110'
-                  }`} 
-                />
-                <span className="relative z-10">Company Applications</span>
-              </div>
-            </button>
+
+          {/* Headline numbers */}
+          <div className="mt-5 flex flex-wrap items-end gap-x-8 gap-y-3">
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{statistics ? totalApplications.toLocaleString() : '...'}</p>
+              <p className="m-0 mt-1 text-xs text-white/55">{totalApplications === 1 ? 'Application' : 'Applications'} received</p>
+            </div>
+            <div>
+              <p className={`m-0 text-3xl font-bold tabular-nums leading-none ${awaitingReview > 0 ? 'text-amber-300' : 'text-white'}`}>{statistics ? awaitingReview.toLocaleString() : '...'}</p>
+              <p className="m-0 mt-1 text-xs text-white/55">Waiting for a decision</p>
+            </div>
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-emerald-300">{approvedShare}%</p>
+              <p className="m-0 mt-1 text-xs text-white/55">Approved as operators</p>
+            </div>
+            <div>
+              <p className="m-0 text-3xl font-bold tabular-nums leading-none text-white">{activeForms}<span className="text-lg text-white/40"> / {jobs.length}</span></p>
+              <p className="m-0 mt-1 text-xs text-white/55">Forms open to applications</p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex gap-1" role="tablist" aria-label="Tour partnership views">
+            {([['applications', 'Applications', Users], ['jobs', 'Partnership forms', Briefcase]] as const).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === key}
+                onClick={() => setActiveTab(key)}
+                className={`relative inline-flex h-11 cursor-pointer items-center gap-2 border-0 bg-transparent px-3 text-sm font-semibold transition-colors ${activeTab === key ? 'text-white' : 'text-white/50 hover:text-white/80'}`}
+              >
+                <Icon className="h-4 w-4" /> {label}
+                {activeTab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-emerald-400" aria-hidden />}
+              </button>
+            ))}
           </div>
         </div>
+      </section>
 
-        {activeTab === 'jobs' && (
-          <div className="flex justify-center">
-            <button
-              onClick={() => {
-                resetForm();
-                setShowForm(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-[#02665e] text-white rounded-lg font-semibold hover:bg-[#024d47] transition-colors"
-            >
-              <Plus size={20} />
-              Open Partnership Form
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Messages */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
-          <AlertCircle size={20} />
-          <span>{error}</span>
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800" role="alert">
+          <X className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
         </div>
       )}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
-          <CheckCircle2 size={20} />
-          <span>{success}</span>
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900" role="status">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <span className="flex-1">{success}</span>
+          <button type="button" onClick={() => setSuccess(null)} className="cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Dismiss</button>
         </div>
       )}
 
@@ -1371,999 +1416,353 @@ export default function CareersManagement() {
       {/* Applications View */}
       {activeTab === 'applications' && (
         <>
-          {/* Filters */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
-                <select
-                  value={applicationStatusFilter}
-                  onChange={(e) => setApplicationStatusFilter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e]"
-                >
-                  <option value="ALL">All Statuses</option>
-                  <option value="PENDING">Pending</option>
-                  <option value="REVIEWING">Reviewing</option>
-                  <option value="SHORTLISTED">Shortlisted</option>
-                  <option value="REJECTED">Rejected</option>
-                  <option value="HIRED">Approved</option>
-                </select>
+          {/* Lifecycle track: where every application sits, and a one-click filter */}
+          <section className="rounded-2xl border border-solid border-neutral-200 bg-white p-2">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+              {APPLICATION_STAGES.map((stage, idx) => {
+                const n = dist[stage.key] || 0;
+                const share = totalApplications > 0 ? Math.round((n / totalApplications) * 100) : 0;
+                const selected = applicationStatusFilter === stage.key;
+                return (
+                  <button
+                    key={stage.key}
+                    type="button"
+                    onClick={() => setApplicationStatusFilter((current) => (current === stage.key ? 'ALL' : stage.key))}
+                    aria-pressed={selected}
+                    className={`group relative min-w-0 cursor-pointer rounded-xl border border-solid p-3.5 text-left transition-all ${
+                      selected ? `border-neutral-900 ${stage.soft}` : 'border-transparent bg-neutral-50/70 hover:border-neutral-200 hover:bg-white'
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${stage.text}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${stage.dot}`} /> {stage.label}
+                      </span>
+                      <span className="text-[11px] tabular-nums text-neutral-400">{idx < 4 ? `Step ${idx + 1}` : `${share}%`}</span>
+                    </span>
+                    <span className="mt-2 block text-2xl font-bold tabular-nums leading-none text-neutral-900">{statistics ? n.toLocaleString() : '...'}</span>
+                    <span className="mt-1 block truncate text-[11px] text-neutral-500">{stage.hint}</span>
+                    <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-neutral-200/70">
+                      <span className={`block h-full rounded-full ${stage.bar}`} style={{ width: `${n > 0 ? Math.max(share, 4) : 0}%` }} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Directory */}
+          <section className="rounded-2xl border border-solid border-neutral-200 bg-white">
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+              <div className="min-w-0">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">
+                  {applicationStatusFilter !== 'ALL' ? `${stageOf(applicationStatusFilter)?.label || applicationStatusFilter} applications` : 'All applications'}
+                </h2>
+                <p className="m-0 text-xs tabular-nums text-neutral-400">
+                  {applicationsLoading ? 'Loading' : `${sortedApplications.length.toLocaleString()} ${sortedApplications.length === 1 ? 'result' : 'results'}`}
+                </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Partnership Form</label>
+              {applicationStatusFilter !== 'ALL' && (
+                <button type="button" onClick={() => setApplicationStatusFilter('ALL')} className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-full border-0 bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200">
+                  <X className="h-3 w-3" /> Show all
+                </button>
+              )}
+              <div className="ml-auto flex w-full min-w-0 flex-wrap items-center gap-2 lg:w-auto lg:flex-nowrap">
+                <div className="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    value={applicationSearchInput}
+                    onChange={(e) => setApplicationSearchInput(e.target.value)}
+                    className="box-border h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-200 bg-white pl-9 pr-9 text-sm text-neutral-800 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+                    placeholder="Search contact, email or phone"
+                    aria-label="Search applications"
+                  />
+                  {applicationSearchInput && (
+                    <button type="button" onClick={() => setApplicationSearchInput('')} className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700" aria-label="Clear search">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 <select
                   value={applicationJobFilter}
                   onChange={(e) => setApplicationJobFilter(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e]"
+                  aria-label="Filter by partnership form"
+                  className="box-border h-9 min-w-0 max-w-[14rem] cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-sm text-neutral-700 outline-none focus:border-emerald-500"
                 >
-                  <option value="ALL">All Partnership Forms</option>
-                  {jobs.map(job => (
-                    <option key={job.id} value={job.id}>{job.title}</option>
-                  ))}
+                  <option value="ALL">All forms</option>
+                  {jobs.map((job) => <option key={job.id} value={job.id}>{job.title}</option>)}
                 </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Applications List */}
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            {applicationsLoading ? (
-              <div className="p-8 text-center text-gray-500">Loading company applications...</div>
-            ) : applications.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <Users className="mx-auto mb-4 text-gray-400" size={48} />
-                <p>No company applications found.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
-                        <button
-                          onClick={toggleSelectAll}
-                          className="p-1.5 bg-white border border-gray-300 hover:border-[#02665e] hover:bg-[#02665e]/5 rounded-md transition-all duration-300 ease-in-out hover:scale-110 active:scale-95 group"
-                          title="Select All"
-                        >
-                          {allVisibleSelected ? (
-                            <CheckSquare size={18} className="text-[#02665e] transition-all duration-300 group-hover:scale-110" />
-                          ) : (
-                            <Square size={18} className="text-gray-400 transition-all duration-300 group-hover:text-[#02665e] group-hover:scale-110" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => handleApplicationSort("companyContact")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                          Company Contact {renderApplicationSortIcon("companyContact")}
-                        </button>
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => handleApplicationSort("partnershipForm")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                          Partnership Form {renderApplicationSortIcon("partnershipForm")}
-                        </button>
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => handleApplicationSort("status")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                          Status {renderApplicationSortIcon("status")}
-                        </button>
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <button type="button" onClick={() => handleApplicationSort("submitted")} className="inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none hover:text-gray-700">
-                          Submitted {renderApplicationSortIcon("submitted")}
-                        </button>
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {pagedApplications.map((app) => (
-                      <tr key={app.id} className={`hover:bg-gray-50 ${selectedApplications.includes(app.id) ? 'bg-blue-50' : ''}`}>
-                        <td className="px-4 py-4">
-                          <button
-                            onClick={() => toggleApplicationSelection(app.id)}
-                            className="p-1.5 bg-white border border-gray-300 hover:border-[#02665e] hover:bg-[#02665e]/5 rounded-md transition-all duration-300 ease-in-out hover:scale-110 active:scale-95 group"
-                          >
-                            {selectedApplications.includes(app.id) ? (
-                              <CheckSquare size={18} className="text-[#02665e] transition-all duration-300 group-hover:scale-110" />
-                            ) : (
-                              <Square size={18} className="text-gray-400 transition-all duration-300 group-hover:text-[#02665e] group-hover:scale-110" />
-                            )}
-                          </button>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{app.fullName}</div>
-                            <div className="text-sm text-gray-500 flex items-center gap-1">
-                              <Mail size={14} />
-                              {app.email}
-                            </div>
-                            <div className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                              <Phone size={14} />
-                              {app.phone}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="text-sm font-medium text-gray-900">{app.job?.title || 'N/A'}</div>
-                          <div className="text-xs text-gray-500">{app.job?.department || ''}</div>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(app.status)}`}>
-                            {displayStatus(app.status)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {formatDate(app.submittedAt)}
-                        </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                          <button
-                            onClick={() => setViewingApplication(app)}
-                            className="p-2 bg-gray-50 border border-blue-500/30 text-blue-600 hover:bg-blue-50 hover:border-blue-500 rounded-lg transition-all duration-300 ease-in-out hover:scale-110 hover:shadow-md active:scale-95 group"
-                            title="View Details"
-                          >
-                            <Eye size={16} className="transition-transform duration-300 group-hover:scale-110" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-xs text-gray-500">
-                    Showing {applicationsStart + 1}-{Math.min(applicationsEnd, sortedApplications.length)} of {sortedApplications.length}
-                  </div>
-                  <div className="flex items-center gap-2">
+                <select
+                  value={`${applicationSortBy}:${applicationSortDir}`}
+                  onChange={(e) => {
+                    const [by, dir] = e.target.value.split(':') as [ApplicationSortField, 'asc' | 'desc'];
+                    setApplicationSortBy(by);
+                    setApplicationSortDir(dir);
+                  }}
+                  aria-label="Sort applications"
+                  className="box-border h-9 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-sm text-neutral-700 outline-none focus:border-emerald-500"
+                >
+                  <option value="submitted:desc">Newest first</option>
+                  <option value="submitted:asc">Oldest first</option>
+                  <option value="companyContact:asc">Contact A to Z</option>
+                  <option value="status:asc">By stage</option>
+                </select>
+                <div className="hidden rounded-lg bg-neutral-100 p-0.5 md:inline-flex" role="group" aria-label="Directory layout">
+                  {([['cards', LayoutGrid, 'Cards'], ['list', List, 'List']] as const).map(([key, Icon, label]) => (
                     <button
+                      key={key}
                       type="button"
-                      onClick={() => setApplicationsPage((p) => Math.max(1, p - 1))}
-                      disabled={safeApplicationsPage <= 1}
-                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => changeApplicationView(key)}
+                      aria-pressed={applicationView === key}
+                      title={label}
+                      className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 transition-colors ${applicationView === key ? 'bg-white text-neutral-900 shadow-sm' : 'bg-transparent text-neutral-400 hover:text-neutral-700'}`}
                     >
-                      Previous
+                      <Icon className="h-4 w-4" />
                     </button>
-                    <span className="text-xs font-semibold text-gray-600">
-                      Page {safeApplicationsPage} of {totalApplicationPages}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setApplicationsPage((p) => Math.min(totalApplicationPages, p + 1))}
-                      disabled={safeApplicationsPage >= totalApplicationPages}
-                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Next
-                    </button>
-                  </div>
+                  ))}
                 </div>
               </div>
+            </div>
+
+            {applicationsLoading && applications.length === 0 ? (
+              <div className="flex items-center justify-center gap-2 border-0 border-t border-solid border-neutral-100 py-16 text-sm text-neutral-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading applications
+              </div>
+            ) : applications.length === 0 ? (
+              <div className="border-0 border-t border-solid border-neutral-100 px-6 py-14 text-center">
+                <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0b2420] text-emerald-300">
+                  <Users className="h-5 w-5" />
+                </span>
+                <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">No matching applications</p>
+                <p className="m-0 mt-1 text-xs text-neutral-500">
+                  {applicationSearch || applicationStatusFilter !== 'ALL' || applicationJobFilter !== 'ALL' ? 'Try another stage, form or search.' : 'Applications appear here once tour companies apply through an open form.'}
+                </p>
+              </div>
+            ) : (
+              <div className={`transition-opacity ${applicationsLoading ? 'opacity-60' : ''}`}>
+                {applicationView === 'list' ? (
+                  <div className="hidden overflow-x-auto border-0 border-t border-solid border-neutral-100 md:block">
+                    <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="text-[11px] font-semibold text-neutral-400">
+                          <th className="px-4 py-2.5 font-semibold sm:pl-5">Company</th>
+                          <th className="px-4 py-2.5 font-semibold">Reference</th>
+                          <th className="px-4 py-2.5 font-semibold">Stage</th>
+                          <th className="px-4 py-2.5 font-semibold">Partnership form</th>
+                          <th className="px-4 py-2.5 font-semibold">Region</th>
+                          <th className="px-4 py-2.5 font-semibold">Submitted</th>
+                          <th className="px-4 py-2.5 sm:pr-5"><span className="sr-only">Open</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagedApplications.map((app) => {
+                          const stage = stageOf(app.status);
+                          const company = applicationCompany(app);
+                          return (
+                            <tr key={app.id} onClick={() => setViewingApplication(app)} className="cursor-pointer border-0 border-t border-solid border-neutral-100 transition-colors hover:bg-neutral-50/70">
+                              <td className="px-4 py-3 sm:pl-5">
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <span className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-neutral-900 text-[11px] font-semibold text-white ring-2 ring-offset-2 ${stage?.ring || 'ring-neutral-300'}`}>{initials(company)}</span>
+                                  <div className="min-w-0">
+                                    <div className="max-w-[16rem] truncate font-medium text-neutral-900">{tidyName(company)}</div>
+                                    <div className="max-w-[16rem] truncate text-xs text-neutral-400">{app.fullName || app.email || 'No contact'}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs text-neutral-600">{applicationReference(app.id)}</td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-sm ${stage?.text || 'text-neutral-600'}`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${stage?.dot || 'bg-neutral-400'}`} /> {stage?.label || displayStatus(app.status)}
+                                </span>
+                              </td>
+                              <td className="max-w-[14rem] truncate px-4 py-3 text-neutral-700">{tidyName(app.job?.title) || 'Form removed'}</td>
+                              <td className={`px-4 py-3 ${app.agentApplicationData?.region ? 'text-neutral-700' : 'text-neutral-400'}`}>{app.agentApplicationData?.region || 'Not set'}</td>
+                              <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{app.submittedAt ? formatDate(app.submittedAt) : 'Not set'}</td>
+                              <td className="px-4 py-3 text-right sm:pr-5"><ChevronRight className="ml-auto h-4 w-4 text-neutral-300" aria-hidden /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+
+                {/* Cards: always on phones, and on desktop when the Cards layout is chosen */}
+                <div className={`grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 xl:grid-cols-3 2xl:grid-cols-4 ${applicationView === 'list' ? 'md:hidden' : ''}`}>
+                  {pagedApplications.map((app) => {
+                    const stage = stageOf(app.status);
+                    const company = applicationCompany(app);
+                    const finalStage = app.status === 'HIRED' || app.status === 'REJECTED';
+                    const waitingDays = app.submittedAt ? Math.max(0, Math.floor((Date.now() - new Date(app.submittedAt).getTime()) / 86_400_000)) : null;
+                    return (
+                      <button
+                        key={app.id}
+                        type="button"
+                        onClick={() => setViewingApplication(app)}
+                        className="group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white p-0 text-left transition-all hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-[0_12px_28px_-18px_rgba(11,36,32,0.45)]"
+                      >
+                        <span className="flex items-start gap-3 px-4 pt-4">
+                          <span className={`inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white ring-2 ring-offset-2 ${stage?.ring || 'ring-neutral-300'}`}>
+                            {initials(company)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-neutral-900">{tidyName(company)}</span>
+                            <span className="block truncate text-xs text-neutral-400">{app.fullName || app.email || 'No contact'}</span>
+                          </span>
+                          <ChevronRight className="mt-1 h-4 w-4 flex-shrink-0 text-neutral-300 transition-transform group-hover:translate-x-0.5 group-hover:text-neutral-500" aria-hidden />
+                        </span>
+
+                        <span className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4">
+                          <span className="rounded-md border border-dashed border-neutral-300 px-1.5 py-0.5 font-mono text-[11px] text-neutral-700">{applicationReference(app.id)}</span>
+                          <span className="min-w-0 truncate text-xs text-neutral-600">{tidyName(app.job?.title) || 'Form removed'}</span>
+                        </span>
+
+                        <span className="mt-2 flex items-center gap-1.5 px-4 text-xs text-neutral-500">
+                          <MapPin className="h-3.5 w-3.5 text-neutral-400" /> {app.agentApplicationData?.region || 'Region not set'}
+                        </span>
+
+                        <span className={`mt-3 flex items-center gap-1.5 px-4 py-2 text-xs ${stage?.soft || 'bg-neutral-50'} ${stage?.text || 'text-neutral-600'}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${stage?.dot || 'bg-neutral-400'}`} />
+                          <span className="font-semibold">{stage?.label || displayStatus(app.status)}</span>
+                          <span className="truncate opacity-80">· {stage?.hint || ''}</span>
+                        </span>
+
+                        <span className="grid grid-cols-3 gap-px bg-neutral-100">
+                          {[
+                            ['Submitted', app.submittedAt ? new Date(app.submittedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : 'Not set'],
+                            ['Waiting', finalStage ? 'Decided' : waitingDays === null ? 'Not set' : `${waitingDays} ${waitingDays === 1 ? 'day' : 'days'}`],
+                            ['Document', app.resumeStorageKey || app.resumeUrl ? 'Attached' : 'None'],
+                          ].map(([label, value]) => (
+                            <span key={label} className="min-w-0 bg-white px-3 py-2.5">
+                              <span className="block text-[10px] text-neutral-400">{label}</span>
+                              <span className="block truncate text-sm font-semibold tabular-nums text-neutral-900">{value}</span>
+                            </span>
+                          ))}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <TablePagination page={safeApplicationsPage} pageSize={applicationsPageSize} total={sortedApplications.length} onPageChange={setApplicationsPage} />
+              </div>
             )}
-          </div>
+          </section>
         </>
       )}
 
-      {/* Jobs List */}
+      {/* Partnership forms */}
       {activeTab === 'jobs' && (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          {loading ? (
-            <div className="p-8 text-center text-gray-500">Loading partnership forms...</div>
+        <section className="rounded-2xl border border-solid border-neutral-200 bg-white">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+            <div className="min-w-0">
+              <h2 className="m-0 text-sm font-bold text-neutral-900">Partnership forms</h2>
+              <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? 'Loading' : `${activeForms} open of ${jobs.length}`}</p>
+            </div>
+            <button type="button" onClick={() => { resetForm(); setShowForm(true); }} className="ml-auto inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800">
+              <Plus className="h-4 w-4" /> Open partnership form
+            </button>
+          </div>
+
+          {loading && jobs.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 border-0 border-t border-solid border-neutral-100 py-16 text-sm text-neutral-500">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading partnership forms
+            </div>
           ) : jobs.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              <Briefcase className="mx-auto mb-4 text-gray-400" size={48} />
-              <p>No partnership forms found. Open your first tour company partnership form.</p>
+            <div className="border-0 border-t border-solid border-neutral-100 px-6 py-14 text-center">
+              <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0b2420] text-emerald-300">
+                <Briefcase className="h-5 w-5" />
+              </span>
+              <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">No partnership forms yet</p>
+              <p className="m-0 mt-1 text-xs text-neutral-500">Open the first form so tour companies can apply.</p>
             </div>
           ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Partnership</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Program Owner</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Engagement</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Posted</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {jobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900">{job.title}</span>
-                        {job.featured && (
-                          <span className="px-2 py-0.5 bg-[#02665e] text-white text-xs rounded-full">Featured</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-600">{job.department}</td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-600">{job.type.replace('_', ' ')}</td>
-                    <td className="px-4 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        job.status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
-                        job.status === 'CLOSED' ? 'bg-gray-100 text-gray-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {displayStatus(job.status)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(job.postedDate)}</td>
-                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => setViewingJob(job)}
-                          className="p-2 bg-gray-50 border border-blue-500/30 text-blue-600 hover:bg-blue-50 hover:border-blue-500 rounded-lg transition-all duration-300 ease-in-out hover:scale-110 hover:shadow-md active:scale-95 group"
-                          title="View"
-                        >
-                          <Eye size={16} className="transition-transform duration-300 group-hover:scale-110" />
-                        </button>
-                        <button
-                          onClick={() => handleEdit(job)}
-                          className="p-2 bg-gray-50 border border-[#02665e]/30 text-[#02665e] hover:bg-[#02665e]/5 hover:border-[#02665e] rounded-lg transition-all duration-300 ease-in-out hover:scale-110 hover:shadow-md active:scale-95 group"
-                          title="Edit"
-                        >
-                          <Edit size={16} className="transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(job.id)}
-                          className="p-2 bg-gray-50 border border-red-500/30 text-red-600 hover:bg-red-50 hover:border-red-500 rounded-lg transition-all duration-300 ease-in-out hover:scale-110 hover:shadow-md active:scale-95 group"
-                          title="Delete"
-                        >
-                          <Trash2 size={16} className="transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12" />
-                        </button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto border-0 border-t border-solid border-neutral-100">
+              <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="text-[11px] font-semibold text-neutral-400">
+                    <th className="px-4 py-2.5 font-semibold sm:pl-5">Form</th>
+                    <th className="px-4 py-2.5 font-semibold">Stage</th>
+                    <th className="px-4 py-2.5 font-semibold">Program owner</th>
+                    <th className="px-4 py-2.5 font-semibold">Engagement</th>
+                    <th className="px-4 py-2.5 font-semibold">Posted</th>
+                    <th className="px-4 py-2.5 font-semibold">Closes</th>
+                    <th className="px-4 py-2.5 sm:pr-5"><span className="sr-only">Actions</span></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {jobs.map((job) => {
+                    const open = job.status === 'ACTIVE';
+                    const stageText = open ? 'text-emerald-700' : job.status === 'CLOSED' ? 'text-neutral-500' : 'text-amber-700';
+                    const stageDot = open ? 'bg-emerald-500' : job.status === 'CLOSED' ? 'bg-neutral-400' : 'bg-amber-500';
+                    return (
+                      <tr key={job.id} className="border-0 border-t border-solid border-neutral-100 transition-colors hover:bg-neutral-50/70">
+                        <td className="px-4 py-3 sm:pl-5">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#0b2420] text-emerald-300"><Handshake className="h-4 w-4" /></span>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="max-w-[18rem] truncate font-medium text-neutral-900">{tidyName(job.title)}</span>
+                                {job.featured && <span className="rounded-full border border-solid border-amber-100 bg-amber-50 px-1.5 py-px text-[10px] font-bold text-amber-700">Featured</span>}
+                              </div>
+                              <div className="truncate text-xs text-neutral-400">{humanize(job.category)}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-sm ${stageText}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${stageDot}`} /> {open ? 'Open' : humanize(job.status)}
+                          </span>
+                        </td>
+                        <td className={`px-4 py-3 ${job.department ? 'text-neutral-700' : 'text-neutral-400'}`}>{job.department || 'Not set'}</td>
+                        <td className="px-4 py-3 text-neutral-700">{humanize(job.type)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{formatDate(job.postedDate)}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-neutral-500">{job.applicationDeadline ? formatDate(job.applicationDeadline) : 'No deadline'}</td>
+                        <td className="px-4 py-3 sm:pr-5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button type="button" onClick={() => setViewingJob(job)} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"><Eye className="h-3.5 w-3.5" /> View</button>
+                            <button type="button" onClick={() => handleEdit(job)} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"><Edit className="h-3.5 w-3.5" /> Edit</button>
+                            <button type="button" onClick={() => handleDelete(job.id)} aria-label={`Delete ${job.title}`} title="Delete" className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       )}
 
-      {/* Application Detail Modal */}
+      {/* Application record, in the admin Sales record style */}
       {viewingApplication && (
-        <div className="fixed inset-0 z-[1000] overflow-y-auto bg-black/55">
-          <div className="min-h-screen flex items-center justify-center p-1 sm:p-2">
-          <div className="relative bg-white rounded-xl w-[99vw] h-[96vh] max-w-none max-h-[96vh] overflow-hidden shadow-2xl flex flex-col">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-[#02665e] to-[#024d47] px-6 py-4 flex items-center justify-between flex-shrink-0">
-              <h2 className="text-xl font-bold text-white">Company Application Details</h2>
-              <button
-                onClick={() => setViewingApplication(null)}
-                className="p-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 rounded-lg transition-all duration-200 text-white group backdrop-blur-sm"
-                title="Close"
-              >
-                <X size={18} className="transition-transform duration-200 group-hover:rotate-90" />
-              </button>
-            </div>
-            
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto bg-gray-50 min-w-0 min-h-0">
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                  {/* Company Contact Info */}
-                  <div className="xl:col-span-2 bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
-                      <Users size={18} className="text-[#02665e]" />
-                      <h3 className="text-base font-semibold text-gray-900">Company Contact Information</h3>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Full Name</label>
-                        <p className="text-sm font-medium text-gray-900">{viewingApplication.fullName || 'Not provided'}</p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
-                        <p className="text-sm text-gray-900 flex items-center gap-1.5 break-all">
-                          <Mail size={14} className="text-gray-400" />
-                          {viewingApplication.email || 'Not provided'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
-                        <p className="text-sm text-gray-900 flex items-center gap-1.5">
-                          <Phone size={14} className="text-gray-400" />
-                          {viewingApplication.phone || 'Not provided'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Nationality</label>
-                        <p className="text-sm text-gray-900">
-                          {(viewingApplication.agentApplicationData as any)?.nationality || (viewingApplication as any)?.nationality || 'Not provided'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
-                        <span className={`inline-block px-2.5 py-1 text-xs font-semibold rounded-full ${getStatusColor(viewingApplication.status)}`}>
-                          {displayStatus(viewingApplication.status)}
-                        </span>
-                      </div>
-                      {!viewingApplication.agentApplicationData && (
-                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Company / Contact Link</label>
-                          {viewingApplication.linkedIn ? (
-                            <a
-                              href={viewingApplication.linkedIn}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1.5"
-                            >
-                              <ExternalLink size={14} />
-                              View Profile
-                            </a>
-                          ) : (
-                            <p className="text-sm text-gray-500">Not provided</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Partnership Info */}
-                  <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
-                      <Briefcase size={18} className="text-[#02665e]" />
-                      <h3 className="text-base font-semibold text-gray-900">Application Summary</h3>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Partnership Form</label>
-                        <p className="text-sm font-medium text-gray-900">{viewingApplication.job?.title || 'N/A'}</p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
-                        <p className="text-sm text-gray-900">{viewingApplication.job?.department || 'Not provided'}</p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Submitted At</label>
-                        <p className="text-sm text-gray-900">
-                          {viewingApplication.createdAt ? new Date(viewingApplication.createdAt).toLocaleString() : 'Not available'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tour Company Information */}
-                {viewingApplication.agentApplicationData && (
-                  <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Users size={18} className="text-[#02665e]" />
-                      <h3 className="text-base font-semibold text-gray-900">Tour Company Information</h3>
-                    </div>
-                    <div className="space-y-4">
-                      {(() => {
-                        const agentData = viewingApplication.agentApplicationData as any;
-                        const profile = normalizePartnershipProfile(
-                          agentData?.partnershipProfile && typeof agentData.partnershipProfile === "object"
-                            ? agentData.partnershipProfile
-                            : (agentData || {}),
-                        );
-                        const services = profile.services;
-                        const serviceClassification = profile.serviceClassification;
-                        const tourismTypes = profile.tourismTypes;
-                        const toolsAndAssets = profile.toolsAndAssets;
-                        const registeredSites = profile.registeredParks;
-                        const fleet = profile.fleet;
-                        const hasVehicles = profile.hasVehicles;
-                        const companyDescription = String(agentData?.bio || viewingApplication.coverLetter || "").trim();
-                        const region = agentData?.region ? String(agentData.region) : "";
-                        const district = agentData?.district ? String(agentData.district) : "";
-                        const languages = Array.isArray(agentData?.languages) ? agentData.languages : [];
-                        const specializations = Array.isArray(agentData?.specializations) ? agentData.specializations : [];
-                        const certifications = Array.isArray(agentData?.certifications) ? agentData.certifications : [];
-
-                        return (
-                          <>
-                            {/* Company Profile */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <Building2 size={16} className="text-[#02665e]" />
-                                1. Company Details
-                              </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Company Name</label>
-                                  <p className="text-sm text-gray-900">{profile?.companyName || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Company Email</label>
-                                  <p className="text-sm text-gray-900">{profile?.companyEmail || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Company Phone</label>
-                                  <p className="text-sm text-gray-900">{profile?.companyPhone || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Company Website</label>
-                                  <p className="text-sm text-gray-900 break-all">{profile?.companyWebsite || "Not provided"}</p>
-                                </div>
-                                <div className="sm:col-span-2">
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Business Address</label>
-                                  <p className="text-sm text-gray-900">{profile?.businessAddress || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Years in Operation</label>
-                                  <p className="text-sm text-gray-900">
-                                    {profile?.yearsInOperation !== null && profile?.yearsInOperation !== undefined ? String(profile.yearsInOperation) : "Not provided"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Team Size</label>
-                                  <p className="text-sm text-gray-900">
-                                    {profile?.teamSize !== null && profile?.teamSize !== undefined ? String(profile.teamSize) : "Not provided"}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Company Description */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2">1.1 Company Details - Company Narrative</h4>
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-md p-3 border border-gray-100">
-                                {companyDescription || "Not provided"}
-                              </p>
-                            </div>
-
-                            {/* Languages */}
-                            {languages.length > 0 && (
-                              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                                <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                  <Languages size={16} className="text-[#02665e]" />
-                                  1.2 Company Details - Contact Languages
-                                </h4>
-                                <div className="flex flex-wrap gap-2">
-                                  {languages.map((lang: string, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center px-3 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm border border-purple-200">
-                                      {lang}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Tourism Types */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <Briefcase size={16} className="text-[#02665e]" />
-                                2. Tourism Serving - Tourism Types
-                              </h4>
-                              {tourismTypes.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {tourismTypes.map((tourismType: string, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center px-3 py-1 bg-sky-50 text-sky-700 rounded-lg text-sm border border-sky-200">
-                                      {tourismType}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-gray-500">No tourism types submitted.</p>
-                              )}
-                            </div>
-
-                            {/* Company Services */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <Handshake size={16} className="text-[#02665e]" />
-                                2.1 Tourism Serving - Services
-                              </h4>
-                              {Object.keys(serviceClassification).length > 0 ? (
-                                <div className="space-y-3">
-                                  {Object.entries(serviceClassification).map(([category, items]) => (
-                                    <div key={category} className="rounded-lg border border-slate-200 bg-white p-3">
-                                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">{category}</p>
-                                      <div className="flex flex-wrap gap-2">
-                                        {items.map((service: string, idx: number) => (
-                                          <span
-                                            key={`${category}-${idx}-${service}`}
-                                            className="inline-flex items-center px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-sm border border-emerald-200"
-                                          >
-                                            {service}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : services.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {services.map((service: string, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-sm border border-emerald-200">
-                                      {service}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-gray-500">No services submitted.</p>
-                              )}
-                            </div>
-
-                            {/* Specializations */}
-                            {specializations.length > 0 && (
-                              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                                <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                  <Briefcase size={16} className="text-[#02665e]" />
-                                  2.2 Tourism Serving - Specializations
-                                </h4>
-                                <div className="flex flex-wrap gap-2">
-                                  {specializations.map((spec: string, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center px-3 py-1 bg-green-50 text-green-700 rounded-lg text-sm border border-green-200">
-                                      {spec}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Permitted Parks / Tour Sites */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <MapPin size={16} className="text-[#02665e]" />
-                                3. Area of Operation - Permitted Parks &amp; Tour Sites
-                              </h4>
-                              {registeredSites.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {registeredSites.map((site: string, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center px-3 py-1 bg-cyan-50 text-cyan-700 rounded-lg text-sm border border-cyan-200">
-                                      {site}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-gray-500">No permitted parks/tour sites submitted.</p>
-                              )}
-                            </div>
-
-                            {/* Location */}
-                            {(region || district) && (
-                              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                                <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                  <MapPin size={16} className="text-[#02665e]" />
-                                  3.1 Area of Operation - Location
-                                </h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  {region && (
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-500 mb-1">Region</label>
-                                      <p className="text-sm text-gray-900">{region}</p>
-                                    </div>
-                                  )}
-                                  {district && (
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-500 mb-1">District</label>
-                                      <p className="text-sm text-gray-900">{district}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Tools & Assets */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <Briefcase size={16} className="text-[#02665e]" />
-                                4. Tools &amp; Fleet - Tools &amp; Assets
-                              </h4>
-                              {toolsAndAssets.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {toolsAndAssets.map((tool: string, idx: number) => (
-                                    <span key={idx} className="inline-flex items-center px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-sm border border-indigo-200">
-                                      {tool}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-gray-500">No tools/assets submitted.</p>
-                              )}
-                            </div>
-
-                            {/* Fleet / Vehicles */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <Briefcase size={16} className="text-[#02665e]" />
-                                4.1 Tools &amp; Fleet - Fleet &amp; Vehicles
-                              </h4>
-                              <div className="mb-2">
-                                <label className="block text-xs font-medium text-gray-500 mb-1">Has Vehicles</label>
-                                <p className="text-sm text-gray-900">{hasVehicles ? "Yes" : "No"}</p>
-                              </div>
-                              {fleet.length > 0 ? (
-                                <div className="space-y-2">
-                                  {fleet.map((v: any, idx: number) => (
-                                    <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                                      <div className="font-medium text-slate-900 text-sm">{v?.type || "Vehicle type not provided"}</div>
-                                      <div className="text-sm text-slate-700 mt-1">
-                                        {v?.count ?? "-"} vehicle{Number(v?.count) === 1 ? "" : "s"} • {v?.capacity ?? "-"} seat{Number(v?.capacity) === 1 ? "" : "s"} each • {v?.ownership === "rented" ? "Rented" : v?.ownership === "leased" ? "Leased" : "Company Owned"}
-                                        {v?.registrationNumber ? ` • Reg: ${v.registrationNumber}` : ""}
-                                        {v?.serviceMode ? ` • Mode: ${v.serviceMode}` : ""}
-                                        {v?.condition ? ` • ${v.condition}` : ""}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-gray-500">No vehicle records submitted.</p>
-                              )}
-                            </div>
-
-                            {/* Compliance & Registration */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                <CheckCircle2 size={16} className="text-[#02665e]" />
-                                5. Compliance &amp; Submit - Registration Details
-                              </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Business Registration Number (BRELA)</label>
-                                  <p className="text-sm text-gray-900">{profile?.businessRegistrationNumber || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">TIN Number</label>
-                                  <p className="text-sm text-gray-900">{profile?.tinNumber || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Business License Number</label>
-                                  <p className="text-sm text-gray-900">{profile?.businessLicenseNumber || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Tourism Permit Number</label>
-                                  <p className="text-sm text-gray-900">{profile?.tourismPermitNumber || "Not provided"}</p>
-                                </div>
-                                <div>
-                                  <label className="block text-xs font-medium text-gray-500 mb-1">Vehicle Permit Number</label>
-                                  <p className="text-sm text-gray-900">{profile?.vehiclePermitNumber || "Not provided"}</p>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Company Licenses & Certifications */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-2">5.1 Compliance &amp; Submit - Licenses &amp; Certifications</h4>
-                              {certifications.length > 0 ? (
-                                <div className="space-y-2">
-                                  {certifications.map((cert: any, idx: number) => (
-                                    <div key={idx} className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                                      <div className="font-medium text-amber-900">{cert.name || "License/Certification"}</div>
-                                      <div className="text-sm text-amber-700">
-                                        {cert.issuer || "Issuer not provided"} - {cert.year || "Year not provided"}
-                                        {cert.expiryDate && ` - Expires: ${cert.expiryDate}`}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-gray-500">Not provided.</p>
-                              )}
-                            </div>
-                          </>
-                        );
-                      })()}
-
-                      {/* Operator Profile Created Indicator */}
-                      {viewingApplication.agent && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 size={16} className="text-green-600" />
-                            <span className="text-sm font-medium text-green-800">Tour company operator account has been created</span>
-                          </div>
-                          <p className="text-xs text-green-700 mt-1">This application was approved and the existing operator engine created the company account.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Application Document */}
-                {(viewingApplication.resumeFileName || viewingApplication.resumeStorageKey || viewingApplication.resumeUrl) && (
-                  <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                      <FileText size={18} className="text-[#02665e]" />
-                      <h3 className="text-base font-semibold text-gray-900">Application Document</h3>
-                    </div>
-                    {/* Check if document is actually available (has storage key or URL) */}
-                    {(viewingApplication.resumeStorageKey || viewingApplication.resumeUrl) ? (
-                      <div 
-                        onClick={() => handleViewResume(viewingApplication.id)}
-                        className="flex items-center justify-between gap-4 p-4 bg-gray-50 rounded-md border border-gray-200 hover:border-[#02665e] hover:bg-gray-100 cursor-pointer transition-all group"
-                      >
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div className="p-2 bg-white rounded-md group-hover:bg-[#02665e]/10 transition-colors">
-                            <FileText size={20} className="text-[#02665e] flex-shrink-0" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-gray-900 truncate group-hover:text-[#02665e] transition-colors">
-                              {viewingApplication.resumeFileName || 'Application Document'}
-                            </p>
-                            {viewingApplication.resumeSize && (
-                              <p className="text-xs text-gray-500 mt-0.5">
-                                {(viewingApplication.resumeSize / 1024).toFixed(2)} KB
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleViewResume(viewingApplication.id);
-                            }}
-                            className="px-4 py-2 bg-[#02665e] text-white rounded-md hover:bg-[#024d47] transition-colors flex items-center gap-2 text-sm font-medium"
-                          >
-                            <Eye size={16} />
-                            View
-                          </button>
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              try {
-                                const url = `${apiBase.replace(/\/$/, '')}/api/admin/careers/applications/${viewingApplication.id}/resume`;
-                                const r = await fetch(url, { credentials: 'include' });
-                                if (!r.ok) {
-                                  const errorData = await r.json().catch(() => ({}));
-                                  throw new Error(errorData.error || `Failed to get resume URL: ${r.status}`);
-                                }
-                                const data = await r.json();
-                                if (!data.url) {
-                                  throw new Error('Application document URL not available');
-                                }
-                                window.open(data.url, '_blank');
-                              } catch (err: any) {
-                                console.error('Error downloading application document:', err);
-                                setError(err.message || 'Failed to download application document');
-                                setTimeout(() => setError(null), 5000);
-                              }
-                            }}
-                            className="px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-2 text-sm font-medium"
-                          >
-                            <Download size={16} />
-                            Download
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-4 bg-yellow-50 rounded-md border border-yellow-200">
-                        <p className="text-sm text-yellow-800">
-                          <strong>Document not available:</strong> The application document was not successfully uploaded or is no longer accessible.
-                          {viewingApplication.resumeFileName && (
-                            <span className="block mt-1 text-xs text-yellow-700">
-                              Original filename: {viewingApplication.resumeFileName}
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Admin Notes */}
-                <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                  <h3 className="text-base font-semibold text-gray-900 mb-3">Admin Notes</h3>
-                  <textarea
-                    value={viewingApplication.adminNotes || ''}
-                    onChange={(e) => setViewingApplication({ ...viewingApplication, adminNotes: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] text-sm resize-none"
-                    rows={4}
-                    style={{ maxHeight: '120px', overflowY: 'auto' }}
-                    placeholder="Add notes about this application..."
-                  />
-                </div>
-
-                {/* Status Update */}
-                <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                  <h3 className="text-base font-semibold text-gray-900 mb-3">Update Status</h3>
-                  
-                  {/* Current Status Display */}
-                  {viewingApplication.status && (
-                    <div className="mb-4 pb-3 border-b border-gray-200">
-                      <p className="text-sm text-gray-600 mb-1">Current status:</p>
-                      <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(viewingApplication.status)}`}>
-                        {displayStatus(viewingApplication.status)}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {/* All Status Buttons - Available for workflow transitions */}
-                  <div>
-                    <p className="text-sm text-gray-600 mb-2">Change status to:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {['PENDING', 'REVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'].map((status) => {
-                        const isCurrentStatus = viewingApplication.status === status;
-                        const isUpdating = updatingStatus === viewingApplication.id;
-                        const isFinalized = viewingApplication.status === 'HIRED' || viewingApplication.status === 'REJECTED';
-                        const isDisabled = isUpdating || isFinalized;
-                        
-                        return (
-                          <button
-                            key={status}
-                            onClick={() => {
-                              if (!isDisabled && !isCurrentStatus) {
-                                updateApplicationStatus(viewingApplication.id, status, viewingApplication.adminNotes);
-                              }
-                            }}
-                            disabled={isDisabled || isCurrentStatus}
-                            className={`px-4 py-2.5 rounded-lg text-xs font-semibold transition-all duration-300 ease-in-out flex-shrink-0 ${
-                              isCurrentStatus
-                                ? 'bg-[#02665e] text-white shadow-md cursor-default scale-105'
-                                : isDisabled
-                                ? 'bg-white text-gray-400 border border-gray-200 cursor-not-allowed opacity-60'
-                                : 'bg-white text-gray-700 border border-gray-300 hover:bg-[#02665e] hover:text-white hover:border-[#02665e] hover:shadow-md hover:scale-105 active:scale-95 cursor-pointer'
-                            }`}
-                            title={
-                              isCurrentStatus
-                                ? 'This is the current status'
-                                : isUpdating
-                                ? 'Updating status...'
-                                : isFinalized
-                                ? 'Finalized: status changes are disabled'
-                                : `Change status to ${displayStatus(status)}`
-                            }
-                          >
-                            {displayStatus(status)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-3 italic">
-                      Note: Email notifications are sent only when the status actually changes.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Contract Workflow */}
-                <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                  <h3 className="text-base font-semibold text-gray-900 mb-3">Contract Workflow</h3>
-                  {String(viewingApplication.status || '').toUpperCase() !== 'HIRED' ? (
-                    <p className="text-sm text-gray-600">Contract controls become available after the application is approved.</p>
-                  ) : contractWorkflowLoading ? (
-                    <p className="text-sm text-gray-600">Loading contract workflow...</p>
-                  ) : (
-                    <>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Current Contract State</p>
-                        <p className="text-sm font-semibold text-gray-900">
-                          {contractWorkflow?.status === 'PENDING_NOLSAF_SIGNATURE'
-                            ? 'Awaiting NoLSAF signature'
-                            : contractWorkflow?.status === 'PENDING_AGENT_SIGNATURE'
-                              ? 'Awaiting operator countersignature'
-                              : contractWorkflow?.status === 'EXECUTED'
-                                ? 'Executed'
-                                : 'Not prepared'}
-                        </p>
-                        {contractWorkflow?.contractId ? (
-                          <p className="text-xs text-gray-500 mt-1">Contract ID: {contractWorkflow.contractId}</p>
-                        ) : null}
-                        {contractWorkflow?.nolsafSignedAt ? (
-                          <p className="text-xs text-gray-500 mt-1">
-                            NoLSAF signed at: {new Date(contractWorkflow.nolsafSignedAt).toLocaleString()}
-                          </p>
-                        ) : null}
-                        {contractWorkflow?.agentSignedAt ? (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Operator signed at: {new Date(contractWorkflow.agentSignedAt).toLocaleString()}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={handlePrepareContractWorkflow}
-                          disabled={Boolean(contractWorkflow) || contractActionLoading !== null}
-                          className={`px-4 py-2 rounded-md text-sm font-semibold transition-colors ${
-                            Boolean(contractWorkflow) || contractActionLoading !== null
-                              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                              : 'bg-slate-900 text-white hover:bg-slate-800'
-                          }`}
-                        >
-                          {contractActionLoading === 'prepare' ? 'Preparing...' : 'Prepare Draft'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleAdminSignContract}
-                          disabled={contractWorkflow?.status !== 'PENDING_NOLSAF_SIGNATURE' || contractActionLoading !== null}
-                          className={`px-4 py-2 rounded-md text-sm font-semibold transition-colors ${
-                            contractWorkflow?.status !== 'PENDING_NOLSAF_SIGNATURE' || contractActionLoading !== null
-                              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                              : 'bg-[#02665e] text-white hover:bg-[#024d47]'
-                          }`}
-                        >
-                          {contractActionLoading === 'sign' ? 'Signing...' : 'Sign As NoLSAF'}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Legal Audit Timeline */}
-                <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Clock size={18} className="text-[#02665e]" />
-                    <h3 className="text-base font-semibold text-gray-900">Legal Audit Timeline</h3>
-                  </div>
-
-                  {auditTimelineLoading ? (
-                    <p className="text-sm text-gray-600">Loading legal traceability events...</p>
-                  ) : auditTimeline.length === 0 ? (
-                    <p className="text-sm text-gray-600">No audit events available yet for this application.</p>
-                  ) : (
-                    <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                      {auditTimeline.slice(0, 12).map((entry) => (
-                        <div key={entry.id} className="relative pl-6 pb-3 border-l border-gray-200 last:pb-0">
-                          <span className="absolute -left-[7px] top-1.5 h-3.5 w-3.5 rounded-full bg-[#02665e] ring-2 ring-white" />
-                          <div className="text-sm font-semibold text-gray-900">{formatAuditAction(entry.action)}</div>
-                          <div className="text-xs text-gray-500 mt-0.5">
-                            {new Date(entry.createdAt).toLocaleString()} • {entry.actorName || 'System'}
-                            {entry.actorRole ? ` (${entry.actorRole})` : ''}
-                          </div>
-                          <div className="text-sm text-gray-700 mt-1">{summarizeAuditEvent(entry)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Status History */}
-                {viewingApplication.usedStatuses && Array.isArray(viewingApplication.usedStatuses) && viewingApplication.usedStatuses.length > 0 && (
-                  <div className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Clock size={18} className="text-[#02665e]" />
-                      <h3 className="text-base font-semibold text-gray-900">Status History</h3>
-                    </div>
-                    <div className="space-y-2">
-                      {viewingApplication.usedStatuses.map((status: string, index: number) => (
-                        <div key={index} className="flex items-center gap-3 p-2 bg-gray-50 rounded-md">
-                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getStatusColor(status)}`}>
-                            {displayStatus(status)}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {index === viewingApplication.usedStatuses.length - 1 ? 'Current' : 'Previously used'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Submission Info */}
-                <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-                  <div className="flex items-center gap-2 text-xs text-gray-500 space-x-4 flex-wrap">
-                    <span>Submitted: {formatDate(viewingApplication.submittedAt)}</span>
-                    {viewingApplication.reviewedAt && (
-                      <span>• Reviewed: {formatDate(viewingApplication.reviewedAt)}</span>
-                    )}
-                    {viewingApplication.reviewedByUser && (
-                      <span>• By: {viewingApplication.reviewedByUser.name || viewingApplication.reviewedByUser.email}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="border-t border-gray-200 bg-white px-6 py-4 flex justify-end gap-3 flex-shrink-0">
-              <button
-                onClick={() => setViewingApplication(null)}
-                className="px-6 py-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 hover:shadow-sm transition-all duration-300 ease-in-out active:scale-95 text-sm"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  updateApplicationStatus(viewingApplication.id, viewingApplication.status, viewingApplication.adminNotes);
-                }}
-                className="px-6 py-2.5 bg-[#02665e] text-white rounded-lg font-medium hover:bg-[#024d47] hover:shadow-md transition-all duration-300 ease-in-out hover:scale-105 active:scale-95 text-sm"
-              >
-                Save Notes
-              </button>
-            </div>
-          </div>
-          </div>
-        </div>
+        <ApplicationRecord
+          application={viewingApplication}
+          displayStatus={displayStatus}
+          onClose={() => setViewingApplication(null)}
+          updating={updatingStatus === viewingApplication.id}
+          onChangeStatus={(status) => updateApplicationStatus(viewingApplication.id, status, viewingApplication.adminNotes)}
+          notes={viewingApplication.adminNotes || ''}
+          onNotesChange={(notes) => setViewingApplication({ ...viewingApplication, adminNotes: notes })}
+          savingNotes={savingNotes}
+          onSaveNotes={() => saveApplicationNotes(viewingApplication.id, viewingApplication.adminNotes || '')}
+          contract={contractWorkflow}
+          contractLoading={contractWorkflowLoading}
+          contractAction={contractActionLoading}
+          onPrepareContract={handlePrepareContractWorkflow}
+          onSignContract={handleAdminSignContract}
+          audit={auditTimeline}
+          auditLoading={auditTimelineLoading}
+          formatAuditAction={formatAuditAction}
+          summarizeAuditEvent={summarizeAuditEvent}
+          onViewDocument={() => handleViewResume(viewingApplication.id)}
+          onDownloadDocument={() => downloadApplicationDocument(viewingApplication.id)}
+        />
       )}
 
       {/* Application Document Viewer Modal */}
       {viewingResume && resumeViewUrl && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/70 p-4">
           <div className="bg-white rounded-xl max-w-5xl w-full max-h-[95vh] overflow-hidden shadow-2xl flex flex-col">
             <div className="bg-gradient-to-r from-[#02665e] to-[#024d47] px-6 py-4 flex items-center justify-between flex-shrink-0">
               <h2 className="text-xl font-bold text-white">Application Document Viewer</h2>
@@ -2450,4 +1849,22 @@ export default function CareersManagement() {
       )}
     </div>
   );
+}
+
+type ApplicationSortField = "companyContact" | "partnershipForm" | "status" | "submitted";
+function initials(name?: string | null) {
+  const parts = String(name || "").trim().split(/[\s@.]+/).filter(Boolean);
+  return ((parts[0]?.charAt(0) || "") + (parts[1]?.charAt(0) || "")).toUpperCase() || "?";
+}
+
+function humanize(value?: string | null) {
+  const text = String(value || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Not set";
+}
+
+/** Names typed in capitals ("NOTHERN CIRCUT PARTNERSHIP") read as Title Case in lists. */
+function tidyName(value?: string | null) {
+  const text = String(value || "").trim();
+  if (!text || text !== text.toUpperCase() || !/[A-Z]/.test(text)) return text;
+  return text.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
 }

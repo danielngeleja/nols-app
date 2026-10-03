@@ -5,6 +5,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Loader2, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { CountPill, SectionHeader, SummaryCard } from "../_components/CommercialUi";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type Signal = { id: number; propertyId: number; kind: string; severity: string; status: string; metricValue: number | null; baseline: number | null; details: any; detectedAt: string; property: { id: number; title: string } };
 
@@ -28,6 +29,7 @@ function shortDateTime(value: string): string {
 }
 
 export default function IntegrityPage() {
+  const recordHref = useAdminHref();
   const [signals, setSignals] = useState<Signal[]>([]);
   const [reasons, setReasons] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
@@ -150,7 +152,7 @@ export default function IntegrityPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-bold">
-                          <Link href={`/admin/nrms/${s.propertyId}`} className="truncate text-neutral-900 no-underline transition hover:text-emerald-700">{s.property.title}</Link>
+                          <Link href={recordHref("property", s.propertyId)} className="truncate text-neutral-900 no-underline transition hover:text-emerald-700">{s.property.title}</Link>
                           <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${severity.badge}`}>{s.severity}</span>
                           {s.status !== "OPEN" && <span className="shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">{s.status}</span>}
                         </p>
@@ -162,12 +164,12 @@ export default function IntegrityPage() {
                       <div className="mt-3 grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
                         <input value={reason} onChange={(e) => setReasons({ ...reasons, [s.id]: e.target.value })} placeholder="Review note, at least 5 characters" className={inputClass} aria-label={`Review note for signal ${s.id}`} />
                         <button type="button" disabled={busy || !canAck} onClick={() => void ack(s)} className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3.5 text-xs font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Acknowledge</button>
-                        <Link href={`/admin/nrms/integrity/${s.propertyId}`} className="inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 px-3.5 text-xs font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">Timeline</Link>
+                        <Link href={recordHref("property", s.propertyId, { base: "/admin/nrms/integrity" })} className="inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 px-3.5 text-xs font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">Timeline</Link>
                       </div>
                     )}
                     {s.status !== "OPEN" && (
                       <div className="mt-3">
-                        <Link href={`/admin/nrms/integrity/${s.propertyId}`} className="inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 px-3.5 text-xs font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">Timeline</Link>
+                        <Link href={recordHref("property", s.propertyId, { base: "/admin/nrms/integrity" })} className="inline-flex min-h-9 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 px-3.5 text-xs font-bold text-emerald-800 no-underline transition hover:bg-emerald-100">Timeline</Link>
                       </div>
                     )}
                   </div>

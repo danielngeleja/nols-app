@@ -29,7 +29,7 @@ export type NrmsAttentionSnapshot = {
     byOutlet: Array<{ outletId: number; openRoom: number; placedRoom: number }>;
   };
   stock: { low: number; out: number; total: number };
-  agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; total: number };
+  agents: { partnershipRequests: number; acceptedInvites: number; bookingRequests: number; guestManifests: number; paymentDeclarations: number; total: number };
   rateProposals: { pending: number; total: number };
   channels: { connections: number; alerts: number; issues: number; total: number; byProvider: Array<{ provider: string; total: number }> };
   finance: {
@@ -54,7 +54,7 @@ const zeroSnapshot = (): NrmsAttentionSnapshot => ({
   housekeeping: { tasks: 0, untrackedRooms: 0, total: 0 },
   orders: { openRoom: 0, openTable: 0, placedRoom: 0, placedTable: 0, total: 0, byOutlet: [] },
   stock: { low: 0, out: 0, total: 0 },
-  agents: { partnershipRequests: 0, acceptedInvites: 0, bookingRequests: 0, guestManifests: 0, total: 0 },
+  agents: { partnershipRequests: 0, acceptedInvites: 0, bookingRequests: 0, guestManifests: 0, paymentDeclarations: 0, total: 0 },
   rateProposals: { pending: 0, total: 0 },
   channels: { connections: 0, alerts: 0, issues: 0, total: 0, byProvider: [] },
   finance: {
@@ -173,7 +173,17 @@ export async function buildNrmsAttentionSnapshot(
   const agentsPromise = sectionAllowed(role, ["OWNER", "MANAGER", "SALES_EXECUTIVE"])
     ? Promise.all([
         db.nrmsAgentPropertyLink.findMany({ where: { propertyId, OR: [{ initiatedBy: "AGENT", status: "REQUESTED" }, { status: "AGENT_ACCEPTED" }] }, select: { status: true, initiatedBy: true } }),
-        db.nrmsAgentBookingRequest.findMany({ where: { propertyId, OR: [{ status: "PENDING", OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }] }, { status: "CONFIRMED", guestManifestStatus: "SUBMITTED" }] }, select: { status: true, guestManifestStatus: true } }),
+        db.nrmsAgentBookingRequest.findMany({
+          where: {
+            propertyId,
+            OR: [
+              { status: "PENDING", OR: [{ holdExpiresAt: null }, { holdExpiresAt: { gt: now } }] },
+              { status: "CONFIRMED", guestManifestStatus: "SUBMITTED" },
+              { status: "CONFIRMED", masterFolio: { is: { status: { notIn: ["SETTLED", "CREDIT"] }, proFormas: { some: { supersededAt: null, payerMarkedPaidAt: { not: null } } } } } },
+            ],
+          },
+          select: { status: true, guestManifestStatus: true, masterFolio: { select: { status: true, proFormas: { where: { supersededAt: null }, orderBy: { id: "desc" }, take: 1, select: { payerMarkedPaidAt: true } } } } },
+        }),
       ])
     : Promise.resolve([[], []]);
 
@@ -287,11 +297,7 @@ export async function buildNrmsAttentionSnapshot(
   result.stock.total = result.stock.low + result.stock.out;
 
   const [links, requests] = agentRows as [any[], any[]];
-  result.agents.partnershipRequests = links.filter((row) => row.status === "REQUESTED" && row.initiatedBy === "AGENT").length;
-  result.agents.acceptedInvites = links.filter((row) => row.status === "AGENT_ACCEPTED").length;
-  result.agents.bookingRequests = requests.filter((row) => row.status === "PENDING").length;
-  result.agents.guestManifests = requests.filter((row) => row.status === "CONFIRMED" && row.guestManifestStatus === "SUBMITTED").length;
-  result.agents.total = result.agents.partnershipRequests + result.agents.acceptedInvites + result.agents.bookingRequests + result.agents.guestManifests;
+  result.agents = summarizeAgentAttention(links, requests);
   result.rateProposals.pending = Number(pendingRates);
   result.rateProposals.total = result.rateProposals.pending;
 
@@ -335,13 +341,32 @@ export async function buildNrmsAttentionSnapshot(
   return result;
 }
 
+/** Every unresolved travel-agent task represented by the sidebar badges. */
+export function summarizeAgentAttention(links: any[], requests: any[]): NrmsAttentionSnapshot["agents"] {
+  const partnershipRequests = links.filter((row) => row.status === "REQUESTED" && row.initiatedBy === "AGENT").length;
+  const acceptedInvites = links.filter((row) => row.status === "AGENT_ACCEPTED").length;
+  const bookingRequests = requests.filter((row) => row.status === "PENDING").length;
+  const guestManifests = requests.filter((row) => row.status === "CONFIRMED" && row.guestManifestStatus === "SUBMITTED").length;
+  const paymentDeclarations = requests.filter((row) => row.status === "CONFIRMED"
+    && !["SETTLED", "CREDIT"].includes(String(row.masterFolio?.status ?? ""))
+    && Boolean(row.masterFolio?.proFormas?.[0]?.payerMarkedPaidAt)).length;
+  return {
+    partnershipRequests,
+    acceptedInvites,
+    bookingRequests,
+    guestManifests,
+    paymentDeclarations,
+    total: partnershipRequests + acceptedInvites + bookingRequests + guestManifests + paymentDeclarations,
+  };
+}
+
 export async function getNrmsAttentionSnapshot(
   db: any,
   propertyId: number,
   access: NrmsAttentionAccess,
   options: { fresh?: boolean } = {},
 ): Promise<NrmsAttentionSnapshot> {
-  const cacheKey = `nrms:attention:v3:${propertyId}:${access.role}:${access.outletId ?? "all"}`;
+  const cacheKey = `nrms:attention:v4:${propertyId}:${access.role}:${access.outletId ?? "all"}`;
   const local = memoryCache.get(cacheKey);
   if (!options.fresh && local && local.expiresAt > Date.now()) return local.value;
 

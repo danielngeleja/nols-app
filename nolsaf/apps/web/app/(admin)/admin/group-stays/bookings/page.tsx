@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Users, Search, X, Calendar, MapPin, Clock, User, BarChart3, UsersRound, CheckCircle, AlertCircle, Loader2, XCircle, Mail, Phone, FileText, Truck, Bus, Coffee, Wrench, Send, MessageSquare, Edit, CheckCircle2, Building2, Plus, Trash2, Tag, ChevronDown, Globe, DollarSign, Sparkles, Gift, ArrowRight } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminQueryId } from "@/lib/adminRecordRefs";
 import Chart from "@/components/Chart";
 import type { ChartData } from "chart.js";
 import Image from "next/image";
@@ -137,6 +138,7 @@ type SummaryData = {
 
 export default function AdminGroupStaysBookingsPage() {
   const searchParams = useSearchParams();
+  const queryBookingId = useAdminQueryId("group-stay", searchParams?.get("bookingId"), "bookingId");
   const [status, setStatus] = useState<string>("");
   const [groupType, setGroupType] = useState<string>("");
   const [date, setDate] = useState<string | string[]>("");
@@ -780,9 +782,8 @@ export default function AdminGroupStaysBookingsPage() {
 
   // Check for bookingId in URL params and open modal when list is loaded
   useEffect(() => {
-    const bookingIdParam = searchParams?.get("bookingId");
-    if (bookingIdParam && !isNaN(Number(bookingIdParam)) && !loading && list.length > 0) {
-      const bookingId = Number(bookingIdParam);
+    if (queryBookingId && !loading && list.length > 0) {
+      const bookingId = queryBookingId;
       const existingBooking = list.find((b) => b.id === bookingId);
       if (existingBooking) {
         loadBookingDetails(bookingId);
@@ -791,7 +792,7 @@ export default function AdminGroupStaysBookingsPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, list, searchParams]);
+  }, [loading, list, queryBookingId]);
 
   useEffect(() => {
     authify();
@@ -2533,9 +2534,11 @@ export default function AdminGroupStaysBookingsPage() {
                                                   Reject
                                                 </button>
                                                 <button
+                                                  onMouseEnter={() => adminRefOrId("property", claim.propertyId)}
+                                                  onFocus={() => adminRefOrId("property", claim.propertyId)}
                                                   onClick={() => {
                                                     if (bookingDetails && claim.property) {
-                                                      window.open(`/admin/properties/${claim.propertyId}`, "_blank");
+                                                      window.open(`/admin/properties/previews?previewId=${encodeURIComponent(adminRefOrId("property", claim.propertyId))}`, "_blank");
                                                     }
                                                   }}
                                                   className="px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-all"

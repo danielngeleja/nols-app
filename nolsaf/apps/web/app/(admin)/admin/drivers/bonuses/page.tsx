@@ -3,6 +3,7 @@ import "./page.css";
 import { useEffect, useState, useCallback } from "react";
 import { Award, Truck, DollarSign, Eye, X, Calendar, FileText, CheckCircle2, Clock, Plus, Loader2, Trophy, BarChart3, Gem, Edit, ChevronDown } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import { useSearchParams } from "next/navigation";
 
 const api = apiClient;
@@ -45,6 +46,7 @@ type BonusData = {
 
 export default function AdminDriversBonusesPage() {
   const searchParams = useSearchParams();
+  const queryDriverId = useAdminQueryId("driver", searchParams?.get("driverId"), "driverId");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
   const [bonusData, setBonusData] = useState<BonusData | null>(null);
@@ -100,15 +102,14 @@ export default function AdminDriversBonusesPage() {
   }, [loadDrivers, loadBonusReasonTypes]);
 
   useEffect(() => {
-    const raw = searchParams?.get("driverId") || "";
-    const id = Number(raw);
+    const id = queryDriverId ?? 0;
     if (!Number.isFinite(id) || id <= 0) return;
     if (!drivers.length) return;
     if (selectedDriver === id) return;
     const exists = drivers.some((d) => d.id === id);
     if (!exists) return;
     void loadDriverBonuses(id);
-  }, [searchParams, drivers, selectedDriver]);
+  }, [queryDriverId, drivers, selectedDriver]);
 
   // Auto-fill amount when reason types are loaded or reason type changes
   useEffect(() => {

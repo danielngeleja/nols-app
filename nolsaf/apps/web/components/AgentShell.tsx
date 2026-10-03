@@ -9,6 +9,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
+import { describeChange, needsAgent, readSeen, type AgentBooking } from "@/lib/agentBookingSignals";
 import { ArrowLeft, BadgeCheck, Building2, CalendarSearch, ClipboardList, Handshake, HeartPulse, Loader2, LogOut, Menu, ShieldAlert, X } from "lucide-react";
 
 const NAV = [
@@ -63,6 +64,30 @@ export default function AgentShell({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [bookingAlerts, setBookingAlerts] = useState(0);
+
+  // "My bookings" badge: bookings where the agency has the next move, plus
+  // any the hotel changed since they were last seen. Same rules as the page.
+  useEffect(() => {
+    let live = true;
+    let rows: AgentBooking[] = [];
+    const recount = () => {
+      const seen = readSeen();
+      const count = rows.filter((b) => needsAgent(b) || describeChange(seen[b.id], b) != null).length;
+      if (live) setBookingAlerts(count);
+    };
+    const load = async () => {
+      try {
+        const res = await apiClient.get<any>("/api/agent-portal/bookings");
+        rows = res.data?.bookings ?? [];
+        recount();
+      } catch { /* the badge is a hint; the page itself reports errors */ }
+    };
+    void load();
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 60_000);
+    window.addEventListener("nolsaf-agent-bookings-seen", recount);
+    return () => { live = false; window.clearInterval(timer); window.removeEventListener("nolsaf-agent-bookings-seen", recount); };
+  }, [pathname]);
 
   useEffect(() => {
     let live = true;
@@ -124,6 +149,9 @@ export default function AgentShell({ children }: { children: ReactNode }) {
                 <Icon className="h-3.5 w-3.5" aria-hidden />
               </span>
               <span className="min-w-0 flex-1 truncate">{label}</span>
+              {href === "/agent-portal/bookings" && bookingAlerts > 0 && (
+                <span className="min-w-[18px] flex-none rounded-full bg-amber-400 px-1.5 text-center text-[10px] font-bold leading-[18px] text-amber-950" aria-label={`${bookingAlerts} bookings need your attention`}>{bookingAlerts > 99 ? "99+" : bookingAlerts}</span>
+              )}
             </Link>
           );
         })}
@@ -242,6 +270,9 @@ export default function AgentShell({ children }: { children: ReactNode }) {
                   >
                     <Icon className="h-4 w-4" aria-hidden />
                     {label}
+                    {href === "/agent-portal/bookings" && bookingAlerts > 0 && (
+                      <span className="min-w-[18px] rounded-full bg-amber-400 px-1.5 text-center text-[10px] font-bold leading-[18px] text-amber-950" aria-label={`${bookingAlerts} bookings need your attention`}>{bookingAlerts > 99 ? "99+" : bookingAlerts}</span>
+                    )}
                   </Link>
                 );
               })}

@@ -32,6 +32,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
 } from "lucide-react";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
 const api = apiClient;
@@ -164,6 +165,7 @@ function initials(name: string) {
 }
 
 export default function AdminAllDriversPage() {
+  const recordHref = useAdminHref();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<DriverRow[]>([]);
@@ -634,7 +636,7 @@ export default function AdminAllDriversPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Link
-                            href={`/admin/drivers/activities?driverId=${d.id}`}
+                            href={`/admin/drivers/activities?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-emerald-700 no-underline"
                             title="Activities"
                             aria-label="Open activities"
@@ -642,7 +644,7 @@ export default function AdminAllDriversPage() {
                             <Activity className="h-4 w-4" aria-hidden />
                           </Link>
                           <Link
-                            href={`/admin/drivers/stats?driverId=${d.id}`}
+                            href={`/admin/drivers/stats?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-green-700 no-underline"
                             title="Stats"
                             aria-label="Open stats"
@@ -650,7 +652,7 @@ export default function AdminAllDriversPage() {
                             <BarChart3 className="h-4 w-4" aria-hidden />
                           </Link>
                           <Link
-                            href={`/admin/drivers/referrals?driverId=${d.id}`}
+                            href={`/admin/drivers/referrals?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-blue-700 no-underline"
                             title="Referrals"
                             aria-label="Open referrals"
@@ -658,7 +660,7 @@ export default function AdminAllDriversPage() {
                             <UserPlus className="h-4 w-4" aria-hidden />
                           </Link>
                           <Link
-                            href={`/admin/drivers/bonuses?driverId=${d.id}`}
+                            href={`/admin/drivers/bonuses?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-amber-700 no-underline"
                             title="Bonuses"
                             aria-label="Open bonuses"
@@ -666,7 +668,7 @@ export default function AdminAllDriversPage() {
                             <Award className="h-4 w-4" aria-hidden />
                           </Link>
                           <Link
-                            href={`/admin/drivers/levels?driverId=${d.id}`}
+                            href={`/admin/drivers/levels?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-violet-700 no-underline"
                             title="Levels"
                             aria-label="Open levels"
@@ -674,7 +676,7 @@ export default function AdminAllDriversPage() {
                             <Trophy className="h-4 w-4" aria-hidden />
                           </Link>
                           <Link
-                            href={`/admin/drivers/trips?driverId=${d.id}`}
+                            href={`/admin/drivers/trips?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-sky-700 no-underline"
                             title="Trips"
                             aria-label="Open trips"
@@ -682,7 +684,7 @@ export default function AdminAllDriversPage() {
                             <Route className="h-4 w-4" aria-hidden />
                           </Link>
                           <Link
-                            href={`/admin/drivers/reminders?driverId=${d.id}`}
+                            href={`/admin/drivers/reminders?driverId=${adminRefOrId("driver", d.id)}`}
                             className="inline-flex items-center text-gray-600 hover:text-rose-700 no-underline"
                             title="Reminders"
                             aria-label="Open reminders"
@@ -704,7 +706,7 @@ export default function AdminAllDriversPage() {
                             <span className="sr-only">Overview</span>
                           </button>
                           <Link
-                            href={`/admin/drivers/audit/${d.id}`}
+                            href={recordHref("driver", d.id)}
                             className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-blue-600 hover:text-blue-800 hover:bg-blue-50 border border-gray-200 no-underline"
                             title="View driver details"
                           >
@@ -1145,7 +1147,7 @@ export default function AdminAllDriversPage() {
                       Referrals
                     </div>
                     <Link
-                      href={`/admin/drivers/referrals?driverId=${overviewDriver.id}`}
+                      href={`/admin/drivers/referrals?driverId=${adminRefOrId("driver", overviewDriver.id)}`}
                       className="text-xs font-semibold text-blue-700 hover:text-blue-800 no-underline"
                     >
                       Open
@@ -1190,7 +1192,7 @@ export default function AdminAllDriversPage() {
                       Bonuses
                     </div>
                     <Link
-                      href={`/admin/drivers/bonuses?driverId=${overviewDriver.id}`}
+                      href={`/admin/drivers/bonuses?driverId=${adminRefOrId("driver", overviewDriver.id)}`}
                       className="text-xs font-semibold text-blue-700 hover:text-blue-800 no-underline"
                     >
                       Open
@@ -1234,13 +1236,13 @@ export default function AdminAllDriversPage() {
                   <div className="font-semibold text-slate-900">Quick links</div>
                 </div>
                 <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <Link href={`/admin/drivers/activities?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Activities</Link>
-                  <Link href={`/admin/drivers/stats?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Stats</Link>
-                  <Link href={`/admin/drivers/referrals?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Referrals</Link>
-                  <Link href={`/admin/drivers/bonuses?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Bonuses</Link>
-                  <Link href={`/admin/drivers/levels?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Levels</Link>
-                  <Link href={`/admin/drivers/trips?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Trips</Link>
-                  <Link href={`/admin/drivers/reminders?driverId=${overviewDriver.id}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Reminders</Link>
+                  <Link href={`/admin/drivers/activities?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Activities</Link>
+                  <Link href={`/admin/drivers/stats?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Stats</Link>
+                  <Link href={`/admin/drivers/referrals?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Referrals</Link>
+                  <Link href={`/admin/drivers/bonuses?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Bonuses</Link>
+                  <Link href={`/admin/drivers/levels?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Levels</Link>
+                  <Link href={`/admin/drivers/trips?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Trips</Link>
+                  <Link href={`/admin/drivers/reminders?driverId=${adminRefOrId("driver", overviewDriver.id)}`} className="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl no-underline inline-flex items-center justify-center">Reminders</Link>
                 </div>
               </div>
             </div>

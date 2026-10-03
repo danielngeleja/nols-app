@@ -31,7 +31,9 @@ export function validateTourCancellationDecision(input: TourCancellationConsiste
   const bookingStatus = upper(input.bookingStatus);
   const payoutStatus = upper(input.payoutStatus);
   const bookingIsCancelled = ["CANCELED", "CANCELLED", "REFUNDED"].includes(bookingStatus);
-  const payoutIsReleased = ["DISBURSED", "PAID"].includes(payoutStatus);
+  // ADVANCE_PAID: a pre-trip advance left NoLSAF (tourPayoutPolicy.ts), so a
+  // cancellation from here must recover it rather than simply hold the payout.
+  const payoutIsReleased = ["DISBURSED", "PAID", "ADVANCE_PAID"].includes(payoutStatus);
   const payoutIsFrozenForCase = ["HELD", "RECOVERY_PENDING"].includes(payoutStatus);
 
   if (input.action === "REJECT") {

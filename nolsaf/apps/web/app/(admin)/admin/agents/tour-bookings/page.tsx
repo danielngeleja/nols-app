@@ -2,7 +2,10 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
+  ArrowRight,
   BadgeDollarSign,
   Building2,
   CheckCircle2,
@@ -11,7 +14,6 @@ import {
   ChevronUp,
   Eye,
   EyeOff,
-  Info,
   PackageCheck,
   RefreshCw,
   ShieldCheck,
@@ -353,6 +355,7 @@ function groupTaskLedgerByRecency(items: BookingActivityHistoryItem[]) {
 export default function AdminAgentsTourBookingsPage() {
   const PACKAGES_PAGE_SIZE = 10;
   const BOOKINGS_PAGE_SIZE = 10;
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [overview, setOverview] = useState<OverviewPayload | null>(null);
@@ -583,190 +586,349 @@ export default function AdminAgentsTourBookingsPage() {
     setBookingsPage(1);
   }, [bookings.length, bookingSortBy, bookingSortDir]);
 
-  const kpis = [
-    { label: "Operators", value: summary?.operators ?? 0, icon: Building2, color: "from-blue-500 to-blue-600" },
-    { label: "Public Ready", value: summary?.publicReadyOperators ?? 0, icon: ShieldCheck, color: "from-emerald-500 to-emerald-600" },
-    { label: "Packages", value: summary?.packages ?? 0, icon: PackageCheck, color: "from-amber-500 to-amber-600" },
-    { label: "Disbursed Payout", value: summary?.disbursedPayoutBookings ?? 0, icon: CheckCircle2, color: "from-cyan-500 to-cyan-600" },
+  // ── What needs an admin today, worked out from the loaded data ──
+  const operators = overview?.operators ?? [];
+  const payoutSent = (b: TourBooking) => /^(DISBURSED|PAID)$/i.test(String(b.payoutStatus || ""));
+  const packagesInReview = packages.filter((p) => packageStatusMeta(p.status).label === "Admin review");
+  const startedWithoutPickup = paidBookings.filter((b) => !b.pickupValidated && b.startDate && new Date(b.startDate).getTime() < Date.now());
+  const payoutsWaiting = paidBookings.filter((b) => !payoutSent(b));
+  const payoutWaitingAmount = payoutsWaiting.reduce((sum, b) => sum + Number(b.operatorPayoutAmount || 0), 0);
+  const operatorsBlocked = operators.filter((o) => o.readiness.packageCount > 0 && !o.readiness.publicReady);
+
+  const jumpTo = (id: string, then?: () => void) => {
+    then?.();
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
+  const attentionAll: Array<{ key: string; count: number; title: string; detail: string; tone: "amber" | "red" | "blue"; action: string; run: () => void }> = [
     {
-      label: "NoLSAF Commission",
-      value: showCommission ? money(summary?.nolsafCommission ?? 0, currency) : "*****",
-      icon: BadgeDollarSign,
-      color: "from-violet-500 to-violet-600",
+      key: "review",
+      count: packagesInReview.length,
+      title: `${packagesInReview.length} ${packagesInReview.length === 1 ? "package waits" : "packages wait"} for review`,
+      detail: "Operators can't sell them until they're approved.",
+      tone: "amber",
+      action: "Open inventory",
+      run: () => jumpTo("package-inventory", () => { setPackageSortBy("status"); setPackageSortDir("asc"); }),
+    },
+    {
+      key: "pickup",
+      count: startedWithoutPickup.length,
+      title: `${startedWithoutPickup.length} ${startedWithoutPickup.length === 1 ? "trip" : "trips"} started without pickup check`,
+      detail: "The start date passed but the operator never validated the meetup.",
+      tone: "red",
+      action: "See bookings",
+      run: () => jumpTo("tour-bookings-table", () => { switchBookingBucket("PAID"); setBookingSortBy("pickup"); setBookingSortDir("asc"); }),
+    },
+    {
+      key: "payout",
+      count: payoutsWaiting.length,
+      title: `${payoutsWaiting.length} ${payoutsWaiting.length === 1 ? "payout" : "payouts"} not sent yet`,
+      detail: `${money(payoutWaitingAmount, currency)} owed to operators on paid bookings.`,
+      tone: "blue",
+      action: "See bookings",
+      run: () => jumpTo("tour-bookings-table", () => switchBookingBucket("PAID")),
+    },
+    {
+      key: "drafts",
+      count: draftBookings.length,
+      title: `${draftBookings.length} unpaid booking ${draftBookings.length === 1 ? "attempt" : "attempts"}`,
+      detail: "Travellers started checkout but haven't paid.",
+      tone: "amber",
+      action: "See attempts",
+      run: () => jumpTo("tour-bookings-table", () => switchBookingBucket("DRAFT")),
+    },
+    {
+      key: "operators",
+      count: operatorsBlocked.length,
+      title: `${operatorsBlocked.length} ${operatorsBlocked.length === 1 ? "operator has" : "operators have"} packages but can't go public`,
+      detail: "Missing documents or contact details keep them hidden.",
+      tone: "amber",
+      action: "View operators",
+      run: () => router.push("/admin/agents/tour-operators"),
     },
   ];
+  const attention = attentionAll.filter((item) => item.count > 0);
+
+  // Three honest ratios instead of one mixed funnel: each lane compares like with like
+  const laneOf = (done: number, total: number) => ({ done, total, rate: total > 0 ? Math.round((done / total) * 100) : 0 });
+  const operatorsTotal = summary?.operators ?? 0;
+  const operatorsReady = summary?.publicReadyOperators ?? 0;
+  const packagesTotal = summary?.packages ?? 0;
+  const packagesLive = summary?.livePackages ?? 0;
+  const bookingsPaid = summary?.paidBookings ?? 0;
+  const payoutsSent = summary?.disbursedPayoutBookings ?? 0;
+  const lanes = [
+    {
+      key: "operators",
+      Icon: Building2,
+      title: "Operators",
+      verb: "public ready",
+      ...laneOf(operatorsReady, operatorsTotal),
+      note: operatorsTotal === 0 ? "No operators yet" : operatorsTotal - operatorsReady > 0 ? `${operatorsTotal - operatorsReady} still hidden from travellers` : "All visible to travellers",
+    },
+    {
+      key: "packages",
+      Icon: PackageCheck,
+      title: "Packages",
+      verb: "live",
+      ...laneOf(packagesLive, packagesTotal),
+      note: packagesTotal === 0 ? "No packages yet" : packagesTotal - packagesLive > 0 ? `${packagesTotal - packagesLive} not on sale yet` : "Everything is on sale",
+    },
+    {
+      key: "bookings",
+      Icon: BadgeDollarSign,
+      title: "Paid bookings",
+      verb: "paid out",
+      ...laneOf(payoutsSent, bookingsPaid),
+      note: bookingsPaid === 0 ? "No paid bookings yet" : bookingsPaid - payoutsSent > 0 ? `${bookingsPaid - payoutsSent} payouts still to send` : "Every operator has been paid",
+    },
+  ];
+  const laneTone = (rate: number, total: number) =>
+    total === 0 ? { bar: "bg-neutral-300", text: "text-neutral-400" }
+      : rate >= 80 ? { bar: "bg-emerald-600", text: "text-emerald-700" }
+        : rate >= 40 ? { bar: "bg-amber-500", text: "text-amber-700" }
+          : { bar: "bg-red-500", text: "text-red-600" };
+
+  const gross = Number(summary?.grossBookingRevenue ?? 0);
+  const commission = Number(summary?.nolsafCommission ?? 0);
+  const payout = Number(summary?.operatorPayout ?? 0);
+  const commissionShare = gross > 0 ? Math.round((commission / gross) * 100) : 0;
+  const payoutShare = gross > 0 ? Math.round((payout / gross) * 100) : 0;
+  const topPackages = [...packages].filter((p) => Number(p.totalGenerated || 0) > 0).sort((a, b) => Number(b.totalGenerated) - Number(a.totalGenerated)).slice(0, 4);
+  const topMax = Math.max(1, ...topPackages.map((p) => Number(p.totalGenerated || 0)));
+
+  const ATTENTION_TONES = {
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    red: "border-red-200 bg-red-50 text-red-700",
+    blue: "border-sky-200 bg-sky-50 text-sky-700",
+  } as const;
+  const CARD = "min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]";
 
   return (
-    <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
-      <div
-        className="relative rounded-2xl overflow-hidden shadow-2xl"
-        style={{ background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)" }}
-      >
-        <svg
-          aria-hidden
-          className="absolute inset-0 w-full h-full pointer-events-none select-none"
-          preserveAspectRatio="xMidYMid slice"
-          viewBox="0 0 900 220"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle cx="860" cy="45" r="200" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none" />
-          <circle cx="860" cy="45" r="155" stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-          <circle cx="820" cy="15" r="115" stroke="white" strokeOpacity="0.045" strokeWidth="1" fill="none" />
-          <circle cx="28" cy="208" r="130" stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-          {[44, 88, 132, 176].map((y) => (
-            <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="rgba(255,255,255,0.030)" strokeWidth="1" />
-          ))}
-          <polyline
-            points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78"
-            fill="none"
-            stroke="white"
-            strokeOpacity="0.16"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <polygon
-            points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78 900,220 0,220"
-            fill="white"
-            fillOpacity="0.026"
-          />
-          <polyline
-            points="0,200 100,186 200,194 300,172 400,180 500,160 600,168 700,148 800,156 900,136"
-            fill="none"
-            stroke="white"
-            strokeOpacity="0.07"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {([[720, 90], [560, 108], [880, 78], [240, 145]] as [number, number][]).map(([px, py]) => (
-            <circle key={`${px}-${py}`} cx={px} cy={py} r="3" fill="white" fillOpacity="0.22" />
-          ))}
-          <radialGradient id="tourCommerceHeaderGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(10,92,130,0.45)" />
-            <stop offset="100%" stopColor="rgba(10,92,130,0)" />
-          </radialGradient>
-          <ellipse cx="450" cy="110" rx="300" ry="140" fill="url(#tourCommerceHeaderGlow)" />
-        </svg>
+    <div id="tour-commerce" className="space-y-4 min-w-0 w-full">
+      {/* Preflight is disabled in this project; scope border-box so w-full pieces don't overflow */}
+      <style>{`#tour-commerce, #tour-commerce * { box-sizing: border-box; }`}</style>
 
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="absolute right-4 top-4 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full text-white transition-all duration-150 hover:bg-white/15 focus:outline-none"
-          style={{ background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.15)" }}
-          title="Refresh tour commerce"
-          aria-label="Refresh tour commerce"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </button>
-
-        <div className="relative z-10 flex flex-col items-center text-center px-6 py-10 sm:py-14">
-          <div
-            className="mb-5 inline-flex items-center justify-center rounded-full"
-            style={{
-              width: 64,
-              height: 64,
-              background: "rgba(255,255,255,0.10)",
-              border: "1.5px solid rgba(255,255,255,0.18)",
-              boxShadow: "0 0 0 8px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35)",
-            }}
-          >
-            <Wallet className="h-7 w-7" style={{ color: "rgba(255,255,255,0.92)" }} aria-hidden />
-          </div>
-
-          <div className="text-xs font-black uppercase tracking-widest text-emerald-100">No4P Agents Platform</div>
-          <h1
-            className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight"
-            style={{ color: "#ffffff", textShadow: "0 2px 12px rgba(0,0,0,0.4)" }}
-          >
-            Tour Commerce Control
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm sm:text-base" style={{ color: "rgba(255,255,255,0.60)" }}>
-            Verified operators, sellable packages, paid bookings, commissions and payouts.
-          </p>
-
-          <div className="mt-4 relative group/tooltip inline-flex">
+      {/* Workspace header */}
+      <section className="relative overflow-hidden rounded-2xl border border-solid border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 shadow-sm sm:p-5">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border border-solid border-white/[0.06]" aria-hidden="true" />
+        <div className="relative flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-solid border-emerald-100 bg-white text-emerald-700 shadow-sm">
+                <Wallet className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Agents module</p>
+                <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Tour Commerce</h1>
+                <p className="m-0 mt-1 text-xs leading-5 text-emerald-100/80 sm:text-sm">
+                  Operators, packages, bookings, commission and payouts at a glance.
+                </p>
+              </div>
+            </div>
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all duration-150 focus:outline-none"
-              style={{
-                background: "rgba(255,255,255,0.10)",
-                border: "1px solid rgba(255,255,255,0.15)",
-                color: "rgba(255,255,255,0.70)",
-              }}
-              aria-label="Tour commerce info"
-              onClick={(e) => {
-                e.preventDefault();
-                try {
-                  (e.currentTarget as HTMLButtonElement).focus();
-                } catch {
-                  // ignore
-                }
-              }}
+              onClick={() => void load()}
+              disabled={loading}
+              suppressHydrationWarning
+              title="Refresh tour commerce"
+              aria-label="Refresh tour commerce"
+              className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-solid border-white/20 bg-white/10 text-white transition hover:bg-white/20 disabled:cursor-wait"
             >
-              <Info className="h-3.5 w-3.5" aria-hidden />
-              <span>Commerce overview</span>
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
             </button>
-            <div
-              role="tooltip"
-              className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 z-50 mb-2 w-72 max-w-[calc(100vw-1rem)] whitespace-normal break-words rounded-xl px-3 py-2.5 text-left text-xs opacity-0 shadow-2xl transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100"
-              style={{ background: "#0b2a38", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(255,255,255,0.85)" }}
+          </div>
+          <nav aria-label="Related workspaces" className="flex flex-wrap gap-2 border-0 border-t border-solid border-white/15 pt-4">
+            {[
+              { href: "/admin/agents/tour-operators", label: "Tour operators", Icon: Building2 },
+              { href: "/admin/agents/tour-experience", label: "Tour experience", Icon: ShieldCheck },
+            ].map(({ href, label, Icon }) => (
+              <Link key={href} href={href} className="inline-flex items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 py-2 text-xs font-bold text-emerald-50 no-underline transition hover:bg-white/15">
+                <Icon className="h-4 w-4" aria-hidden /> {label}
+              </Link>
+            ))}
+            <button type="button" onClick={() => jumpTo("package-inventory")} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 py-2 text-xs font-bold text-emerald-50 transition hover:bg-white/15">
+              <PackageCheck className="h-4 w-4" aria-hidden /> Package inventory
+            </button>
+            <button type="button" onClick={() => jumpTo("tour-bookings-table")} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-solid border-white/15 bg-white/[0.07] px-3 py-2 text-xs font-bold text-emerald-50 transition hover:bg-white/15">
+              <BadgeDollarSign className="h-4 w-4" aria-hidden /> Bookings
+            </button>
+          </nav>
+        </div>
+      </section>
+
+      {error ? (
+        <div className="flex items-start gap-2.5 rounded-xl border border-solid border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> <span>{error}</span>
+        </div>
+      ) : null}
+
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        {/* Needs attention */}
+        <section className={CARD}>
+          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+            <div className="min-w-0">
+              <h2 className="m-0 text-sm font-bold text-neutral-900">Needs attention</h2>
+              <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Worked out from today&apos;s packages and bookings</p>
+            </div>
+            {!loading ? (
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${attention.length ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                {attention.length ? `${attention.length} open` : "All clear"}
+              </span>
+            ) : null}
+          </div>
+          {loading && !overview ? (
+            <div className="space-y-2 p-4 sm:p-5">
+              {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-14 animate-pulse rounded-xl bg-neutral-100" />)}
+            </div>
+          ) : attention.length ? (
+            <ul className="m-0 list-none divide-y divide-solid divide-neutral-100 p-0">
+              {attention.map((item) => (
+                <li key={item.key} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                  <span className={`inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-xl border border-solid px-2 text-sm font-black tabular-nums ${ATTENTION_TONES[item.tone]}`}>
+                    {item.count}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-bold text-neutral-900">{item.title}</span>
+                    <span className="block text-[12px] leading-snug text-neutral-500">{item.detail}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={item.run}
+                    className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] font-bold text-neutral-700 transition hover:border-emerald-300 hover:text-emerald-800"
+                  >
+                    {item.action} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="flex items-center gap-3 px-4 py-6 sm:px-5">
+              <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-5 w-5" aria-hidden /></span>
+              <span>
+                <span className="block text-[13px] font-bold text-neutral-900">Nothing waiting on you</span>
+                <span className="block text-[12px] text-neutral-500">Packages are reviewed, pickups validated and payouts sent.</span>
+              </span>
+            </div>
+          )}
+        </section>
+
+        {/* Where the money goes */}
+        <section className={CARD}>
+          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+            <div className="min-w-0">
+              <h2 className="m-0 text-sm font-bold text-neutral-900">Where the money goes</h2>
+              <p className="m-0 mt-0.5 text-[12px] text-neutral-500">Paid tour bookings, all time</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCommission((prev) => !prev)}
+              aria-label={showCommission ? "Hide commission amount" : "Show commission amount"}
+              title={showCommission ? "Hide commission" : "Show commission"}
+              className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-neutral-600 transition hover:bg-neutral-50"
             >
-              <div className="font-semibold mb-1" style={{ color: "#fff" }}>Tour commerce</div>
-              <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,0.60)" }}>
-                Track operator readiness, package inventory and the booking money flow from gross paid amount to NoLSAF commission and operator payout.
+              {showCommission ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
+              {showCommission ? "Hide" : "Show"} commission
+            </button>
+          </div>
+          <div className="p-4 sm:p-5">
+            <p className="m-0 text-[11px] font-semibold text-neutral-500">Gross booking revenue</p>
+            <p className="m-0 mt-0.5 text-2xl font-black tabular-nums tracking-tight text-neutral-950">{money(gross, currency)}</p>
+            <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+              <span className="bg-emerald-600 transition-all duration-500" style={{ width: `${payoutShare}%` }} />
+              <span className="bg-violet-500 transition-all duration-500" style={{ width: `${commissionShare}%` }} />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="min-w-0">
+                <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold text-neutral-500"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden /> Operators</p>
+                <p className="m-0 mt-0.5 break-words text-base font-black tabular-nums text-emerald-700">{money(payout, currency)}</p>
+                <p className="m-0 text-[11px] text-neutral-400">{payoutShare}% of gross</p>
+              </div>
+              <div className="min-w-0">
+                <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold text-neutral-500"><span className="h-2 w-2 rounded-full bg-violet-500" aria-hidden /> NoLSAF commission</p>
+                <p className="m-0 mt-0.5 break-words text-base font-black tabular-nums text-violet-700">{showCommission ? money(commission, currency) : "Hidden"}</p>
+                <p className="m-0 text-[11px] text-neutral-400">{commissionShare}% of gross</p>
               </div>
             </div>
+            {payoutsWaiting.length ? (
+              <p className="m-0 mt-4 rounded-xl bg-sky-50 px-3 py-2 text-[12px] text-sky-800">
+                <span className="font-bold">{money(payoutWaitingAmount, currency)}</span> of the operator share is still waiting to be sent.
+              </p>
+            ) : null}
           </div>
-        </div>
+        </section>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {kpis.map((item) => {
-          const Icon = item.icon;
-          const isCommissionCard = item.label === "NoLSAF Commission";
-          return (
-            <div key={item.label} className="group relative rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
-              <div className={`absolute inset-0 bg-gradient-to-br ${item.color} opacity-0 group-hover:opacity-5 transition-opacity duration-200`} />
-              {isCommissionCard ? (
-                <button
-                  type="button"
-                  onClick={() => setShowCommission((prev) => !prev)}
-                  className="absolute right-3 top-3 z-20 inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-600 hover:bg-white"
-                  aria-label={showCommission ? "Hide commission amount" : "Show commission amount"}
-                  title={showCommission ? "Hide amount" : "Show amount"}
-                >
-                  {showCommission ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              ) : null}
-              <div className="relative z-10">
-                <div className={`inline-flex items-center justify-center h-9 w-9 rounded-lg bg-gradient-to-br ${item.color} text-white shadow-sm`}>
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="mt-3 text-xl font-black text-gray-900">{item.value}</div>
-                <div className="mt-0.5 text-[11px] font-bold uppercase tracking-wider text-gray-500">{item.label}</div>
-              </div>
-            </div>
-          );
-        })}
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        {/* Pipeline health */}
+        <section className={CARD}>
+          <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">Pipeline health</h2>
+            <p className="m-0 mt-0.5 text-[12px] text-neutral-500">How much of each stage is ready to earn</p>
+          </div>
+          <ul className="m-0 list-none divide-y divide-solid divide-neutral-100 p-0">
+            {lanes.map((lane) => {
+              const tone = laneTone(lane.rate, lane.total);
+              return (
+                <li key={lane.key} className="flex items-center gap-3.5 px-4 py-3.5 sm:px-5">
+                  <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700">
+                    <lane.Icon className="h-[18px] w-[18px]" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="m-0 text-[13px] font-bold text-neutral-900">{lane.title}</p>
+                      <p className="m-0 shrink-0 text-[12px] text-neutral-500">
+                        <span className="text-[15px] font-black tabular-nums text-neutral-950">{lane.done}</span>
+                        <span className="tabular-nums"> of {lane.total}</span> {lane.verb}
+                      </p>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2.5">
+                      <span className="block h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-100">
+                        <span className={`block h-2 rounded-full transition-all duration-500 ${tone.bar}`} style={{ width: `${lane.rate}%` }} />
+                      </span>
+                      <span className={`w-9 shrink-0 text-right text-[12px] font-black tabular-nums ${tone.text}`}>{lane.total ? `${lane.rate}%` : "None"}</span>
+                    </div>
+                    <p className="m-0 mt-1 text-[11.5px] text-neutral-500">{lane.note}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        {/* Top earning packages */}
+        <section className={CARD}>
+          <div className="border-0 border-b border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">Top earning packages</h2>
+            <p className="m-0 mt-0.5 text-[12px] text-neutral-500">By money generated from paid bookings</p>
+          </div>
+          {topPackages.length ? (
+            <ul className="m-0 list-none space-y-3 p-4 sm:p-5">
+              {topPackages.map((pkg, i) => (
+                <li key={pkg.id} className="min-w-0">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 truncate text-[13px] font-bold text-neutral-900">
+                      <span className="mr-1.5 text-neutral-400">{i + 1}.</span>{pkg.title}
+                    </span>
+                    <span className="shrink-0 text-[12px] font-black tabular-nums text-neutral-900">{money(pkg.totalGenerated, pkg.currency)}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="block h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-100">
+                      <span className="block h-1.5 rounded-full bg-emerald-600" style={{ width: `${(Number(pkg.totalGenerated || 0) / topMax) * 100}%` }} />
+                    </span>
+                    <span className="shrink-0 text-[11px] text-neutral-400">{pkg.operatorName} · {pkg.bookingsCount} {pkg.bookingsCount === 1 ? "booking" : "bookings"}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="m-0 px-4 py-6 text-[12px] text-neutral-500 sm:px-5">No package has earned from a paid booking yet.</p>
+          )}
+        </section>
       </div>
 
-      <div className="bg-gradient-to-r from-[#02665e]/10 to-emerald-50 rounded-xl border border-[#02665e]/20 p-4 sm:p-6 shadow-sm">
-        <div className="grid gap-4 sm:grid-cols-2 sm:divide-x sm:divide-[#02665e]/15">
-          <div className="text-center sm:pr-6">
-            <div className="text-xs sm:text-sm font-medium text-gray-600">Gross Booking Revenue</div>
-            <div className="mt-1 text-lg sm:text-xl font-bold text-gray-900">{money(summary?.grossBookingRevenue ?? 0, currency)}</div>
-          </div>
-          <div className="text-center sm:pl-6">
-            <div className="text-xs sm:text-sm font-medium text-gray-600">Operator Payout</div>
-            <div className="mt-1 text-lg sm:text-xl font-bold text-[#02665e]">{money(summary?.operatorPayout ?? 0, currency)}</div>
-          </div>
-        </div>
-      </div>
 
-      {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
-
-      <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <section id="package-inventory" className="scroll-mt-24 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Package Inventory</h2>
@@ -886,7 +1048,7 @@ export default function AdminAgentsTourBookingsPage() {
         ) : null}
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <section id="tour-bookings-table" className="scroll-mt-24 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-5 border-b border-gray-100">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Tour Bookings</h2>

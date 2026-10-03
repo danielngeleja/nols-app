@@ -14,7 +14,7 @@ export type NrmsProperty = {
   nrmsActivatedAt: string | null;
   nrmsBookingKey: string;
   nrmsQrOrderingFrozenAt?: string | null;
-  nrmsAccessRole?: "OWNER" | "MANAGER" | "SALES_EXECUTIVE" | "FRONT_DESK" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR";
+  nrmsAccessRole?: "OWNER" | "MANAGER" | "SALES_EXECUTIVE" | "FRONT_DESK" | "RESTAURANT" | "BAR" | "OUTLET_SUPERVISOR" | "STOREKEEPER";
   nrmsOutletId?: number | null;
   effectiveAccess?: {
     propertyId: number;

@@ -8,6 +8,7 @@ import { bankInitiateSchema } from "../routes/payments.azampay.bank";
 import { BANK_PROVIDER_CATALOG } from "../lib/azampay.helpers";
 import { isWebhookIpAllowed } from "../routes/webhooks.payments";
 import { menuCategoryAllowed } from "../routes/nrms.operations";
+import { isTravellerDocumentPublicId } from "../lib/travellerDocuments";
 
 const originalEnv = { ...process.env };
 
@@ -72,10 +73,18 @@ describe("security hardening", () => {
     expect(isCloudinaryFileTypeAllowed("application/javascript")).toBe(false);
   });
 
-  it("caps NRMS menu photos at 2MB, including nested menu folders", () => {
+  it("caps sensitive photos and traveller documents at 2MB", () => {
     expect(maxCloudinaryUploadBytesForFolder("nrms-menu")).toBe(2 * 1024 * 1024);
     expect(maxCloudinaryUploadBytesForFolder("nrms-menu/property-1")).toBe(2 * 1024 * 1024);
+    expect(maxCloudinaryUploadBytesForFolder("traveller-documents/booking-tr_example")).toBe(2 * 1024 * 1024);
+    expect(maxCloudinaryUploadBytesForFolder("agent-traveller-documents/booking-42")).toBe(2 * 1024 * 1024);
     expect(maxCloudinaryUploadBytesForFolder("properties")).toBeNull();
+  });
+
+  it("accepts only booking-scoped traveller document object ids", () => {
+    expect(isTravellerDocumentPublicId("traveller-documents/booking-tr_example/passport_1")).toBe(true);
+    expect(isTravellerDocumentPublicId("uploads/public-passport")).toBe(false);
+    expect(isTravellerDocumentPublicId("traveller-documents/../other-secret")).toBe(false);
   });
 
   it("keeps restaurant and bar menu categories separated", () => {

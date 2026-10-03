@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import { prisma } from "@nolsaf/prisma";
+import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
 
 type StartOptions = {
   io?: Server;
@@ -143,7 +144,7 @@ async function tick(io?: Server) {
       daysLeft,
       state: isExpired ? "EXPIRED" : "EXPIRING",
       actionUrlOwner: "/owner/profile",
-      actionUrlAdmin: `/admin/owners/${ownerId}`,
+      actionUrlAdmin: `/admin/owners/${recordRef("owner", ownerId) ?? ownerId}`,
     };
 
     const r = await ensureDailyNotification({ ownerId, title, body, meta });

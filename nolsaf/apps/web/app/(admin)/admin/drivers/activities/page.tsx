@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Activity, Truck, UserPlus, Award, Trophy, Calendar, FileText,  ArrowRight } from "lucide-react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import { useSearchParams } from "next/navigation";
 
 const api = apiClient;
@@ -31,6 +32,7 @@ type DriverActivities = {
 
 export default function AdminDriversActivitiesPage() {
   const searchParams = useSearchParams();
+  const queryDriverId = useAdminQueryId("driver", searchParams?.get("driverId"), "driverId");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [activities, setActivities] = useState<Map<number, DriverActivities["activities"]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -43,15 +45,14 @@ export default function AdminDriversActivitiesPage() {
   }, []);
 
   useEffect(() => {
-    const raw = searchParams?.get("driverId") || "";
-    const id = Number(raw);
+    const id = queryDriverId ?? 0;
     if (!Number.isFinite(id) || id <= 0) return;
     if (!drivers.length) return;
     if (selectedDriver === id) return;
     const exists = drivers.some((d) => d.id === id);
     if (!exists) return;
     void loadDriverActivity(id);
-  }, [searchParams, drivers, selectedDriver]);
+  }, [queryDriverId, drivers, selectedDriver]);
 
   async function loadDrivers() {
     setLoading(true);

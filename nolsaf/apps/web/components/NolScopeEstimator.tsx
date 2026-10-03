@@ -1139,7 +1139,7 @@ export default function NolScopeEstimator() {
               visa={visa}
               startDate={startDate}
               adults={adults}
-              children={children}
+              childCount={children}
               destinations={destinations}
               destByCode={destByCode}
               month={travelMonth}
@@ -1447,7 +1447,7 @@ function TripPanel({
   visa,
   startDate,
   adults,
-  children,
+  childCount,
   destinations,
   destByCode,
   month,
@@ -1464,7 +1464,7 @@ function TripPanel({
   visa: VisaInfo | null;
   startDate: string;
   adults: number;
-  children: number;
+  childCount: number;
   destinations: DestinationEntry[];
   destByCode: Map<string, Destination>;
   month: number | null;
@@ -1487,7 +1487,7 @@ function TripPanel({
       value: (
         <>
           <span suppressHydrationWarning>{flag}</span> {nationalityLabel} · {adults} adult{adults === 1 ? "" : "s"}
-          {children ? `, ${children} child${children === 1 ? "" : "ren"}` : ""}
+          {childCount ? `, ${childCount} child${childCount === 1 ? "" : "ren"}` : ""}
         </>
       ),
       empty: false,

@@ -36,7 +36,7 @@ const MODE_LABEL: Record<string, string> = {
   ALWAYS: "On every payment",
 };
 
-const FIELD = "box-border h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs outline-none focus:border-emerald-600";
+const FIELD = "box-border h-10 w-full rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs text-neutral-900 outline-none transition hover:border-neutral-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 const LABEL = "text-[11px] font-bold text-neutral-700";
 
 export default function FiscalReceiptsCard() {
@@ -114,10 +114,10 @@ export default function FiscalReceiptsCard() {
   // receipts for it reach TRA. A separate card left a visible seam between two
   // things that are the same subject.
   return (
-    <div className="mt-6 border-t border-solid border-neutral-200 pt-5">
+    <div className="mt-6 box-border border-0 border-t border-solid border-neutral-200 pt-5 [&_*]:box-border">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-200 bg-emerald-50 text-emerald-700">
             <FileText className="h-4 w-4" />
           </span>
           <div className="min-w-0">
@@ -130,7 +130,7 @@ export default function FiscalReceiptsCard() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${live ? "border-emerald-200 bg-emerald-50 text-emerald-700" : scheduled ? "border-sky-200 bg-sky-50 text-sky-700" : "border-neutral-200 bg-neutral-50 text-neutral-500"}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded-full border border-solid px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${live ? "border-emerald-300 bg-emerald-50 text-emerald-700" : scheduled ? "border-sky-300 bg-sky-50 text-sky-700" : "border-neutral-300 bg-white text-neutral-500"}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-500" : scheduled ? "bg-sky-500" : "bg-neutral-400"}`} />
             {loading ? "Checking" : live ? MODE_LABEL[fiscal!.mode] : scheduled ? "Starts soon" : "Off"}
           </span>
@@ -138,7 +138,7 @@ export default function FiscalReceiptsCard() {
             <button
               type="button"
               onClick={() => setOpen((value) => !value)}
-              className={`inline-flex h-9 items-center gap-2 rounded-lg border-0 px-4 text-xs font-bold transition ${open ? "bg-neutral-100 text-neutral-700 hover:bg-neutral-200" : live || scheduled ? "bg-neutral-900 text-white hover:bg-neutral-800" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
+              className={`inline-flex h-9 items-center gap-2 rounded-lg border-0 px-4 text-xs font-bold transition ${open ? "bg-white text-neutral-700 ring-1 ring-neutral-300 hover:bg-neutral-50" : live || scheduled ? "bg-neutral-900 text-white hover:bg-neutral-800" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
             >
               {open ? "Close" : live || scheduled ? "Manage" : "Set up"}
             </button>
@@ -193,30 +193,42 @@ export default function FiscalReceiptsCard() {
       {(live || scheduled) && <div className="mt-4"><ReceiptsPanel propertyId={selectedPropertyId} /></div>}
 
       {open && (
-        <div className="mt-4 grid gap-3 rounded-xl border border-solid border-neutral-200 bg-neutral-50/60 p-3 sm:p-4">
+        <div className="mt-4 grid gap-4 rounded-2xl border border-solid border-neutral-300 bg-neutral-50 p-3 sm:p-5">
           {/* Three facts, each answering a different worry: what it does, what
               happens when TRA is down, who holds the credentials. Shown here
               because this is the moment an owner is deciding. */}
+          {(() => {
+            const steps = [Boolean(fiscal?.identity?.tin && fiscal.identity.vrn), Boolean(fiscal?.credential || fiscal?.staged), live || scheduled];
+            const doneCount = steps.filter(Boolean).length;
+            return (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <p className="m-0 text-xs font-bold text-neutral-900">{doneCount === 3 ? "Setup complete" : `Setup · ${doneCount} of 3 steps done`}</p>
+                <div className="flex min-w-[160px] flex-1 gap-1.5" aria-hidden="true">
+                  {steps.map((done, index) => <span key={index} className={`h-1.5 flex-1 rounded-full ${done ? "bg-emerald-500" : "bg-neutral-300"}`} />)}
+                </div>
+              </div>
+            );
+          })()}
           {!live && (
-            <ul className="m-0 grid list-none gap-2 p-0 sm:grid-cols-3">
+            <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-3">
               {[
                 { icon: FileText, title: "Receipts issue themselves", body: "Every bar, restaurant and folio payment produces a TRA receipt automatically, or only when a guest asks." },
                 { icon: RefreshCw, title: "A TRA outage never blocks a sale", body: "Guests keep paying normally. Receipts queue and send once TRA is reachable again." },
                 { icon: Lock, title: "Your registration, your keys", body: "You register with TRA and enter your own credentials. NoLSAF only transmits on your behalf." },
               ].map((point) => (
-                <li key={point.title} className="flex gap-2.5 rounded-lg border border-solid border-neutral-200 bg-white p-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                <li key={point.title} className="flex gap-3 rounded-xl border border-solid border-neutral-300 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-solid border-emerald-200 bg-emerald-50 text-emerald-700">
                     <point.icon className="h-3.5 w-3.5" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[11px] font-bold leading-4 text-neutral-900">{point.title}</span>
+                    <span className="block text-xs font-bold leading-4 text-neutral-900">{point.title}</span>
                     <span className="mt-1 block text-[11px] leading-4 text-neutral-500">{point.body}</span>
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          <Step n={1} title="Your TRA registration" note="Exactly as TRA holds it for this business.">
+          <Step n={1} done={Boolean(fiscal?.identity?.tin && fiscal.identity.vrn)} title="Your TRA registration" note="Exactly as TRA holds it for this business.">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="TIN" value={identity.tin} onChange={(v) => setIdentity((s) => ({ ...s, tin: v }))} />
               <Field label="VRN" value={identity.vrn} onChange={(v) => setIdentity((s) => ({ ...s, vrn: v }))} />
@@ -227,14 +239,14 @@ export default function FiscalReceiptsCard() {
               type="button"
               disabled={busy}
               onClick={() => void run(() => apiClient.put(`/api/owner/nrms/fiscal/property/${selectedPropertyId}/identity`, { ...identity, taxOffice: identity.taxOffice || null }), "Registration details saved.")}
-              className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg bg-neutral-900 px-3 text-xs font-bold text-white hover:bg-neutral-800 disabled:opacity-50"
+              className="mt-3 inline-flex h-9 appearance-none items-center gap-2 rounded-lg border-0 bg-neutral-900 px-3.5 text-xs font-bold text-white hover:bg-neutral-800 disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}Save details
             </button>
           </Step>
 
-          <Step n={2} title="Your TRA credentials" note="The username, password and certificate file TRA issued to this business.">
-            <p className="mb-3 mt-0 flex items-start gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-600">
+          <Step n={2} done={Boolean(fiscal?.credential || fiscal?.staged)} title="Your TRA credentials" note="The username, password and certificate file TRA issued to this business.">
+            <p className="mb-3 mt-0 flex items-start gap-2 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-600">
               <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>These are encrypted and are never shown again, to you or to anyone at NoLSAF. You can replace them at any time.</span>
             </p>
@@ -259,7 +271,7 @@ export default function FiscalReceiptsCard() {
                     };
                     reader.readAsDataURL(file);
                   }}
-                  className="box-border w-full rounded-lg border border-solid border-neutral-200 bg-white p-2 text-xs file:mr-2 file:rounded-[0.25rem] file:border-0 file:bg-neutral-100 file:px-2 file:py-1 file:text-xs file:font-bold"
+                  className="box-border w-full rounded-lg border border-solid border-neutral-300 bg-white p-2 text-xs file:mr-2 file:rounded-[0.25rem] file:border-0 file:bg-neutral-100 file:px-2 file:py-1 file:text-xs file:font-bold"
                 />
                 {certificateName ? <span className="text-[10px] text-neutral-500">{certificateName}</span> : null}
               </label>
@@ -302,7 +314,7 @@ export default function FiscalReceiptsCard() {
                 disabled={busy || !fiscal?.staged}
                 onClick={() => void run(() => apiClient.post(`/api/owner/nrms/fiscal/property/${selectedPropertyId}/credentials/validate`, {}), "Checked.")}
                 title={!fiscal?.staged ? "Save your credentials first, then NoLSAF can test them against TRA" : undefined}
-                className="inline-flex h-9 appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-300 bg-white px-3.5 text-xs font-bold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ShieldCheck className="h-3.5 w-3.5" />Check with TRA
               </button>
@@ -314,14 +326,14 @@ export default function FiscalReceiptsCard() {
             )}
           </Step>
 
-          <Step n={3} title="Switch it on" note="Takes effect when your next business day opens.">
+          <Step n={3} done={live || scheduled} title="Switch it on" note="Takes effect when your next business day opens.">
             <div className="grid gap-2">
               {/* The selected option now reads as selected: an emerald card,
                   not a default blue browser radio on a plain white row. */}
               {(["ON_REQUEST", "ALWAYS"] as const).map((value) => {
                 const on = mode === value;
                 return (
-                  <label key={value} className={`flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid px-3 py-2.5 text-xs transition ${on ? "border-emerald-400 bg-emerald-50/70" : "border-neutral-200 bg-white hover:bg-neutral-50"}`}>
+                  <label key={value} className={`flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid px-3 py-2.5 text-xs transition ${on ? "border-emerald-500 bg-emerald-50" : "border-neutral-300 bg-white hover:border-neutral-400"}`}>
                     <input type="radio" name="fiscal-mode" checked={on} onChange={() => setMode(value)} className="sr-only" />
                     <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-solid ${on ? "border-emerald-600 bg-emerald-600" : "border-neutral-300 bg-white"}`}>
                       {on && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
@@ -342,7 +354,7 @@ export default function FiscalReceiptsCard() {
                 native checkbox against small grey text, easy to miss entirely.
                 It is now a card, like the mode options above it, so the thing
                 that gates activation looks like a thing you must act on. */}
-            <label className={`mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid p-3 text-[11px] leading-5 transition ${accepted ? "border-emerald-400 bg-emerald-50/70 text-emerald-900" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"}`}>
+            <label className={`mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid p-3 text-[11px] leading-5 transition ${accepted ? "border-emerald-500 bg-emerald-50 text-emerald-900" : "border-neutral-300 bg-white text-neutral-700 hover:border-neutral-400"}`}>
               <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} className="sr-only" />
               <span aria-hidden="true" className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-solid ${accepted ? "border-emerald-600 bg-emerald-600 text-white" : "border-neutral-300 bg-white"}`}>
                 {accepted && <Check className="h-3 w-3" />}
@@ -368,7 +380,7 @@ export default function FiscalReceiptsCard() {
                   type="button"
                   disabled={busy}
                   onClick={() => void run(() => apiClient.post(`/api/owner/nrms/fiscal/property/${selectedPropertyId}/deactivate`, {}), "Will switch off at the end of today.")}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-700 hover:bg-neutral-50"
+                  className="inline-flex h-9 appearance-none items-center gap-2 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-bold text-neutral-700 hover:bg-neutral-50"
                 >
                   Switch off
                 </button>
@@ -446,7 +458,7 @@ function ReceiptsPanel({ propertyId }: { propertyId: number }) {
   if (!canIssue && receipts.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-solid border-neutral-200 p-4">
+    <div className="rounded-xl border border-solid border-neutral-300 bg-white p-4">
       <h3 className="m-0 text-[13px] font-bold text-neutral-950">Receipts</h3>
       {note && <p className="mb-0 mt-2 rounded-lg bg-neutral-50 px-3 py-2 text-[11px] leading-5 text-neutral-700">{note}</p>}
 
@@ -457,7 +469,7 @@ function ReceiptsPanel({ propertyId }: { propertyId: number }) {
             {issuable.map((row) => {
               const key = `${row.sourceType}:${row.sourceId}`;
               return (
-                <li key={key} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-50 px-3 py-2">
+                <li key={key} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 py-2">
                   <span className="min-w-0 text-[11px] text-neutral-700">
                     <span className="font-bold text-neutral-900">{row.currency} {row.amount.toLocaleString()}</span>
                     <span className="text-neutral-500"> · {row.label} · {new Date(row.occurredAt).toLocaleDateString()}</span>
@@ -481,7 +493,7 @@ function ReceiptsPanel({ propertyId }: { propertyId: number }) {
         <div className="mt-4 overflow-x-auto">
           <ul className="m-0 grid min-w-[520px] list-none gap-1.5 p-0">
             {receipts.map((receipt) => (
-              <li key={receipt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-solid border-neutral-100 px-3 py-2">
+              <li key={receipt.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-solid border-neutral-200 px-3 py-2">
                 <span className="min-w-0 text-[11px] text-neutral-700">
                   <span className={`mr-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${RECEIPT_TONE[receipt.status] || "bg-neutral-100 text-neutral-600"}`}>
                     {RECEIPT_LABEL[receipt.status] || receipt.status}
@@ -515,15 +527,17 @@ function ReceiptsPanel({ propertyId }: { propertyId: number }) {
   );
 }
 
-function Step({ n, title, note, children }: { n: number; title: string; note: string; children: React.ReactNode }) {
+/** A numbered setup step. A finished step shows a check and a "Done" tag, so the owner sees what is left at a glance. */
+function Step({ n, title, note, done = false, children }: { n: number; title: string; note: string; done?: boolean; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-solid border-neutral-200 bg-white p-4">
-      <div className="mb-3 flex items-start gap-3 border-b border-solid border-neutral-100 pb-3">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-solid border-neutral-200 bg-neutral-50 text-[11px] font-bold tabular-nums text-neutral-700">{n}</span>
-        <div className="min-w-0">
-          <h3 className="m-0 text-[13px] font-bold leading-tight text-neutral-950">{title}</h3>
+    <div className={`rounded-xl border border-solid bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.06)] sm:p-5 ${done ? "border-emerald-300" : "border-neutral-300"}`}>
+      <div className="mb-4 flex items-start gap-3 border-0 border-b border-solid border-neutral-200 pb-3.5">
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums ${done ? "bg-emerald-600 text-white" : "bg-neutral-900 text-white"}`}>{done ? <Check className="h-3.5 w-3.5" /> : n}</span>
+        <div className="min-w-0 flex-1">
+          <h3 className="m-0 text-sm font-bold leading-tight text-neutral-950">{title}</h3>
           <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-500">{note}</p>
         </div>
+        {done && <span className="shrink-0 rounded-full border border-solid border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Done</span>}
       </div>
       {children}
     </div>
@@ -545,11 +559,11 @@ function Field({ label, value, onChange, type = "text" }: { label: string; value
  */
 function Tile({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: "neutral" | "green" | "amber" | "red" | "sky" }) {
   const shell =
-    tone === "green" ? "border-emerald-200 bg-emerald-50"
-      : tone === "amber" ? "border-amber-200 bg-amber-50"
-      : tone === "red" ? "border-red-200 bg-red-50"
-      : tone === "sky" ? "border-sky-200 bg-sky-50"
-      : "border-neutral-200 bg-white";
+    tone === "green" ? "border-emerald-300 bg-emerald-50"
+      : tone === "amber" ? "border-amber-300 bg-amber-50"
+      : tone === "red" ? "border-red-300 bg-red-50"
+      : tone === "sky" ? "border-sky-300 bg-sky-50"
+      : "border-neutral-300 bg-white";
   return (
     <div className={`min-w-0 rounded-xl border border-solid p-4 ${shell}`}>
       <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p>

@@ -26,6 +26,7 @@
 
 import { prisma } from "@nolsaf/prisma";
 import type { Disbursement, PayoutAccount } from "@prisma/client";
+import { getFxRates } from "../../lib/fx.js";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
@@ -36,15 +37,22 @@ export type RiskFlag =
   | "AMOUNT_ABOVE_NORMAL_RANGE"
   | "ACCOUNT_SHARED_ACROSS_PARTNERS"
   | "AFTER_HOURS_APPROVAL"
-  | "REPEATED_RECENT_FAILURES";
+  | "REPEATED_RECENT_FAILURES"
+  | "AMOUNT_AT_REVIEW_THRESHOLD"
+  | "PAYEE_DAILY_CAP_EXCEEDED";
 
 export interface RiskAssessment {
   level: RiskLevel;
   flags: RiskFlag[];
 }
 
-/** A payout account whose destination changed within this window of the payout being approved is treated as "just changed." */
+/** Default window, in hours, in which a freshly created or changed destination counts as "just changed". Admin-tunable via SystemSetting.payoutRecentChangeHours. */
 const RECENT_ACCOUNT_CHANGE_HOURS = 72;
+/** Bounds on the admin-tunable window: shorter than a day defeats the point, longer than two weeks just queues onboarding. */
+const RECENT_CHANGE_HOURS_MIN = 24;
+const RECENT_CHANGE_HOURS_MAX = 336;
+/** Statuses that count toward a payee's rolling 24h total: money already sent or committed to go. */
+const DAILY_CAP_STATUSES = ["BATCHED", "AUTHORIZED", "SUBMITTED", "PROCESSING", "PAID"];
 /** A payout more than this multiple of the payee's own trailing average is flagged as an outlier. */
 const AMOUNT_OUTLIER_MULTIPLIER = 3;
 const AFTER_HOURS_START_HOUR = 22; // 22:00
@@ -59,6 +67,58 @@ const REPEATED_FAILURE_THRESHOLD = 2;
  */
 function businessTimeZone(): string {
   return process.env.PAYOUT_RISK_TIMEZONE || "Africa/Dar_es_Salaam";
+}
+
+/**
+ * Admin-set payout safeguards from SystemSetting. Read per assessment so a
+ * change in Settings applies to the next batch formation without a restart.
+ * Fails to the built-in behaviour (no threshold, no cap, 72h window) when the
+ * row or the columns are unavailable, e.g. before the migration is applied.
+ */
+export interface PayoutSafeguards {
+  reviewThresholdTzs: number | null;
+  dailyCapPerPayeeTzs: number | null;
+  recentChangeHours: number;
+}
+
+function positiveOrNull(value: unknown): number | null {
+  const n = Number(value);
+  return value !== null && value !== undefined && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function clampRecentChangeHours(value: unknown): number {
+  const n = Number(value);
+  if (value === null || value === undefined || !Number.isFinite(n)) return RECENT_ACCOUNT_CHANGE_HOURS;
+  return Math.min(RECENT_CHANGE_HOURS_MAX, Math.max(RECENT_CHANGE_HOURS_MIN, Math.round(n)));
+}
+
+export async function loadPayoutSafeguards(): Promise<PayoutSafeguards> {
+  try {
+    const row = await prisma.systemSetting.findUnique({
+      where: { id: 1 },
+      select: { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true },
+    });
+    return {
+      reviewThresholdTzs: positiveOrNull(row?.payoutReviewThresholdTzs),
+      dailyCapPerPayeeTzs: positiveOrNull(row?.payoutDailyCapPerPayeeTzs),
+      recentChangeHours: clampRecentChangeHours(row?.payoutRecentChangeHours),
+    };
+  } catch (err: any) {
+    console.error("[riskScoring] payout safeguards unavailable, using built-in defaults:", err?.code || err?.message || err);
+    return { reviewThresholdTzs: null, dailyCapPerPayeeTzs: null, recentChangeHours: RECENT_ACCOUNT_CHANGE_HOURS };
+  }
+}
+
+/**
+ * Converts an amount to TZS for the absolute safeguards. Returns null when no
+ * rate is known, which the callers treat as "cannot prove it is under the
+ * limit" and hold the payout: a control must fail closed.
+ */
+async function toTzs(amount: number, currency: string | null | undefined): Promise<number | null> {
+  const code = String(currency || "TZS").toUpperCase();
+  if (code === "TZS") return amount;
+  const rate = Number((await getFxRates()).tzsPerUnit?.[code]);
+  return Number.isFinite(rate) && rate > 0 ? amount * rate : null;
 }
 
 function hoursBetween(a: Date, b: Date): number {
@@ -85,11 +145,13 @@ export function isAfterHours(date: Date, timeZone = businessTimeZone()): boolean
  * Callers persist `riskLevel`/`riskFlags` themselves at batch-formation time.
  */
 export async function assessDisbursementRisk(
-  disbursement: Pick<Disbursement, "id" | "sourceType" | "sourceId" | "amount" | "payoutAccountId" | "approvedAt" | "createdAt">,
-  payoutAccount: Pick<PayoutAccount, "id" | "userId" | "accountNumber" | "provider" | "destinationChangedAt" | "createdAt">
+  disbursement: Pick<Disbursement, "id" | "sourceType" | "sourceId" | "amount" | "currency" | "payoutAccountId" | "approvedAt" | "createdAt">,
+  payoutAccount: Pick<PayoutAccount, "id" | "userId" | "accountNumber" | "provider" | "destinationChangedAt" | "createdAt">,
+  safeguards?: PayoutSafeguards
 ): Promise<RiskAssessment> {
   const flags: RiskFlag[] = [];
   const decisionTime = disbursement.approvedAt ?? disbursement.createdAt;
+  const limits = safeguards ?? (await loadPayoutSafeguards());
 
   // Recent destination change: the account's money-carrying fields were set
   // or edited shortly before this payout was approved. Anchored on
@@ -97,7 +159,7 @@ export async function assessDisbursementRisk(
   // actually changes — never on verifiedAt, which routine re-verification
   // overwrites and which therefore says nothing about the destination.
   const accountAnchor = payoutAccount.destinationChangedAt ?? payoutAccount.createdAt;
-  if (accountAnchor && hoursBetween(decisionTime, accountAnchor) <= RECENT_ACCOUNT_CHANGE_HOURS) {
+  if (accountAnchor && hoursBetween(decisionTime, accountAnchor) <= limits.recentChangeHours) {
     flags.push("RECENT_ACCOUNT_CHANGE");
   }
 
@@ -159,6 +221,38 @@ export async function assessDisbursementRisk(
   });
   if (recentFailures >= REPEATED_FAILURE_THRESHOLD) flags.push("REPEATED_RECENT_FAILURES");
 
+  // Absolute size, independent of the payee's history. The relative outlier
+  // check above needs three prior payouts, so a new or barely-used payee
+  // could otherwise receive any amount with nothing stronger than MEDIUM.
+  const amountTzs = await toTzs(Number(disbursement.amount), disbursement.currency);
+  if (limits.reviewThresholdTzs !== null && (amountTzs === null || amountTzs >= limits.reviewThresholdTzs)) {
+    flags.push("AMOUNT_AT_REVIEW_THRESHOLD");
+  }
+
+  // Rolling 24h total to this payee across every destination they own:
+  // in-flight and paid payouts, plus this one. Stops a takeover from draining
+  // an account through many payouts that are each individually unremarkable.
+  if (limits.dailyCapPerPayeeTzs !== null) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recent = await prisma.disbursement.findMany({
+      where: {
+        id: { not: disbursement.id },
+        payoutAccount: { is: { userId: payoutAccount.userId } },
+        OR: [
+          { status: "PAID", paidAt: { gte: since } },
+          { status: { in: DAILY_CAP_STATUSES.filter((st) => st !== "PAID") } },
+        ],
+      },
+      select: { amount: true, currency: true },
+    });
+    let total: number | null = amountTzs;
+    for (const row of recent) {
+      const inTzs = await toTzs(Number(row.amount), row.currency);
+      total = total === null || inTzs === null ? null : total + inTzs;
+    }
+    if (total === null || total > limits.dailyCapPerPayeeTzs) flags.push("PAYEE_DAILY_CAP_EXCEEDED");
+  }
+
   const level = scoreLevel(flags);
   return { level, flags };
 }
@@ -171,6 +265,8 @@ export async function assessDisbursementRisk(
 const FLAG_WEIGHTS: Record<RiskFlag, number> = {
   ACCOUNT_SHARED_ACROSS_PARTNERS: 3,
   REPEATED_RECENT_FAILURES: 3,
+  AMOUNT_AT_REVIEW_THRESHOLD: 6,
+  PAYEE_DAILY_CAP_EXCEEDED: 6,
   RECENT_ACCOUNT_CHANGE: 2,
   AMOUNT_ABOVE_NORMAL_RANGE: 2,
   PAYEE_HAS_PRIOR_PAYOUT_ELSEWHERE: 1,
@@ -193,6 +289,10 @@ export function scoreLevel(flags: RiskFlag[]): RiskLevel {
   if (has("RECENT_ACCOUNT_CHANGE") && has("ACCOUNT_SHARED_ACROSS_PARTNERS")) return "CRITICAL";
 
   // Blocking, but explainable by something other than takeover.
+  // The admin-set limits are hard rules: a payout past either one always
+  // needs a person to look at it, whatever else is or is not true.
+  if (has("AMOUNT_AT_REVIEW_THRESHOLD")) return "HIGH";
+  if (has("PAYEE_DAILY_CAP_EXCEEDED")) return "HIGH";
   if (has("REPEATED_RECENT_FAILURES")) return "HIGH";
   if (has("ACCOUNT_SHARED_ACROSS_PARTNERS")) return "HIGH";
   if (has("RECENT_ACCOUNT_CHANGE") && has("AMOUNT_ABOVE_NORMAL_RANGE")) return "HIGH";

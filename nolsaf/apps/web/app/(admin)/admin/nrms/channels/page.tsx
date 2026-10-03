@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { SummaryCard } from "../_components/CommercialUi";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type HealthState = "HEALTHY" | "SYNCING" | "ATTENTION" | "CRITICAL" | "PAUSED" | "DISCONNECTED";
 
@@ -293,6 +294,7 @@ function ChannelAdvancedControls({ connection, onChanged }: { connection: Connec
 }
 
 export default function ChannelControlPage() {
+  const recordHref = useAdminHref();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [history, setHistory] = useState<ChannelHistory | null>(null);
   const [historyDays, setHistoryDays] = useState(7);
@@ -634,7 +636,7 @@ export default function ChannelControlPage() {
                           <span><strong className="text-neutral-700">Trust:</strong> {connection.trustTier}</span>
                           <span><strong className="text-neutral-700">Last inbound:</strong> {shortDateTime(connection.lastInboundAt)}</span>
                           <span><strong className="text-neutral-700">Last outbound:</strong> {shortDateTime(connection.lastOutboundAt)}</span>
-                          <Link href={`/admin/nrms/${connection.property.id}`} className="font-bold text-emerald-700 no-underline hover:text-emerald-900">Open property record</Link>
+                          <Link href={recordHref("property", connection.property.id)} className="font-bold text-emerald-700 no-underline hover:text-emerald-900">Open property record</Link>
                         </div>
                         {connection.lastErrorMessage ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"><strong>{connection.lastErrorCode || "Latest error"}:</strong> {connection.lastErrorMessage}</div> : null}
                         <ChannelAdvancedControls connection={connection} onChanged={advancedChanged} />

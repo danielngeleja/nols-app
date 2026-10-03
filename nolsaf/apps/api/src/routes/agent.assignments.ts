@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireRole } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { audit } from "../lib/audit.js";
 import { notifyAdmins, notifyUser } from "../lib/notifications.js";
@@ -15,7 +15,9 @@ import {
 import { buildOperatorProfileSeed, mergeOperatorProfileSeed } from "../lib/operatorProfileSeed.js";
 import { extractPlannedActivities } from "../lib/agentPlannedActivities.js";
 import { computeAgentLevel, resolveTierLadder } from "../lib/agentLevel.js";
-import { canClaimFinalTourPayout, disputeWindowEndsAt } from "../lib/tourLifecycle.js";
+import { canClaimFinalTourPayout } from "../lib/tourLifecycle.js";
+import { balanceAfterAdvances, balanceDisputeDeadline, computeAdvanceOffer, maxAdvanceRequest, ADVANCE_TRANCHE, TOUR_PAYOUT_POLICY_VERSION } from "../lib/tourPayoutPolicy.js";
+import { loadAdvanceTotals, loadAdvanceTotalsFor, loadOperatorStanding } from "../lib/tourPayouts.js";
 import { classifyOperatorCaseResponsibility } from "../lib/tourCaseResponsibility.js";
 import { syncOperatorTourPackages } from "../lib/tourPackageSync.js";
 import { loadOperatorContractTemplate } from "../lib/operatorContract.js";
@@ -1442,12 +1444,16 @@ router.get(
           guestName: true,
           nationality: true,
           metadata: true,
+          paidAt: true,
+          customerConfirmedAt: true,
+          disputeWindowEndsAt: true,
+          _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"] } } } } },
         },
         orderBy: { createdAt: "desc" },
       }),
     ]);
 
-    const isCompletedTour = (status: unknown, metadata: unknown): boolean => {
+    const isCompletedTour =(status: unknown, metadata: unknown): boolean => {
       const s = String(status || "").toUpperCase();
       if (s.includes("COMPLETE") || s.includes("DONE") || s.includes("FINISHED") || s.includes("CHECKED_OUT")) return true;
       const md = metadata && typeof metadata === "object" && !Array.isArray(metadata)
@@ -1516,9 +1522,64 @@ router.get(
       tourByReportId.set(`tb-${trip.id}`, trip);
     }
 
+    // Tour Operator Disbursement Policy: the operator's standing and the
+    // advance rows on each booking decide what can be paid before the trip.
+    const [standing, advanceByBooking] = await Promise.all([
+      loadOperatorStanding(agent as { id: number; userId: number }),
+      loadAdvanceTotals(tourTrips.map((trip) => trip.id)),
+    ]);
+    const nowForPolicy = new Date();
+
     const tourItems = tourDerived.map((t) => {
       const rawTour = (tourByReportId.get(t.id) || null) as any;
+      const advances = rawTour ? advanceByBooking.get(rawTour.id) : undefined;
+      const advancePaid = advances?.paid ?? 0;
+      const advanceOffer = rawTour
+        ? computeAdvanceOffer(
+            {
+              status: rawTour.status,
+              paymentStatus: rawTour.paymentStatus,
+              paidAt: rawTour.paidAt,
+              startDate: rawTour.startDate,
+              operatorNet: t.operatorPayout,
+              advanceCommitted: advances?.committed ?? 0,
+              openCaseCount: rawTour._count?.cases || 0,
+            },
+            standing,
+            nowForPolicy
+          )
+        : null;
+      // Same gate the claim endpoint applies, so the page can say up front
+      // whether a trip is claimable and, if not, why and from when.
+      const eligibility = rawTour
+        ? canClaimFinalTourPayout({ ...rawTour, openCaseCount: rawTour._count?.cases || 0 })
+        : { ok: false, reason: "unknown" };
+      const claimAvailableAt = eligibility.reason === "dispute_window_open" && rawTour?.disputeWindowEndsAt
+        ? new Date(rawTour.disputeWindowEndsAt).toISOString()
+        : null;
       return {
+      claimEligibility: {
+        // The balance also waits for any advance still moving through finance.
+        ok: eligibility.ok && !(advances?.inFlight ?? 0),
+        reason: eligibility.ok && (advances?.inFlight ?? 0) ? "advance_in_flight" : eligibility.reason || null,
+        availableAt: claimAvailableAt,
+      },
+      openCaseCount: rawTour?._count?.cases || 0,
+      // Net share minus advances already paid: what the balance claim pays.
+      balanceAmount: Math.round(balanceAfterAdvances(t.operatorPayout, advancePaid)),
+      advance: {
+        offer: advanceOffer,
+        paid: Math.round(advancePaid),
+        inFlight: Math.round(advances?.inFlight ?? 0),
+        claims: (advances?.rows ?? []).map((row) => ({
+          id: row.id,
+          status: row.status,
+          amount: Math.round(row.amount),
+          createdAt: row.createdAt,
+          evidenceTotal: Number((row.metadata as any)?.evidenceTotal ?? 0) || 0,
+          reason: (row.metadata as any)?.rejectedReason ?? null,
+        })),
+      },
       source: t.source,
       id: t.id,
       bookingCode: rawTour?.bookingCode || null,
@@ -1583,6 +1644,11 @@ router.get(
         currency: summaryCurrency,
         lifetimeRevenue,
       },
+      // What the advance rules need to explain themselves to the operator.
+      payoutPolicy: {
+        version: TOUR_PAYOUT_POLICY_VERSION,
+        standing,
+      },
       items,
     });
   })
@@ -1599,6 +1665,8 @@ const claimByTourCodeSchema = z
 router.post(
   "/revenues/claim-by-tour-code",
   requireRole("AGENT") as RequestHandler,
+  // Requesting money is never allowed from an impersonated session.
+  blockImpersonated,
   limitAgentRevenueClaim as any,
   asyncHandler(async (req: any, res) => {
     const authed = req?.user;
@@ -1675,6 +1743,17 @@ router.post(
       return res.status(409).json({ ok: false, error: "already_claimed", message: "Payout already requested for this tour code" });
     }
 
+    // The balance is the net share minus advances paid; it waits for any
+    // advance still moving through finance so the two never overlap.
+    const advances = await loadAdvanceTotalsFor(booking.id);
+    if (advances.inFlight > 0) {
+      return res.status(409).json({
+        ok: false,
+        error: "advance_in_flight",
+        message: "An advance for this trip is still being processed. Claim the balance once it is paid or declined.",
+      });
+    }
+
     const now = new Date();
 
     const updated = await prisma.tourBooking.update({
@@ -1728,6 +1807,206 @@ router.post(
     });
   })
 );
+
+const claimAdvanceSchema = z
+  .object({
+    tourCode: z.string().trim().min(2).max(80),
+    amount: z.coerce.number().positive().max(100_000_000),
+    evidence: z
+      .array(
+        z
+          .object({
+            description: z.string().trim().min(3).max(200),
+            amount: z.coerce.number().positive().max(100_000_000),
+            evidenceUrl: z.string().trim().url().max(600).refine((url) => /^https:\/\//i.test(url), "Evidence must be an https link"),
+          })
+          .strict()
+      )
+      .max(10)
+      .optional(),
+  })
+  .strict();
+
+// POST /api/agent/revenues/claim-advance
+// Pre-trip advance under the Tour Operator Disbursement Policy
+// (lib/tourPayoutPolicy.ts). Creates a CLAIMED advance row (kind PAYOUT,
+// metadata.tranche ADVANCE) for NoLSAF finance to verify and approve; money
+// only moves later through the disbursement ledger as source TOUR_ADVANCE.
+router.post(
+  "/revenues/claim-advance",
+  requireRole("AGENT") as RequestHandler,
+  blockImpersonated,
+  limitAgentRevenueClaim as any,
+  asyncHandler(async (req: any, res) => {
+    const parsed = claimAdvanceSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ ok: false, error: "invalid_body", message: "Check the amount and supplier receipts.", issues: parsed.error.issues });
+    }
+
+    const gate = await getActiveAgent(req as AuthedRequest);
+    if (!gate.ok) return res.status(gate.status).json({ ok: false, error: gate.error, message: gate.message });
+    const agent = gate.agent;
+
+    const code = parsed.data.tourCode.toUpperCase();
+    const booking = await prisma.tourBooking.findFirst({
+      where: { operatorAgentId: agent.id, bookingCode: code, ...paidTourBookingWhere() },
+      select: {
+        id: true,
+        bookingCode: true,
+        status: true,
+        paymentStatus: true,
+        paidAt: true,
+        startDate: true,
+        currency: true,
+        grossAmount: true,
+        commissionAmount: true,
+        operatorPayoutAmount: true,
+        _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW"] } } } } },
+      },
+    });
+    if (!booking) {
+      return res.status(404).json({ ok: false, error: "tour_code_not_found", message: "Tour code was not found for your account" });
+    }
+
+    const advances = await loadAdvanceTotalsFor(booking.id);
+    if (advances.inFlight > 0) {
+      return res.status(409).json({
+        ok: false,
+        error: "advance_in_flight",
+        message: "An advance for this trip is already being processed. Wait for it before requesting another.",
+      });
+    }
+
+    const standing = await loadOperatorStanding(agent as { id: number; userId: number });
+    const operatorNet = Number(booking.operatorPayoutAmount) > 0
+      ? Number(booking.operatorPayoutAmount)
+      : Math.max(0, Number(booking.grossAmount) - Number(booking.commissionAmount));
+    const now = new Date();
+    const offer = computeAdvanceOffer(
+      {
+        status: booking.status,
+        paymentStatus: booking.paymentStatus,
+        paidAt: booking.paidAt,
+        startDate: booking.startDate,
+        operatorNet,
+        advanceCommitted: advances.committed,
+        openCaseCount: booking._count.cases,
+      },
+      standing,
+      now
+    );
+    if (!offer.ok) {
+      return res.status(409).json({ ok: false, error: offer.reason, message: "This trip is not eligible for an advance right now.", offer });
+    }
+
+    const evidence = parsed.data.evidence ?? [];
+    const evidenceTotal = evidence.reduce((sum, item) => sum + item.amount, 0);
+    const max = maxAdvanceRequest(offer, evidenceTotal);
+    const amount = Math.round(parsed.data.amount * 100) / 100;
+    if (amount > max + 0.01) {
+      return res.status(409).json({
+        ok: false,
+        error: "amount_above_limit",
+        message: offer.inFullWindow || evidenceTotal >= offer.availableWithEvidence
+          ? `The most you can request now is ${booking.currency} ${max.toLocaleString("en-US")}.`
+          : `The most you can request now is ${booking.currency} ${max.toLocaleString("en-US")}. Add supplier receipts to request more, up to ${booking.currency} ${offer.availableWithEvidence.toLocaleString("en-US")}.`,
+        max,
+        offer,
+      });
+    }
+
+    const hoursBeforeStart = booking.startDate ? Math.round((new Date(booking.startDate).getTime() - now.getTime()) / 36e5) : null;
+    const row = await prisma.tourFinancialTransaction.create({
+      data: {
+        tourBookingId: booking.id,
+        kind: "PAYOUT",
+        status: "CLAIMED",
+        currency: booking.currency,
+        amount,
+        idempotencyKey: `tour-advance:${booking.id}:${advances.rows.length + 1}`,
+        metadata: {
+          tranche: ADVANCE_TRANCHE,
+          policyVersion: TOUR_PAYOUT_POLICY_VERSION,
+          operatorNet,
+          percentOfNet: operatorNet > 0 ? Math.round((amount / operatorNet) * 1000) / 10 : null,
+          inFullWindow: offer.inFullWindow,
+          percentWithoutEvidence: offer.percentWithoutEvidence,
+          hoursBeforeStart,
+          evidence,
+          evidenceTotal,
+          operatorTier: standing.tier,
+          claimedAt: now.toISOString(),
+          claimedByUserId: req.user?.id ?? null,
+        } as any,
+      },
+      select: { id: true, amount: true, status: true, createdAt: true },
+    });
+
+    try {
+      await audit(req as AuthedRequest, "AGENT_TOUR_ADVANCE_CLAIMED", "TOUR_BOOKING", null, {
+        tourBookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        advanceId: row.id,
+        amount,
+        evidenceTotal,
+        inFullWindow: offer.inFullWindow,
+      });
+    } catch {
+      // ignore audit failures for claim response path
+    }
+    try {
+      await notifyAdmins("payout_claim_submitted", {
+        tourBookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        operatorName: (agent.operatorProfile as any)?.companyName || null,
+        tranche: "ADVANCE",
+        amount,
+        currency: booking.currency,
+      });
+    } catch {
+      // non-fatal
+    }
+
+    return res.json({
+      ok: true,
+      advance: { id: row.id, amount, status: row.status, createdAt: row.createdAt },
+      message: "Advance request sent. NoLSAF finance will verify it next.",
+    });
+  })
+);
+
+/**
+ * Guest ratings live per itinerary event in metadata.timelineEventRatings,
+ * either as { ratings: { [userId]: { rating } } } (shared trips) or a single
+ * { rating }. Mirrors the customer-side timelineRatingSummary.
+ */
+function guestRatingSummary(md: any): { average: number; count: number } {
+  const events = md?.timelineEventRatings && typeof md.timelineEventRatings === "object" ? md.timelineEventRatings : {};
+  const values = Object.values(events as Record<string, any>).flatMap((entry) => {
+    const ratings = entry?.ratings && typeof entry.ratings === "object" ? entry.ratings : null;
+    if (ratings && Object.keys(ratings).length) {
+      return Object.values(ratings as Record<string, any>).map((r) => Number(r?.rating ?? r ?? 0));
+    }
+    return entry?.rating ? [Number(entry.rating)] : [];
+  }).filter((r) => Number.isFinite(r) && r >= 1 && r <= 5);
+  const count = values.length;
+  return { average: count ? values.reduce((a, b) => a + b, 0) / count : 0, count };
+}
+
+/** Traveller issue reports on the booking, reduced to what a list row needs. */
+function issueSummary(md: any): { total: number; open: number; highestSeverity: "LOW" | "MEDIUM" | "HIGH" | null; latestTitle: string | null } {
+  const reports = Array.isArray(md?.issueReports) ? md.issueReports : [];
+  const rank = { LOW: 1, MEDIUM: 2, HIGH: 3 } as const;
+  let highest: "LOW" | "MEDIUM" | "HIGH" | null = null;
+  let open = 0;
+  for (const r of reports) {
+    const sev = String(r?.severity || "").toUpperCase() as keyof typeof rank;
+    if (rank[sev] && (!highest || rank[sev] > rank[highest])) highest = sev;
+    if (!["RESOLVED", "CLOSED", "DONE", "FIXED", "REJECTED"].includes(String(r?.status || "").toUpperCase())) open += 1;
+  }
+  const latest = reports.length ? reports[reports.length - 1] : null;
+  return { total: reports.length, open, highestSeverity: highest, latestTitle: latest?.title ? String(latest.title) : null };
+}
 
 // GET /api/agent/tour-bookings
 // Returns TourBooking records where the logged-in agent is the operator (operatorAgentId).
@@ -1799,6 +2078,8 @@ router.get(
           payoutRequestedAt: true,
           payoutApprovedAt: true,
           payoutPaidAt: true,
+          operatorPayoutAmount: true,
+          endDate: true,
           completedAt: true,
           createdAt: true,
           updatedAt: true,
@@ -1845,10 +2126,18 @@ router.get(
         const checklistLockedAt = md?.activityProgress?.lockedAt
           ? String(md.activityProgress.lockedAt)
           : null;
-        const resolvedStatus = checklistLockedAt ? "COMPLETED" : t.status;
+        // A ticked timetable is the operator finishing (OPERATOR_COMPLETED); only
+        // the guest or the closed dispute window makes it COMPLETED.
+        const resolvedStatus = checklistLockedAt && !["COMPLETED", "OPERATOR_COMPLETED", "CANCELED", "REFUNDED"].includes(String(t.status || "").toUpperCase())
+          ? "OPERATOR_COMPLETED"
+          : t.status;
         const resolvedCompletedAt = t.completedAt
           ? t.completedAt.toISOString()
           : (checklistLockedAt || null);
+        const guestRating = guestRatingSummary(md);
+        const selfRatingRaw = Number(md?.agentCompletionRating?.overallRating);
+        const selfRating = Number.isFinite(selfRatingRaw) && selfRatingRaw > 0 ? selfRatingRaw : null;
+        const issues = issueSummary(md);
 
         return {
           id: t.id,
@@ -1877,6 +2166,14 @@ router.get(
           currency: t.currency,
           tripType: t.category || null,
           completedAt: resolvedCompletedAt,
+          endDate: t.endDate ? t.endDate.toISOString() : null,
+          operatorPayoutAmount: t.operatorPayoutAmount != null ? Number(t.operatorPayoutAmount) : null,
+          // Guest itinerary ratings, averaged; `rating` stays for older readers.
+          rating: guestRating.count > 0 ? Math.round(guestRating.average * 10) / 10 : null,
+          guestRatingCount: guestRating.count,
+          selfRating,
+          issueSummary: issues,
+          challenges: issues.latestTitle,
           source: "TOUR_BOOKING" as const,
           requester: {
             fullName: t.guestName || null,
@@ -1940,7 +2237,7 @@ router.post(
           data: {
             status: "OPERATOR_COMPLETED",
             operatorCompletedAt,
-            disputeWindowEndsAt: disputeWindowEndsAt(operatorCompletedAt),
+            disputeWindowEndsAt: balanceDisputeDeadline(operatorCompletedAt, booking.endDate),
           },
           select: { id: true },
         });
@@ -2006,7 +2303,7 @@ router.post(
         ...(shouldMarkOperatorCompleted ? {
           status: "OPERATOR_COMPLETED",
           operatorCompletedAt,
-          disputeWindowEndsAt: disputeWindowEndsAt(operatorCompletedAt),
+          disputeWindowEndsAt: balanceDisputeDeadline(operatorCompletedAt, booking.endDate),
         } : {}),
       },
       select: { id: true },
@@ -2078,6 +2375,9 @@ router.get(
         nationality: true,
         notes: true,
         metadata: true,
+        payoutStatus: true,
+        payoutPaidAt: true,
+        operatorPayoutAmount: true,
         completedAt: true,
         createdAt: true,
         updatedAt: true,
@@ -2092,7 +2392,11 @@ router.get(
     const checklistLockedAt = md?.activityProgress?.lockedAt
       ? String(md.activityProgress.lockedAt)
       : null;
-    const resolvedStatus = checklistLockedAt ? "COMPLETED" : t.status;
+    // A ticked timetable is the operator finishing (OPERATOR_COMPLETED); only
+        // the guest or the closed dispute window makes it COMPLETED.
+        const resolvedStatus = checklistLockedAt && !["COMPLETED", "OPERATOR_COMPLETED", "CANCELED", "REFUNDED"].includes(String(t.status || "").toUpperCase())
+          ? "OPERATOR_COMPLETED"
+          : t.status;
     const resolvedCompletedAt = t.completedAt
       ? t.completedAt.toISOString()
       : (checklistLockedAt || null);
@@ -2110,6 +2414,9 @@ router.get(
         metadata: t.metadata || null,
         status: resolvedStatus,
         paymentStatus: t.paymentStatus,
+        payoutStatus: t.payoutStatus || null,
+        payoutPaidAt: t.payoutPaidAt ? t.payoutPaidAt.toISOString() : null,
+        operatorPayoutAmount: t.operatorPayoutAmount != null ? Number(t.operatorPayoutAmount) : null,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
         tripDate: t.startDate ? t.startDate.toISOString() : null,
@@ -2300,7 +2607,7 @@ router.post(
 
     const booking = await prisma.tourBooking.findFirst({
       where: { id: idNum, operatorAgentId: agent.id, ...paidTourBookingWhere() },
-      select: { id: true, status: true, metadata: true },
+      select: { id: true, status: true, metadata: true, endDate: true },
     });
     if (!booking) return res.status(404).json({ error: "Not found" });
 
@@ -2345,8 +2652,18 @@ router.post(
       where: { id: booking.id },
       data: {
         metadata: md as any,
+        // Finishing the timetable is OPERATOR_COMPLETED, never COMPLETED: only
+        // the guest confirming, or the dispute window closing with no open case
+        // (finalizeTourCompletion worker), completes a trip and opens the balance.
         ...(!completedByStatus && completedByChecklist
-          ? { status: "COMPLETED", completedAt: new Date(checklistLockedAt as string) }
+          ? (() => {
+              const operatorCompletedAt = new Date(checklistLockedAt as string);
+              return {
+                status: "OPERATOR_COMPLETED",
+                operatorCompletedAt,
+                disputeWindowEndsAt: balanceDisputeDeadline(operatorCompletedAt, booking.endDate),
+              };
+            })()
           : {}),
       },
       select: { id: true },

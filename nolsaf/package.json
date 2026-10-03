@@ -60,18 +60,18 @@
     "backfill:tour-operations": "tsx scripts/backfill-tour-operations.ts"
   },
   "dependencies": {
-    "axios": "^1.16.0",
+    "axios": "^1.20.0",
     "dotenv": "^17.2.3",
     "pdf-parse": "^2.4.5",
     "prisma": "7.9.1"
   },
   "pnpm": {
     "overrides": {
-      "axios": "^1.16.0",
-      "africastalking>axios": "1.16.0",
+      "axios": "^1.20.0",
+      "africastalking>axios": "1.20.0",
       "africastalking>lodash": "4.18.1",
       "africastalking": {
-        "axios": "1.16.0",
+        "axios": "1.20.0",
         "lodash": "4.18.1"
       },
       "deepmerge-ts": "^8.0.2",
@@ -80,11 +80,11 @@
       "@hono/node-server": "2.0.12",
       "archiver": "8.0.0",
       "body-parser>qs": "6.16.0",
-      "brace-expansion": "5.0.9",
-      "dompurify": "3.4.13",
+      "brace-expansion": "5.0.12",
+      "dompurify": "3.4.16",
       "esbuild": "0.28.1",
       "express>qs": "6.16.0",
-      "fast-uri": "3.1.7",
+      "fast-uri": "3.1.8",
       "sanitize-html": "2.17.7",
       "mailparser": "3.9.3",
       "mariadb": "3.5.3",
@@ -93,7 +93,7 @@
       "jspdf": "4.2.1",
       "lodash": "4.18.1",
       "minimatch": "10.2.6",
-      "nodemailer": "9.1.1",
+      "nodemailer": "10.0.13",
       "postcss": "8.5.24",
       "qs": "6.16.0",
       "sharp": "0.35.4",
@@ -107,9 +107,9 @@
     }
   },
   "overrides": {
-    "axios": "^1.16.0",
+    "axios": "^1.20.0",
     "africastalking": {
-      "axios": "1.16.0",
+      "axios": "1.20.0",
       "lodash": "4.18.1"
     },
     "deepmerge-ts": "^8.0.2",
@@ -120,8 +120,8 @@
     "body-parser": {
       "qs": "6.16.0"
     },
-    "brace-expansion": "5.0.9",
-    "dompurify": "3.4.13",
+    "brace-expansion": "5.0.12",
+    "dompurify": "3.4.16",
     "esbuild": "0.28.1",
     "express": {
       "body-parser": {
@@ -129,7 +129,7 @@
       },
       "qs": "6.16.0"
     },
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
     "sanitize-html": "2.17.7",
     "magicast": "0.5.2",
     "mailparser": "3.9.3",
@@ -139,7 +139,7 @@
     "jspdf": "4.2.1",
     "lodash": "4.18.1",
     "minimatch": "10.2.6",
-    "nodemailer": "9.1.1",
+    "nodemailer": "10.0.13",
     "postcss": "8.5.24",
     "qs": "6.16.0",
     "sharp": "0.35.4",

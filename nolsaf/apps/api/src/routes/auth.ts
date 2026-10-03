@@ -2492,7 +2492,7 @@ router.post('/passkeys/verify', async (req, res) => {
         expectedRPID: rpID,
         credential: {
           id: stored.credentialId,
-          publicKey: fromBase64UrlToBuffer(stored.publicKey),
+          publicKey: Uint8Array.from(fromBase64UrlToBuffer(stored.publicKey)),
           counter: typeof stored.signCount === 'number' ? stored.signCount : 0,
         },
         requireUserVerification: true,

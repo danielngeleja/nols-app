@@ -26,6 +26,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -34,6 +35,8 @@ function authify() {}
 
 type TransportBooking = {
   id: number;
+  /** Opaque id for the booking URL (individual bookings). */
+  reference?: string;
   groupType: string;
   toRegion: string;
   toLocation: string | null;
@@ -109,6 +112,7 @@ type SortKey = "date" | "pickup" | "created" | "destination" | "customer" | "sta
 type SortDir = "asc" | "desc";
 
 export default function TransportBookingsPage() {
+  useAdminHref();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -172,8 +176,8 @@ export default function TransportBookingsPage() {
 
   const getViewHref = (booking: TransportBooking) =>
     booking.kind === "group"
-      ? `/admin/group-stays/bookings?bookingId=${booking.id}`
-      : `/admin/bookings/${booking.id}`;
+      ? `/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", booking.id)}`
+      : `/admin/bookings/${booking.reference ?? booking.id}`;
 
   useEffect(() => {
     if (typeof window === "undefined") return;

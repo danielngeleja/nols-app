@@ -50,6 +50,8 @@ import adminReferralEarningsRouter from "./admin.referral-earnings";
 import adminReportsRouter from "./admin.reports";
 import adminRevenueRouter from "./admin.revenue";
 import adminFinanceOverviewRouter from "./admin.financeOverview";
+import adminFinanceExpensesRouter from "./admin.finance.expenses";
+import adminFinancePayrollRouter from "./admin.finance.payroll";
 import adminNrmsRouter from "./admin.nrms";
 import adminNrmsEnforceRouter from "./admin.nrms.enforce";
 import adminNrmsCommercialRouter from "./admin.nrms.commercial.js";
@@ -72,6 +74,7 @@ import adminUpdatesRouter from "./admin.updates";
 import adminUsersSummaryRouter from "./admin.users.summary";
 import adminUsersTransportBookingsRouter from "./admin.users.transportBookings";
 import adminUsersRouter from "./admin.users";
+import adminRecordRefsRouter from "./admin.recordRefs.js";
 import adminTrustVerificationRouter from "./admin.trustVerification.js";
 
 export function registerAdminGuards(app: Express): void {
@@ -88,6 +91,9 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/revenue", adminRevenueRouter);
   app.use("/api/admin/revenue", adminRevenueRouter as RequestHandler);
   app.use("/admin/finance", adminFinanceOverviewRouter);
+  // Mounted before the overview router so its own guards run first.
+  app.use("/api/admin/finance/expenses", adminFinanceExpensesRouter as RequestHandler);
+  app.use("/api/admin/finance/payroll", adminFinancePayrollRouter as RequestHandler);
   app.use("/api/admin/finance", adminFinanceOverviewRouter as RequestHandler);
   app.use("/admin/nrms/enforce", adminNrmsEnforceRouter);
   app.use("/api/admin/nrms/enforce", adminNrmsEnforceRouter as RequestHandler);
@@ -164,6 +170,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/users", adminUsersRouter);
   app.use("/api/admin/trust-verification", adminTrustVerificationRouter as RequestHandler);
   app.use("/api/admin/users", adminUsersRouter as RequestHandler);
+  // Opaque references for admin page URLs (no row ids in the address bar).
+  app.use("/api/admin/record-refs", adminRecordRefsRouter as RequestHandler);
   app.use("/admin/help-owners", adminHelpOwnersRouter);
   app.use("/api/admin/help-owners", adminHelpOwnersRouter as RequestHandler);
   app.use("/admin/bonuses", adminBonusesRouter);

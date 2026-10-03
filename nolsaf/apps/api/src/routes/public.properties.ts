@@ -1349,6 +1349,109 @@ const topCities: RequestHandler = async (req, res) => {
 router.get("/top-cities", topCities);
 
 /**
+ * GET /api/public/properties/city-summary?cities=Dar es Salaam,Arusha,...
+ * Listing count and the newest listing card for each named city, in one call,
+ * so the mobile landing screen does not fire a request per city. The city
+ * match is the same as the list endpoint's ?city= filter. Cached 5 minutes.
+ */
+const citySummary: RequestHandler = async (req, res) => {
+  const cities = Array.from(new Set(parseCsv((req.query as any)?.cities).map((c) => c.trim()).filter(Boolean))).slice(0, 30);
+  if (!cities.length) return res.json({ items: [] });
+  try {
+    const items = await withCache(
+      publicCacheKey("properties-city-summary", { version: 1, cities: cities.join("|").toLowerCase() }),
+      async () =>
+        Promise.all(
+          cities.map(async (city) => {
+            const where = { status: "APPROVED", AND: [{ OR: locationContainsClauses("city", city) }] } as any;
+            const [count, sample] = await Promise.all([
+              prisma.property.count({ where }),
+              prisma.property.findFirst({
+                where,
+                orderBy: { id: "desc" },
+                select: {
+                  id: true, title: true, type: true, regionName: true, district: true, ward: true, street: true, city: true, country: true,
+                  basePrice: true, currency: true, roomsSpec: true, maxGuests: true, totalBedrooms: true, totalBathrooms: true,
+                  images: { select: { url: true, thumbnailUrl: true, status: true }, orderBy: { createdAt: "asc" }, take: 6 },
+                },
+              }),
+            ]);
+            return { city, count, sample: sample ? toPublicCard(sample) : null };
+          })
+        ),
+      { ttl: 300, tags: [cacheTags.propertyList] }
+    );
+    res.set("Cache-Control", "no-store");
+    return res.json({ items });
+  } catch (err: any) {
+    console.error("public.properties.citySummary failed", err);
+    return res.status(500).json({ error: "failed" });
+  }
+};
+
+router.get("/city-summary", citySummary);
+
+/**
+ * GET /api/public/properties/park-summary?limit=8
+ * Parks and tourism sites that have approved stays linked to them, busiest
+ * first: the site, how many stays, and one real photo from the newest stay.
+ * Sites with no stays are left out. Cached 5 minutes.
+ */
+const parkSummary: RequestHandler = async (req, res) => {
+  const limit = Math.min(12, Math.max(1, Number((req.query as any)?.limit) || 8));
+  try {
+    const items = await withCache(
+      publicCacheKey("properties-park-summary", { version: 1, limit }),
+      async () => {
+        const groups = await prisma.property.groupBy({
+          by: ["tourismSiteId"],
+          where: { status: "APPROVED", tourismSiteId: { not: null } },
+          _count: { _all: true },
+          orderBy: { _count: { tourismSiteId: "desc" } },
+          take: limit,
+        });
+        const siteIds = groups.map((g) => Number(g.tourismSiteId)).filter(Number.isFinite);
+        if (!siteIds.length) return [];
+        const [sites, newest] = await Promise.all([
+          prisma.tourismSite.findMany({ where: { id: { in: siteIds } }, select: { id: true, slug: true, name: true, country: true } }),
+          Promise.all(
+            siteIds.map((siteId) =>
+              prisma.property.findFirst({ where: { status: "APPROVED", tourismSiteId: siteId }, orderBy: { id: "desc" }, select: { id: true, tourismSiteId: true } })
+            )
+          ),
+        ]);
+        const sampleIds = newest.filter(Boolean).map((p) => p!.id);
+        const images = await batchResolvePrimaryImages(sampleIds);
+        const siteById = new Map<number, (typeof sites)[number]>(sites.map((s) => [s.id, s]));
+        return groups
+          .map((g) => {
+            const site = siteById.get(Number(g.tourismSiteId));
+            if (!site) return null;
+            const sample = newest.find((p) => p?.tourismSiteId === site.id);
+            const image = sample ? images.get(sample.id) ?? null : null;
+            return {
+              slug: site.slug,
+              name: site.name,
+              country: site.country,
+              stays: g._count._all,
+              image: image && /^https?:\/\//i.test(image) ? image : null,
+            };
+          })
+          .filter(Boolean);
+      },
+      { ttl: 300, tags: [cacheTags.propertyList] }
+    );
+    res.set("Cache-Control", "no-store");
+    return res.json({ items });
+  } catch (err: any) {
+    console.error("public.properties.parkSummary failed", err);
+    return res.status(500).json({ error: "failed" });
+  }
+};
+
+router.get("/park-summary", parkSummary);
+
+/**
  * GET /api/public/properties/verification?token=...
  * Public, no-login property verification certificate endpoint.
  */

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, CircleDollarSign, Clock3, Eye, FileText, RefreshCw, RotateCcw, Search, SearchCheck, X, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { adminPath } from "@/lib/adminRecordRefs";
 
 const money = (value: unknown, currency = "TZS") => `${currency} ${Number(value || 0).toLocaleString()}`;
 
@@ -84,7 +85,10 @@ export default function TourCancellationPanel() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (selectedId != null) router.push(`/admin/cancellations/tours/${selectedId}`); }, [router, selectedId]);
+  useEffect(() => {
+    if (selectedId == null) return;
+    void adminPath("tour-case", selectedId).then((path) => router.push(path));
+  }, [router, selectedId]);
 
   const stats = useMemo(() => ({
     total: items.length,

@@ -6,6 +6,7 @@ import apiClient from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
 import TableRow from "@/components/TableRow";
 import Link from "next/link";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 // Use same-origin calls (Next rewrites proxy to API in dev). Use secure cookie session.
 const api = apiClient;
@@ -23,6 +24,7 @@ type Row = {
 };
 
 export default function AdminOwnersPage() {
+  const recordHref = useAdminHref();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -739,7 +741,7 @@ export default function AdminOwnersPage() {
                     <div className="text-xs text-gray-400 ml-6 tabular-nums">{o.id}</div>
                   </div>
                   <Link
-                    href={`/admin/owners/${o.id}`}
+                    href={recordHref("owner", o.id)}
                     className="p-2 rounded-lg text-[#02665e] hover:bg-[#02665e]/10 transition-all flex-shrink-0"
                     title="View owner details"
                   >
@@ -943,7 +945,7 @@ export default function AdminOwnersPage() {
                     </td>
                     <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <Link 
-                        href={`/admin/owners/${o.id}`}
+                        href={recordHref("owner", o.id)}
                         className="inline-flex items-center justify-center w-9 h-9 text-[#02665e] border border-[#02665e] rounded-lg hover:bg-[#02665e] hover:text-white transition-all duration-200"
                         title="View owner details"
                       >

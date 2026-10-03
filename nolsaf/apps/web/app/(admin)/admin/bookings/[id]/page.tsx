@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Home, User, Calendar, CheckCircle2, Clock, DollarSign, Key, AlertCircle, AlertTriangle, Loader2, MessageSquare, RefreshCw, Star } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
@@ -17,6 +17,11 @@ function sanitizeInput(input: string): string {
 }
 
 // Validate booking ID
+/** A booking URL segment: the opaque bk_ reference, or a legacy numeric id that gets swapped for one. */
+function isBookingRouteRef(value: string): boolean {
+  return /^bk_[A-Za-z0-9_-]{22}$/.test(value) || /^BKG-/i.test(value) || /^\d+$/.test(value);
+}
+
 function isValidBookingId(id: number | null | undefined): boolean {
   return id !== null && id !== undefined && Number.isInteger(id) && id > 0;
 }
@@ -90,8 +95,11 @@ function ConfirmModal({
 export default function AdminBookingDetail() {
   const params = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(params?.id) ? params?.id?.[0] : params?.id;
-  const id = Number(idParam);
+  const ref = String(idParam ?? "").trim();
+  const router = useRouter();
   const [b, setB] = useState<any>(null);
+  // The numeric id is only used for API calls after the booking has loaded; the URL carries the reference.
+  const id = Number(b?.id);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +109,7 @@ export default function AdminBookingDetail() {
   const [showVoidConfirm, setShowVoidConfirm] = useState(false);
 
   const load = useCallback(async () => {
-    if (!isValidBookingId(id)) {
+    if (!isBookingRouteRef(ref)) {
       setError("Invalid booking ID");
       setLoading(false);
       showToast("error", "Invalid Booking", "Invalid booking ID provided");
@@ -112,8 +120,10 @@ export default function AdminBookingDetail() {
     setError(null);
     try {
       authify();
-      const r = await api.get<any>(`/api/admin/bookings/${id}`);
+      const r = await api.get<any>(`/api/admin/bookings/${encodeURIComponent(ref)}`);
       setB(r.data);
+      // An old numeric link: swap the address bar to the opaque reference.
+      if (/^\d+$/.test(ref) && r.data?.reference) router.replace(`/admin/bookings/${r.data.reference}`);
       setRoomCode(r.data.roomCode ?? "");
     } catch (err: any) {
       console.error("Failed to load booking:", err);
@@ -125,7 +135,7 @@ export default function AdminBookingDetail() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [ref, router]);
 
   useEffect(() => {
     authify();

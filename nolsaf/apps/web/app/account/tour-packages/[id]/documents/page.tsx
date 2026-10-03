@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import axios from "axios";
 import { ArrowLeft, CheckCircle2, Clock3, Eye, FileText, Loader2, ShieldCheck, Upload } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -17,14 +16,7 @@ function displayText(value: unknown, fallback: string): string {
   return fallback;
 }
 
-type CloudinarySig = {
-  timestamp: number;
-  signature: string;
-  folder: string;
-  cloudName: string;
-  apiKey: string;
-  maxFileSize?: number | null;
-};
+type UploadedDocument = { id?: number; url: string; uploadedAt: string; viewUrl?: string };
 
 type RequiredDoc = {
   type: string;
@@ -161,6 +153,27 @@ const DEFAULT_REQUIRED_DOCS: RequiredDoc[] = [
     type: "VISA_DOCUMENT",
     label: "Visa Document",
     description: "Visa approval page when the destination requires one.",
+    accept: ALLOWED_ACCEPT,
+    required: false,
+  },
+  {
+    type: "FLIGHT_ITINERARY",
+    label: "Flight Itinerary",
+    description: "Airline reservation or proposed return-flight itinerary requested for an application.",
+    accept: ALLOWED_ACCEPT,
+    required: false,
+  },
+  {
+    type: "ACCOMMODATION_CONFIRMATION",
+    label: "Accommodation Confirmation",
+    description: "Hotel, lodge, or hosted-stay confirmation for the travel period.",
+    accept: ALLOWED_ACCEPT,
+    required: false,
+  },
+  {
+    type: "VISA_SUPPORTING_LETTER",
+    label: "Visa Supporting Letter",
+    description: "Invitation or support letter supplied by the tour operator or host.",
     accept: ALLOWED_ACCEPT,
     required: false,
   },
@@ -313,8 +326,9 @@ export default function TourPackageDocumentsPage() {
 
   const [bookingCode, setBookingCode] = useState<string>("");
   const [packageTitle, setPackageTitle] = useState<string>("");
+  const [documentBookingRef, setDocumentBookingRef] = useState<string>(bookingId);
   const [requiredDocs, setRequiredDocs] = useState<RequiredDoc[]>(DEFAULT_REQUIRED_DOCS);
-  const [uploadedByType, setUploadedByType] = useState<Record<string, { url: string; uploadedAt: string }>>({});
+  const [uploadedByType, setUploadedByType] = useState<Record<string, UploadedDocument>>({});
   const [fileInputAccept, setFileInputAccept] = useState<string>(`.pdf,.jpg,.jpeg,.png,${ALLOWED_ACCEPT}`);
   const [localPreviewByType, setLocalPreviewByType] = useState<Record<string, string>>({});
   const localPreviewByTypeRef = useRef<Record<string, string>>({});
@@ -352,6 +366,9 @@ export default function TourPackageDocumentsPage() {
 
         setBookingCode(String(booking?.bookingCode || ""));
         setPackageTitle(String(booking?.title || "Tour Package"));
+        const canonicalBookingRef = String(booking?.tourReference || bookingId).trim() || bookingId;
+        const numericBookingId = String(booking?.id || "").trim();
+        setDocumentBookingRef(canonicalBookingRef);
 
         const requiredFromPayload = normalizeRequiredDocs(
           packageSnapshot?.requiredDocuments ||
@@ -387,13 +404,18 @@ export default function TourPackageDocumentsPage() {
 
         const meData = (meRes as any)?.data?.data ?? (meRes as any)?.data ?? {};
         const docs = Array.isArray(meData?.documents) ? meData.documents : [];
-        const nextUploaded: Record<string, { url: string; uploadedAt: string }> = {};
+        const nextUploaded: Record<string, UploadedDocument> = {};
 
         for (const d of docs) {
           const type = String(d?.type || "").toUpperCase().trim();
           const url = String(d?.url || "").trim();
+          const docMetadata = d?.metadata && typeof d.metadata === "object" ? d.metadata : {};
+          const linkedBookingRef = String(docMetadata?.bookingId || "").trim();
+          if (linkedBookingRef !== bookingId && linkedBookingRef !== canonicalBookingRef && linkedBookingRef !== numericBookingId) continue;
           if (!type || !url) continue;
+          const id = Number(d?.id);
           nextUploaded[type] = {
+            ...(Number.isInteger(id) && id > 0 ? { id, viewUrl: `/api/account/documents/${id}/view` } : null),
             url,
             uploadedAt: String(d?.createdAt || d?.updatedAt || ""),
           };
@@ -448,18 +470,18 @@ export default function TourPackageDocumentsPage() {
   };
 
   const uploadToCloudinary = async (file: File) => {
-    const sig = await api.get("/api/uploads/cloudinary/sign?folder=uploads&maxBytes=2097152");
-    const s = sig.data as CloudinarySig;
-
+    const safeBookingRef = documentBookingRef.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "booking";
+    // Cancellation evidence still feeds an older admin case viewer that opens
+    // the stored URL directly. Keep that established path compatible while
+    // ordinary passport/visa files move to authenticated delivery.
+    const folder = isCancellationEvidenceUpload ? "uploads" : `traveller-documents/booking-${safeBookingRef}`;
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("timestamp", String(s.timestamp));
-    fd.append("api_key", s.apiKey);
-    fd.append("signature", s.signature);
-    fd.append("folder", s.folder);
-    fd.append("overwrite", "true");
-    const resp = await axios.post(`https://api.cloudinary.com/v1_1/${s.cloudName}/auto/upload`, fd);
-    return (resp.data as { secure_url: string }).secure_url;
+    fd.append("folder", folder);
+    const resp = await api.post(`/api/uploads/cloudinary/upload?folder=${encodeURIComponent(folder)}`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return resp.data as { secure_url: string; public_id: string; resource_type: string };
   };
 
   const handleFilePicked = async (files: FileList | null) => {
@@ -527,15 +549,16 @@ export default function TourPackageDocumentsPage() {
         fileToUpload = processedFile;
       }
 
-      const url = await uploadToCloudinary(fileToUpload);
+      const uploadedAsset = await uploadToCloudinary(fileToUpload);
+      const url = uploadedAsset.secure_url;
       const uploadedAt = new Date().toISOString();
 
-      await api.put("/api/account/documents", {
+      const saved = await api.put("/api/account/documents", {
         type,
         url,
         metadata: {
           source: "tour_package_documents",
-          bookingId,
+          bookingId: documentBookingRef,
           bookingCode,
           packageTitle,
           documentLabel: docSpec.label,
@@ -543,6 +566,8 @@ export default function TourPackageDocumentsPage() {
           fileName: fileToUpload.name,
           contentType: fileToUpload.type,
           size: fileToUpload.size,
+          cloudinaryPublicId: uploadedAsset.public_id,
+          cloudinaryResourceType: uploadedAsset.resource_type,
           ...(isCancellationEvidenceUpload ? { cancellationCaseId: requestedEvidenceCaseId, source: "tour_cancellation_evidence" } : null),
           ...(isPassportPhoto
             ? {
@@ -565,9 +590,15 @@ export default function TourPackageDocumentsPage() {
         });
       }
 
+      const savedDoc = saved?.data?.data?.doc || saved?.data?.doc || {};
+      const savedId = Number(savedDoc?.id);
       setUploadedByType((prev) => ({
         ...prev,
-        [type]: { url, uploadedAt },
+        [type]: {
+          url,
+          uploadedAt,
+          ...(Number.isInteger(savedId) && savedId > 0 ? { id: savedId, viewUrl: `/api/account/documents/${savedId}/view` } : null),
+        },
       }));
       setSuccess(
         isPassportPhoto
@@ -634,7 +665,7 @@ export default function TourPackageDocumentsPage() {
         <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-2">
           {done ? (
             <a
-              href={uploaded!.url}
+              href={uploaded!.viewUrl || uploaded!.url}
               target="_blank"
               rel="noreferrer"
               aria-label={`View ${doc.label}`}

@@ -34,6 +34,7 @@ import {
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { buildDisputeWorkbook, type DisputeReport } from "@/lib/nrmsDisputeWorkbook";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type AccountOption = {
   propertyId: number;
@@ -131,6 +132,7 @@ async function exportErrorMessage(cause: any): Promise<string> {
 }
 
 export default function SupportPage() {
+  const recordHref = useAdminHref();
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [propertyId, setPropertyId] = useState("");
   const [snapshot, setSnapshot] = useState<SupportSnapshot | null>(null);
@@ -473,10 +475,10 @@ export default function SupportPage() {
                 <button type="button" onClick={() => void loadSnapshot()} disabled={loadingSnapshot || exporting} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60">
                   <RefreshCw className={`h-3.5 w-3.5 ${loadingSnapshot ? "animate-spin" : ""}`} /> Refresh
                 </button>
-                <Link href={`/admin/nrms/${snapshot.property.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
+                <Link href={recordHref("property", snapshot.property.id)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
                   Property <ExternalLink className="h-3.5 w-3.5" />
                 </Link>
-                <Link href={`/admin/nrms/integrity/${snapshot.property.id}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
+                <Link href={recordHref("property", snapshot.property.id, { base: "/admin/nrms/integrity" })} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 no-underline transition hover:bg-neutral-50 hover:no-underline">
                   Activity log <ExternalLink className="h-3.5 w-3.5" />
                 </Link>
               </div>

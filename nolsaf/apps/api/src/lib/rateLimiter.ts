@@ -44,6 +44,12 @@ function getOrCreateLimiter(limit: number): ReturnType<typeof rateLimit> {
 
 let lastRefresh = 0;
 
+function isLoopbackDevelopmentRequest(req: any): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const remoteAddress = String(req.socket?.remoteAddress || "").toLowerCase();
+  return remoteAddress === "::1" || remoteAddress === "127.0.0.1" || remoteAddress === "::ffff:127.0.0.1";
+}
+
 async function refreshActiveLimiter(): Promise<void> {
   const now = Date.now();
   if (now - lastRefresh < CACHE_TTL_MS) return;
@@ -74,6 +80,11 @@ function isPublicReadRequest(req: any): boolean {
 }
 
 export function dynamicRateLimiter(req: any, res: any, next: any) {
+  // Local Next.js development proxies every browser request through one loopback
+  // address. HMR and dashboard polling must not exhaust the shared production
+  // IP bucket while developing; staging and production remain rate-limited.
+  if (isLoopbackDevelopmentRequest(req)) return next();
+
   if (isPublicReadRequest(req)) {
     return publicReadLimiter(req, res, next);
   }

@@ -22,6 +22,14 @@ router.use(requireAuth as RequestHandler);
 
 const GUEST_READ_ROLES = ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"] as const;
 
+/** Subscriber digits of a phone-shaped query (drops +, spaces, a leading 0 or 255), or null. */
+export function guestPhoneSearchTail(q: string): string | null {
+  if (!/^[+\d\s()-]+$/.test(q)) return null;
+  const digits = q.replace(/\D/g, "");
+  const tail = digits.startsWith("255") ? digits.slice(3) : digits.startsWith("0") ? digits.slice(1) : digits;
+  return tail.length >= 3 ? tail : null;
+}
+
 /**
  * GET /api/owner/nrms/guests/:propertyId?q=&page=&pageSize=&sortOrder=
  * Search guests by name, phone or email for one owned property.
@@ -38,10 +46,41 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     const page = Math.max(Math.floor(Number(req.query.page) || 1), 1);
     const pageSize = Math.min(Math.max(Math.floor(Number(req.query.pageSize) || 10), 1), 50);
     const sortOrder = req.query.sortOrder === "desc" ? "desc" : "asc";
+    // Front desk types numbers the way the guest says them (0789..., +255 789...,
+    // 255789...), while profiles keep whatever was typed at the time. Matching on
+    // the subscriber digits makes every one of those forms find the same guest.
+    const phoneTail = guestPhoneSearchTail(q);
     const where = {
       propertyId: property.id as number,
-      ...(q ? { OR: [{ fullName: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }] } : {}),
+      ...(q ? { OR: [
+        { fullName: { contains: q } },
+        { phone: { contains: q } },
+        { email: { contains: q } },
+        ...(phoneTail && phoneTail !== q ? [{ phone: { contains: phoneTail } }] : []),
+      ] } : {}),
     };
+
+    // Type-ahead lookup (front desk "returning guest" picker): one query, no
+    // total count and no SMS consent, because it fires on every keystroke and
+    // only needs names, phones and stay counts.
+    if (req.query.mode === "lookup") {
+      const matches = await prisma.guestProfile.findMany({
+        where,
+        select: { id: true, fullName: true, phone: true, email: true, nationality: true, _count: { select: { reservations: true } } },
+        orderBy: [{ fullName: "asc" }, { id: "desc" }],
+        take: pageSize,
+      });
+      return res.json({
+        guests: matches.map((g) => ({
+          id: g.id,
+          fullName: g.fullName,
+          phone: g.phone,
+          email: g.email,
+          nationality: g.nationality,
+          reservationCount: g._count.reservations,
+        })),
+      });
+    }
 
     const [total, guests] = await prisma.$transaction([
       prisma.guestProfile.count({ where }),

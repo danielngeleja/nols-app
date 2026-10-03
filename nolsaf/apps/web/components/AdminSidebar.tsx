@@ -72,6 +72,7 @@ function Item({
   path,
   variant,
   badge = 0,
+  exact = false,
 }: {
   href: string;
   label: string;
@@ -81,8 +82,10 @@ function Item({
   path: string | null;
   variant: SidebarVariant;
   badge?: number;
+  /** Only the exact path is active, not pages below it that have their own item. */
+  exact?: boolean;
 }) {
-  const active = path === href || path?.startsWith(href + "/");
+  const active = path === href || (!exact && path?.startsWith(href + "/"));
   const dark = variant === "dark";
 
   // Dark variant mirrors the NRMS workspace sidebar exactly (see
@@ -607,7 +610,10 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         <Item href="/admin/home" label="Home" Icon={Home} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Platform-wide revenue across every stream; not owner-specific, so it stands at the top. */}
-        <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} collapsed={collapsed} path={path} variant={variant} />
+        <Item href="/admin/finance" label="All Revenue" Icon={TrendingUp} exact collapsed={collapsed} path={path} variant={variant} />
+
+        {/* NoLSAF's own costs; turns All Revenue into a contribution and net margin. */}
+        <Item href="/admin/expenses" label="Expenses" Icon={Receipt} collapsed={collapsed} path={path} variant={variant} />
 
         {/* Unified business operations queue; specialist workflows remain in their existing sections. */}
         <Item href="/admin/action-center" label="Action Center" Icon={AlertTriangle} collapsed={collapsed} path={path} variant={variant} />

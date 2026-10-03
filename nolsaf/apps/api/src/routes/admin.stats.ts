@@ -1,6 +1,6 @@
 import { Router, RequestHandler } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
-import { getRevenueSeries, getActivePropertiesSeries, getRevenueByType, getActivePropertiesBreakdown, getInvoiceStatus } from "../services/adminStats.js";
+import { getRevenueSeries, getActivePropertiesSeries, getRevenueByType, getActivePropertiesBreakdown, getInvoiceStatus, getInvoiceStages } from "../services/adminStats.js";
 import type { SeriesResponse, BreakdownResponse } from "../types/stats.js";
 
 export const router = Router();
@@ -57,14 +57,14 @@ router.get('/active-properties-series', async (req, res) => {
 });
 
 /**
- * GET /admin/stats/revenue-by-type?from=&to=&region=
- * Returns revenue sums grouped by property.type
+ * GET /admin/stats/revenue-by-type?from=&to=&region=&groupBy=propertyType|region
+ * Returns guest money received, grouped by property type (default) or region
  * { labels: ['Hotel', ...], data: [1234, ...] }
  */
 router.get('/revenue-by-type', async (req, res) => {
   try {
-    const { from, to, region } = req.query as any;
-    const result: SeriesResponse = await getRevenueByType(from, to, region);
+    const { from, to, region, groupBy } = req.query as any;
+    const result: SeriesResponse = await getRevenueByType(from, to, region, groupBy === "region" ? "region" : "propertyType");
     res.json(result);
   } catch (err: any) {
     console.error('Error in revenue-by-type:', err);
@@ -99,6 +99,21 @@ router.get('/invoice-status', async (req, res) => {
   } catch (err: any) {
     console.error('Error in invoice-status:', err);
     res.status(500).json({ error: 'failed', message: err?.message || String(err) });
+  }
+});
+
+/**
+ * GET /admin/stats/invoice-stages?from=&to=
+ * Invoices issued in the period, by money stage: keeps guest payments apart
+ * from payouts delivered to owners and drivers.
+ */
+router.get("/invoice-stages", async (req, res) => {
+  try {
+    const { from, to } = req.query as any;
+    res.json(await getInvoiceStages(from, to));
+  } catch (err: any) {
+    console.error("Error in invoice-stages:", err);
+    res.status(500).json({ error: "failed" });
   }
 });
 

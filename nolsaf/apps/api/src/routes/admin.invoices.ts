@@ -3,7 +3,7 @@ import { prisma } from "@nolsaf/prisma";
 import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { Prisma } from "@prisma/client";
 import { blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
-import { confirmedCustomerPayment } from "../services/payouts/eligibility.js";
+import { confirmedCustomerPaymentForBooking } from "../services/payouts/eligibility.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { makeQR } from "../lib/qr.js";
 import { allocateReceiptNumber } from "../lib/documentSequence.js";
@@ -16,6 +16,8 @@ import {
 } from "../lib/accommodationPayout.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import type { AuthedRequest } from "../middleware/auth.js";
+import { MONEY_STAGES, MONEY_STAGE_KEYS, moneyStageOf } from "../lib/invoiceMoneyStage.js";
+import { indexMoneyStages } from "../lib/invoiceMoneyStageIndex.js";
 
 export const router = Router();
 
@@ -94,13 +96,19 @@ async function createAdminAuditSafe(data: { adminId: number; targetUserId?: numb
   }
 }
 
-/** GET /admin/invoices - List invoices with pagination */
+/** GET /admin/invoices - List invoices with pagination. ?stage= filters by money stage. */
 router.get("/", async (req, res) => {
   try {
-    const { status, ownerId, propertyId, from, to, q, page = "1", pageSize = "50" } = req.query as any;
+    const { status, stage, ownerId, propertyId, from, to, q, page = "1", pageSize = "50" } = req.query as any;
+    const stageIndex = await indexMoneyStages();
 
     const where: any = {};
     if (status) where.status = status;
+    const stageKey = String(stage ?? "").trim().toUpperCase();
+    if (MONEY_STAGE_KEYS.has(stageKey)) {
+      const ids = [...stageIndex.byId].filter(([, entry]) => entry.stage === stageKey).map(([id]) => id);
+      where.id = { in: ids.length ? ids : [-1] };
+    }
     if (ownerId) where.ownerId = Number(ownerId);
     if (from || to) {
       where.issuedAt = {};
@@ -120,6 +128,8 @@ router.get("/", async (req, res) => {
           { invoiceNumber: { contains: searchTerm } },
           { receiptNumber: { contains: searchTerm } },
           { booking: { property: { title: { contains: searchTerm } } } },
+          { owner: { name: { contains: searchTerm } } },
+          { owner: { email: { contains: searchTerm } } },
         ];
       }
     }
@@ -183,7 +193,28 @@ router.get("/", async (req, res) => {
       prisma.invoice.count({ where }),
     ]);
 
-    res.json({ total, page: Number(page), pageSize: take, items });
+    // Platform-wide status totals for the page header, so its cards describe
+    // every invoice rather than only the rows on the current page. Ignores the
+    // list filters on purpose: the cards are what the filters choose between.
+    const byStatus = await prisma.invoice.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+      _sum: { total: true, netPayable: true, commissionAmount: true },
+    });
+    const summary = byStatus.map((row) => ({
+      status: row.status,
+      count: row._count._all,
+      total: Number(row._sum.total ?? 0),
+      netPayable: Number(row._sum.netPayable ?? 0),
+      commission: Number(row._sum.commissionAmount ?? 0),
+    }));
+
+    const staged = items.map((item: any) => {
+      const entry = stageIndex.byId.get(item.id);
+      return { ...item, stage: entry?.stage ?? "OTHER", manualSettlement: entry?.manual ?? false };
+    });
+
+    res.json({ total, page: Number(page), pageSize: take, items: staged, summary, stages: stageIndex.totals });
   } catch (err: any) {
     // If the DB schema is out-of-date (missing column), Prisma will throw P2022
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
@@ -199,6 +230,167 @@ router.get("/", async (req, res) => {
     console.error("Unhandled error in GET /admin/invoices:", err);
     console.error("Error stack:", err?.stack);
     res.status(500).json({ error: "Internal server error", detail: err?.message || String(err) });
+  }
+});
+
+// ── Printable invoice report ─────────────────────────────────────────────
+// Row-level payout detail for a printed report, so it sits behind the finance
+// verification grant like the invoice register in /admin/finance. The page
+// seals the figures through /api/reports/seal before printing.
+
+const REPORT_ROW_LIMIT = 5000;
+const REPORT_SCAN_LIMIT = 20000;
+
+/** A YYYY-MM-DD day boundary in East Africa Time. */
+function eatDayBoundary(value: unknown, end: boolean): Date | null {
+  const day = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const date = new Date(`${day}T${end ? "23:59:59.999" : "00:00:00.000"}+03:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** GET /admin/invoices/report/options - choices for the report filters */
+router.get("/report/options", async (_req, res) => {
+  try {
+    const [regions, types, payees] = await Promise.all([
+      prisma.property.groupBy({ by: ["regionName"], where: { regionName: { not: null }, bookings: { some: { invoices: { some: {} } } } } as any }),
+      prisma.property.groupBy({ by: ["type"], where: { bookings: { some: { invoices: { some: {} } } } } as any }),
+      prisma.user.findMany({
+        where: { invoices: { some: {} } },
+        select: { id: true, name: true, email: true, role: true },
+        orderBy: { name: "asc" },
+        take: 1000,
+      }),
+    ]);
+    res.json({
+      regions: regions.map((r: any) => r.regionName).filter(Boolean).sort(),
+      propertyTypes: types.map((t: any) => t.type).filter(Boolean).sort(),
+      payees: payees.map((p) => ({ id: p.id, name: p.name, email: p.email, role: p.role })),
+    });
+  } catch (err: any) {
+    console.error("GET /admin/invoices/report/options error:", err?.message || err);
+    res.status(500).json({ error: "Could not load report options" });
+  }
+});
+
+/**
+ * GET /admin/invoices/report
+ * Query: stages (comma list of MONEY_STAGES keys), from, to (YYYY-MM-DD, EAT),
+ * dateField (issued|paid), region, propertyType, payeeId, payeeRole (OWNER|DRIVER).
+ */
+router.get("/report", requireAdminFinanceGrant as RequestHandler, async (req, res) => {
+  try {
+    const query = req.query as Record<string, string | undefined>;
+    const stages = new Set(
+      String(query.stages ?? "")
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => MONEY_STAGE_KEYS.has(s)),
+    );
+    const dateField = query.dateField === "paid" ? "paidAt" : "issuedAt";
+    const from = eatDayBoundary(query.from, false);
+    const to = eatDayBoundary(query.to, true);
+    const region = String(query.region ?? "").trim();
+    const propertyType = String(query.propertyType ?? "").trim().toUpperCase();
+    const payeeId = Number(query.payeeId);
+    const payeeRole = String(query.payeeRole ?? "").trim().toUpperCase();
+
+    const where: any = {};
+    if (from || to) where[dateField] = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
+    if (Number.isInteger(payeeId) && payeeId > 0) where.ownerId = payeeId;
+    if (payeeRole === "OWNER" || payeeRole === "DRIVER") where.owner = { role: payeeRole };
+    if (region || propertyType) {
+      where.booking = { property: { ...(region ? { regionName: region } : {}), ...(propertyType ? { type: propertyType } : {}) } };
+    }
+
+    // The stage depends on disbursement rows, so it is applied after the query.
+    const scanned = await prisma.invoice.findMany({
+      where,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        receiptNumber: true,
+        status: true,
+        total: true,
+        commissionAmount: true,
+        netPayable: true,
+        issuedAt: true,
+        paidAt: true,
+        paymentMethod: true,
+        owner: { select: { name: true, email: true, role: true } },
+        booking: { select: { property: { select: { title: true, type: true, regionName: true, district: true } } } },
+      },
+      orderBy: { [dateField]: "asc" },
+      take: REPORT_SCAN_LIMIT,
+    });
+
+    const disbursementsByInvoice = new Map<number, Array<{ status: string; paidAt: Date | null; provider: string | null }>>();
+    for (let i = 0; i < scanned.length; i += 1000) {
+      const ids = scanned.slice(i, i + 1000).map((row) => row.id);
+      const found = await prisma.disbursement.findMany({
+        where: { sourceType: "OWNER_INVOICE", sourceId: { in: ids } },
+        select: { sourceId: true, status: true, paidAt: true, provider: true },
+        orderBy: { id: "desc" },
+      });
+      found.forEach((d) => {
+        const list = disbursementsByInvoice.get(d.sourceId) ?? [];
+        list.push({ status: d.status, paidAt: d.paidAt, provider: d.provider });
+        disbursementsByInvoice.set(d.sourceId, list);
+      });
+    }
+
+    const classified = scanned
+      .map((row) => {
+        const disbursements = disbursementsByInvoice.get(row.id) ?? [];
+        const { stage, manual } = moneyStageOf(row, disbursements);
+        const settled = disbursements.find((d) => String(d.status).toUpperCase() === "PAID") ?? null;
+        return { row, stage, manual, settled, latest: disbursements[0] ?? null };
+      })
+      .filter((entry) => !stages.size || stages.has(entry.stage));
+
+    const totals = MONEY_STAGES.map((s) => {
+      const inStage = classified.filter((entry) => entry.stage === s.key);
+      return {
+        stage: s.key,
+        label: s.label,
+        count: inStage.length,
+        total: inStage.reduce((sum, e) => sum + Number(e.row.total ?? 0), 0),
+        netPayable: inStage.reduce((sum, e) => sum + Number(e.row.netPayable ?? 0), 0),
+        commission: inStage.reduce((sum, e) => sum + Number(e.row.commissionAmount ?? 0), 0),
+      };
+    }).filter((t) => t.count > 0);
+
+    const listed = classified.slice(0, REPORT_ROW_LIMIT);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      matched: classified.length,
+      truncated: classified.length > listed.length,
+      scanLimited: scanned.length >= REPORT_SCAN_LIMIT,
+      stages: MONEY_STAGES,
+      totals,
+      rows: listed.map(({ row, stage, manual, settled, latest }) => ({
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        receiptNumber: row.receiptNumber,
+        status: row.status,
+        stage,
+        manualSettlement: manual,
+        disbursement: latest ? { status: latest.status, paidAt: settled?.paidAt ?? null, provider: latest.provider } : null,
+        total: Number(row.total ?? 0),
+        commission: row.commissionAmount == null ? null : Number(row.commissionAmount),
+        netPayable: row.netPayable == null ? null : Number(row.netPayable),
+        issuedAt: row.issuedAt,
+        paidAt: row.paidAt,
+        paymentMethod: row.paymentMethod,
+        payee: { name: row.owner?.name ?? null, email: row.owner?.email ?? null, role: row.owner?.role ?? null },
+        property: row.booking?.property
+          ? { title: row.booking.property.title, type: row.booking.property.type, region: row.booking.property.regionName, district: row.booking.property.district }
+          : null,
+      })),
+    });
+  } catch (err: any) {
+    console.error("GET /admin/invoices/report error:", err?.message || err);
+    res.status(500).json({ error: "Could not build the invoice report" });
   }
 });
 
@@ -252,7 +444,7 @@ router.post("/:id/approve", blockImpersonated as RequestHandler, async (req, res
   const id = Number(req.params.id);
   if (!(await requireOwnerValidatedForInvoice(id, res))) return;
   const me = (req as AuthedRequest).user?.id;
-  const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, invoiceNumber: true, netPayable: true } });
+  const before = await prisma.invoice.findUnique({ where: { id }, select: { status: true, ownerId: true, bookingId: true, invoiceNumber: true, netPayable: true } });
   if (!before) return res.status(404).json({ error: "Invoice not found" });
 
   const claimed = await prisma.invoice.updateMany({
@@ -269,7 +461,7 @@ router.post("/:id/approve", blockImpersonated as RequestHandler, async (req, res
   // Recorded, not enforced. An approval where nothing has been collected is
   // the shape of the unpaid-booking walk, and the audit row is where that
   // becomes reviewable after the fact.
-  const collected = await confirmedCustomerPayment(id, "TZS").catch(() => null);
+  const collected = await confirmedCustomerPaymentForBooking(before.bookingId, "TZS").catch(() => null);
 
   await invalidateOwnerReports(inv.ownerId); // invalidate cache for the owner
   if (me) {

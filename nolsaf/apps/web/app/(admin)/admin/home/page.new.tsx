@@ -25,6 +25,7 @@ import {
 
 import { useAdminHomeKpis, useAdminMonitoring, useAdminPerformanceHighlights, useAdminRecentActivities } from "./adminHomeHooks";
 import { useSocket } from "@/hooks/useSocket";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 
 const Chart = dynamic(() => import("../../../../components/Chart"), { ssr: false });
 
@@ -208,6 +209,7 @@ function MiniSparkline({
 }
 
 export default function AdminHomePage() {
+  const recordHref = useAdminHref();
   const router = useRouter();
 
   const { socket } = useSocket(undefined, { enabled: true, joinDriverRoom: false });
@@ -878,7 +880,7 @@ export default function AdminHomePage() {
                   />
 
                   <HighlightCard
-                    href={highlights?.bestDriver?.driverId ? `/admin/drivers/audit/${highlights.bestDriver.driverId}` : "/admin/drivers"}
+                    href={highlights?.bestDriver?.driverId ? recordHref("driver", highlights.bestDriver.driverId) : "/admin/drivers"}
                     label="Best driver"
                     value={highlights?.bestDriver?.name ?? "--"}
                     icon={Truck}
@@ -889,7 +891,7 @@ export default function AdminHomePage() {
                   />
 
                   <HighlightCard
-                    href={highlights?.bestOwner?.ownerId ? `/admin/owners/${highlights.bestOwner.ownerId}` : "/admin/owners"}
+                    href={highlights?.bestOwner?.ownerId ? recordHref("owner", highlights.bestOwner.ownerId) : "/admin/owners"}
                     label="Best owner"
                     value={highlights?.bestOwner?.name ?? "--"}
                     icon={Briefcase}
@@ -913,7 +915,7 @@ export default function AdminHomePage() {
                   <HighlightCard
                     href={
                       highlights?.topProperty?.propertyId
-                        ? `/admin/properties/previews?previewId=${highlights.topProperty.propertyId}`
+                        ? `/admin/properties/previews?previewId=${adminRefOrId("property", highlights.topProperty.propertyId)}`
                         : "/admin/properties/previews"
                     }
                     featured

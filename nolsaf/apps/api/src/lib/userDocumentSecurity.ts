@@ -46,6 +46,9 @@ const TRAVELLER_DOCUMENT_TYPES = new Set([
   "PASSPORT",
   "NATIONAL_ID",
   "VISA_DOCUMENT",
+  "FLIGHT_ITINERARY",
+  "ACCOMMODATION_CONFIRMATION",
+  "VISA_SUPPORTING_LETTER",
   "YELLOW_FEVER_CERTIFICATE",
   "VACCINATION_CARD",
   "MEDICAL_CLEARANCE",
@@ -96,6 +99,11 @@ function getAllowedFolderPrefixesForRole(role?: string | null): string[] {
   if (normalizedRole === "DRIVER") return ["driver-documents/"];
   if (normalizedRole === "OWNER") return ["owner-documents/"];
   if (normalizedRole === "AGENT") return ["agent-documents/"];
+  if (["TRAVELLER", "TRAVELER", "CUSTOMER", "USER"].includes(normalizedRole)) {
+    // `uploads/` keeps existing records readable; all new traveller files use
+    // authenticated delivery from the booking-scoped folder.
+    return ["traveller-documents/", "uploads/"];
+  }
   return ["uploads/"];
 }
 

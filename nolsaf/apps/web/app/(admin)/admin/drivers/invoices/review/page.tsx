@@ -20,6 +20,7 @@ import {
   UserRound,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -301,7 +302,7 @@ export default function AdminDriverInvoiceReviewPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<"verify" | "approve" | null>(null);
 
-  const id = searchParams.get("id") || "";
+  const id = useAdminQueryId("transport-payout", searchParams.get("id"), "id");
 
   const load = useCallback(async () => {
     if (!id) return;

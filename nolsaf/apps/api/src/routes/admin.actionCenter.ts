@@ -14,6 +14,7 @@ import {
 } from "../lib/adminActionCenter.js";
 import { serializeAdminWorkItem, synchronizeAdminWorkItems } from "../lib/adminSlaWorkItems.js";
 import { retentionClassForActionCenter, retentionFields } from "../lib/auditRetention.js";
+import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("ADMIN") as unknown as RequestHandler);
@@ -188,7 +189,7 @@ router.get("/", async (req, res) => {
         sourceId: String(invoice.id),
         createdAt: iso(invoice.issuedAt),
         dueAt: iso(dueAt),
-        detailHref: `/admin/payments?invoiceId=${invoice.id}`,
+        detailHref: "/admin/payments",
         actionLabel: "Review payout",
         exposure: { amount: number(invoice.netPayable ?? invoice.total), currency: "TZS" },
         metadata: { status: invoice.status, bookingId: invoice.booking.id },
@@ -212,7 +213,7 @@ router.get("/", async (req, res) => {
         sourceId: String(trip.id),
         createdAt: iso(trip.createdAt),
         dueAt: iso(scheduledAt),
-        detailHref: `/admin/drivers/trips/scheduled?bookingId=${trip.id}`,
+        detailHref: "/admin/drivers/trips/scheduled",
         actionLabel: "Assign driver",
         exposure: trip.amount ? { amount: number(trip.amount), currency: trip.currency || "TZS" } : null,
         metadata: { status: trip.status, scheduledAt: iso(scheduledAt) },
@@ -236,7 +237,7 @@ router.get("/", async (req, res) => {
         sourceId: String(cancellation.id),
         createdAt: iso(cancellation.createdAt),
         dueAt: iso(dueAt),
-        detailHref: `/admin/cancellations/${cancellation.id}`,
+        detailHref: `/admin/cancellations/${recordRef("cancellation", cancellation.id) ?? cancellation.id}`,
         actionLabel: refundPending ? "Complete refund" : "Review request",
         exposure: cancellation.refundAmount ? { amount: number(cancellation.refundAmount), currency: "TZS" } : null,
         metadata: { status: cancellation.status },
@@ -258,7 +259,7 @@ router.get("/", async (req, res) => {
         sourceId: String(tourCase.id),
         createdAt: iso(tourCase.createdAt),
         dueAt: iso(dueAt),
-        detailHref: `/admin/cancellations/tours/${tourCase.id}`,
+        detailHref: `/admin/cancellations/tours/${recordRef("tour-case", tourCase.id) ?? tourCase.id}`,
         actionLabel: "Review tour case",
         exposure: tourCase.resolutionAmount
           ? { amount: number(tourCase.resolutionAmount), currency: tourCase.booking.currency || "TZS" }
@@ -282,7 +283,7 @@ router.get("/", async (req, res) => {
         sourceId: String(property.id),
         createdAt: iso(submittedAt),
         dueAt: iso(dueAt),
-        detailHref: `/admin/properties/previews?propertyId=${property.id}`,
+        detailHref: `/admin/properties/previews?propertyId=${recordRef("property", property.id) ?? property.id}`,
         actionLabel: "Review property",
         exposure: null,
       });
@@ -292,9 +293,9 @@ router.get("/", async (req, res) => {
       const dueAt = deadlineFrom(exception.firstSeenAt, upper(exception.severity) === "ERROR" ? 6 : 24);
       const service = upper(exception.serviceType);
       const detailHref = service === "PROPERTY"
-        ? `/admin/bookings/${exception.bookingId}`
+        ? `/admin/bookings/${recordRef("booking", exception.bookingId) ?? exception.bookingId}`
         : service === "GROUP_STAY"
-          ? `/admin/group-stays/bookings?bookingId=${exception.bookingId}`
+          ? `/admin/group-stays/bookings?bookingId=${recordRef("group-stay", exception.bookingId) ?? exception.bookingId}`
           : "/admin/agents/tour-bookings";
       items.push({
         id: `LIFECYCLE-${exception.id}`,
@@ -328,7 +329,7 @@ router.get("/", async (req, res) => {
         sourceId: String(alert.id),
         createdAt: iso(alert.firstSeenAt),
         dueAt: iso(dueAt),
-        detailHref: `/admin/nrms/channels?connectionId=${alert.connection.id}`,
+        detailHref: "/admin/nrms/channels",
         actionLabel: "Open OTA control",
         exposure: null,
         metadata: { occurrences: alert.occurrenceCount, lastSeenAt: iso(alert.lastSeenAt) },
@@ -349,7 +350,7 @@ router.get("/", async (req, res) => {
         sourceId: String(request.id),
         createdAt: iso(request.requestedAt),
         dueAt: iso(dueAt),
-        detailHref: `/admin/nrms/channels?connectionId=${request.connection.id}`,
+        detailHref: "/admin/nrms/channels",
         actionLabel: "Review request",
         exposure: null,
       });

@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import { ArrowLeft, ShieldCheck, Calendar, Hash, UserCog, FileText, AlertCircle, ChevronDown, ChevronUp, ClipboardList } from "lucide-react";
 
 type AdminAudit = {
@@ -62,7 +63,14 @@ function RawJsonToggle({ data }: { data: any }) {
 
 export default function DriverAssignmentAuditPage({ params }: { params: Promise<{ driverId: string }> }) {
   const { driverId: driverIdParam } = use(params);
-  const driverId = useMemo(() => Number(driverIdParam), [driverIdParam]);
+  return (
+    <AdminRecordGate kind="driver" param={driverIdParam} backHref="/admin/drivers">
+      {(driverId) => <DriverAssignmentAudit driverId={driverId} />}
+    </AdminRecordGate>
+  );
+}
+
+function DriverAssignmentAudit({ driverId }: { driverId: number }) {
   const [items, setItems] = useState<AdminAudit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();

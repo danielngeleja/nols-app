@@ -40,6 +40,7 @@ import {
   buildMasterPaymentReceiptNumber,
   buildMasterRefundNumber,
   ensureMasterFolioForBlock,
+  getMasterFolioPayableBalance,
   getMasterFolioTotals,
   refreshMasterFolioStatus,
 } from "../lib/nrmsMasterFolio.js";
@@ -52,6 +53,7 @@ import {
   serializeProForma,
 } from "../lib/nrmsProForma.js";
 import { emailMasterStatement, renderMasterStatementPdf } from "../lib/nrmsMasterStatement.js";
+import { issueMasterFolioPaymentLink, serializeMasterFolioPaymentLink } from "../lib/nrmsMasterFolioPaymentLink.js";
 
 export const router = Router();
 
@@ -197,7 +199,11 @@ function formatBlock(block: any) {
           refunded: Number(refunded.toFixed(2)),
           paid: Number(paid.toFixed(2)),
           balance: Number((billed - paid).toFixed(2)),
-          credit: Number(Math.max(0, paid - billed).toFixed(2)),
+          // An advance against the Pro Forma is not a credit: money only becomes
+          // refundable once it exceeds what the agency owes, which is the larger
+          // of billed charges and the current Pro Forma (the same ceiling that
+          // paymentDue uses below).
+          credit: Number(Math.max(0, paid - Math.max(billed, quoted)).toFixed(2)),
           quoted: Number(quoted.toFixed(2)),
           paymentDue: Number(Math.max(0, Math.max(billed, quoted) - paid).toFixed(2)),
           settledAt: block.masterFolio.settledAt,
@@ -268,6 +274,14 @@ function formatBlock(block: any) {
     roomsPickedUp,
     blockValue,
     masterFolio,
+    roomingList: block.roomingList
+      ? {
+          status: block.roomingList.status,
+          submittedAt: block.roomingList.submittedAt ?? null,
+          submitterName: block.roomingList.submitterName ?? null,
+          rowCount: block.roomingList._count?.rows ?? null,
+        }
+      : null,
     chargeRegister: chargeRegister.rows,
     rooms: rooms.map((room: any) => ({
       id: room.id,
@@ -296,6 +310,10 @@ const blockInclude = {
       refunds: { orderBy: { createdAt: "asc" as const } },
       proFormas: { orderBy: { revision: "desc" as const } },
     },
+  },
+  // Just enough for the desk to see which block the Groups badge is about.
+  roomingList: {
+    select: { status: true, submittedAt: true, submitterName: true, _count: { select: { rows: true } } },
   },
 };
 
@@ -1055,6 +1073,11 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
       await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, ownerId: block.ownerId, blockId: block.id } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
+      const onlinePaymentInFlight = await tx.nrmsMasterFolioPaymentLink.findFirst({
+        where: { masterFolioId: folio.id, status: "PROCESSING", expiresAt: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (onlinePaymentInFlight) throw new Error("NRMS_MASTER_PAYMENT_IN_FLIGHT");
       const duplicate = await tx.nrmsMasterFolioPayment.findUnique({
         where: { masterFolioId_idempotencyKey: { masterFolioId: folio.id, idempotencyKey: data.idempotencyKey } },
       });
@@ -1067,20 +1090,7 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
         if (!samePayment) throw new Error("NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT");
         return { idempotent: true };
       }
-      const totals = await getMasterFolioTotals(tx, folio.id);
-      const latestProForma = await tx.nrmsMasterFolioProForma.findFirst({
-        where: { masterFolioId: folio.id, status: { in: ["DRAFT", "SENT"] } },
-        orderBy: { revision: "desc" },
-        select: { quotedTotal: true },
-      });
-      const hasActualLedgerHistory = await tx.nrmsMasterFolioItem.count({ where: { masterFolioId: folio.id } });
-      // Before pickup, the ledger can legitimately have no room items yet.
-      // The current Pro Forma is the approved ceiling for an advance payment;
-      // after pickup, actual routed charges remain authoritative if higher.
-      const payableTotal = hasActualLedgerHistory > 0
-        ? totals.billed
-        : Math.max(totals.billed, Number(latestProForma?.quotedTotal ?? 0));
-      const payableBalance = Number((payableTotal - totals.paid).toFixed(2));
+      const { payableBalance } = await getMasterFolioPayableBalance(tx, folio.id);
       if (payableBalance <= 0.005) throw new Error("NRMS_MASTER_PAYMENT_COMPLETE");
       if (data.amount > payableBalance + 0.005) throw new Error(`NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:${payableBalance}`);
       const payment = await tx.nrmsMasterFolioPayment.create({
@@ -1105,6 +1115,12 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
         currency: folio.currency,
         grossAmount: data.amount,
       });
+      // Manual collection remains fully supported. It invalidates any older
+      // online link because that link froze the balance before this payment.
+      await tx.nrmsMasterFolioPaymentLink.updateMany({
+        where: { masterFolioId: folio.id, status: { in: ["ACTIVE", "PROCESSING"] } },
+        data: { status: "STALE", revokedAt: new Date() },
+      });
       await refreshMasterFolioStatus(tx, folio.id);
       return { idempotent: false };
     }, EXTENDED_TX_OPTIONS);
@@ -1113,6 +1129,7 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
   } catch (err) {
     if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") return res.status(409).json({ error: "The agency master folio is already settled", code: "PAYMENT_COMPLETE" });
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IN_FLIGHT") return res.status(409).json({ error: "An AzamPay payment is awaiting confirmation. Reconcile it before recording another payment.", code: "PAYMENT_IN_FLIGHT" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:")) {
       const balance = Number(err.message.split(":")[1] ?? 0);
       return res.status(400).json({ error: `Payment cannot exceed the agency balance of ${balance.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE", balance });
@@ -1121,6 +1138,35 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT") return res.status(409).json({ error: "This agency payment request key was already used for different payment details", code: "IDEMPOTENCY_CONFLICT" });
     console.error("[owner.nrms.groupBlocks] master payment failed", err);
     res.status(500).json({ error: "Failed to record the agency payment" });
+  }
+}) as RequestHandler);
+
+/** Issue a fresh three-hour online checkout without changing manual collection. */
+router.post("/blocks/:blockId/master-folio/payment-link", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    const { block } = accessible;
+    if (!billingUsesMasterFolio(block.billingMode) || !block.masterFolio) {
+      return res.status(409).json({ error: "This block does not have an agency master folio", code: "MASTER_FOLIO_MISSING" });
+    }
+    const masterFolioId = block.masterFolio.id;
+    const link = await prisma.$transaction((tx: any) =>
+      issueMasterFolioPaymentLink(tx, masterFolioId, req.user!.id),
+    );
+    res.status(201).json({ paymentLink: serializeMasterFolioPaymentLink(link) });
+  } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") {
+      return res.status(409).json({ error: "The agency master folio is already settled", code: "PAYMENT_COMPLETE" });
+    }
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IN_FLIGHT") {
+      return res.status(409).json({ error: "An AzamPay payment is already awaiting confirmation", code: "PAYMENT_IN_FLIGHT" });
+    }
+    if (err instanceof Error && err.message === "NRMS_MASTER_FOLIO_MISSING") {
+      return res.status(409).json({ error: "The agency master folio is missing", code: "MASTER_FOLIO_MISSING" });
+    }
+    console.error("[owner.nrms.groupBlocks] payment link failed", err);
+    res.status(500).json({ error: "Failed to generate the secure payment link" });
   }
 }) as RequestHandler);
 
@@ -1176,8 +1222,11 @@ router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest,
       await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, propertyId: block.propertyId, ownerId: block.ownerId } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
-      const totals = await getMasterFolioTotals(tx, folio.id);
-      const availableCredit = Math.max(0, Number((-totals.balance).toFixed(2)));
+      // Only money beyond what the agency owes is refundable. An advance paid
+      // against a live Pro Forma is not credit; once that Pro Forma is replaced
+      // or the block cancelled, the ceiling drops and the advance becomes credit.
+      const { payableBalance } = await getMasterFolioPayableBalance(tx, folio.id);
+      const availableCredit = Math.max(0, Number((-payableBalance).toFixed(2)));
       if (availableCredit <= 0.005) throw new Error("NRMS_MASTER_REFUND_NO_CREDIT");
       if (parsed.data.amount > availableCredit + 0.005) throw new Error(`NRMS_MASTER_REFUND_EXCEEDS_CREDIT:${availableCredit}`);
       await tx.nrmsMasterFolioRefund.create({

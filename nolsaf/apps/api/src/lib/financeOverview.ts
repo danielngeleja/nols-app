@@ -1,0 +1,287 @@
+import { prisma } from "@nolsaf/prisma";
+import { getFxRates, BASE_CURRENCY } from "./fx.js";
+import { accommodationTake, buildMargin } from "./platformMargin.js";
+
+/**
+ * Platform revenue across every stream, with NoLSAF's margin, for a period.
+ * Shared by GET /api/admin/finance/overview and the payroll coverage view so
+ * both always show the same NoLSAF revenue. Read only.
+ */
+
+const n = (v: unknown): number => {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : 0;
+};
+
+export type StreamSummary = {
+  key: "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions";
+  label: string;
+  gmv: number; // realized gross, in TZS
+  nolsafRevenue: number; // realized platform take, in TZS
+  partnerNet: number; // realized paid/payable to partner, in TZS
+  realizedCount: number;
+  pendingRevenue: number; // platform take in the pipeline, in TZS
+  pendingCount: number;
+  takeRatePercent?: number | null; // nolsafRevenue / gmv
+  note?: string;
+};
+
+export async function computeFinanceOverview(from?: string, to?: string, opts: { margin?: boolean } = {}) {
+  const hasRange = Boolean(from || to);
+  const dateClause = () => {
+    if (!hasRange) return undefined;
+    const range: any = {};
+    if (from) range.gte = new Date(String(from));
+    if (to) range.lte = new Date(String(to));
+    return range;
+  };
+
+  const fx = await getFxRates();
+  // Convert an amount expressed in `currency` into TZS (the money of record).
+  const toTzs = (amount: number, currency?: string | null): number => {
+    const cur = String(currency || BASE_CURRENCY).toUpperCase();
+    if (cur === BASE_CURRENCY) return amount;
+    const rate = fx.tzsPerUnit[cur];
+    return Number.isFinite(rate) && rate > 0 ? amount * rate : amount;
+  };
+
+  // ── Accommodation (Invoice) ─────────────────────────────────────────────
+  // Realized when the guest has paid, whatever the invoice moved on to as
+  // the owner claimed it. PAID alone also marks owner payouts and missed
+  // paid invoices already in the claim flow.
+  const acc = await accommodationTake(dateClause());
+  const accommodation: StreamSummary = {
+    key: "accommodation",
+    label: "Accommodation",
+    gmv: acc.gmv,
+    nolsafRevenue: acc.commission,
+    partnerNet: acc.partnerNet,
+    realizedCount: acc.count,
+    pendingRevenue: acc.pendingCommission,
+    pendingCount: acc.pendingCount,
+  };
+
+  // ── Tours (TourBooking) — multi-currency, normalize to TZS ───────────────
+  const tourDate = dateClause();
+  const [tourRealizedRows, tourPendingRows] = await Promise.all([
+    prisma.tourBooking.groupBy({
+      by: ["currency"],
+      where: { paymentStatus: "PAID", ...(tourDate ? { paidAt: tourDate } : {}) },
+      _sum: { grossAmount: true, commissionAmount: true },
+      _count: { _all: true },
+    }),
+    prisma.tourBooking.groupBy({
+      by: ["currency"],
+      where: {
+        paymentStatus: { not: "PAID" },
+        payoutStatus: { in: ["CLAIMED", "VERIFIED", "APPROVED", "REQUESTED"] },
+        ...(tourDate ? { createdAt: tourDate } : {}),
+      },
+      _sum: { commissionAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const tours: StreamSummary = {
+    key: "tours",
+    label: "Tours",
+    gmv: 0,
+    nolsafRevenue: 0,
+    partnerNet: 0,
+    realizedCount: 0,
+    pendingRevenue: 0,
+    pendingCount: 0,
+    note: "Tours in other currencies are normalized to TZS at display rates.",
+  };
+  for (const row of tourRealizedRows) {
+    const gross = toTzs(n(row._sum.grossAmount), row.currency);
+    const commission = toTzs(n(row._sum.commissionAmount), row.currency);
+    tours.gmv += gross;
+    tours.nolsafRevenue += commission;
+    tours.partnerNet += gross - commission;
+    tours.realizedCount += row._count._all;
+  }
+  for (const row of tourPendingRows) {
+    tours.pendingRevenue += toTzs(n(row._sum.commissionAmount), row.currency);
+    tours.pendingCount += row._count._all;
+  }
+
+  // ── Transport (TransportPayout) ──────────────────────────────────────────
+  // Customer payment realizes GMV and NoLSAF commission. Driver payout is a
+  // separate liability lifecycle, so only a PAID payout contributes to the
+  // global "Paid to partners" value.
+  const txDate = dateClause();
+  const [txCollected, txPartnerPaid, txPending] = await Promise.all([
+    prisma.transportPayout.aggregate({
+      where: {
+        booking: {
+          paymentStatus: "PAID",
+          ...(txDate ? { updatedAt: txDate } : {}),
+        },
+      },
+      _sum: { grossAmount: true, commissionAmount: true },
+      _count: { _all: true },
+    }),
+    prisma.transportPayout.aggregate({
+      where: { status: "PAID", ...(txDate ? { paidAt: txDate } : {}) },
+      _sum: { netPaid: true },
+    }),
+    prisma.transportPayout.aggregate({
+      where: {
+        status: { in: ["PENDING", "APPROVED"] },
+        booking: {
+          OR: [
+            { paymentStatus: null },
+            { paymentStatus: { not: "PAID" } },
+          ],
+          ...(txDate ? { updatedAt: txDate } : {}),
+        },
+      },
+      _sum: { commissionAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const transport: StreamSummary = {
+    key: "transport",
+    label: "Transport",
+    gmv: n(txCollected._sum.grossAmount),
+    nolsafRevenue: n(txCollected._sum.commissionAmount),
+    partnerNet: n(txPartnerPaid._sum.netPaid),
+    realizedCount: txCollected._count._all,
+    pendingRevenue: n(txPending._sum.commissionAmount),
+    pendingCount: txPending._count._all,
+  };
+
+  // ── Group stay (GroupBooking) ────────────────────────────────────────────
+  // NoLSAF take = totalAmount - ownerAmount (commission markup).
+  const gsDate = dateClause();
+  const [gsRealized, gsPending] = await Promise.all([
+    prisma.groupBooking.aggregate({
+      where: { depositPaid: true, ...(gsDate ? { depositPaidAt: gsDate } : {}) },
+      _sum: { totalAmount: true, ownerAmount: true },
+      _count: { _all: true },
+    }),
+    prisma.groupBooking.aggregate({
+      where: {
+        depositPaid: false,
+        status: { in: ["AWAITING_DEPOSIT", "CONFIRMED", "PROCESSING"] },
+        ...(gsDate ? { createdAt: gsDate } : {}),
+      },
+      _sum: { totalAmount: true, ownerAmount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const gsGmv = n(gsRealized._sum.totalAmount);
+  const gsOwner = n(gsRealized._sum.ownerAmount);
+  const groupStay: StreamSummary = {
+    key: "groupStay",
+    label: "Group stay",
+    gmv: gsGmv,
+    nolsafRevenue: Math.max(0, gsGmv - gsOwner),
+    partnerNet: gsOwner,
+    realizedCount: gsRealized._count._all,
+    pendingRevenue: Math.max(0, n(gsPending._sum.totalAmount) - n(gsPending._sum.ownerAmount)),
+    pendingCount: gsPending._count._all,
+    note: "Realized at deposit; full settlement may be partial.",
+  };
+
+  // ── Subscriptions (NRMS PAYG) ─────────────────────────────────────────────
+  // NRMS room-night billing is NoLSAF's subscription/software-fee product:
+  // properties pay directly for the tool, so the whole amount IS NoLSAF
+  // revenue (no partner split). Realized includes both provider-verified and
+  // administrator-reconciled payments. The reconciliation route records the
+  // latter as MANUALLY_VERIFIED, and both represent collected money. Pending
+  // means open PAYABLE statements not yet collected. Both are normalized to
+  // TZS in case a future policy currency differs (today NRMS is always TZS).
+  const subDate = dateClause();
+  const [subRealizedRows, subPendingRows] = await Promise.all([
+    prisma.nrmsServicePayment.groupBy({
+      by: ["currency"],
+      where: {
+        status: { in: ["VERIFIED", "MANUALLY_VERIFIED"] },
+        ...(subDate ? { verifiedAt: subDate } : {}),
+      },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+    prisma.nrmsBillingStatement.groupBy({
+      by: ["currency"],
+      where: { status: "PAYABLE", ...(subDate ? { createdAt: subDate } : {}) },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const subscriptions: StreamSummary = {
+    key: "subscriptions",
+    label: "Subscriptions",
+    gmv: 0,
+    nolsafRevenue: 0,
+    partnerNet: 0,
+    realizedCount: 0,
+    pendingRevenue: 0,
+    pendingCount: 0,
+    note: "NRMS property-management billing. The full amount is NoLSAF revenue (no partner split).",
+  };
+  for (const row of subRealizedRows) {
+    const amount = toTzs(n(row._sum.amount), row.currency);
+    subscriptions.gmv += amount;
+    subscriptions.nolsafRevenue += amount;
+    subscriptions.realizedCount += row._count._all;
+  }
+  for (const row of subPendingRows) {
+    subscriptions.pendingRevenue += toTzs(n(row._sum.amount), row.currency);
+    subscriptions.pendingCount += row._count._all;
+  }
+
+  const streams = [accommodation, tours, transport, groupStay, subscriptions];
+
+  const totals = streams.reduce(
+    (acc, s) => {
+      acc.gmv += s.gmv;
+      acc.nolsafRevenue += s.nolsafRevenue;
+      acc.partnerNet += s.partnerNet;
+      acc.realizedCount += s.realizedCount;
+      acc.pendingRevenue += s.pendingRevenue;
+      acc.pendingCount += s.pendingCount;
+      return acc;
+    },
+    { gmv: 0, nolsafRevenue: 0, partnerNet: 0, realizedCount: 0, pendingRevenue: 0, pendingCount: 0 },
+  );
+
+  // round to 2dp for transport
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+  const takeRate = (revenue: number, gmv: number) => (gmv > 0 ? Math.round((revenue / gmv) * 1000) / 10 : null);
+  const cleanup = (s: StreamSummary): StreamSummary => ({
+    ...s,
+    takeRatePercent: takeRate(s.nolsafRevenue, s.gmv),
+    gmv: round2(s.gmv),
+    nolsafRevenue: round2(s.nolsafRevenue),
+    partnerNet: round2(s.partnerNet),
+    pendingRevenue: round2(s.pendingRevenue),
+  });
+
+  // What it costs NoLSAF to earn that revenue, as far as the platform records it.
+  // Skipped for chart buckets, which only need the totals.
+  const margin = opts.margin === false ? undefined : await buildMargin({ range: dateClause(), toTzs, gmv: totals.gmv, revenue: totals.nolsafRevenue, channelGmv: acc.byChannel });
+
+  return {
+    ok: true,
+    baseCurrency: BASE_CURRENCY,
+    range: { from: from ?? null, to: to ?? null, allTime: !hasRange },
+    totals: {
+      gmv: round2(totals.gmv),
+      nolsafRevenue: round2(totals.nolsafRevenue),
+      partnerNet: round2(totals.partnerNet),
+      realizedCount: totals.realizedCount,
+      pendingRevenue: round2(totals.pendingRevenue),
+      pendingCount: totals.pendingCount,
+      takeRatePercent: takeRate(totals.nolsafRevenue, totals.gmv),
+    },
+    margin,
+    streams: streams.map(cleanup),
+    generatedAt: new Date().toISOString(),
+  };
+}

@@ -81,11 +81,19 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
   });
 
   it("is idempotent: a repeated provider callback returns the existing payment and writes nothing", async () => {
-    const existing = { id: 99, status: "VERIFIED" };
+    const existing = { id: 99, status: "VERIFIED", provider: "AZAMPAY", providerRef: "evt-1", amount: 62400 };
     tx.nrmsServicePaymentToken.findUnique.mockResolvedValue(tokenRow({ payment: existing }));
     await expect(reconcileNrmsPayment(tx, reconcileInput)).resolves.toEqual({ payment: existing, statementId: 5 });
     expect(tx.nrmsBillingStatement.updateMany).not.toHaveBeenCalled();
     expect(tx.nrmsServicePayment.create).not.toHaveBeenCalled();
+    expect(tx.ownerPaygAccount.update).not.toHaveBeenCalled();
+  });
+
+  it("does not mistake a different provider transaction for an idempotent retry", async () => {
+    tx.nrmsServicePaymentToken.findUnique.mockResolvedValue(tokenRow({
+      payment: { id: 99, status: "VERIFIED", provider: "CORALCOMMERCE", providerRef: "evt-other", amount: 62400 },
+    }));
+    await expect(reconcileNrmsPayment(tx, { ...reconcileInput, provider: "CORALCOMMERCE" })).rejects.toThrow("NRMS_TOKEN_ALREADY_SETTLED_BY_ANOTHER_PAYMENT");
     expect(tx.ownerPaygAccount.update).not.toHaveBeenCalled();
   });
 
@@ -131,12 +139,47 @@ describe("reconcileNrmsPayment (webhook success path)", () => {
     await expect(reconcileNrmsPaymentAndAccrue(client, reconcileInput, "test")).resolves.toEqual(
       expect.objectContaining({ id: 77, status: "VERIFIED" }),
     );
+    expect(client.$transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 20_000 });
     expect(order).toEqual(["transaction-start", "commit", "commission"]);
     expect(warning).toHaveBeenCalledWith(
       "[sales commission] test accrual deferred:",
       "simulated slow commission dependency",
     );
     warning.mockRestore();
+  });
+
+  it("acknowledges a concurrent retry only after the same token has a verified payment", async () => {
+    const existing = { id: 99, status: "VERIFIED", provider: "AZAMPAY", providerRef: "evt-1", amount: 62400 };
+    const client = {
+      $transaction: vi.fn().mockRejectedValue(new Error("NRMS_STATEMENT_NOT_PAYABLE")),
+      nrmsServicePaymentToken: {
+        findUnique: vi.fn().mockResolvedValue(tokenRow({
+          payment: existing,
+          statement: { ...tokenRow().statement, status: "PAID" },
+        })),
+      },
+      salesCommission: { findUnique: vi.fn().mockRejectedValue(new Error("deferred")) },
+    };
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(reconcileNrmsPaymentAndAccrue(client, reconcileInput, "test")).resolves.toBe(existing);
+    expect(client.nrmsServicePaymentToken.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { token: reconcileInput.token },
+    }));
+    expect(client.$transaction).toHaveBeenCalledTimes(1);
+    warning.mockRestore();
+  });
+
+  it("does not acknowledge a failed settlement without a matching verified payment", async () => {
+    const error = new Error("transaction expired");
+    const client = {
+      $transaction: vi.fn().mockRejectedValue(error),
+      nrmsServicePaymentToken: {
+        findUnique: vi.fn().mockResolvedValue(tokenRow({ payment: null })),
+      },
+    };
+
+    await expect(reconcileNrmsPaymentAndAccrue(client, reconcileInput)).rejects.toBe(error);
   });
 });
 

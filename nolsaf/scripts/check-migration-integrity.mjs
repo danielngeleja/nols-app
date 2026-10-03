@@ -18,6 +18,37 @@ const referenceArgument = process.argv.find((value) =>
 );
 const reference = referenceArgument?.slice("--against-git-ref=".length);
 
+// Applied migrations whose SQL was corrected in place because the original
+// cannot execute on production. Each entry pins the exact previous and current
+// revision, so any other change is still rejected. Environments that applied
+// the previous revision keep their history rows; check-physical-schema.mjs
+// accepts that hash as a recorded historical alias.
+//
+// 20261002090000: the GRANT_BONUS backfill used CAST(... AS JSON), which
+// MySQL 8 accepts but production MariaDB 11.8 rejects with ER_PARSE_ERROR.
+// JSON_UNQUOTE alone is equivalent on both engines (JSON functions accept JSON
+// text). Verified 2026-10-03: identical (zero-row) results on staging MySQL
+// 8.0.45, and the corrected SELECT parses on the production-snapshot clone;
+// staging, local, and production all have zero GRANT_BONUS audit rows.
+const correctedMigrationRevisions = new Map([
+  [
+    "20261002090000_add_platform_expense_ledger",
+    {
+      previous: "276129064ce4e13074357b6cc59031bf3050caa6647894fbf48c5cd7c79ee4d4",
+      current: "39c49a47db3caf6ae5fb216ac248b0481eb0c9e4e687e1ec93832243214e4a7d",
+    },
+  ],
+]);
+
+function isRecordedCorrection(name, expectedHash, actualHash) {
+  const correction = correctedMigrationRevisions.get(name);
+  return Boolean(
+    correction
+      && expectedHash === correction.previous
+      && actualHash === correction.current,
+  );
+}
+
 function hash(contents) {
   // Git stores text with LF while Windows worktrees may expose CRLF. Migration
   // immutability must be platform-independent.
@@ -59,7 +90,10 @@ function failForDifferences(expected, actual, label) {
   for (const [name, expectedHash] of Object.entries(expected)) {
     if (!(name in actual)) {
       problems.push(`${name}: missing locally (${label})`);
-    } else if (actual[name] !== expectedHash) {
+    } else if (
+      actual[name] !== expectedHash
+      && !isRecordedCorrection(name, expectedHash, actual[name])
+    ) {
       problems.push(`${name}: checksum changed (${label})`);
     }
   }
