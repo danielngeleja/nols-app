@@ -6,7 +6,7 @@
  *   GET  /api/public/nolscope/visa-fee/:nationality visa fee for one nationality
  *   GET  /api/public/nolscope/activities?dest=CODE  activities for a destination
  *   POST /api/public/nolscope/estimate              compute + persist breakdown
- *   GET  /api/public/nolscope/estimate/:id          retrieve a saved estimate
+ *   GET  /api/public/nolscope/estimate/:reference   retrieve a saved estimate by its es_ reference
  *
  * All monetary values are in USD unless noted.
  * No authentication required — this is a public planning tool.
@@ -20,6 +20,7 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 import { z } from 'zod';
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { getAnonymizedClientIp, truncateSessionId } from '../lib/privacy.js';
+import { nolscopeEstimateReference, resolveNolscopeEstimateReference } from '../lib/nolscopeEstimateReference.js';
 
 const router = Router();
 
@@ -689,6 +690,7 @@ const createEstimate = async (req: any, res: any) => {
     travelers: { adults, children, total: totalPax },
     totalDays,
     destinations: destCodes,
+    route: destInputs.map((d) => ({ code: d.code.toUpperCase(), days: d.days })),
     startDate: startDate.toISOString().slice(0, 10),
     travelMonth,
     season: seasonName,
@@ -812,7 +814,10 @@ const createEstimate = async (req: any, res: any) => {
 
         totalCost:  totalAvg,
         confidence: confidence,
-        breakdown:  responsePayload.breakdown,
+        // `report` keeps what the shareable printable report needs beyond the
+        // breakdown (traveller split, nights per stop, rules, freshness), so a
+        // reference link reproduces the estimate exactly as it was calculated.
+        breakdown:  { ...responsePayload.breakdown, report: reportSnapshot(responsePayload) },
         minCost:    totalMin,
         maxCost:    totalMax,
 
@@ -837,28 +842,42 @@ const createEstimate = async (req: any, res: any) => {
   return res.status(201).json({
     ...responsePayload,
     estimateId: savedId,
+    reference: savedId ? nolscopeEstimateReference(savedId) : null,
   });
 };
 
-// ─── GET /api/public/nolscope/estimate/:id ───────────────────────────────────
+function reportSnapshot(payload: any) {
+  return {
+    travelers: payload.travelers,
+    route: payload.route,
+    totalDays: payload.totalDays,
+    startDate: payload.startDate,
+    travelMonth: payload.travelMonth,
+    transportPreference: payload.transportPreference,
+    perAdultAvg: payload.perAdultAvg,
+    appliedRules: payload.appliedRules,
+    dataFreshness: payload.dataFreshness,
+    generatedAt: payload.generatedAt,
+  };
+}
+
+// ─── GET /api/public/nolscope/estimate/:reference ────────────────────────────
+// Shareable report data, looked up by the opaque es_ reference only. Plain row
+// ids are refused so saved estimates cannot be enumerated.
 
 const getEstimate = async (req: any, res: any) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id) || id < 1) return res.status(400).json({ error: 'invalid estimate id' });
+  const reference = String(req.params.reference || '');
+  const id = resolveNolscopeEstimateReference(reference);
+  if (!id) return res.status(404).json({ error: 'Estimate not found' });
 
   const row = await (prisma as any).tripEstimate.findUnique({
     where: { id },
     select: {
       id: true,
-      destination: true,
       startDate: true,
-      endDate: true,
-      travelers: true,
       accommodationLevel: true,
-      transportPreference: true,
       nationality: true,
       currency: true,
-      requestedActivities: true,
       totalCost: true,
       confidence: true,
       breakdown: true,
@@ -866,7 +885,6 @@ const getEstimate = async (req: any, res: any) => {
       maxCost: true,
       currentSeason: true,
       validUntil: true,
-      convertedToBooking: true,
       createdAt: true,
     },
   });
@@ -879,24 +897,34 @@ const getEstimate = async (req: any, res: any) => {
     data: { viewCount: { increment: 1 }, lastViewedAt: new Date() },
   }).catch(() => {});
 
+  const { report = {}, ...breakdown } = (row.breakdown ?? {}) as any;
+  const route = Array.isArray(report.route) ? report.route : [];
   return res.json({
-    estimateId:   row.id,
-    destination:  row.destination,
-    startDate:    row.startDate,
-    endDate:      row.endDate,
-    travelers:    row.travelers,
-    tier:         row.accommodationLevel,
-    nationality:  row.nationality,
-    currency:     row.currency,
-    totalAvg:     n(row.totalCost),
-    totalMin:     row.minCost ? n(row.minCost) : null,
-    totalMax:     row.maxCost ? n(row.maxCost) : null,
-    confidence:   n(row.confidence),
-    season:       row.currentSeason,
-    breakdown:    row.breakdown,
-    validUntil:   row.validUntil,
-    convertedToBooking: row.convertedToBooking,
-    createdAt:    row.createdAt,
+    reference,
+    estimateId: row.id,
+    currency: row.currency,
+    nationality: row.nationality,
+    travelers: report.travelers ?? null,
+    totalDays: report.totalDays ?? route.reduce((s: number, r: any) => s + (Number(r?.days) || 0), 0),
+    destinations: route.map((r: any) => r.code),
+    route,
+    startDate: report.startDate ?? (row.startDate ? new Date(row.startDate).toISOString().slice(0, 10) : null),
+    travelMonth: report.travelMonth ?? null,
+    season: row.currentSeason,
+    tier: row.accommodationLevel,
+    transportPreference: report.transportPreference ?? 'any',
+    breakdown,
+    totalMin: row.minCost != null ? n(row.minCost) : null,
+    totalAvg: n(row.totalCost),
+    totalMax: row.maxCost != null ? n(row.maxCost) : null,
+    perAdultAvg: report.perAdultAvg ?? null,
+    confidence: n(row.confidence),
+    appliedRules: Array.isArray(report.appliedRules) ? report.appliedRules : [],
+    dataFreshness: report.dataFreshness ?? null,
+    generatedAt: report.generatedAt ?? new Date(row.createdAt).toISOString(),
+    validUntil: row.validUntil,
+    // Estimates saved before the report snapshot existed cannot be reproduced in full.
+    complete: Boolean(report.travelers && route.length > 0),
   });
 };
 
@@ -932,6 +960,6 @@ router.get('/visa-fee/:nationality', limitNolScopeList, asyncHandler(getVisaFee)
 router.get('/activities',            limitNolScopeList, asyncHandler(listActivities));
 router.get('/data-freshness',        limitNolScopeList, asyncHandler(getDataFreshness));
 router.post('/estimate',             limitNolScopeEstimate, asyncHandler(createEstimate));
-router.get('/estimate/:id',          limitNolScopeList, asyncHandler(getEstimate));
+router.get('/estimate/:reference',   limitNolScopeList, asyncHandler(getEstimate));
 
 export default router;
