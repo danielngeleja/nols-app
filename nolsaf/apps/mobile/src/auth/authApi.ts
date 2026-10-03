@@ -101,6 +101,17 @@ export async function confirmContactChange(token: string, field: ContactField, o
   });
 }
 
+/**
+ * Second sign-in step for accounts with an authenticator: a 6-digit code, or a
+ * backup code (each works once). Returns the session the first step held back.
+ */
+export async function verifyAccountMfa(challengeId: string, code: string, useBackupCode: boolean) {
+  return apiRequest<LoginResponse>("/api/auth/mfa/verify", {
+    method: "POST",
+    body: { challengeId, code, useBackupCode }
+  });
+}
+
 export async function logoutSession(token: string | null) {
   return apiRequest<{ ok: boolean }>("/api/auth/logout", {
     method: "POST",
@@ -131,11 +142,23 @@ export async function provisionAccountTotp(token: string) {
 }
 
 export async function updateAccount2fa(token: string, input: { action: "enable" | "disable"; code: string; secret?: string }) {
-  return apiRequest<{ ok?: boolean; backupCodes?: string[] }>("/api/account/security/2fa", {
+  // On enable the API also returns a fresh, authenticator-verified session: the
+  // one that turned it on stops being accepted at that moment.
+  return apiRequest<{ ok?: boolean; backupCodes?: string[]; token?: string }>("/api/account/security/2fa", {
     method: "POST",
     token,
     body: { type: "totp", ...input }
   });
+}
+
+/** New backup codes replace every old one; the current authenticator code is required. */
+export async function regenerateBackupCodes(token: string, code: string) {
+  const res = await apiRequest<{ data?: { backupCodes?: string[] }; backupCodes?: string[] }>("/api/account/2fa/codes/regenerate", {
+    method: "POST",
+    token,
+    body: { code }
+  });
+  return res?.data?.backupCodes ?? res?.backupCodes ?? [];
 }
 
 export type AccountPasskey = {

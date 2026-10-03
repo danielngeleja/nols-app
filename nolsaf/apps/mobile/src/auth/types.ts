@@ -21,7 +21,17 @@ export type AuthUser = {
   profileCompletedAt?: string | null;
 };
 
-export type LoginResponse = {
+/**
+ * Sent instead of a session when the account has an authenticator turned on:
+ * sign-in finishes only after verifyAccountMfa accepts a code for this challenge.
+ */
+export type AccountMfaChallenge = {
+  mfaRequired?: boolean;
+  challengeId?: string;
+  expiresInSeconds?: number;
+};
+
+export type LoginResponse = AccountMfaChallenge & {
   ok: boolean;
   token?: string;
   user?: AuthUser;
@@ -88,7 +98,7 @@ export type SendOtpResponse = {
   otp?: string;
 };
 
-export type VerifyOtpResponse = {
+export type VerifyOtpResponse = AccountMfaChallenge & {
   ok?: boolean;
   message?: string;
   error?: string;

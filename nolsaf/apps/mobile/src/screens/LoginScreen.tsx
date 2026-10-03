@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 import { useAuth } from "../auth";
+import { AccountMfaStep } from "../auth/AccountMfaStep";
 import { sendOtp, verifyOtp } from "../auth/authApi";
 import { AppButton, AppCard, AppInput, AppStack, AppText, AuthScreen } from "../components";
 import { useSecureScreen } from "../lib/secureScreen";
@@ -37,7 +38,7 @@ function rememberLogin(identifier: string) {
 
 export function LoginScreen({ navigation }: Props) {
   useSecureScreen();
-  const { signIn, signInWithPasskey, completeOtpSignIn } = useAuth();
+  const { signIn, signInWithPasskey, completeOtpSignIn, pendingMfa, beginMfaChallenge, cancelMfa, error: sessionNotice } = useAuth();
   const [method, setMethod] = useState<Method>("password");
 
   // Password login state
@@ -148,6 +149,12 @@ export function LoginScreen({ navigation }: Props) {
     try {
       if (!contact) return;
       const res = await verifyOtp(contact.destination, value.trim());
+      if (beginMfaChallenge(res)) {
+        // The account has an authenticator: the next step asks for its code.
+        rememberLogin(otpContact);
+        setLoading(false);
+        return;
+      }
       if (!res.token) {
         throw new Error(res.message || res.error || "Verification failed. Please try again.");
       }
@@ -189,9 +196,15 @@ export function LoginScreen({ navigation }: Props) {
 
   return (
     <AuthScreen
-      title="Welcome back"
-      subtitle={remembered ? "Enter your password to continue." : "Sign in to book, pay and track your trips."}
-      onBack={() => navigation.goBack()}
+      title={pendingMfa ? "Verify it's you" : "Welcome back"}
+      subtitle={
+        pendingMfa
+          ? "Your account is protected with an authenticator app."
+          : remembered
+            ? "Enter your password to continue."
+            : "Sign in to book, pay and track your trips."
+      }
+      onBack={() => (pendingMfa ? cancelMfa() : navigation.goBack())}
       icon={<KeyRound color={colors.white} size={24} />}
       footer={
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate("Register")}>
@@ -202,6 +215,25 @@ export function LoginScreen({ navigation }: Props) {
       }
     >
       <AppStack gap={5}>
+          {/* Why the last session ended (e.g. an authenticator was turned on), so a sign-out is never silent. */}
+          {sessionNotice && !pendingMfa ? (
+            <View style={styles.sessionNotice}>
+              <ShieldCheck color={colors.primary} size={16} />
+              <AppText variant="caption" weight="semiBold" style={styles.contactHintText}>
+                {sessionNotice}
+              </AppText>
+            </View>
+          ) : null}
+          {pendingMfa ? (
+            <AccountMfaStep
+              onRestart={(message) => {
+                setPassword("");
+                setCode("");
+                setCodeSent(false);
+                setError(message);
+              }}
+            />
+          ) : (
           <AppCard style={styles.authCard}>
             <AppStack gap={4}>
               {passkeyAvailable ? (
@@ -394,6 +426,7 @@ export function LoginScreen({ navigation }: Props) {
               )}
             </AppStack>
           </AppCard>
+          )}
       </AppStack>
     </AuthScreen>
   );
@@ -440,6 +473,8 @@ const styles = StyleSheet.create({
     gap: 4,
     padding: 4,
     borderRadius: radius.md + 2,
+    borderWidth: 1,
+    borderColor: colors.brand[100],
     backgroundColor: "#eef2f1"
   },
   methodPill: {
@@ -456,12 +491,23 @@ const styles = StyleSheet.create({
   },
   methodPillActive: {
     backgroundColor: colors.white,
-    borderColor: "rgba(15,23,42,0.06)",
+    borderColor: colors.brand[200],
     shadowColor: "#0f172a",
     shadowOpacity: 0.08,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
     elevation: 1
+  },
+  sessionNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.brand[100],
+    backgroundColor: colors.brand[50],
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2]
   },
   contactHint: {
     flexDirection: "row",

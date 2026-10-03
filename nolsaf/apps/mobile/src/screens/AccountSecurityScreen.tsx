@@ -25,9 +25,10 @@ import {
   fetchAccount2faStatus,
   fetchAccountPasskeys,
   provisionAccountTotp,
+  regenerateBackupCodes,
   updateAccount2fa
 } from "../auth/authApi";
-import { AppButton, AppCard, AppInput, AppStack, AppText, SafeScreen, ScreenHeader } from "../components";
+import { AppButton, AppCard, AppInput, AppStack, AppText, BackupCodesPanel, SafeScreen, ScreenHeader } from "../components";
 import { getErrorMessage } from "../lib/apiClient";
 import { useAppLock } from "../lock";
 import { RootStackParamList } from "../navigation/types";
@@ -284,7 +285,7 @@ function PasskeysPanel() {
 }
 
 function TwoFactorPanel() {
-  const { token, refreshProfile } = useAuth();
+  const { token, refreshProfile, replaceSession } = useAuth();
   const [status, setStatus] = useState<Account2faStatus | null>(null);
   const [secret, setSecret] = useState("");
   const [qr, setQr] = useState<string | null>(null);
@@ -292,6 +293,8 @@ function TwoFactorPanel() {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [regenOpen, setRegenOpen] = useState(false);
+  const [regenCode, setRegenCode] = useState("");
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -325,10 +328,18 @@ function TwoFactorPanel() {
     try {
       const res = await updateAccount2fa(token, { action: "enable", code, secret });
       setBackupCodes(res.backupCodes || []);
-      setMessage("2FA enabled successfully.");
       setCode("");
-      await refreshProfile();
-      await load();
+      if (res.token) {
+        // The session that turned it on is no longer accepted; switch to the verified one the API returned.
+        await replaceSession(res.token);
+        setStatus(await fetchAccount2faStatus(res.token));
+        setMessage("2FA enabled successfully.");
+      } else {
+        // Older API: this session stops working now, so do not reload anything
+        // that would sign the person out before they save their codes.
+        setStatus({ totpEnabled: true });
+        setMessage("2FA enabled. Save your backup codes, then sign in again with your authenticator code.");
+      }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Invalid authenticator code.");
     } finally {
@@ -355,7 +366,25 @@ function TwoFactorPanel() {
     }
   }
 
+  async function regenerate() {
+    if (!token) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const codes = await regenerateBackupCodes(token, regenCode);
+      setBackupCodes(codes);
+      setRegenCode("");
+      setRegenOpen(false);
+      setMessage("New backup codes are ready. The old ones no longer work.");
+    } catch (err) {
+      setMessage(getErrorMessage(err, "Enter the current 6-digit code from your authenticator app."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const enabled = Boolean(status?.totpEnabled || status?.smsEnabled);
+  const showingCodes = backupCodes.length > 0;
   return (
     <>
       <SecurityHero Icon={LockKeyhole} title="Two-factor authentication" text="Add an authenticator-code check before sensitive account access." />
@@ -387,19 +416,40 @@ function TwoFactorPanel() {
             </AppStack>
           ) : null}
 
-          {enabled ? (
+          {showingCodes ? <BackupCodesPanel codes={backupCodes} onDone={() => setBackupCodes([])} /> : null}
+
+          {enabled && status?.totpEnabled && !showingCodes ? (
+            <View style={styles.backupBox}>
+              <AppText variant="bodySmall" weight="extraBold">Backup codes</AppText>
+              <AppText variant="caption" tone="muted">
+                Lost or used up your codes? New ones replace every old code. Confirm with the current code from your authenticator app.
+              </AppText>
+              {regenOpen ? (
+                <AppStack gap={2}>
+                  <AppInput
+                    label="Current authenticator code"
+                    value={regenCode}
+                    onChangeText={(value) => setRegenCode(value.replace(/\D/g, "").slice(0, 6))}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    placeholder="6-digit code"
+                    textContentType="oneTimeCode"
+                    autoComplete="one-time-code"
+                  />
+                  <AppButton title="Generate new backup codes" loading={loading} disabled={regenCode.length !== 6} onPress={regenerate} />
+                  <AppButton title="Cancel" variant="ghost" disabled={loading} onPress={() => { setRegenOpen(false); setRegenCode(""); }} />
+                </AppStack>
+              ) : (
+                <AppButton title="Generate new backup codes" variant="secondary" onPress={() => { setRegenOpen(true); setMessage(null); }} />
+              )}
+            </View>
+          ) : null}
+
+          {enabled && !showingCodes ? (
             <AppStack gap={3}>
               <AppInput label="Authenticator or backup code" value={code} onChangeText={setCode} placeholder="Code required to disable" />
               <AppButton title="Disable 2FA" variant="danger" loading={loading} onPress={disable} />
             </AppStack>
-          ) : null}
-
-          {backupCodes.length ? (
-            <View style={styles.backupBox}>
-              <AppText variant="bodySmall" weight="extraBold">Backup codes</AppText>
-              <AppText variant="caption" tone="muted">Save these codes now. They are shown only once.</AppText>
-              {backupCodes.map((item) => <AppText key={item} variant="bodySmall" weight="mono">{item}</AppText>)}
-            </View>
           ) : null}
           {message ? <AppText variant="bodySmall" tone={message.toLowerCase().includes("success") || message.toLowerCase().includes("enabled") ? "success" : "muted"}>{message}</AppText> : null}
         </AppStack>

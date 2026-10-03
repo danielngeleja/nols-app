@@ -8,6 +8,7 @@ export * from "./AppInput";
 export * from "./AppStack";
 export * from "./AppText";
 export * from "./AuthScreen";
+export * from "./BackupCodesPanel";
 export * from "./BottomActionBar";
 export * from "./CalendarRangeSheet";
 export * from "./BookingSummaryCard";

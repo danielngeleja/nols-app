@@ -14,16 +14,18 @@ export type ApiError = Error & {
   payload?: unknown;
 };
 
-type UnauthorizedHandler = () => void | Promise<void>;
+/** `code` is the API's reason, e.g. MFA_REQUIRED when the session predates an authenticator. */
+type UnauthorizedHandler = (reason: { code?: string }) => void | Promise<void>;
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   unauthorizedHandler = handler;
 }
 
-function handleUnauthorized(status: number, hadToken: boolean) {
+function handleUnauthorized(status: number, hadToken: boolean, payload?: unknown) {
   if (status === 401 && hadToken && unauthorizedHandler) {
-    void unauthorizedHandler();
+    const code = typeof payload === "object" && payload && "code" in payload ? String((payload as { code?: unknown }).code) : undefined;
+    void unauthorizedHandler({ code });
   }
 }
 
@@ -105,7 +107,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const payload = text ? safeJson(text) : null;
 
   if (!response.ok) {
-    handleUnauthorized(response.status, Boolean(options.token));
+    handleUnauthorized(response.status, Boolean(options.token), payload);
     const message =
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message?: unknown }).message)
@@ -166,7 +168,7 @@ export async function apiUploadFile<T>(
   const text = await response.text();
   const payload = text ? safeJson(text) : null;
   if (!response.ok) {
-    handleUnauthorized(response.status, Boolean(params.token));
+    handleUnauthorized(response.status, Boolean(params.token), payload);
     const message =
       typeof payload === "object" && payload && "message" in payload
         ? String((payload as { message?: unknown }).message)
