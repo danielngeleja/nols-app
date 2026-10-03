@@ -14,6 +14,22 @@
 import DatePickerField from "@/components/DatePickerField";
 import { openAdminReportPrintWindow, renderAndPrintAdminReport, updateAdminReportPrintWindowStatus } from "@/lib/adminReportPrint";
 import { buildEstimatePrintHtml } from "@/lib/nolscopeEstimatePrint";
+import {
+  ESTIMATE_CATEGORIES,
+  MONTHS,
+  NATIONALITIES,
+  cleanLabel,
+  confidenceText,
+  estimateInsights,
+  estimatePrintInput,
+  estimateReportPath,
+  fmtDate,
+  fmtUSD,
+  monthRanges,
+  parseMonths,
+  seasonFit,
+  type EstimateCategoryKey,
+} from "@/lib/nolscopeEstimateReport";
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -115,6 +131,8 @@ interface BreakdownItem {
 
 interface EstimateResult {
   estimateId: number | null;
+  /** Opaque es_ reference for the shareable printable report; null when the estimate was not saved. */
+  reference?: string | null;
   currency: string;
   travelers: { adults: number; children: number; total: number };
   totalDays: number;
@@ -158,46 +176,6 @@ interface DestinationEntry {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const BRAND = "#02665e";
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const NATIONALITIES = [
-  { code: "XX", label: "Other" },
-  { code: "US", label: "United States" },
-  { code: "GB", label: "United Kingdom" },
-  { code: "DE", label: "Germany" },
-  { code: "FR", label: "France" },
-  { code: "IT", label: "Italy" },
-  { code: "ES", label: "Spain" },
-  { code: "NL", label: "Netherlands" },
-  { code: "SE", label: "Sweden" },
-  { code: "NO", label: "Norway" },
-  { code: "DK", label: "Denmark" },
-  { code: "CH", label: "Switzerland" },
-  { code: "AT", label: "Austria" },
-  { code: "BE", label: "Belgium" },
-  { code: "PT", label: "Portugal" },
-  { code: "PL", label: "Poland" },
-  { code: "CZ", label: "Czech Republic" },
-  { code: "AU", label: "Australia" },
-  { code: "NZ", label: "New Zealand" },
-  { code: "CA", label: "Canada" },
-  { code: "JP", label: "Japan" },
-  { code: "KR", label: "South Korea" },
-  { code: "CN", label: "China" },
-  { code: "IN", label: "India" },
-  { code: "ZA", label: "South Africa" },
-  { code: "NG", label: "Nigeria" },
-  { code: "KE", label: "Kenya" },
-  { code: "UG", label: "Uganda" },
-  { code: "RW", label: "Rwanda" },
-  { code: "TZ", label: "Tanzania (local)" },
-  { code: "IL", label: "Israel" },
-  { code: "SA", label: "Saudi Arabia" },
-  { code: "AE", label: "UAE" },
-  { code: "BR", label: "Brazil" },
-  { code: "AR", label: "Argentina" },
-  { code: "MX", label: "Mexico" },
-];
 
 /** ISO-3166-1 alpha-2 code to emoji flag (🌍 for XX/unknown) */
 function countryFlag(code: string): string {
@@ -219,19 +197,21 @@ const TRANSPORT_OPTIONS = [
   { value: "bus", label: "Bus / ferry", sub: "Scheduled services", Icon: Bus, hex: "#f59e0b" },
 ];
 
-/** Cost categories, in the order they appear, each with its own colour. */
-const CATEGORIES = [
-  { key: "visa", label: "Visa", Icon: FileCheck, hex: "#0f766e" },
-  { key: "parkFees", label: "Park fees", Icon: Mountain, hex: "#10b981" },
-  { key: "transport", label: "Transport", Icon: Route, hex: "#f59e0b" },
-  { key: "activities", label: "Activities", Icon: Binoculars, hex: "#8b5cf6" },
-  { key: "accommodation", label: "Accommodation", Icon: BedDouble, hex: "#ec4899" },
-  { key: "tips", label: "Tips and gratuities", Icon: HandCoins, hex: "#f97316" },
-  { key: "travelInsurance", label: "Travel insurance", Icon: Shield, hex: "#06b6d4" },
-  { key: "serviceCharge", label: "Planning fee", Icon: Receipt, hex: "#64748b" },
-] as const;
+const CATEGORY_ICONS: Record<CategoryKey, typeof Globe> = {
+  visa: FileCheck,
+  parkFees: Mountain,
+  transport: Route,
+  activities: Binoculars,
+  accommodation: BedDouble,
+  tips: HandCoins,
+  travelInsurance: Shield,
+  serviceCharge: Receipt,
+};
 
-type CategoryKey = (typeof CATEGORIES)[number]["key"];
+/** Cost categories, in the order they appear, each with its own colour (shared with the printable report). */
+const CATEGORIES = ESTIMATE_CATEGORIES.map((c) => ({ ...c, Icon: CATEGORY_ICONS[c.key] }));
+
+type CategoryKey = EstimateCategoryKey;
 
 const STEPS = [
   { label: "Trip basics", Icon: Globe },
@@ -242,67 +222,6 @@ const STEPS = [
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number) {
-  return Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
-
-function fmtUSD(n: number) {
-  return `$${fmt(n)}`;
-}
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "Not recorded";
-  return new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-}
-
-/** Month lists arrive as arrays, JSON strings or "6,7,8"; all read as numbers 1 to 12. */
-function parseMonths(value: unknown): number[] {
-  let raw: unknown = value;
-  if (typeof value === "string") {
-    try {
-      raw = JSON.parse(value);
-    } catch {
-      raw = value.split(/[,\s]+/);
-    }
-  }
-  if (!Array.isArray(raw)) return [];
-  return raw.map((m) => Number(m)).filter((m) => Number.isInteger(m) && m >= 1 && m <= 12);
-}
-
-/** Readable ranges from month numbers: [6,7,8,9,10] -> "Jun to Oct". */
-function monthRanges(months: number[]): string {
-  const set = new Set(months);
-  if (!set.size) return "";
-  if (set.size === 12) return "All year";
-  const next = (m: number) => (m % 12) + 1;
-  const prev = (m: number) => ((m + 10) % 12) + 1;
-  // Runs start at a month whose previous month is not in the set; this also
-  // handles runs that wrap past December (e.g. Dec to Feb)
-  const starts = [...set].filter((m) => !set.has(prev(m))).sort((a, b) => a - b);
-  return starts
-    .map((first) => {
-      let last = first;
-      while (set.has(next(last))) last = next(last);
-      return first === last ? MONTHS[first - 1] : `${MONTHS[first - 1]} to ${MONTHS[last - 1]}`;
-    })
-    .join(", ");
-}
-
-/** How a destination fits the chosen travel month. */
-function seasonFit(dest: Destination, month: number | null): { label: string; tone: string; text: string } | null {
-  if (!month) return null;
-  if (dest.peakMonths.includes(month)) return { label: "Peak season", tone: "bg-amber-100 text-amber-900", text: "Busy and pricier; book early" };
-  if (dest.bestMonths.includes(month)) return { label: "Great time to go", tone: "bg-emerald-100 text-emerald-800", text: "Best conditions this month" };
-  if (dest.offPeakMonths.includes(month)) return { label: "Off-peak", tone: "bg-sky-100 text-sky-800", text: "Quieter, often lower prices" };
-  return { label: "Shoulder month", tone: "bg-slate-100 text-slate-700", text: "Mixed conditions" };
-}
-
-function cleanLabel(s: string | undefined | null) {
-  return String(s || "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 /** Each kind of place gets its own emblem and colour, so the cards are told apart at a glance. */
 function destLook(dest: Destination): { Icon: typeof Globe; hex: string } {
@@ -345,9 +264,10 @@ function categoryLook(category: string): { hex: string } {
 }
 
 function confidenceLabel(c: number) {
-  if (c >= 0.8) return { text: "High accuracy", tone: "text-emerald-300" };
-  if (c >= 0.6) return { text: "Medium accuracy", tone: "text-amber-300" };
-  return { text: "Low accuracy", tone: "text-rose-300" };
+  const text = confidenceText(c);
+  if (c >= 0.8) return { text, tone: "text-emerald-300" };
+  if (c >= 0.6) return { text, tone: "text-amber-300" };
+  return { text, tone: "text-rose-300" };
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -1103,7 +1023,7 @@ export default function NolScopeEstimator() {
               >
                 <ArrowLeft className="h-4 w-4" /> Back
               </button>
-              <span className="hidden text-[12px] text-slate-400 sm:block">Step {step + 1} of 4</span>
+              <span className="hidden text-[12px] text-slate-400 sm:block">Step {step + 1} of {STEPS.length}</span>
               <button
                 type="button"
                 onClick={goNext}
@@ -1203,7 +1123,7 @@ function StepPanel({ index, title, sub, children }: { index: number; title: stri
   return (
     <div>
       <div className="border-0 border-b border-solid border-slate-100 px-5 pb-4 pt-5 sm:px-7 sm:pt-6">
-        <p className="m-0 text-[12px] font-bold text-[#02665e]">Step {index + 1} of 4</p>
+        <p className="m-0 text-[12px] font-bold text-[#02665e]">Step {index + 1} of {STEPS.length}</p>
         <h2 className="m-0 mt-0.5 text-[20px] font-bold leading-tight tracking-tight text-slate-950 sm:text-[22px]">{title}</h2>
         {sub ? <p className="m-0 mt-1 text-[13.5px] text-slate-500">{sub}</p> : null}
       </div>
@@ -1666,16 +1586,8 @@ function ResultView({
   const biggest = [...amounts].sort((a, b) => b.amount - a.amount)[0];
 
   // What to know before booking, drawn from the estimate's own detail
-  const transportLegs: any[] = Array.isArray(result.breakdown.transport.detail) ? result.breakdown.transport.detail : [];
-  const parkRows: any[] = Array.isArray(result.breakdown.parkFees.detail) ? result.breakdown.parkFees.detail : [];
-  const leadDays = Math.max(0, ...transportLegs.map((l) => Number(l.bookingLeadDays) || 0));
-  const noDataLegs = transportLegs.filter((l) => l.status === "no-data");
-  const minDayNotes = parkRows.filter((p) => p.note).map((p) => `${p.parkName}: ${p.note}`);
-  const insights: string[] = [];
-  if (leadDays > 0) insights.push(`Book transport at least ${leadDays} days ahead; some legs need advance booking.`);
-  minDayNotes.forEach((n) => insights.push(n));
-  noDataLegs.forEach((l) => insights.push(l.note || `No fare on record between ${nameOf(l.from)} and ${nameOf(l.to)}. Confirm with an operator.`));
-  if (result.breakdown.parkFees.note) insights.push(result.breakdown.parkFees.note);
+  const insights = estimateInsights(result, nameOf);
+  const reportUrl = result.reference && typeof window !== "undefined" ? new URL(estimateReportPath(result.reference), window.location.origin).toString() : null;
 
   const staysHref = (() => {
     // The browse page runs one text search, so only a single destination filters usefully
@@ -1689,7 +1601,8 @@ function ResultView({
   })();
 
   const copyLink = () => {
-    navigator.clipboard?.writeText(window.location.href).then(() => {
+    // The saved report link reopens this exact estimate; the page URL alone would start a blank one
+    navigator.clipboard?.writeText(reportUrl ?? window.location.href).then(() => {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     });
@@ -1707,7 +1620,8 @@ function ResultView({
     try {
       updateAdminReportPrintWindowStatus(w, "prepare");
       const origin = window.location.origin;
-      const verifyUrl = `${origin}/public/nolscope`;
+      // The QR on the document reopens this exact estimate when it was saved
+      const verifyUrl = reportUrl ?? `${origin}/public/nolscope`;
       let qrDataUrl: string | null = null;
       try {
         const QRCode = (await import("qrcode")).default;
@@ -1717,86 +1631,21 @@ function ResultView({
       }
       updateAdminReportPrintWindowStatus(w, "preview");
 
-      const b = result.breakdown as any;
-      const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
-      const end = start ? new Date(start.getTime() + result.totalDays * 86_400_000) : null;
-      const fmtDay = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-      const listText = (v: unknown) => (Array.isArray(v) ? v.join(", ") : v ? String(v) : "");
-      const html = buildEstimatePrintHtml({
-        logoUrl: new URL("/assets/NoLS2025-04.png", origin).toString(),
-        qrDataUrl,
-        verifyUrl,
-        reference: result.estimateId ? `EST-${result.estimateId}` : "EST-DRAFT",
-        generatedAt: new Date().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-        nationalityLabel: nat.label,
-        travellers: result.travelers,
-        dateRange: start && end ? `${fmtDay(start)} to ${fmtDay(end)}` : "Not set",
-        totalNights: result.totalDays,
-        season: `${cleanLabel(result.season)} season`,
-        tier: cleanLabel(result.tier),
-        transport: TRANSPORT_OPTIONS.find((o) => o.value === transportPref)?.label ?? "Best available",
-        confidence: conf.text,
-        totalAvg: result.totalAvg,
-        totalMin: result.totalMin,
-        totalMax: result.totalMax,
-        perAdultAvg: result.perAdultAvg,
-        perPersonPerDay,
-        categories: amounts.map((a) => ({ key: a.key, label: a.label, hex: a.hex, amount: a.amount })),
-        route: route.map((r) => {
-          const dest = destByCode.get(r.code.toUpperCase());
-          return { name: dest?.name ?? cleanLabel(r.code), nights: r.days, season: dest ? seasonFit(dest, month)?.label ?? null : null, best: dest ? monthRanges(dest.bestMonths) || null : null };
-        }),
-        parks: parkRows.map((p) => ({
-          name: p.parkName || nameOf(p.destination),
-          days: p.days,
-          rate: p.adultFeePerDay,
-          rateType: cleanLabel(p.rateCategory),
-          extras: [p.vehicleFee ? `Vehicle ${fmtUSD(p.vehicleFee)}` : "", p.guideFee ? `Guide ${fmtUSD(p.guideFee)}` : ""].filter(Boolean).join(", "),
-          subtotal: p.subtotal,
-          note: p.note,
-        })),
-        legs: transportLegs.map((l) => ({
-          from: nameOf(l.from),
-          to: nameOf(l.to),
-          how: l.status === "no-data" ? "No fare on record" : [l.type ? cleanLabel(l.type) : "", l.provider || "", l.durationHours ? `about ${l.durationHours} h` : ""].filter(Boolean).join(" · "),
-          unit: l.unitCostAvg != null ? `${fmtUSD(l.unitCostAvg)} ${l.priceUnit === "per-vehicle" ? "per vehicle" : "per person"}` : "",
-          cost: l.legCostAvg ?? null,
-          note: l.bookingLeadDays ? `Book ${l.bookingLeadDays} days ahead` : l.status === "no-data" ? l.note : undefined,
-        })),
-        activities: (Array.isArray(b.activities.detail) ? b.activities.detail : []).map((a: any) => ({
-          name: a.activityName,
-          unit: `${fmtUSD(a.unitCostAvg)} ${a.priceUnit === "per-vehicle" ? "per vehicle" : a.priceUnit === "per-group" ? "per group" : "per adult"}`,
-          includes: listText(a.includes),
-          cost: a.totalCostAvg,
-        })),
-        stays: (Array.isArray(b.accommodation.detail) ? b.accommodation.detail : []).map((s: any) => ({
-          name: nameOf(s.destination),
-          nights: s.nights,
-          perNight: s.perNightPerAdultAvg,
-          tier: cleanLabel(s.tier),
-          subtotal: s.subtotalAvg,
-        })),
-        visa: {
-          perAdult: result.breakdown.visa.perAdult ?? 0,
-          entry: cleanLabel(result.breakdown.visa.entries ?? "single"),
-          validity: `${result.breakdown.visa.durationDays ?? 90} days`,
-          processing: cleanLabel(result.breakdown.visa.processingTime ?? "on arrival"),
-        },
-        notes: insights,
-        seasonalRules: (result.appliedRules || []).map((r) => ({
-          name: cleanLabel(r.seasonName),
-          change: r.multiplier > 1 ? `+${Math.round((r.multiplier - 1) * 100)}%` : r.multiplier < 1 ? `${Math.round((r.multiplier - 1) * 100)}%` : "Standard rate",
-          description: r.description || r.ruleName,
-        })),
-        freshness: [
-          { label: "Park fees", value: fmtDate(result.dataFreshness?.categories?.parkFees) },
-          { label: "Visa fees", value: fmtDate(result.dataFreshness?.categories?.visaFees) },
-          { label: "Transport", value: fmtDate(result.dataFreshness?.categories?.transport) },
-          { label: "Activities", value: fmtDate(result.dataFreshness?.categories?.activities) },
-          { label: "Seasonal rules", value: fmtDate(result.dataFreshness?.categories?.pricingRules) },
-          { label: "Accommodation", value: "NoLSAF verified" },
-        ],
-      });
+      const html = buildEstimatePrintHtml(
+        estimatePrintInput({
+          result,
+          route,
+          startDate: startDate || null,
+          month,
+          transportPref,
+          nationality,
+          destByCode,
+          logoUrl: new URL("/assets/NoLS2025-04.png", origin).toString(),
+          verifyUrl,
+          qrDataUrl,
+          generatedAt: new Date(),
+        })
+      );
       await renderAndPrintAdminReport(w, html);
     } catch {
       if (!w.closed) w.close();
