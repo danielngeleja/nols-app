@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(2,6,23,0.42)"
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   grabber: {
     alignSelf: "center",

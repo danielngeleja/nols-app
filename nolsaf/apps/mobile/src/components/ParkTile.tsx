@@ -18,7 +18,7 @@ function shortPlaceName(name: string) {
  * every tile leads somewhere bookable. Used by the landing screen's city and
  * park rows so both read the same.
  */
-export function PlaceTile({ name, stays, image, kind = "city", onPress }: { name: string; stays: number; image: string | null; kind?: "city" | "park"; onPress: () => void }) {
+export function PlaceTile({ name, stays, image, kind = "city", width = PLACE_TILE_WIDTH, onPress }: { name: string; stays: number; image: string | null; kind?: "city" | "park"; width?: number; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const [failed, setFailed] = useState(false);
@@ -27,7 +27,7 @@ export function PlaceTile({ name, stays, image, kind = "city", onPress }: { name
   const press = (to: number) => Animated.spring(scale, { toValue: to, useNativeDriver: true, speed: 30, bounciness: to < 1 ? 0 : 8 }).start();
 
   return (
-    <Animated.View style={{ width: PLACE_TILE_WIDTH, transform: [{ scale }] }}>
+    <Animated.View style={{ width, transform: [{ scale }] }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${name}, ${stays} ${stays === 1 ? "stay" : "stays"}`}
@@ -63,9 +63,9 @@ export function PlaceTile({ name, stays, image, kind = "city", onPress }: { name
 }
 
 /** Same footprint as a tile, for the moment before counts arrive. */
-export function PlaceTileSkeleton() {
+export function PlaceTileSkeleton({ width = PLACE_TILE_WIDTH }: { width?: number }) {
   return (
-    <View style={[styles.tile, { width: PLACE_TILE_WIDTH }]}>
+    <View style={[styles.tile, { width }]}>
       <View style={styles.photo} />
       <View style={styles.text}>
         <View style={styles.lineWide} />

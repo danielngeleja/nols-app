@@ -5,7 +5,7 @@ import { Animated, Easing, ImageSourcePropType, Pressable, ScrollView, StyleShee
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { useAuth } from "../auth";
-import { AppCard, AppStack, AppText, CustomerBottomNav, GetThereSection, GuestBottomNav, NolsafLogoMark, PLACE_TILE_WIDTH, PlaceTile, PlaceTileSkeleton, SafeScreen, TourOperatorTile } from "../components";
+import { AppCard, AppStack, AppText, CustomerBottomNav, GetThereSection, GuestBottomNav, NolsafLogoMark, PlaceTile, PlaceTileSkeleton, SafeScreen, TourOperatorTile } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import { fetchCustomerNotifications } from "../notifications";
 import { fetchCitySummary, fetchParkSummary, ParkSummaryItem } from "../properties/propertiesApi";
@@ -24,6 +24,9 @@ import { FeaturedTourOperator, fetchFeaturedTourOperators } from "../tours";
 type Props = NativeStackScreenProps<RootStackParamList, "Onboarding">;
 type HeroFilter = "all" | "stays" | "tours" | "places";
 type PropertyTypeKey = "HOTEL" | "LODGE" | "APARTMENT" | "VILLA" | "GUEST_HOUSE" | "BUNGALOW" | "CABIN" | "HOMESTAY" | "CONDO" | "HOUSE";
+
+// How much of the third card shows at the right edge of a two-up rail.
+const RAIL_PEEK = 24;
 
 const searchPrompts = [
   "Dar es Salaam",
@@ -100,7 +103,7 @@ function FadeImageBackground({ source, style, imageStyle, onError, children }: {
         resizeMode="cover"
         onLoad={() => Animated.timing(opacity, { toValue: 1, duration: 260, easing: Easing.out(Easing.quad), useNativeDriver: true }).start()}
         onError={onError}
-        style={[StyleSheet.absoluteFillObject, imageStyle, { opacity, width: undefined, height: undefined }]}
+        style={[StyleSheet.absoluteFill, imageStyle, { opacity, width: undefined, height: undefined }]}
       />
       {children}
     </View>
@@ -154,7 +157,13 @@ export function OnboardingScreen({ navigation }: Props) {
   const [operatorsLoading, setOperatorsLoading] = useState(true);
   const [parks, setParks] = useState<ParkSummaryItem[]>([]);
   // Two cards and a slice of the third are visible, so the row clearly slides.
-  const propertyCardWidth = Math.max(140, Math.floor((windowWidth - spacing[4] * 2 - spacing[3] * 2) / 2.35));
+  // Card rails on phones show exactly two cards plus a thin slice of the next one, so the
+  // row reads as swipeable. Tablets keep a fixed card width and simply fit more.
+  const railWidth = windowWidth - spacing[4] * 2;
+  const twoUpCardWidth = (gap: number) =>
+    windowWidth >= 600 ? 200 : Math.max(110, Math.floor((railWidth - gap * 2 - RAIL_PEEK) / 2));
+  const propertyCardWidth = twoUpCardWidth(spacing[3]);
+  const placeTileWidth = twoUpCardWidth(spacing[2]);
   // One operator card and a slice of the next, so the row reads as a slider.
   const featuredOperatorWidth = Math.max(220, Math.round((windowWidth - spacing[4] * 2) * 0.68));
   // Busiest first once counts arrive; cities with no stays are left out (they come back as soon as they have one).
@@ -462,12 +471,13 @@ export function OnboardingScreen({ navigation }: Props) {
         <FadeInUp delay={140}>
           <AppStack gap={3}>
             <SectionHeader title="Popular cities" actionLabel="Search" onAction={() => runSearch("places")} />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} decelerationRate="fast" snapToInterval={PLACE_TILE_WIDTH + spacing[2]} snapToAlignment="start" contentContainerStyle={styles.parkRail}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} decelerationRate="fast" snapToInterval={placeTileWidth + spacing[2]} snapToAlignment="start" contentContainerStyle={styles.parkRail}>
               {!citiesLoaded
-                ? [0, 1, 2].map((n) => <PlaceTileSkeleton key={n} />)
+                ? [0, 1, 2].map((n) => <PlaceTileSkeleton key={n} width={placeTileWidth} />)
                 : rankedCities.map((city) => (
                     <PlaceTile
                       key={city.key}
+                      width={placeTileWidth}
                       name={city.name}
                       stays={cityCounts[city.key] ?? 0}
                       image={citySamples[city.key]?.primaryImage || null}
@@ -534,9 +544,9 @@ export function OnboardingScreen({ navigation }: Props) {
         <FadeInUp delay={200}>
           <AppStack gap={3}>
             <SectionHeader title="Safari stays" subtitle="Launched in Tanzania. Growing across Africa." actionLabel="Search" onAction={() => runSearch("places")} />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} decelerationRate="fast" snapToInterval={PLACE_TILE_WIDTH + spacing[2]} snapToAlignment="start" contentContainerStyle={styles.parkRail}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} decelerationRate="fast" snapToInterval={placeTileWidth + spacing[2]} snapToAlignment="start" contentContainerStyle={styles.parkRail}>
               {parks.map((park) => (
-                <PlaceTile key={park.slug} kind="park" name={park.name} stays={park.stays} image={park.image} onPress={() => runSearch("places", park.name)} />
+                <PlaceTile key={park.slug} kind="park" width={placeTileWidth} name={park.name} stays={park.stays} image={park.image} onPress={() => runSearch("places", park.name)} />
               ))}
               <Pressable accessibilityRole="button" accessibilityLabel="See all parks" onPress={() => runSearch("places")} style={({ pressed }) => [styles.seeAllEnd, pressed && styles.pressed]}>
                 <View style={styles.seeAllCircle}>
