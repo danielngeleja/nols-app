@@ -62,7 +62,7 @@ FROM (
         `id`,
         `adminId`,
         `createdAt`,
-        CASE WHEN JSON_TYPE(`details`) = 'STRING' THEN CAST(JSON_UNQUOTE(`details`) AS JSON) ELSE `details` END AS j
+        CASE WHEN JSON_TYPE(`details`) = 'STRING' THEN JSON_UNQUOTE(`details`) ELSE `details` END AS j
     FROM `adminaudit`
     WHERE `action` = 'GRANT_BONUS'
       AND `details` IS NOT NULL

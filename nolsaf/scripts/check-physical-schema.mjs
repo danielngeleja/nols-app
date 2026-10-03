@@ -47,6 +47,13 @@ const acceptedHistoricalMigrationHashes = {
       "20260720130000_add_platform_restriction_cases",
       new Set(["0be78fa0e40beeb33d5fa03d80dedf7c1d49118ce7524ea2e43fd56f427f1088"]),
     ],
+    // Git-proven previous revision, read from staging's _prisma_migrations on
+    // 2026-10-03 before the MariaDB-incompatible CAST was corrected in place.
+    // See correctedMigrationRevisions in check-migration-integrity.mjs.
+    [
+      "20261002090000_add_platform_expense_ledger",
+      new Set(["276129064ce4e13074357b6cc59031bf3050caa6647894fbf48c5cd7c79ee4d4"]),
+    ],
   ]),
   clone: new Map([
     [
@@ -71,6 +78,12 @@ const acceptedHistoricalMigrationHashes = {
     [
       "20260824090000_add_agent_incidental_cover",
       new Set(["10c17a55927aad424d34c9799927fdf05e7f08e23ce508014073501da24e184f"]),
+    ],
+    // Same git-proven previous revision as staging, observed on the local
+    // database on 2026-10-03.
+    [
+      "20261002090000_add_platform_expense_ledger",
+      new Set(["276129064ce4e13074357b6cc59031bf3050caa6647894fbf48c5cd7c79ee4d4"]),
     ],
   ]),
 };
