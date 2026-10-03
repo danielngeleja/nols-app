@@ -1015,11 +1015,11 @@ function EstimateReportCard({ reference }: { reference: string }) {
       <AppStack gap={3}>
         <SectionTitle icon={<FileText color={colors.primary} size={20} />} title="Keep this estimate" />
         <AppText variant="bodySmall" tone="muted">
-          The full itemised document, park by park and leg by leg. Print it, save it as a PDF, or send the link.
+          The full itemised document, park by park and leg by leg. Print the PDF or send the link.
         </AppText>
         <View style={styles.reportActions}>
           <View style={styles.flex}>
-            <AppButton title="Print or save PDF" icon={<Printer color={colors.white} size={18} />} onPress={openReport} />
+            <AppButton title="Print PDF" icon={<Printer color={colors.white} size={18} />} onPress={openReport} />
           </View>
           <View style={styles.flex}>
             <AppButton title="Share link" variant="secondary" icon={<Share2 color={colors.primary} size={18} />} onPress={shareReport} />
