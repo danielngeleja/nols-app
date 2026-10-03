@@ -10,19 +10,25 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Car,
+  FileText,
   Landmark,
+  Minus,
+  Mountain,
   Plane,
+  Plus,
   Globe,
   MapPin,
+  Printer,
   RefreshCw,
   ReceiptText,
+  Share2,
   ShieldCheck,
   Sparkles,
   Umbrella,
   Users
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
 
 import {
   AppButton,
@@ -37,6 +43,7 @@ import {
   ScreenHeader
 } from "../components";
 import { getErrorMessage } from "../lib/apiClient";
+import { webOrigin } from "../lib/webOrigin";
 import { RootStackParamList } from "../navigation/types";
 import {
   createNolScopeEstimate,
@@ -98,7 +105,7 @@ const TIERS: Array<{ key: Tier; label: string; hint: string }> = [
 ];
 
 const TRANSPORT_OPTIONS = [
-  { key: "any", label: "Best available", hint: "NoLSCOPE chooses the sensible route mix.", Icon: Sparkles },
+  { key: "any", label: "Best available", hint: "NoLScope chooses the sensible route mix.", Icon: Sparkles },
   { key: "shared-taxi", label: "Shared / public", hint: "Lower cost, less privacy, more fixed schedules.", Icon: Users },
   { key: "private-car", label: "Private vehicle", hint: "Flexible timing and direct transfers.", Icon: Car },
   { key: "bus", label: "Bus / ferry", hint: "Budget intercity movement where practical.", Icon: Bus },
@@ -112,10 +119,18 @@ const fmtUSD = (value: number | null | undefined) =>
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-function parsePositiveInt(value: string, fallback: number, min = 0, max = 30) {
-  const n = Number.parseInt(value.replace(/[^\d]/g, ""), 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
+/** The five steps, matching the web estimator's step bar. */
+const STEPS = [
+  { label: "Trip basics", Icon: Globe },
+  { label: "Destinations", Icon: MapPin },
+  { label: "Activities", Icon: Sparkles },
+  { label: "Style", Icon: Mountain },
+  { label: "Estimate", Icon: Calculator }
+];
+
+/** Printable report for a saved estimate, served by the web app. */
+function estimateReportUrl(reference: string) {
+  return `${webOrigin()}/public/nolscope/report/${encodeURIComponent(reference)}`;
 }
 
 export function CostCalculatorScreen({ navigation }: Props) {
@@ -124,8 +139,8 @@ export function CostCalculatorScreen({ navigation }: Props) {
   const [nationalityOpen, setNationalityOpen] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [startDate, setStartDate] = useState(todayIso());
-  const [adults, setAdults] = useState("2");
-  const [children, setChildren] = useState("0");
+  const [adults, setAdults] = useState(2);
+  const [children, setChildren] = useState(0);
   const [destinationQuery, setDestinationQuery] = useState("");
   const [destinations, setDestinations] = useState<NolScopeDestination[]>([]);
   const [selectedDestinations, setSelectedDestinations] = useState<NolScopeDestinationInput[]>([]);
@@ -147,7 +162,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
         if (mounted) setDestinations(items);
       })
       .catch((err) => {
-        if (mounted) setError(getErrorMessage(err, "Could not load NoLSCOPE destinations."));
+        if (mounted) setError(getErrorMessage(err, "Could not load NoLScope destinations."));
       })
       .finally(() => {
         if (mounted) setLoadingDests(false);
@@ -190,8 +205,8 @@ export function CostCalculatorScreen({ navigation }: Props) {
   }, [selectedDestinations]);
 
   const totalDays = selectedDestinations.reduce((sum, item) => sum + item.days, 0);
-  const adultCount = parsePositiveInt(adults, 1, 1, 20);
-  const childCount = parsePositiveInt(children, 0, 0, 10);
+  const adultCount = adults;
+  const childCount = children;
 
   const destinationNames = useMemo(() => {
     const map = new Map(destinations.map((item) => [item.code, item.name]));
@@ -240,7 +255,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
       NATIONALITIES.map((item) => ({
         value: item.code,
         label: item.label,
-        description: item.code === "XX" ? "Default NoLSCOPE visitor rate" : `Visa nationality code ${item.code}`
+        description: item.code === "XX" ? "Default NoLScope visitor rate" : `Visa nationality code ${item.code}`
       })),
     []
   );
@@ -280,7 +295,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
       });
       setResult(estimate);
     } catch (err) {
-      setError(getErrorMessage(err, "Could not prepare this NoLSCOPE cost calculation."));
+      setError(getErrorMessage(err, "Could not prepare this NoLScope cost calculation."));
       setStep(3);
     } finally {
       setSubmitting(false);
@@ -309,23 +324,9 @@ export function CostCalculatorScreen({ navigation }: Props) {
     <View style={styles.root}>
       <SafeScreen contentStyle={styles.screen}>
         <AppStack gap={5}>
-          <ScreenHeader centered title="Cost calculator" subtitle="NoLSCOPE calculates verified stays, routes, activities and travel costs." />
+          <ScreenHeader centered title="Cost calculator" subtitle="Clear trip cost before you commit, from verified NoLScope travel data." />
 
-          <View style={styles.hero}>
-            <View style={styles.heroIcon}>
-              <Calculator color={colors.white} size={26} />
-            </View>
-            <AppStack gap={2} style={styles.heroText}>
-              <AppText variant="title" weight="extraBold" tone="inverse">
-                Clear cost before you commit.
-              </AppText>
-              <AppText variant="bodySmall" tone="inverse" style={styles.heroCopy}>
-                Powered by verified NoLSCOPE travel data.
-              </AppText>
-            </AppStack>
-          </View>
-
-          <StepIndicator step={step} />
+          <StepIndicator step={step} onJump={(index) => setStep(index)} />
 
           {error ? (
             <View style={styles.errorBox}>
@@ -364,12 +365,8 @@ export function CostCalculatorScreen({ navigation }: Props) {
                   </View>
                 </Pressable>
                 <View style={styles.twoColumns}>
-                  <View style={styles.numberField}>
-                    <AppInput label="Adults" required value={adults} onChangeText={setAdults} keyboardType="number-pad" />
-                  </View>
-                  <View style={styles.numberField}>
-                    <AppInput label="Children" value={children} onChangeText={setChildren} keyboardType="number-pad" />
-                  </View>
+                  <CounterField label="Adults" sub="16 and over" required value={adults} min={1} max={20} onChange={setAdults} />
+                  <CounterField label="Children" sub="Under 16" value={children} min={0} max={10} onChange={setChildren} />
                 </View>
                 <View style={styles.labelBlock}>
                   <AppText variant="label" weight="semiBold" tone="muted">
@@ -517,7 +514,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
                   placeholder="Search destination, region or type"
                 />
                 {loadingDests ? (
-                  <LoadingRow label="Loading NoLSCOPE destinations..." />
+                  <LoadingRow label="Loading NoLScope destinations..." />
                 ) : filteredDestinations.length === 0 ? (
                   <AppText variant="bodySmall" tone="soft">
                     {destinationQuery.trim() ? "No destinations match that search." : "All visible destinations are already in your selected route."}
@@ -579,7 +576,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
                               {group.activities.length} activit{group.activities.length === 1 ? "y" : "ies"} available
                             </AppText>
                             <AppText variant="caption" tone="inverse" style={styles.activityGroupHelp} numberOfLines={2}>
-                              Select what you plan to do here so NoLSCOPE includes those activity costs.
+                              Select what you plan to do here so NoLScope includes those activity costs.
                             </AppText>
                           </View>
                         </View>
@@ -680,7 +677,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
                   <ReceiptText color={colors.white} size={24} />
                 </View>
                 <AppText variant="caption" weight="extraBold" tone="inverse" style={styles.resultEyebrow}>
-                  VERIFIED NOLSCOPE COST
+                  Verified NoLScope cost
                 </AppText>
                 <AppText variant="display" weight="extraBold" tone="inverse" style={styles.resultTotal}>
                   {fmtUSD(result.totalAvg)}
@@ -738,6 +735,8 @@ export function CostCalculatorScreen({ navigation }: Props) {
                   ) : null}
                 </AppStack>
               </AppCard>
+
+              {result.reference ? <EstimateReportCard reference={result.reference} /> : null}
 
               <AppCard>
                 <AppStack gap={3}>
@@ -798,7 +797,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
           ) : null}
 
           <AppText variant="caption" tone="soft" style={styles.footerNote}>
-            NoLSCOPE provides verified travel cost calculations from official and operator-confirmed sources. Booking and payment continue through NoLSAF booking flows.
+            NoLScope provides verified travel cost calculations from official and operator-confirmed sources. Booking and payment continue through NoLSAF booking flows.
           </AppText>
         </AppStack>
       </SafeScreen>
@@ -806,7 +805,7 @@ export function CostCalculatorScreen({ navigation }: Props) {
       <OptionPickerSheet
         visible={nationalityOpen}
         title="Select nationality"
-        subtitle="Matches the NoLSCOPE web estimator nationality list."
+        subtitle="Matches the NoLScope web estimator nationality list."
         options={nationalityOptions}
         value={nationality}
         onSelect={setNationality}
@@ -914,18 +913,120 @@ function LoadingRow({ label }: { label: string }) {
   );
 }
 
-function StepIndicator({ step }: { step: number }) {
-  const labels = ["Basics", "Places", "Activities", "Style", "Estimate"];
+/** One connected strip like the web estimator: finished steps tick and can be reopened. */
+function StepIndicator({ step, onJump }: { step: number; onJump: (index: number) => void }) {
+  const current = STEPS[Math.min(step, STEPS.length - 1)];
   return (
-    <View style={styles.stepRow}>
-      {labels.map((label, index) => (
-        <View key={label} style={[styles.stepPill, index === step && styles.stepPillActive, index < step && styles.stepPillDone]}>
-          <AppText variant="caption" weight="bold" tone={index === step ? "inverse" : index < step ? "primary" : "soft"}>
-            {index + 1}. {label}
-          </AppText>
-        </View>
-      ))}
+    <View style={styles.stepBlock}>
+      <View style={styles.stepStrip}>
+        {STEPS.map(({ label, Icon }, index) => {
+          const done = index < step;
+          const active = index === step;
+          return (
+            <Pressable
+              key={label}
+              accessibilityRole="button"
+              accessibilityLabel={done ? `Back to ${label}` : `Step ${index + 1}, ${label}`}
+              accessibilityState={{ selected: active, disabled: !done }}
+              disabled={!done}
+              onPress={() => onJump(index)}
+              style={[styles.stepSegment, done && styles.stepSegmentDone, active && styles.stepSegmentActive]}
+            >
+              <View style={[styles.stepIcon, done && styles.stepIconDone, active && styles.stepIconActive]}>
+                {done ? <CheckCircle2 color={colors.white} size={16} /> : <Icon color={active ? colors.white : colors.softText} size={16} />}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+      <AppText variant="caption" weight="bold" tone="primary">
+        Step {Math.min(step, STEPS.length - 1) + 1} of {STEPS.length} · {current.label}
+      </AppText>
     </View>
+  );
+}
+
+function CounterField({
+  label,
+  sub,
+  required,
+  value,
+  min,
+  max,
+  onChange
+}: {
+  label: string;
+  sub: string;
+  required?: boolean;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <View style={styles.counterField}>
+      <View style={styles.counterText}>
+        <AppText variant="label" weight="semiBold" tone="muted">
+          {label} {required ? <AppText variant="label" weight="bold" tone="danger">*</AppText> : null}
+        </AppText>
+        <AppText variant="caption" tone="soft">
+          {sub}
+        </AppText>
+      </View>
+      <View style={styles.counterControls}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Fewer ${label.toLowerCase()}`}
+          disabled={value <= min}
+          onPress={() => onChange(Math.max(min, value - 1))}
+          style={({ pressed }) => [styles.counterButton, value <= min && styles.counterButtonDisabled, pressed && styles.counterButtonPressed]}
+        >
+          <Minus color={value <= min ? colors.softText : colors.primary} size={18} />
+        </Pressable>
+        <AppText variant="titleSm" weight="extraBold" style={styles.counterValue}>
+          {value}
+        </AppText>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`More ${label.toLowerCase()}`}
+          disabled={value >= max}
+          onPress={() => onChange(Math.min(max, value + 1))}
+          style={({ pressed }) => [styles.counterButton, value >= max && styles.counterButtonDisabled, pressed && styles.counterButtonPressed]}
+        >
+          <Plus color={value >= max ? colors.softText : colors.primary} size={18} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/** Print or share the saved estimate through its web report (same document the web estimator prints). */
+function EstimateReportCard({ reference }: { reference: string }) {
+  const url = estimateReportUrl(reference);
+  const openReport = () => {
+    // The system browser, so its print dialog can print or save the document as a PDF.
+    Linking.openURL(`${url}?print=1`).catch(() => Alert.alert("NoLScope", "Could not open the printable estimate right now."));
+  };
+  const shareReport = () => {
+    Share.share({ message: `My NoLScope trip estimate: ${url}`, url }).catch(() => undefined);
+  };
+  return (
+    <AppCard>
+      <AppStack gap={3}>
+        <SectionTitle icon={<FileText color={colors.primary} size={20} />} title="Keep this estimate" />
+        <AppText variant="bodySmall" tone="muted">
+          The full itemised document, park by park and leg by leg. Print it, save it as a PDF, or send the link.
+        </AppText>
+        <View style={styles.reportActions}>
+          <View style={styles.flex}>
+            <AppButton title="Print or save PDF" icon={<Printer color={colors.white} size={18} />} onPress={openReport} />
+          </View>
+          <View style={styles.flex}>
+            <AppButton title="Share link" variant="secondary" icon={<Share2 color={colors.primary} size={18} />} onPress={shareReport} />
+          </View>
+        </View>
+      </AppStack>
+    </AppCard>
   );
 }
 
@@ -1087,7 +1188,7 @@ function CalculatingPanel() {
           Calculating verified cost
         </AppText>
         <AppText variant="bodySmall" tone="inverse" style={[styles.centerText, styles.calculatingCopy]}>
-          NoLSCOPE is matching your route, travel style, activities, accommodation assumptions and official rate data.
+          NoLScope is matching your route, travel style, activities, accommodation assumptions and official rate data.
         </AppText>
         <View style={styles.calculationSteps}>
           <CalculationStep label="Checking destination route" />
@@ -1159,30 +1260,6 @@ const styles = StyleSheet.create({
   screen: {
     paddingBottom: spacing[4]
   },
-  hero: {
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[4],
-    borderRadius: radius.xl,
-    backgroundColor: colors.primaryDeep,
-    padding: spacing[5],
-    overflow: "hidden"
-  },
-  heroIcon: {
-    width: 58,
-    height: 58,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary
-  },
-  heroText: {
-    flex: 1
-  },
-  heroCopy: {
-    color: "#d8e7e4"
-  },
   rowStart: {
     minWidth: 0,
     flexDirection: "row",
@@ -1200,12 +1277,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing[3],
-    minWidth: 0
-  },
-  numberField: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 150,
     minWidth: 0
   },
   wrapRow: {
@@ -1281,26 +1352,90 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.brand[50]
   },
-  stepRow: {
+  stepBlock: {
+    gap: spacing[2]
+  },
+  stepStrip: {
+    flexDirection: "row",
+    gap: 6,
+    padding: 6,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white
+  },
+  stepSegment: {
+    flex: 1,
+    minHeight: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.md
+  },
+  stepSegmentDone: {
+    backgroundColor: colors.brand[50]
+  },
+  stepSegmentActive: {
+    backgroundColor: colors.primary
+  },
+  stepIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f1f5f9"
+  },
+  stepIconDone: {
+    backgroundColor: colors.primary
+  },
+  stepIconActive: {
+    backgroundColor: "rgba(255,255,255,0.2)"
+  },
+  counterField: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 150,
+    minWidth: 0,
+    gap: spacing[2],
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.white,
+    padding: spacing[3]
+  },
+  counterText: {
+    gap: 2
+  },
+  counterControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  counterButton: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.brand[100],
+    backgroundColor: colors.brand[50]
+  },
+  counterButtonDisabled: {
+    borderColor: colors.border,
+    backgroundColor: colors.white
+  },
+  counterButtonPressed: {
+    backgroundColor: colors.brand[100]
+  },
+  counterValue: {
+    minWidth: 32,
+    textAlign: "center"
+  },
+  reportActions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing[2]
-  },
-  stepPill: {
-    borderRadius: radius.full,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
-  },
-  stepPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
-  },
-  stepPillDone: {
-    backgroundColor: colors.brand[50],
-    borderColor: colors.brand[100]
   },
   routePanel: {
     borderWidth: 1,

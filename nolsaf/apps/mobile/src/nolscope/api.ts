@@ -43,6 +43,8 @@ export type NolScopeBreakdownItem = {
 
 export type NolScopeEstimateResult = {
   estimateId: number | null;
+  /** Opaque es_ reference for the shareable printable report (absent on older API versions). */
+  reference?: string | null;
   currency: string;
   travelers: { adults: number; children: number; total: number };
   totalDays: number;
