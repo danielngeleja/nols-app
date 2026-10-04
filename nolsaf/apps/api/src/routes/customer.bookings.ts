@@ -21,6 +21,7 @@ router.use(requireAuth as RequestHandler);
 /** Hours an unpaid booking draft stays payable before it flips to EXPIRED.
  *  Mirrors PAYMENT_ACCESS_TOKEN_HOURS used for tour-package drafts. */
 const BOOKING_DRAFT_WINDOW_HOURS = 12;
+const BOOKING_DRAFT_RETENTION_DAYS = 7;
 
 function buildPhoneVariants(phoneRaw: string | null | undefined): string[] {
   const raw = String(phoneRaw ?? "").trim();
@@ -148,14 +149,19 @@ router.get("/", (async (req: AuthedRequest, res) => {
     // paidOnly=1 → exclude unpaid drafts (used by dashboards that count confirmed stays only).
     const excludeDrafts = String(paidOnly ?? "") === "1" || String(paidOnly ?? "").toLowerCase() === "true";
     // activeDraftsOnly=1 keeps payable drafts in summary counts but removes them as
-    // soon as their 12 hour payment window closes. The full Bookings page omits this
-    // flag so expired drafts remain available there during the seven day grace period.
+    // soon as their 12 hour payment window closes. The full Bookings page retains
+    // expired attempts for seven days so customers can re-book, then hides them even
+    // if the background purge worker has not run yet.
     const excludeExpiredDrafts =
       String(activeDraftsOnly ?? "") === "1" ||
       String(activeDraftsOnly ?? "").toLowerCase() === "true";
     const activeDraftCutoff = new Date(
       Date.now() - BOOKING_DRAFT_WINDOW_HOURS * 60 * 60 * 1000
     );
+    const retainedDraftCutoff = new Date(
+      Date.now() - BOOKING_DRAFT_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    );
+    const visibleDraftCutoff = excludeExpiredDrafts ? activeDraftCutoff : retainedDraftCutoff;
 
     const userContact = await getUserContact(userId);
 
@@ -178,22 +184,18 @@ router.get("/", (async (req: AuthedRequest, res) => {
             {
               status: "NEW",
               invoices: { some: {} },
-              ...(excludeExpiredDrafts
-                ? {
-                    OR: [
-                      { createdAt: { gte: activeDraftCutoff } },
-                      { invoices: { some: { status: "PAID" } } },
-                      {
-                        invoices: {
-                          some: {
-                            status: "CUSTOMER_PAID",
-                            receiptNumber: { not: null },
-                          },
-                        },
-                      },
-                    ],
-                  }
-                : {}),
+              OR: [
+                { createdAt: { gte: visibleDraftCutoff } },
+                { invoices: { some: { status: "PAID" } } },
+                {
+                  invoices: {
+                    some: {
+                      status: "CUSTOMER_PAID",
+                      receiptNumber: { not: null },
+                    },
+                  },
+                },
+              ],
             },
           ],
         },

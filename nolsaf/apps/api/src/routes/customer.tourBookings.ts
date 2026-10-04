@@ -19,6 +19,8 @@ import {
   isCustomerRecordReference,
   matchesCustomerRecordReference,
 } from "../lib/customerBookingReference.js";
+import { signTourDocumentToken, type TourDocumentKind } from "../lib/tourDocumentToken.js";
+import { loadTourReceiptDocument, loadTourVoucherDocument } from "../lib/tourDocuments.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -424,39 +426,6 @@ function draftPaymentAccessWindow(metadata: unknown, createdAt: Date) {
     source: String(access.source || "CREATED_AT_WINDOW"),
     status: remainingSeconds > 0 ? "ACTIVE" : "EXPIRED",
     remainingSeconds,
-  };
-}
-
-function formatYmd(value: Date | null | undefined): string {
-  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) return "00000000";
-  const y = value.getFullYear();
-  const m = String(value.getMonth() + 1).padStart(2, "0");
-  const d = String(value.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
-}
-
-function checksum36(input: string): string {
-  let acc = 0;
-  for (let i = 0; i < input.length; i += 1) acc += input.charCodeAt(i) * (i + 1);
-  return (acc % 36).toString(36).toUpperCase();
-}
-
-function buildVoucherIdentity(payload: {
-  bookingId: number;
-  bookingCode: string | null | undefined;
-  startDate: Date | null | undefined;
-  travelerCount: number | null | undefined;
-}) {
-  const suffix = bookingCodeSuffix(payload.bookingCode) || String(payload.bookingId).slice(-6).padStart(6, "0");
-  const ymd = formatYmd(payload.startDate);
-  const travelerPart = String(Math.max(1, Number(payload.travelerCount || 1))).padStart(2, "0");
-  const core = `NLSAF-TVR-${ymd}-${suffix}-${travelerPart}`;
-  const check = checksum36(core);
-  return {
-    voucherNumber: `${core}-${check}`,
-    securityMark: `★${suffix}-${check}★`,
-    machineLine: `NLSAF|TVR|${payload.bookingId}|${suffix}|${travelerPart}|${check}`,
-    issuedAt: new Date().toISOString(),
   };
 }
 
@@ -2052,72 +2021,9 @@ router.get("/:id/voucher", (async (req: AuthedRequest, res) => {
     const userId = req.user!.id;
     const idNum = Number(req.params.id);
     if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
-
-    const booking = await prisma.tourBooking.findFirst({
-      where: { id: idNum, customerId: userId },
-      select: {
-        id: true,
-        bookingCode: true,
-        title: true,
-        destination: true,
-        startDate: true,
-        endDate: true,
-        travelerCount: true,
-        guestName: true,
-        guestPhone: true,
-        packageSnapshot: true,
-        operatorSnapshot: true,
-        status: true,
-        paymentStatus: true,
-        metadata: true,
-      },
-    });
-    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
-
-    // What the voucher can do right now, so the pass never looks valid when it
-    // is not: unpaid drafts and cancelled trips cannot be presented, a recorded
-    // meetup means it has been used, and a passed date means it has expired.
-    const bookingStatus = String(booking.status || "").toUpperCase();
-    const paid = ["APPROVED", "PAID", "DISBURSED", "SETTLED"].includes(String(booking.paymentStatus || "").toUpperCase());
-    const lastDay = booking.endDate ?? booking.startDate;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const voucherStatus: "VALID" | "USED" | "EXPIRED" | "UNPAID" | "CANCELLED" =
-      ["CANCELED", "CANCELLED", "REFUNDED"].includes(bookingStatus)
-        ? "CANCELLED"
-        : !paid
-          ? "UNPAID"
-          : isPickupValidated(booking.metadata) || ["COMPLETED", "OPERATOR_COMPLETED"].includes(bookingStatus)
-            ? "USED"
-            : lastDay && new Date(lastDay).getTime() < today.getTime()
-              ? "EXPIRED"
-              : "VALID";
-
-    const pkg = safeObject(booking.packageSnapshot);
-    const identity = buildVoucherIdentity({
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      startDate: booking.startDate,
-      travelerCount: booking.travelerCount,
-    });
-
-    return res.json({
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      voucherIdentity: identity,
-      voucherStatus,
-      title: booking.title,
-      destination: booking.destination,
-      startDate: booking.startDate,
-      endDate: booking.endDate,
-      travelerCount: booking.travelerCount,
-      guestName: booking.guestName,
-      guestPhone: booking.guestPhone,
-      operatorSnapshot: booking.operatorSnapshot || null,
-      itinerary: Array.isArray(pkg.itinerary) ? pkg.itinerary : [],
-      meetingPoints: Array.isArray(pkg.meetingPoints) ? pkg.meetingPoints : (pkg.meetingPoint ? [pkg.meetingPoint] : []),
-      inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
-    });
+    const result = await loadTourVoucherDocument(idNum, userId);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    return res.json(result.data);
   } catch (error: any) {
     console.error("GET /customer/tour-bookings/:id/voucher error:", error);
     return res.status(500).json({ error: "Failed to load voucher" });
@@ -2133,43 +2039,9 @@ router.get("/:id/receipt", (async (req: AuthedRequest, res) => {
     const userId = req.user!.id;
     const idNum = Number(req.params.id);
     if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
-
-    const booking = await prisma.tourBooking.findFirst({
-      where: { id: idNum, customerId: userId },
-      select: {
-        id: true,
-        bookingCode: true,
-        title: true,
-        currency: true,
-        grossAmount: true,
-        paymentStatus: true,
-        paymentProvider: true,
-        paymentRef: true,
-        paidAt: true,
-        travelerCount: true,
-        guestName: true,
-      },
-    });
-    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
-
-    const pay = String(booking.paymentStatus || "").toUpperCase();
-    if (pay !== "PAID" && pay !== "APPROVED") {
-      return res.status(409).json({ error: "receipt_not_available", message: "Receipt is available after successful payment." });
-    }
-
-    return res.json({
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      title: booking.title,
-      currency: booking.currency,
-      amount: Number(booking.grossAmount || 0),
-      paymentStatus: booking.paymentStatus,
-      paymentProvider: booking.paymentProvider,
-      paymentRef: booking.paymentRef,
-      paidAt: booking.paidAt,
-      travelerCount: booking.travelerCount,
-      guestName: booking.guestName,
-    });
+    const result = await loadTourReceiptDocument(idNum, userId);
+    if (!result.ok) return res.status(result.status).json({ error: result.error, ...(result.message ? { message: result.message } : {}) });
+    return res.json(result.data);
   } catch (error: any) {
     console.error("GET /customer/tour-bookings/:id/receipt error:", error);
     return res.status(500).json({ error: "Failed to load receipt" });
@@ -2394,6 +2266,40 @@ router.get("/:id/visa-itinerary.pdf", (async (req: AuthedRequest, res) => {
   } catch (error) {
     console.error("GET /customer/tour-bookings/:id/visa-itinerary.pdf error:", error);
     return res.status(500).json({ error: "Failed to generate visa-support itinerary" });
+  }
+}) as RequestHandler);
+
+/**
+ * GET /api/customer/tour-bookings/:id/document-link/:kind
+ * Exchanges the app session for a short-lived link to the canonical web
+ * receipt or voucher. The browser never receives the customer's auth token.
+ */
+router.get("/:id/document-link/:kind", (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const idNum = Number(req.params.id);
+    const kind = String(req.params.kind || "").toLowerCase() as TourDocumentKind;
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
+    if (kind !== "voucher" && kind !== "receipt") return res.status(400).json({ error: "Invalid document type" });
+
+    const document = kind === "voucher"
+      ? await loadTourVoucherDocument(idNum, userId)
+      : await loadTourReceiptDocument(idNum, userId);
+    if (!document.ok) {
+      return res.status(document.status).json({
+        error: document.error,
+        ...("message" in document && document.message ? { message: document.message } : {}),
+      });
+    }
+
+    const documentToken = signTourDocumentToken(idNum, userId, kind);
+    const url = new URL(`/account/tour-packages/${encodeURIComponent(String(idNum))}/${kind}`, resolveWebOrigin(req));
+    url.searchParams.set("document_token", documentToken);
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    return res.json({ ok: true, url: url.toString(), expiresInSeconds: 600 });
+  } catch (error: any) {
+    console.error("GET /customer/tour-bookings/:id/document-link/:kind error:", error);
+    return res.status(500).json({ error: "Failed to issue document link" });
   }
 }) as RequestHandler);
 

@@ -34,6 +34,7 @@ import publicSupportRouter from "./public.support";
 import publicTourBookingsRouter from "./public.tourBookings";
 import publicTourVisaItinerariesRouter from "./public.tourVisaItineraries";
 import publicTourismSitesRouter from "./public.tourismSites";
+import publicTripSharesRouter from "./public.tripShares";
 import publicUpdatesRouter from "./public.updates";
 
 export function registerPublicEmailVerifyRoute(app: Express): void {
@@ -67,6 +68,7 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/property-shares", publicPropertySharesRouter);
   app.use("/api/public/properties", publicPropertiesRouter);
   app.use("/api/public/tourism-sites", publicTourismSitesRouter);
+  app.use("/api/public/trip-shares", publicTripSharesRouter);
   app.use("/api/public/nolscope", publicNolScopeRouter);
   app.use("/api/public/nrms/guest", publicNrmsGuestRouter);
   // Mounted before the menu router so /nrms/rooming-lists/* never falls through

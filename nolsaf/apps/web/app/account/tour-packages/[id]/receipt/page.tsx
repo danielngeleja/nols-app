@@ -7,21 +7,31 @@ import { ArrowLeft, FileText, Printer } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 
 /**
- * Tour receipt viewer. The receipt itself is the shared customer receipt
- * template rendered by the API (the same one behind the stay booking receipt),
- * shown in the same document viewer as /account/bookings/[id]/receipt.
+ * Tour receipt viewer. The API renders the shared customer receipt template,
+ * so web sessions and short-lived links issued to the mobile app show the same
+ * canonical document.
  */
 export default function TourReceiptPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
   const tourReference = String(idParam || "");
+  const [documentToken, setDocumentToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [receiptHtml, setReceiptHtml] = useState<string>("");
   const viewerFrameRef = useRef<HTMLIFrameElement | null>(null);
   const viewerStageRef = useRef<HTMLDivElement | null>(null);
 
-  const backHref = useMemo(() => `/account/tour-packages/${encodeURIComponent(tourReference)}`, [tourReference]);
+  const backHref = useMemo(
+    () => documentToken ? "#" : `/account/tour-packages/${encodeURIComponent(tourReference)}`,
+    [documentToken, tourReference],
+  );
+  const goBack = documentToken
+    ? (event: React.MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault();
+        window.history.back();
+      }
+    : undefined;
 
   const fitReceipt = useCallback(() => {
     const frame = viewerFrameRef.current;
@@ -71,12 +81,20 @@ export default function TourReceiptPage() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`/api/customer/tour-bookings/${encodeURIComponent(tourReference)}/receipt.html`, { credentials: "include", cache: "no-store" });
-      if (r.status === 409) throw new Error("Your receipt will be available once the payment is confirmed.");
-      if (!r.ok) throw new Error(`We could not load this receipt (${r.status}).`);
-      setReceiptHtml(await r.text());
-    } catch (e: any) {
-      setErr(e?.message || "We could not load this receipt.");
+      const token = new URLSearchParams(window.location.search).get("document_token");
+      setDocumentToken(token);
+      const path = token
+        ? `/api/public/tour-bookings/${encodeURIComponent(tourReference)}/documents/receipt.html?token=${encodeURIComponent(token)}`
+        : `/api/customer/tour-bookings/${encodeURIComponent(tourReference)}/receipt.html`;
+      const response = await fetch(path, {
+        credentials: token ? "omit" : "include",
+        cache: "no-store",
+      });
+      if (response.status === 409) throw new Error("Your receipt will be available once the payment is confirmed.");
+      if (!response.ok) throw new Error(`We could not load this receipt (${response.status}).`);
+      setReceiptHtml(await response.text());
+    } catch (error: any) {
+      setErr(error?.message || "We could not load this receipt.");
       setReceiptHtml("");
     } finally {
       setLoading(false);
@@ -114,7 +132,7 @@ export default function TourReceiptPage() {
         <div className="rounded-2xl border border-solid border-gray-200 bg-white p-6">
           <div className="text-sm font-medium text-slate-700">{err || "Receipt not available"}</div>
           <div className="mt-4">
-            <Link href={backHref} className="text-[#02665e] underline hover:text-[#014e47]">
+            <Link href={backHref} onClick={goBack} className="text-[#02665e] underline hover:text-[#014e47]">
               Back to trip
             </Link>
           </div>
@@ -129,6 +147,7 @@ export default function TourReceiptPage() {
         <div className="flex min-w-0 items-center gap-3">
           <Link
             href={backHref}
+            onClick={goBack}
             className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 no-underline transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]"
             title="Back to trip"
             aria-label="Back to trip"
