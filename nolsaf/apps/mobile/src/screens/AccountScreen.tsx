@@ -20,6 +20,7 @@ import {
   Phone,
   Settings,
   ShieldCheck,
+  Siren,
   TicketCheck,
   User,
   Users
@@ -245,6 +246,7 @@ export function AccountScreen({ navigation }: Props) {
           </AppCard>
 
           <MenuSection title="Policies & Support">
+            <MenuRow Icon={Siren} title="Safety & emergency" subtitle="Emergency numbers, provider contacts, NoLSAF support, and Share my trip." onPress={() => navigation.navigate("SafetyCenter")} />
             <MenuRow Icon={Ban} title="Cancellation claims" subtitle="Request a booking cancellation and track its status and messages." onPress={() => navigation.navigate("MyCancellations")} />
             <MenuRow Icon={FileText} title="NoLSAF Policies" subtitle="Traveller terms, privacy, payments, refunds, and safety policies." onPress={() => navigation.navigate("AccountResources", { mode: "policies" })} />
             <MenuRow Icon={CircleHelp} title="Help Center" subtitle="Get support for rides, stays, tours, payments, and documents." onPress={() => navigation.navigate("AccountResources", { mode: "help" })} />

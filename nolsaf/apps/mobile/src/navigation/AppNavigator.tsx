@@ -33,6 +33,7 @@ import { RegisterScreen } from "../screens/RegisterScreen";
 import { RideDetailScreen } from "../screens/RideDetailScreen";
 import { SavedPropertiesScreen } from "../screens/SavedPropertiesScreen";
 import { SearchScreen } from "../screens/SearchScreen";
+import { SafetyCenterScreen } from "../screens/SafetyCenterScreen";
 import { TourDetailScreen } from "../screens/TourDetailScreen";
 import { TourOperatorScreen } from "../screens/TourOperatorScreen";
 import { TourBookingPaymentScreen } from "../screens/TourBookingPaymentScreen";
@@ -132,6 +133,7 @@ export function AppNavigator() {
             <Stack.Screen name="AccountPreferences" component={AccountPreferencesScreen} />
             <Stack.Screen name="BusinessAccess" component={BusinessAccessScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="SafetyCenter" component={SafetyCenterScreen} />
             <Stack.Screen name="SavedProperties" component={SavedPropertiesScreen} />
             <Stack.Screen name="AccountResources" component={AccountResourcesScreen} />
             <Stack.Screen name="TravellerGroups" component={TravellerGroupsScreen} />

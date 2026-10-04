@@ -313,28 +313,6 @@ export type CustomerTourBookingsResponse = {
   pageSize?: number;
 };
 
-export type TourVoucherPayload = {
-  bookingId: number;
-  bookingCode?: string | null;
-  voucherIdentity?: {
-    voucherNumber?: string | null;
-    securityMark?: string | null;
-    machineLine?: string | null;
-    issuedAt?: string | null;
-  } | null;
-  title?: string | null;
-  destination?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  travelerCount?: number | null;
-  guestName?: string | null;
-  guestPhone?: string | null;
-  operatorSnapshot?: Record<string, unknown> | null;
-  itinerary?: unknown[];
-  meetingPoints?: string[];
-  inclusions?: string[];
-};
-
 export type TourGroupMemberDocumentType = "PASSPORT" | "NATIONAL_ID" | "BIRTH_CERTIFICATE" | "OTHER";
 export type TourGroupMemberRelation = "SPOUSE" | "CHILD" | "PARENT" | "SIBLING" | "RELATIVE" | "FRIEND" | "COLLEAGUE" | "OTHER";
 
@@ -364,16 +342,10 @@ export type TourGroupMembersResponse = {
   members?: TourGroupMember[];
 };
 
-export type TourReceiptPayload = {
-  bookingId: number;
-  bookingCode?: string | null;
-  title?: string | null;
-  currency?: string | null;
-  amount?: number | null;
-  paymentStatus?: string | null;
-  paymentProvider?: string | null;
-  paymentRef?: string | null;
-  paidAt?: string | null;
-  travelerCount?: number | null;
-  guestName?: string | null;
+export type TourDocumentKind = "voucher" | "receipt";
+
+export type TourDocumentLinkResponse = {
+  ok: boolean;
+  url: string;
+  expiresInSeconds: number;
 };

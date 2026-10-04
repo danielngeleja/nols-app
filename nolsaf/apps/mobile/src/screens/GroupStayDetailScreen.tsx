@@ -5,7 +5,7 @@ import { ActivityIndicator, Image, NativeScrollEvent, NativeSyntheticEvent, Pres
 import * as WebBrowser from "expo-web-browser";
 
 import { useAuth } from "../auth";
-import { AppButton, AppCard, AppInput, AppStack, AppText, SafeScreen, ScreenHeader, StateView, StatusBadge } from "../components";
+import { AppButton, AppCard, AppInput, AppStack, AppText, SafeScreen, ScreenHeader, ShareTripButton, StateView, StatusBadge } from "../components";
 import { apiBaseUrl } from "../lib/apiClient";
 import {
   ACCOMMODATION_TYPE_OPTIONS,
@@ -300,6 +300,10 @@ export function GroupStayDetailScreen({ navigation, route }: Props) {
                     Requested {formatDateTime(booking.createdAt)}
                   </AppText>
                 </View>
+
+                {!['CANCELED', 'CANCELLED', 'COMPLETED', 'EXPIRED'].includes(String(booking.status).toUpperCase()) ? (
+                  <ShareTripButton serviceKind="GROUP_STAY" serviceId={booking.id} />
+                ) : null}
 
                 {isAwaitingDeposit ? (
                   <AppCard style={styles.depositCard}>

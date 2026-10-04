@@ -688,7 +688,8 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
   const { savedIds, toggleSave } = useSavedProperties(token);
-  const { id, slug } = route.params;
+  const { id, slug, startBooking } = route.params;
+  const bookingPromptShown = useRef(false);
   const [detail, setDetail] = useState<PublicPropertyDetail | null>(null);
   const [commission, setCommission] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -835,6 +836,12 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!startBooking || !detail || bookingPromptShown.current) return;
+    bookingPromptShown.current = true;
+    setCalendarVisible(true);
+  }, [detail, startBooking]);
 
   useEffect(() => {
     loadReviews();

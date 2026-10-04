@@ -32,6 +32,7 @@ export type RootStackParamList = {
   AccountPreferences: undefined;
   BusinessAccess: undefined;
   Notifications: undefined;
+  SafetyCenter: undefined;
   SavedProperties: undefined;
   AccountSecurity: { mode: "password" | "passkeys" | "2fa" | "applock" };
   AccountResources: { mode: "policies" | "help" | "support" };
@@ -61,7 +62,7 @@ export type RootStackParamList = {
    * the numeric id is kept for in-app state (saved, availability) and as a
    * fallback for an older API. Always pass the slug when the card has one.
    */
-  PropertyDetail: { id: number; slug?: string; title?: string };
+  PropertyDetail: { id: number; slug?: string; title?: string; startBooking?: boolean };
   /**
    * Public certificate view. `token` is the signed `t` value from a
    * /verify/property link, which is also what the printed QR code encodes.

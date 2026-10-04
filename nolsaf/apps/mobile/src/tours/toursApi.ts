@@ -14,8 +14,8 @@ import {
   TourGroupMember,
   TourGroupMembersResponse,
   TourismSite,
-  TourReceiptPayload,
-  TourVoucherPayload
+  TourDocumentKind,
+  TourDocumentLinkResponse
 } from "./types";
 
 export const DEFAULT_TOUR_CATEGORIES = [
@@ -704,12 +704,11 @@ export async function fetchCustomerTourBooking(token: string, id: number | strin
   return apiRequest<CustomerTourBookingDetail>(`/api/customer/tour-bookings/${id}`, { token });
 }
 
-export async function fetchCustomerTourVoucher(token: string, id: number | string) {
-  return apiRequest<TourVoucherPayload>(`/api/customer/tour-bookings/${id}/voucher`, { token });
-}
-
-export async function fetchCustomerTourReceipt(token: string, id: number | string) {
-  return apiRequest<TourReceiptPayload>(`/api/customer/tour-bookings/${id}/receipt`, { token });
+export async function fetchCustomerTourDocumentLink(token: string, id: number | string, kind: TourDocumentKind) {
+  return apiRequest<TourDocumentLinkResponse>(
+    `/api/customer/tour-bookings/${encodeURIComponent(String(id))}/document-link/${kind}`,
+    { token }
+  );
 }
 
 export async function uploadTravellerDocumentFile(

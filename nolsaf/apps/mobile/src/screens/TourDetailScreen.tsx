@@ -30,14 +30,13 @@ import { ActivityIndicator, Alert, Animated, Easing, Linking, Modal, Pressable, 
 import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop, Text as SvgText } from "react-native-svg";
 
 import { useAuth } from "../auth";
-import { AmountText, AppButton, AppInput, AppText, SafeScreen, StateView } from "../components";
+import { AmountText, AppButton, AppInput, AppText, SafeScreen, ShareTripButton, StateView } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import {
   createTourTimelineInvite,
   CustomerTourBookingDetail,
   fetchCustomerTourBooking,
-  fetchCustomerTourReceipt,
-  fetchCustomerTourVoucher,
+  fetchCustomerTourDocumentLink,
   saveTourBookingDocument,
   saveTravellerDocument,
   startTourPickupCheckIn,
@@ -94,31 +93,6 @@ type OperatorIssuedDocument = {
 type UploadedDocumentState = Record<string, { name: string; url?: string; status: "Uploaded" | "Pending" | "Failed" }>;
 type DocumentResult =
   | {
-      type: "voucher";
-      title: string;
-      rows: Array<{ label: string; value: string }>;
-      voucherNumber: string;
-      securityMark: string;
-      machineLine: string;
-      issuedAt: string;
-    }
-  | {
-      type: "receipt";
-      title: string;
-      rows: Array<{ label: string; value: string }>;
-      amount: number;
-      currency: string;
-      receiptNumber: string;
-      bookingCode: string;
-      paymentStatus: string;
-      paymentProvider: string;
-      paymentRef: string;
-      paidAt: string;
-      packageTitle: string;
-      travelerCount: string;
-      guestName: string;
-    }
-  | {
       type: "documents";
       title: string;
       rows: Array<{ label: string; value: string }>;
@@ -136,12 +110,6 @@ function fmtDateTime(value?: string | null) {
   if (!value) return "Not recorded";
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? "Not recorded" : d.toLocaleString();
-}
-
-function buildReceiptNumber(bookingId: number, bookingCode?: string | null, paymentRef?: string | null) {
-  const source = String(paymentRef || bookingCode || bookingId || "receipt").replace(/[^A-Za-z0-9]/g, "");
-  const suffix = (source.slice(-8) || String(bookingId)).toUpperCase().padStart(8, "0");
-  return `TPR-${String(bookingId).padStart(6, "0")}-${suffix}`;
 }
 
 function operatorName(item: CustomerTourBookingDetail) {
@@ -695,26 +663,9 @@ export function TourDetailScreen({ route, navigation }: Props) {
     if (!token) return;
     setActionLoading(true);
     try {
-      const voucher = await fetchCustomerTourVoucher(token, bookingKey);
-      const identity = voucher.voucherIdentity?.voucherNumber || voucher.bookingCode || "Voucher ready";
-      const securityMark = voucher.voucherIdentity?.securityMark || "NLSAF";
-      const machineLine = voucher.voucherIdentity?.machineLine || `NLSAF|TVR|${voucher.bookingId || bookingId}`;
-      const issuedAt = voucher.voucherIdentity?.issuedAt ? fmtDateTime(voucher.voucherIdentity.issuedAt) : fmtDateTime(new Date().toISOString());
-      setDocumentResult({
-        type: "voucher",
-        title: "Official Tour Package Voucher",
-        voucherNumber: identity,
-        securityMark,
-        machineLine,
-        issuedAt,
-        rows: [
-          { label: "Package", value: voucher.title || "Tour package" },
-          { label: "Destination", value: voucher.destination || "Destination pending" },
-          { label: "Travel date", value: fmtDate(voucher.startDate) },
-          { label: "Travellers", value: String(voucher.travelerCount || 1) },
-          { label: "Guest", value: voucher.guestName || "Not recorded" }
-        ]
-      });
+      const document = await fetchCustomerTourDocumentLink(token, bookingKey, "voucher");
+      if (!document.url) throw new Error("The official voucher link is unavailable.");
+      await Linking.openURL(document.url);
     } catch (err) {
       Alert.alert("Voucher", err instanceof Error ? err.message : "Voucher is not available yet.");
     } finally {
@@ -723,50 +674,14 @@ export function TourDetailScreen({ route, navigation }: Props) {
   };
 
   const showReceipt = async () => {
-    const openReceipt = (receipt: Partial<Awaited<ReturnType<typeof fetchCustomerTourReceipt>>> = {}) => {
-      const currency = receipt.currency || item?.currency || "USD";
-      const amount = Number(receipt.amount ?? item?.grossAmount ?? 0);
-      const packageTitle = receipt.title || item?.title || "Tour package";
-      const bookingCode = receipt.bookingCode || item?.bookingCode || `TOUR-${bookingId}`;
-      const paidAt = fmtDateTime(receipt.paidAt || item?.paidAt);
-      const paymentStatus = receipt.paymentStatus || item?.paymentStatus || (item?.paidAt ? "Approved" : "Pending");
-      const paymentProvider = receipt.paymentProvider || item?.paymentProvider || "Not recorded";
-      const paymentRef = receipt.paymentRef || item?.paymentRef || "Not recorded";
-      const guestName = receipt.guestName || item?.guestName || "Not recorded";
-      const travelerCount = String(receipt.travelerCount || item?.travelerCount || 1);
-      setDocumentResult({
-        type: "receipt",
-        title: "Payment Receipt",
-        amount,
-        currency,
-        receiptNumber: buildReceiptNumber(bookingId, bookingCode, paymentRef),
-        bookingCode,
-        paymentStatus,
-        paymentProvider,
-        paymentRef,
-        paidAt,
-        packageTitle,
-        travelerCount,
-        guestName,
-        rows: [
-          { label: "Package", value: packageTitle },
-          { label: "Amount", value: `${amount.toLocaleString()} ${currency}` },
-          { label: "Paid", value: paidAt },
-          { label: "Provider", value: paymentProvider },
-          { label: "Reference", value: paymentRef },
-          { label: "Guest", value: guestName }
-        ]
-      });
-    };
-
-    openReceipt();
     if (!token) return;
     setActionLoading(true);
     try {
-      const receipt = await fetchCustomerTourReceipt(token, bookingKey);
-      openReceipt(receipt);
-    } catch {
-      // Keep the local booking receipt visible if the receipt endpoint is not ready yet.
+      const document = await fetchCustomerTourDocumentLink(token, bookingKey, "receipt");
+      if (!document.url) throw new Error("The official receipt link is unavailable.");
+      await Linking.openURL(document.url);
+    } catch (err) {
+      Alert.alert("Receipt", err instanceof Error ? err.message : "Receipt is available after successful payment.");
     } finally {
       setActionLoading(false);
     }
@@ -1076,6 +991,8 @@ export function TourDetailScreen({ route, navigation }: Props) {
             </AppText>
           </View>
         </View>
+
+        {paid && !isCompleted ? <ShareTripButton serviceKind="TOUR" serviceId={item.id} /> : null}
 
         <View style={styles.hero}>
           <View style={styles.heroTop}>
@@ -1722,29 +1639,19 @@ function DocumentResultSheet({
           <View style={styles.resultHandle} />
           <View style={styles.resultHeader}>
             <View style={styles.resultIcon}>
-              {result?.type === "receipt" ? (
-                <ReceiptText color={colors.primary} size={20} />
-              ) : result?.type === "documents" ? (
-                <FileText color={colors.primary} size={20} />
-              ) : (
-                <TicketCheck color={colors.primary} size={20} />
-              )}
+              <FileText color={colors.primary} size={20} />
             </View>
             <View style={styles.flex}>
               <AppText variant="titleSm" weight="extraBold">
                 {result?.title || "Document"}
               </AppText>
               <AppText variant="caption" tone="muted">
-                {result?.type === "documents" ? "Document status and next steps." : "Keep this record for your trip."}
+                Document status and next steps.
               </AppText>
             </View>
           </View>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultScroll}>
-            {result?.type === "voucher" ? (
-              <VoucherProof result={result} />
-            ) : result?.type === "receipt" ? (
-              <ReceiptProof result={result} />
-            ) : result?.type === "documents" ? (
+            {result?.type === "documents" ? (
               <DocumentsProof result={result} uploads={uploads} uploadingDocument={uploadingDocument} onUpload={onUploadDocument} />
             ) : (
               null
@@ -1889,199 +1796,6 @@ function DocumentsProof({
           </View>
         ))}
       </View>
-    </View>
-  );
-}
-
-function ReceiptProof({ result }: { result: Extract<DocumentResult, { type: "receipt" }> }) {
-  const amount = Number(result.amount || 0).toLocaleString();
-  const paidLabel = result.paidAt === "Not recorded" ? "Payment date pending record" : `Paid ${result.paidAt}`;
-  return (
-    <View style={styles.receiptProof}>
-      <View style={styles.receiptIntro}>
-        <AppText variant="caption" weight="bold" style={styles.receiptKicker}>
-          Certified Customer Payment Record
-        </AppText>
-        <AppText variant="headline" weight="extraBold" style={styles.receiptTitle}>
-          Payment Receipt
-        </AppText>
-        <AppText variant="bodySmall" tone="muted" style={styles.receiptSubtitle}>
-          Official confirmation issued for your completed tour package payment.
-        </AppText>
-      </View>
-
-      <View style={styles.receiptAmountBlock}>
-        <AppText variant="caption" weight="bold" style={styles.receiptKicker}>
-          Amount Settled
-        </AppText>
-        <View style={styles.receiptAmountRow}>
-          <AppText variant="bodySmall" weight="extraBold" style={styles.receiptCurrency}>
-            {result.currency}
-          </AppText>
-          <AppText variant="display" weight="extraBold" style={styles.receiptAmount}>
-            {amount}
-          </AppText>
-        </View>
-        <View style={styles.receiptDateChip}>
-          <AppText variant="caption" weight="bold" tone="soft" numberOfLines={1}>
-            {paidLabel}
-          </AppText>
-        </View>
-      </View>
-
-      <View style={styles.receiptBarcodePanel}>
-        <View style={styles.barcodeHeader}>
-          <View style={styles.flex}>
-            <AppText variant="caption" weight="bold" tone="soft" style={styles.infoLabel}>
-              Payment barcode
-            </AppText>
-            <AppText variant="caption" tone="muted">
-              Match this code with the receipt number.
-            </AppText>
-          </View>
-          <View style={styles.receiptStatusChip}>
-            <AppText variant="caption" weight="extraBold" tone="success" numberOfLines={1}>
-              {result.paymentStatus}
-            </AppText>
-          </View>
-        </View>
-        <VoucherBarcode seed={`${result.receiptNumber}|${result.bookingCode}|${result.paymentRef}`} />
-        <AppText variant="caption" weight="mono" style={styles.receiptBarcodeText} numberOfLines={2}>
-          {result.receiptNumber}
-        </AppText>
-      </View>
-
-      <View style={styles.receiptCodeGrid}>
-        <View style={styles.receiptCodeCard}>
-          <AppText variant="caption" weight="bold" style={styles.receiptKicker}>
-            Receipt Number
-          </AppText>
-          <AppText variant="caption" weight="mono" style={styles.receiptCodeValue} numberOfLines={2}>
-            {result.receiptNumber}
-          </AppText>
-        </View>
-        <View style={styles.receiptDivider} />
-        <View style={styles.receiptCodeCard}>
-          <AppText variant="caption" weight="bold" style={styles.receiptKicker}>
-            Booking Code
-          </AppText>
-          <AppText variant="caption" weight="mono" style={styles.receiptCodeValue} numberOfLines={2}>
-            {result.bookingCode}
-          </AppText>
-        </View>
-      </View>
-
-      <View style={styles.receiptDetailsGrid}>
-        <View style={styles.receiptSectionCard}>
-          <AppText variant="caption" weight="bold" style={styles.receiptKicker}>
-            Payment Details
-          </AppText>
-          <ReceiptLine label="Status" value={result.paymentStatus} />
-          <ReceiptLine label="Method" value={result.paymentProvider} />
-          <ReceiptLine label="Reference" value={result.paymentRef} mono />
-        </View>
-        <View style={styles.receiptSectionCard}>
-          <AppText variant="caption" weight="bold" style={styles.receiptKicker}>
-            Booking Details
-          </AppText>
-          <ReceiptLine label="Package" value={result.packageTitle} />
-          <ReceiptLine label="Travelers" value={result.travelerCount} />
-          <ReceiptLine label="Guest" value={result.guestName} />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function ReceiptLine({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <View style={styles.receiptLine}>
-      <AppText variant="caption" tone="muted">
-        {label}
-      </AppText>
-      <AppText variant="caption" weight={mono ? "mono" : "bold"} style={styles.receiptLineValue} numberOfLines={2}>
-        {value}
-      </AppText>
-    </View>
-  );
-}
-
-function VoucherProof({ result }: { result: Extract<DocumentResult, { type: "voucher" }> }) {
-  const seed = result.voucherNumber || result.machineLine;
-  return (
-    <View style={styles.voucherProof}>
-      <View style={styles.voucherBrandRow}>
-        <View>
-          <AppText variant="caption" weight="bold" style={styles.voucherProofLabel}>
-            NoLSAF Official Voucher
-          </AppText>
-          <AppText variant="caption" style={styles.voucherMuted}>
-            Present this code for package verification.
-          </AppText>
-        </View>
-        <View style={styles.securityStamp}>
-          <AppText variant="caption" weight="extraBold" style={styles.securityMark} numberOfLines={1}>
-            {result.securityMark}
-          </AppText>
-        </View>
-      </View>
-
-      <View style={styles.barcodePanel}>
-        <View style={styles.barcodeHeader}>
-          <View>
-            <AppText variant="caption" weight="bold" tone="soft" style={styles.infoLabel}>
-              Boarding barcode
-            </AppText>
-            <AppText variant="caption" tone="muted">
-              Scan or match code at verification.
-            </AppText>
-          </View>
-          <View style={styles.liveChip}>
-            <AppText variant="caption" weight="extraBold" tone="success">
-              Valid
-            </AppText>
-          </View>
-        </View>
-        <VoucherBarcode seed={seed} />
-        <AppText variant="bodySmall" weight="mono" style={styles.voucherNumberText} numberOfLines={3}>
-          {result.voucherNumber}
-        </AppText>
-      </View>
-
-      <View style={styles.machineLineBox}>
-        <AppText variant="caption" style={styles.voucherMuted}>
-          Verification line
-        </AppText>
-        <AppText variant="caption" weight="mono" tone="inverse" numberOfLines={3}>
-          {result.machineLine}
-        </AppText>
-      </View>
-    </View>
-  );
-}
-
-function VoucherBarcode({ seed }: { seed: string }) {
-  const bars = Array.from({ length: 96 }).map((_, index) => {
-    const code = seed.charCodeAt(index % Math.max(seed.length, 1)) || 37;
-    return {
-      flex: 1 + ((code + index * 3) % 5),
-      dark: (code + index) % 4 !== 0
-    };
-  });
-  return (
-    <View style={styles.barcodeWrap}>
-      {bars.map((bar, index) => (
-        <View
-          key={`${index}-${bar.flex}`}
-          style={[
-            styles.barcodeBar,
-            {
-              flex: bar.flex,
-              opacity: bar.dark ? 1 : 0.18
-            }
-          ]}
-        />
-      ))}
     </View>
   );
 }
@@ -2938,216 +2652,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     padding: spacing[3]
   },
-  receiptProof: {
-    gap: spacing[4],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: "#d9e7e4",
-    backgroundColor: "#fbfdfc",
-    padding: spacing[4]
-  },
-  receiptIntro: {
-    alignItems: "center",
-    gap: spacing[1],
-    paddingHorizontal: spacing[2]
-  },
-  receiptKicker: {
-    color: "#7fa09b",
-    textTransform: "uppercase",
-    letterSpacing: 1.6
-  },
-  receiptTitle: {
-    color: "#163f3a",
-    textAlign: "center"
-  },
-  receiptSubtitle: {
-    textAlign: "center"
-  },
-  receiptAmountBlock: {
-    alignItems: "center",
-    gap: spacing[2],
-    borderRadius: radius.lg,
-    backgroundColor: colors.white,
-    paddingVertical: spacing[4],
-    paddingHorizontal: spacing[3],
-    borderWidth: 1,
-    borderColor: "#edf2f7"
-  },
-  receiptAmountRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: spacing[2],
-    minWidth: 0
-  },
-  receiptCurrency: {
-    color: "#6f9690",
-    marginBottom: 8,
-    letterSpacing: 1.2
-  },
-  receiptAmount: {
-    color: colors.primary,
-    textAlign: "center"
-  },
-  receiptDateChip: {
-    maxWidth: "100%",
-    borderRadius: radius.full,
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#edf2f7",
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1]
-  },
-  receiptBarcodePanel: {
-    gap: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: "#d9e7e4",
-    padding: spacing[3]
-  },
-  receiptStatusChip: {
-    maxWidth: 128,
-    borderRadius: radius.full,
-    backgroundColor: "#e9f7ef",
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1]
-  },
-  receiptBarcodeText: {
-    color: "#173f3b",
-    textAlign: "center"
-  },
-  receiptCodeGrid: {
-    flexDirection: "row",
-    alignItems: "stretch",
-    gap: spacing[2],
-    minWidth: 0
-  },
-  receiptCodeCard: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing[1],
-    borderRadius: radius.md,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: "#edf2f7",
-    padding: spacing[3]
-  },
-  receiptCodeValue: {
-    color: "#173f3b"
-  },
-  receiptDivider: {
-    width: 1,
-    backgroundColor: "#cfe0dd"
-  },
-  receiptDetailsGrid: {
-    gap: spacing[3]
-  },
-  receiptSectionCard: {
-    gap: spacing[2],
-    borderRadius: radius.md,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: "#edf2f7",
-    padding: spacing[3]
-  },
-  receiptLine: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: spacing[3],
-    minWidth: 0
-  },
-  receiptLineValue: {
-    flex: 1,
-    textAlign: "right",
-    color: "#173f3b"
-  },
-  voucherProof: {
-    gap: spacing[4],
-    borderRadius: radius.lg,
-    backgroundColor: colors.primaryDeep,
-    padding: spacing[4]
-  },
-  voucherBrandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing[3],
-    minWidth: 0
-  },
-  voucherProofLabel: {
-    color: "rgba(255,255,255,0.58)",
-    textTransform: "uppercase",
-    letterSpacing: 1.4
-  },
-  securityStamp: {
-    maxWidth: 116,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: "rgba(251,191,36,0.45)",
-    backgroundColor: "rgba(251,191,36,0.12)",
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[1]
-  },
-  securityMark: {
-    color: "#fbbf24"
-  },
-  voucherMuted: {
-    color: "rgba(255,255,255,0.48)"
-  },
-  barcodePanel: {
-    gap: spacing[3],
-    borderRadius: radius.lg,
-    backgroundColor: "rgba(255,255,255,0.96)",
-    padding: spacing[4],
-    alignItems: "stretch",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.7)"
-  },
-  barcodeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing[3],
-    minWidth: 0
-  },
   liveChip: {
     borderRadius: radius.full,
     backgroundColor: "#e9f7ef",
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[1]
-  },
-  barcodeWrap: {
-    width: "100%",
-    height: 92,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "stretch",
-    gap: 1,
-    overflow: "hidden",
-    borderRadius: radius.sm,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
-  },
-  barcodeBar: {
-    height: "100%",
-    backgroundColor: colors.ink
-  },
-  voucherNumberText: {
-    color: colors.ink,
-    textAlign: "center"
-  },
-  machineLineBox: {
-    gap: spacing[1],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    padding: spacing[3]
   },
   completedExperience: {
     gap: spacing[3]

@@ -135,6 +135,15 @@ export function NotificationsScreen({ navigation }: Props) {
     }
   }, [token]);
 
+  const openNotification = useCallback(async (item: NotificationItem) => {
+    if (tab === "unread") await markRead(item.id);
+    const action = item.meta?.action;
+    const screen = String(action?.screen || "");
+    const params = action?.params && typeof action.params === "object" ? action.params : undefined;
+    const allowed = new Set(["MyBookings", "TourDetail", "GroupStayDetail", "RideDetail", "CancelBooking", "SafetyCenter"]);
+    if (allowed.has(screen)) (navigation.navigate as any)(screen, params);
+  }, [markRead, navigation, tab]);
+
   return (
     <View style={styles.root}>
       <SafeScreen scroll={false} padded={false} contentStyle={styles.flex}>
@@ -208,7 +217,7 @@ export function NotificationsScreen({ navigation }: Props) {
             renderItem={({ item }) => (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => (tab === "unread" ? markRead(item.id) : undefined)}
+                onPress={() => void openNotification(item)}
                 onLongPress={() => (tab === "viewed" ? removeOne(item.id) : undefined)}
                 style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
               >

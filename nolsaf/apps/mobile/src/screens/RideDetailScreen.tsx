@@ -38,7 +38,7 @@ import {
 import Svg, { Circle, Rect } from "react-native-svg";
 
 import { useAuth } from "../auth";
-import { AmountText, AppText, SafeScreen, StateView } from "../components";
+import { AmountText, AppText, SafeScreen, ShareTripButton, StateView } from "../components";
 import { env } from "../lib/env";
 import { RootStackParamList } from "../navigation/types";
 import { fetchRideDetail, RideDetail, RideDriverDetail } from "../transport";
@@ -215,6 +215,8 @@ export function RideDetailScreen({ route, navigation }: Props) {
             </AppText>
           </View>
         </View>
+
+        {!isPast ? <ShareTripButton serviceKind="RIDE" serviceId={ride.id} /> : null}
 
         {/* Route map. Directions are offered only for fresh (upcoming) trips;
             completed or expired trips show the route as a static record. */}
