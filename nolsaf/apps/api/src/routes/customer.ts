@@ -9,6 +9,7 @@ import customerRidesRouter from "./customer.rides";
 import customerSavedPropertiesRouter from "./customer.savedProperties";
 import customerPropertySharesRouter from "./customer.propertyShares.js";
 import customerTourBookingsRouter from "./customer.tourBookings";
+import customerTripSafetyRouter from "./customer.tripSafety";
 
 export function registerCustomerRoutes(app: Express): void {
   app.use("/api/customer/bookings", customerBookingsRouter as RequestHandler);
@@ -21,4 +22,5 @@ export function registerCustomerRoutes(app: Express): void {
   app.use("/api/customer/saved-properties", customerSavedPropertiesRouter as RequestHandler);
   app.use("/api/customer/referrals", customerReferralsRouter as RequestHandler);
   app.use("/api/customer/tour-bookings", customerTourBookingsRouter as RequestHandler);
+  app.use("/api/customer/trip-safety", customerTripSafetyRouter as RequestHandler);
 }

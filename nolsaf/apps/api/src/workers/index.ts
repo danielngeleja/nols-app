@@ -27,6 +27,7 @@ import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.
 import { startNrmsInquiryFollowUpWorker } from "./nrmsInquiryFollowUps.js";
 import { startSalesLeadReminderWorker } from "./salesLeadReminders.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
+import { startTravellerTripReminders } from "./travellerTripReminders.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
@@ -100,6 +101,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
       // within the grace window, the trip will later become claimable.
       startTransportAutoDispatch({ io });
       startOwnerBusinessLicenceExpiryReminders({ io });
+      startTravellerTripReminders({ io });
       // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
       startExpireStaleBookings();
       // Expire group stay offers whose 24h deposit window has passed.

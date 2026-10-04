@@ -217,6 +217,7 @@ model User {
 
   // Attributable property shares
   propertySharesSent PropertyShare[] @relation("UserPropertyShares")
+  tripSharesSent     TripShare[]     @relation("UserTripShares")
 
   // Trust and verification stewardship
   companyVerificationApprovals CompanyVerification[]    @relation("CompanyVerificationEvidenceApprovals")
@@ -3591,6 +3592,33 @@ model PropertyShare {
   @@index([bookingId])
   @@index([createdAt])
   @@map("property_share")
+}
+
+/// A privacy-limited, revocable link to one active traveller service.
+/// Service records are intentionally referenced by kind/id rather than foreign
+/// keys because a share can point at a stay, tour, group stay, or ride.
+model TripShare {
+  id          Int      @id @default(autoincrement())
+  token       String   @unique @db.VarChar(48)
+  userId      Int
+  serviceKind String   @db.VarChar(20) // STAY | TOUR | GROUP_STAY | RIDE
+  serviceId   Int
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  openCount     Int       @default(0)
+  firstOpenedAt DateTime?
+  lastOpenedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserTripShares", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([serviceKind, serviceId])
+  @@index([expiresAt])
+  @@map("trip_share")
 }
 
 // =========================================================

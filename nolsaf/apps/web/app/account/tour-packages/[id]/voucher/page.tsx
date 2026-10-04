@@ -91,6 +91,7 @@ function useCodes(value: string): { qr: string | null; bars: string | null } {
 export default function PackageVoucherPage() {
   const params = useParams<{ id: string }>();
   const id = String(params?.id || "");
+  const [documentToken, setDocumentToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [voucher, setVoucher] = useState<Voucher | null>(null);
@@ -100,11 +101,23 @@ export default function PackageVoucherPage() {
     let alive = true;
     (async () => {
       try {
-        const res = await apiClient.get(`/api/customer/tour-bookings/${encodeURIComponent(id)}/voucher`);
+        const token = new URLSearchParams(window.location.search).get("document_token");
+        if (alive) setDocumentToken(token);
+        const res = token
+          ? await fetch(`/api/public/tour-bookings/${encodeURIComponent(id)}/documents/voucher?token=${encodeURIComponent(token)}`, {
+              credentials: "omit",
+              cache: "no-store",
+            }).then(async (response) => {
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(data?.message || data?.error || "Failed to load voucher.");
+              return { data };
+            })
+          : await apiClient.get(`/api/customer/tour-bookings/${encodeURIComponent(id)}/voucher`);
         if (!alive) return;
         setVoucher(res.data || null);
       } catch (err: any) {
-        if (alive) setError(err?.response?.data?.error || "We could not load this voucher.");
+        if (!alive) return;
+        setError(err?.response?.data?.error || err?.message || "We could not load this voucher.");
       } finally {
         if (alive) setLoading(false);
       }
@@ -144,7 +157,9 @@ export default function PackageVoucherPage() {
       {/* ── Nav (screen only) ── */}
       <div className="flex items-center justify-between gap-3 border-0 border-b border-solid py-3" style={{ borderColor: C.line }}>
         <Link
-          href={`/account/tour-packages/${encodeURIComponent(id)}`}
+          href={documentToken ? "#" : `/account/tour-packages/${encodeURIComponent(id)}`}
+          onClick={documentToken ? (event) => { event.preventDefault(); window.history.back(); } : undefined}
+          aria-label="Back to trip"
           className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-500 no-underline transition-colors hover:text-[#02665e]"
         >
           <ChevronLeft className="h-4 w-4" aria-hidden />

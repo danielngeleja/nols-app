@@ -25,6 +25,9 @@ import {
   parseCoralInitiateResponse,
 } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
+import { verifyTourDocumentToken, type TourDocumentKind } from "../lib/tourDocumentToken.js";
+import { loadTourReceiptDocument, loadTourVoucherDocument } from "../lib/tourDocuments.js";
+import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { verifyMnoWalletForCheckout } from "../services/azampay/mnoPreflight.js";
 
 const router = Router();
@@ -42,6 +45,142 @@ const tourPaymentLimiter = rateLimit({
   keyGenerator: (req: any) => `tour-pay:${req.ip || "anon"}`,
   message: { ok: false, error: "rate_limited", message: "Too many payment attempts. Please try again later." },
 });
+
+const tourDocumentLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: "rate_limited", message: "Too many document requests. Please try again later." },
+});
+
+// Canonical Tour documents opened by the mobile app. Access is granted only by
+// a short-lived token issued to the authenticated owner of this booking.
+router.get(
+  "/:id/documents/:kind",
+  tourDocumentLimiter,
+  asyncHandler(async (req: any, res, next) => {
+    const bookingId = Number(req.params.id);
+    const rawKind = String(req.params.kind || "").toLowerCase();
+    if (rawKind === "receipt.html") return next();
+    const kind = rawKind as TourDocumentKind;
+    if (!Number.isInteger(bookingId) || bookingId <= 0) {
+      return res.status(400).json({ ok: false, error: "invalid_id" });
+    }
+    if (kind !== "voucher" && kind !== "receipt") {
+      return res.status(400).json({ ok: false, error: "invalid_document_type" });
+    }
+
+    const token = String(req.query.token || "");
+    const access = verifyTourDocumentToken(token);
+    if (!access || access.bookingId !== bookingId || access.kind !== kind) {
+      return res.status(401).json({ ok: false, error: "invalid_document_token" });
+    }
+
+    const document = kind === "voucher"
+      ? await loadTourVoucherDocument(bookingId, access.userId)
+      : await loadTourReceiptDocument(bookingId, access.userId);
+    if (!document.ok) {
+      return res.status(document.status).json({
+        ok: false,
+        error: document.error,
+        ...(kind === "receipt" && "message" in document && document.message ? { message: document.message } : {}),
+      });
+    }
+
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+    return res.json(document.data);
+  }),
+);
+
+// The signed mobile link uses the same printable receipt HTML as the
+// authenticated web viewer, without exposing the customer's session token.
+router.get(
+  "/:id/documents/receipt.html",
+  tourDocumentLimiter,
+  asyncHandler(async (req: any, res) => {
+    const bookingId = Number(req.params.id);
+    if (!Number.isInteger(bookingId) || bookingId <= 0) {
+      return res.status(400).json({ ok: false, error: "invalid_id" });
+    }
+
+    const access = verifyTourDocumentToken(String(req.query.token || ""));
+    if (!access || access.bookingId !== bookingId || access.kind !== "receipt") {
+      return res.status(401).json({ ok: false, error: "invalid_document_token" });
+    }
+
+    const booking = await prisma.tourBooking.findFirst({
+      where: { id: bookingId, customerId: access.userId },
+      select: {
+        id: true,
+        bookingCode: true,
+        title: true,
+        destination: true,
+        startDate: true,
+        endDate: true,
+        currency: true,
+        grossAmount: true,
+        paymentStatus: true,
+        paidAt: true,
+        travelerCount: true,
+        guestName: true,
+        guestPhone: true,
+        operatorSnapshot: true,
+      },
+    });
+    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+
+    const paymentStatus = String(booking.paymentStatus || "").toUpperCase();
+    if (!["PAID", "APPROVED", "DISBURSED", "SETTLED"].includes(paymentStatus)) {
+      return res.status(409).json({ error: "receipt_not_available", message: "Receipt is available after successful payment." });
+    }
+
+    const operatorName = String(safeObject(booking.operatorSnapshot).companyName || "").trim();
+    const formatDate = (date: Date) => date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const start = booking.startDate ? new Date(booking.startDate) : null;
+    const end = booking.endDate ? new Date(booking.endDate) : null;
+    const dayOf = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const days = start && end ? Math.round((dayOf(end) - dayOf(start)) / 86_400_000) + 1 : null;
+    const sameDay = !start || !end || dayOf(start) === dayOf(end);
+    const travellers = Math.max(1, Number(booking.travelerCount || 1));
+    const code = String(booking.bookingCode || "");
+    const receiptNumber = code.replace(/^TOUR-/i, "TPR-") || code;
+    const { html } = await generateBookingPDF({
+      bookingId: booking.id,
+      bookingCode: code,
+      guestName: booking.guestName || "Traveller",
+      guestPhone: booking.guestPhone || undefined,
+      property: { title: booking.title || "Tour package", type: "Tour package", country: "Tanzania" },
+      checkIn: booking.startDate ?? new Date(),
+      checkOut: booking.endDate ?? booking.startDate ?? new Date(),
+      totalAmount: Number(booking.grossAmount || 0),
+      invoice: { receiptNumber, paidAt: booking.paidAt || undefined },
+      document: {
+        title: "TOUR RECEIPT",
+        reservationKicker: "Tour",
+        reservationSub: [booking.destination ? `${booking.destination}, Tanzania` : null, operatorName ? `with ${operatorName}` : null].filter(Boolean).join(" | "),
+        periodColumn: "Travel",
+        periodTitle: start ? (!sameDay && end ? `${formatDate(start)} to ${formatDate(end)}` : formatDate(start)) : "Dates to be confirmed",
+        periodSub: [days && days > 1 ? `${days} days` : null, `${travellers} traveller${travellers === 1 ? "" : "s"}`].filter(Boolean).join(" | "),
+        lineTitle: booking.title || "Tour package",
+        lineSub: operatorName ? `Operated by ${operatorName}` : undefined,
+        currency: booking.currency || "TZS",
+        confirmationCopy: "Your tour is confirmed and paid. Show your voucher at the meetup. This document is not a fiscal tax receipt.",
+        verifyUrl: null,
+      },
+    });
+    if (!html) return res.status(500).json({ error: "Failed to generate receipt" });
+
+    const filename = `Tour Receipt - ${receiptNumber}.pdf`.replace(/"/g, "");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    res.setHeader("X-NoLSAF-Filename", filename);
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+    return res.send(html);
+  }),
+);
 
 // ── JWT helpers ───────────────────────────────────────────────────────────────
 function getTokenSecret(): string {

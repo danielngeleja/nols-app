@@ -85,6 +85,9 @@ export function middleware(req: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   const url = req.nextUrl.clone();
   const path = url.pathname;
+  const isSignedTourDocument =
+    /^\/account\/tour-packages\/[^/]+\/(voucher|receipt)$/.test(path) &&
+    Boolean(url.searchParams.get("document_token"));
 
   // ─── MAINTENANCE MODE ───────────────────────────────────────────────────────
   // Edge runtime reads process.env at request time (not build time in Next.js 15+).
@@ -232,7 +235,7 @@ export function middleware(req: NextRequest) {
     // own portal instead of seeing a broken state.
     const isAgentPortalRoute = path === "/account/agent" || path.startsWith("/account/agent/");
 
-    if (!isAccountAuthRoute) {
+    if (!isAccountAuthRoute && !isSignedTourDocument) {
       if (!token) {
         url.pathname = "/account/login";
         return NextResponse.redirect(url);
@@ -253,7 +256,8 @@ export function middleware(req: NextRequest) {
     path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/guest/payment/") ||
     path.startsWith("/nrms/guest/review/") ||
-    path.startsWith("/nrms/supplier-order/");
+    path.startsWith("/nrms/supplier-order/") ||
+    isSignedTourDocument;
   response.headers.set(
     "Referrer-Policy",
     isCapabilityPage ? "no-referrer" : "strict-origin-when-cross-origin",
