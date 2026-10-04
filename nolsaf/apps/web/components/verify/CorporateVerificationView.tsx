@@ -99,6 +99,23 @@ const CHANNEL_TYPE_LABELS: Record<string, string> = {
   ADDRESS: "Office address",
 };
 
+const SOCIAL_HOSTS = /(instagram\.com|facebook\.com|fb\.com|x\.com|twitter\.com|tiktok\.com|linkedin\.com|youtube\.com|threads\.net)/i;
+
+/**
+ * Guess what kind of channel someone pasted, so they do not have to pick a type first.
+ * Returns null when it is not clear; the visitor can always choose a type by hand.
+ */
+function detectChannelType(raw: string, available: string[]): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  const pick = (type: string) => (available.includes(type) ? type : null);
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) return pick("EMAIL");
+  if (/^@[\w.]{2,}$/.test(value) || SOCIAL_HOSTS.test(value)) return pick("SOCIAL");
+  if (/^\+?[\d\s\-().]{7,}$/.test(value) && (value.match(/\d/g)?.length ?? 0) >= 7) return pick("PHONE");
+  if (/^(https?:\/\/)?([\w-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(value)) return pick("WEBSITE");
+  return null;
+}
+
 function formatDate(value: string | null): string | null {
   if (!value) return null;
   const parsed = new Date(value);
@@ -121,6 +138,8 @@ export default function CorporateVerificationView() {
   const [scanStep, setScanStep] = useState(0);
   const [channelLookupType, setChannelLookupType] = useState("");
   const [channelQuery, setChannelQuery] = useState("");
+  /** True once the visitor picks a type by hand; stops auto-detection from overriding them. */
+  const [channelTypeLocked, setChannelTypeLocked] = useState(false);
   const [channelMatch, setChannelMatch] = useState<Channel | null>(null);
   const [channelOutcome, setChannelOutcome] = useState<"matched" | "not_found" | null>(null);
   const [channelError, setChannelError] = useState<string | null>(null);
@@ -192,6 +211,7 @@ export default function CorporateVerificationView() {
     setVerifiedType(null);
     setScanStep(0);
     setChannelLookupType(value === "channels" ? data?.channelTypes?.[0] || "EMAIL" : "");
+    setChannelTypeLocked(false);
     setChannelQuery("");
     setChannelMatch(null);
     setChannelOutcome(null);
@@ -372,7 +392,7 @@ export default function CorporateVerificationView() {
         </section>
 
         <section
-          className="checkpoint-grid relative mx-auto mt-6 min-h-[390px] max-w-3xl overflow-hidden rounded-xl border border-solid border-emerald-200/10 bg-[#061916] shadow-[0_30px_90px_rgba(0,0,0,.28)] sm:min-h-[440px]"
+          className={`checkpoint-grid relative mx-auto mt-6 max-w-2xl overflow-hidden rounded-xl border border-solid border-emerald-200/10 bg-[#061916] shadow-[0_30px_90px_rgba(0,0,0,.28)] transition-[min-height] duration-500 ${scanPhase === "idle" ? "min-h-[230px] sm:min-h-[260px]" : scanPhase === "verified" ? "min-h-[390px] sm:min-h-[440px]" : "min-h-[320px] sm:min-h-[340px]"}`}
           aria-live="polite"
         >
           <CornerBrackets />
@@ -385,12 +405,12 @@ export default function CorporateVerificationView() {
 
           {scanPhase === "idle" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
-              <div className="relative flex h-32 w-32 items-center justify-center">
+              <div className="relative mt-4 flex h-24 w-24 items-center justify-center">
                 <span className="scanner-pulse absolute inset-0 rounded-full border border-solid border-emerald-300/15" />
-                <span className="scanner-pulse absolute inset-5 rounded-full border border-dashed border-emerald-300/20 [animation-delay:300ms]" />
-                <ScanSearch className="h-11 w-11 text-emerald-300/70" strokeWidth={1.4} />
+                <span className="scanner-pulse absolute inset-4 rounded-full border border-dashed border-emerald-300/20 [animation-delay:300ms]" />
+                <ScanSearch className="h-9 w-9 text-emerald-300/70" strokeWidth={1.4} />
               </div>
-              <p className="m-0 mt-4 text-sm font-bold text-white/75">Checkpoint is empty</p>
+              <p className="m-0 mt-3 text-sm font-bold text-white/75">Checkpoint is empty</p>
               <p className="m-0 mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-100/30">
                 Select a verification type below
               </p>
@@ -425,7 +445,7 @@ export default function CorporateVerificationView() {
                   NLSAF&lt;&lt;PUBLIC&lt;CHECK&lt;{TYPE_DETAILS[selectedType].code}&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
                 </p>
               </div>
-              <p className="m-0 mt-6 font-mono text-[10px] uppercase tracking-[0.16em] text-emerald-200/45">
+              <p className="m-0 mt-5 font-mono text-[10px] uppercase tracking-[0.16em] text-emerald-200/45">
                 Item positioned · ready to inspect
               </p>
             </div>
@@ -449,7 +469,7 @@ export default function CorporateVerificationView() {
                 </div>
               </div>
 
-              <div className="mt-7 flex items-center gap-2" aria-label="Scan progress">
+              <div className="mt-5 flex items-center gap-2" aria-label="Scan progress">
                 {[0, 1, 2].map((step) => (
                   <span
                     key={step}
@@ -480,7 +500,7 @@ export default function CorporateVerificationView() {
           )}
         </section>
 
-        <section className="mx-auto mt-4 max-w-3xl" aria-label="Checkpoint controls">
+        <section className="mx-auto mt-4 max-w-2xl" aria-label="Checkpoint controls">
           <div
             className={`grid gap-3 ${
               scanPhase === "ready" && selectedType === "channels" ? "" : "sm:grid-cols-[minmax(0,1fr)_auto]"
@@ -532,64 +552,88 @@ export default function CorporateVerificationView() {
 
           {scanPhase === "ready" && selectedType === "channels" && (
             <form
-              className="mt-3 grid gap-2.5 sm:grid-cols-[170px_minmax(0,1fr)_auto]"
+              className="mt-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 void startScan();
               }}
             >
-              <div className="relative">
-                <label htmlFor="channel-lookup-type" className="sr-only">Channel type</label>
-                <select
-                  id="channel-lookup-type"
-                  value={channelLookupType}
-                  onChange={(event) => {
-                    setChannelLookupType(event.target.value);
-                    setChannelError(null);
-                  }}
-                  className="h-12 w-full rounded-md border border-solid border-white/10 bg-white/[0.06] px-3.5 pr-9 text-sm font-bold text-white outline-none focus:border-emerald-300/50 focus:ring-4 focus:ring-emerald-300/10"
-                >
-                  {data.channelTypes.map((type) => (
-                    <option key={type} value={type} className="text-neutral-900">
-                      {CHANNEL_TYPE_LABELS[type] || type}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-100/40" />
-              </div>
+              {(() => {
+                const DetectedIcon = CHANNEL_ICONS[channelLookupType] || Link2;
+                const detected = channelQuery.trim() ? detectChannelType(channelQuery, data.channelTypes) : null;
+                return (
+                  <>
+                    <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="relative">
+                        <label htmlFor="channel-query" className="sr-only">Contact detail to verify</label>
+                        {/* Icon follows what was typed, so the visitor sees how it will be checked */}
+                        <DetectedIcon className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-300/80" aria-hidden />
+                        <input
+                          id="channel-query"
+                          value={channelQuery}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            setChannelQuery(next);
+                            setChannelError(null);
+                            if (!channelTypeLocked) {
+                              const guess = detectChannelType(next, data.channelTypes);
+                              if (guess) setChannelLookupType(guess);
+                            }
+                          }}
+                          type="text"
+                          inputMode={channelLookupType === "PHONE" ? "tel" : channelLookupType === "EMAIL" ? "email" : "text"}
+                          autoComplete="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          maxLength={500}
+                          placeholder="Paste the email, phone, website or account you received"
+                          aria-describedby="channel-type-hint"
+                          className="box-border h-12 w-full rounded-md border border-solid border-white/10 bg-white/[0.06] pl-11 pr-3.5 text-sm font-bold text-white outline-none placeholder:font-medium placeholder:text-emerald-100/35 focus:border-emerald-300/50 focus:ring-4 focus:ring-emerald-300/10"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={!channelQuery.trim()}
+                        className="inline-flex h-12 items-center justify-center gap-2 rounded-md border-0 bg-emerald-300 px-5 text-sm font-extrabold text-[#052b26] transition hover:bg-emerald-200 focus:outline-none focus:ring-4 focus:ring-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <ScanLine className="h-4 w-4" aria-hidden /> Verify
+                      </button>
+                    </div>
 
-              <div>
-                <label htmlFor="channel-query" className="sr-only">Exact channel to verify</label>
-                <input
-                  id="channel-query"
-                  value={channelQuery}
-                  onChange={(event) => {
-                    setChannelQuery(event.target.value);
-                    setChannelError(null);
-                  }}
-                  type={channelLookupType === "EMAIL" ? "email" : channelLookupType === "PHONE" ? "tel" : "text"}
-                  inputMode={channelLookupType === "PHONE" ? "tel" : undefined}
-                  autoComplete="off"
-                  maxLength={500}
-                  placeholder={
-                    channelLookupType === "EMAIL"
-                      ? "Paste the exact email address"
-                      : channelLookupType === "PHONE"
-                        ? "Enter the complete phone number"
-                        : channelLookupType === "WEBSITE"
-                          ? "Paste the website or domain"
-                          : "Paste the exact channel you received"
-                  }
-                  className="h-12 w-full rounded-md border border-solid border-white/10 bg-white/[0.06] px-3.5 text-sm font-bold text-white outline-none placeholder:text-emerald-100/30 focus:border-emerald-300/50 focus:ring-4 focus:ring-emerald-300/10"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-md border-0 bg-emerald-300 px-5 text-sm font-extrabold text-[#052b26] transition hover:bg-emerald-200 focus:outline-none focus:ring-4 focus:ring-emerald-300/20"
-              >
-                <ScanLine className="h-4 w-4" /> Verify channel
-              </button>
+                    {/* Type chips: the detected one is highlighted; tapping another corrects it */}
+                    <div id="channel-type-hint" className="mt-2.5 flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Check as">
+                      <span className="mr-1 text-[11.5px] font-medium text-emerald-100/45">
+                        {detected && !channelTypeLocked ? "Detected:" : "Check as:"}
+                      </span>
+                      {data.channelTypes.map((type) => {
+                        const TypeIcon = CHANNEL_ICONS[type] || Link2;
+                        const on = channelLookupType === type;
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            role="radio"
+                            aria-checked={on}
+                            onClick={() => {
+                              setChannelLookupType(type);
+                              setChannelTypeLocked(true);
+                              setChannelError(null);
+                            }}
+                            className={`inline-flex h-7 items-center gap-1.5 rounded-md border border-solid px-2.5 text-[12px] font-semibold transition ${
+                              on
+                                ? "border-emerald-300/60 bg-emerald-300/15 text-emerald-200"
+                                : "border-white/10 bg-transparent text-emerald-100/55 hover:border-white/20 hover:text-emerald-100/85"
+                            }`}
+                          >
+                            <TypeIcon className="h-3.5 w-3.5" aria-hidden />
+                            {(CHANNEL_TYPE_LABELS[type] || type).replace(/ address$| number$| or domain$| media account$/i, "")}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                );
+              })()}
             </form>
           )}
 
@@ -648,29 +692,29 @@ function VerificationCredential({
   const matchFound = type !== "channels" || channelOutcome === "matched";
 
   return (
-    <article className="public-credential credential-enter relative mx-auto max-w-xl overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white text-[#073b34] shadow-[0_28px_70px_rgba(0,0,0,.4)]">
-      <div className="relative z-10 flex items-center justify-between gap-4 border-0 border-b border-solid border-emerald-950/10 px-5 py-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={26} height={26} className="h-6 w-6 flex-shrink-0 object-contain" />
+    <article className="public-credential credential-enter relative mx-auto flex w-full max-w-[540px] flex-col overflow-hidden rounded-[10px] bg-white text-[#073b34] shadow-[0_28px_70px_rgba(0,0,0,.45)] ring-1 ring-black/5 sm:min-h-[340px]">
+      {/* Header band: brand, record type and the result seal */}
+      <header
+        className="relative flex items-center justify-between gap-4 px-5 py-3.5 text-white sm:px-6"
+        style={{ background: "linear-gradient(135deg, #013d38 0%, #02665e 60%, #037a70 100%)" }}
+      >
+        <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.12]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.8) 1px, transparent 1px)", backgroundSize: "14px 14px", WebkitMaskImage: "linear-gradient(90deg, transparent, #000)", maskImage: "linear-gradient(90deg, transparent, #000)" }} />
+        <div className="relative flex min-w-0 items-center gap-3">
+          <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={30} height={30} className="h-7 w-7 flex-shrink-0 object-contain brightness-0 invert" />
           <div className="min-w-0">
-            <p className="m-0 truncate text-base font-bold tracking-[-0.015em]">NoLSAF Verify</p>
-            <p className="m-0 mt-1 text-[10px] font-bold uppercase tracking-[0.13em] text-[#52716b]">
-              {TYPE_DETAILS[type].shortLabel} · live public record
-            </p>
+            <p className="m-0 truncate text-[16px] font-bold leading-tight tracking-tight">NoLSAF Verify</p>
+            <p className="m-0 mt-0.5 truncate text-[12px] text-white/70">{TYPE_DETAILS[type].shortLabel}</p>
           </div>
         </div>
-        <div className="verified-stamp flex flex-shrink-0 items-center gap-2">
-          <span className={`flex h-8 w-8 items-center justify-center rounded-md text-white ${matchFound ? "bg-emerald-700" : "bg-amber-600"}`}>
-            {matchFound ? <Check className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
-          </span>
-          <div className="hidden text-left sm:block">
-            <p className="m-0 text-[9px] font-bold uppercase tracking-[0.12em] text-[#52716b]">Verification result</p>
-            <p className={`m-0 mt-0.5 text-xs font-bold ${matchFound ? "text-[#073b34]" : "text-amber-800"}`}>
-              {matchFound ? "Match confirmed" : "No published match"}
-            </p>
-          </div>
-        </div>
-      </div>
+        <span
+          className={`verified-stamp relative inline-flex flex-shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-bold ${
+            matchFound ? "bg-white text-[#02665e]" : "bg-amber-400 text-amber-950"
+          }`}
+        >
+          {matchFound ? <Check className="h-4 w-4" strokeWidth={3} aria-hidden /> : <ShieldAlert className="h-4 w-4" aria-hidden />}
+          {matchFound ? "Verified" : "No match"}
+        </span>
+      </header>
 
       <CompanyLegitimacy identity={identity} />
 
@@ -678,53 +722,87 @@ function VerificationCredential({
       {type === "records" && <RecordsCredential records={records} />}
       {type === "channels" && <ChannelsCredential channels={channels} />}
 
-      <div className="relative z-10 flex items-center justify-between gap-5 border-0 border-t border-solid border-emerald-950/10 bg-white px-5 py-3 sm:px-6">
-        <div className="min-w-0">
-          <p className="m-0 flex items-center gap-2 text-xs font-bold text-[#073b34]">
-            <ShieldCheck className="h-4 w-4 flex-shrink-0 text-emerald-700" /> Checked against the live published source
-          </p>
-          <p className="m-0 mt-1 text-[10px] leading-4 text-[#52716b]">
-            Scan the QR on the credential to reopen the current record.
-          </p>
-        </div>
-        <span className="flex-shrink-0 text-[9px] font-bold uppercase tracking-[0.12em] text-[#6a837e]">
-          {TYPE_DETAILS[type].code} / Live verification
+      <footer className="flex items-center justify-between gap-4 bg-[#f1f8f6] px-5 py-2.5 sm:px-6">
+        <p className="m-0 flex min-w-0 items-center gap-2 text-[12.5px] font-medium text-[#073b34]">
+          <ShieldCheck className="h-4 w-4 flex-shrink-0 text-emerald-700" aria-hidden />
+          <span className="truncate">Checked just now against the live public record</span>
+        </p>
+        <span className="flex-shrink-0 rounded-[4px] bg-white px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-[#52716b] ring-1 ring-inset ring-emerald-900/10">
+          {TYPE_DETAILS[type].code}
         </span>
-      </div>
+      </footer>
     </article>
   );
 }
-
 function ChannelNoMatchResult({ submittedChannel }: { submittedChannel: string }) {
+  const kind = detectChannelType(submittedChannel, ["EMAIL", "PHONE", "WEBSITE", "SOCIAL"]);
+  const ChannelIcon = (kind && CHANNEL_ICONS[kind]) || Link2;
+  const steps = [
+    { title: "Do not reply or pay", body: "Ignore requests for money, codes or passwords." },
+    { title: "Check the spelling", body: "One changed letter is enough to fake us." },
+    { title: "Report it", body: "Forward it so we can warn others." },
+  ];
+
   return (
-    <article className="public-credential credential-enter mx-auto max-w-xl overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white text-[#073b34] shadow-[0_28px_70px_rgba(0,0,0,.4)]">
-      <div className="flex items-center justify-between gap-4 border-0 border-b border-solid border-amber-900/10 px-5 py-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={26} height={26} className="h-6 w-6 flex-shrink-0 object-contain" />
+    <article className="public-credential credential-enter relative mx-auto flex w-full max-w-[540px] flex-col overflow-hidden rounded-[10px] bg-white text-[#073b34] shadow-[0_28px_70px_rgba(0,0,0,.45)] ring-1 ring-black/5">
+      {/* Header band matches the verified card, with an amber warning edge */}
+      <header
+        className="relative flex items-center justify-between gap-4 px-5 py-3.5 text-white sm:px-6"
+        style={{ background: "linear-gradient(135deg, #07090c 0%, #1a130a 60%, #2a1c08 100%)" }}
+      >
+        <span aria-hidden className="absolute inset-x-0 bottom-0 h-[3px] bg-amber-400" />
+        <div className="relative flex min-w-0 items-center gap-3">
+          <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={30} height={30} className="h-7 w-7 flex-shrink-0 object-contain brightness-0 invert" />
           <div className="min-w-0">
-            <p className="m-0 text-base font-bold">NoLSAF Verify</p>
-            <p className="m-0 mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-[#52716b]">Official channel check</p>
+            <p className="m-0 truncate text-[16px] font-bold leading-tight tracking-tight">NoLSAF Verify</p>
+            <p className="m-0 mt-0.5 truncate text-[12px] text-white/65">Official channel check</p>
           </div>
         </div>
-        <span className="inline-flex flex-shrink-0 items-center gap-2 text-xs font-bold text-amber-800">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-600 text-white">
-            <ShieldAlert className="h-4 w-4" />
-          </span>
-          <span className="hidden sm:inline">Not found</span>
+        <span className="verified-stamp relative inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-amber-400 px-2.5 py-1 text-[12px] font-bold text-amber-950">
+          <ShieldAlert className="h-4 w-4" aria-hidden /> Not official
         </span>
+      </header>
+
+      <div className="px-5 pb-4 pt-5 sm:px-6">
+        <p className="m-0 text-[15px] font-bold leading-snug">This is not a NoLSAF channel</p>
+
+        {/* The exact value that was checked, so the visitor can compare letter by letter */}
+        <div className="mt-3 box-border flex items-center gap-3 rounded-md border border-solid border-amber-300 bg-amber-50 px-3.5 py-2.5">
+          <ChannelIcon className="h-4 w-4 flex-shrink-0 text-amber-700" aria-hidden />
+          <span className="min-w-0 flex-1 break-all font-mono text-[14px] font-semibold text-amber-950">{submittedChannel}</span>
+          <span className="flex-shrink-0 rounded-[4px] bg-white px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-amber-800 ring-1 ring-inset ring-amber-200">
+            No match
+          </span>
+        </div>
+
+        {/* What to do now: three short, numbered actions */}
+        <ol className="m-0 mt-4 grid list-none gap-2 p-0 sm:grid-cols-3">
+          {steps.map((step, index) => (
+            <li key={step.title} className="box-border flex gap-2.5 rounded-md border border-solid border-neutral-200 px-3 py-2.5 sm:block">
+              <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-[4px] bg-[#073b34] text-[11px] font-bold text-white">
+                {index + 1}
+              </span>
+              <span className="block min-w-0 sm:mt-2">
+                <span className="block text-[12.5px] font-bold leading-tight">{step.title}</span>
+                <span className="mt-0.5 block text-[11.5px] leading-snug text-[#52716b]">{step.body}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
       </div>
 
-      <div className="px-5 py-6 sm:px-6">
-        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700">No published match</p>
-        <p className="m-0 mt-2 break-all text-lg font-bold">{submittedChannel}</p>
-        <p className="m-0 mt-3 max-w-md text-xs leading-5 text-[#52716b]">
-          This detail is not listed as an official NoLSAF channel. Check the spelling; if it is correct, stop and use a known official contact route.
+      <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 bg-[#f1f8f6] px-5 py-2.5 sm:px-6">
+        <p className="m-0 flex min-w-0 items-center gap-2 text-[12.5px] font-medium text-[#073b34]">
+          <ShieldCheck className="h-4 w-4 flex-shrink-0 text-emerald-700" aria-hidden />
+          <span>Checked just now against published channels</span>
         </p>
-      </div>
-
-      <div className="flex items-center gap-2 border-0 border-t border-solid border-neutral-200 px-5 py-3 text-[10px] font-bold text-[#52716b] sm:px-6">
-        <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" /> Checked against current published channels
-      </div>
+        <a
+          href={`mailto:support@nolsaf.com?subject=${encodeURIComponent("Suspicious channel report")}`}
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-md bg-[#02665e] px-3 py-1.5 text-[12px] font-bold text-white no-underline transition hover:bg-[#014e47] hover:no-underline"
+        >
+          <Mail className="h-3.5 w-3.5" aria-hidden /> Report to NoLSAF
+        </a>
+      </footer>
     </article>
   );
 }
@@ -740,29 +818,44 @@ function CompanyLegitimacy({
     lastReviewed: string | null;
   } | null;
 }) {
-  if (!identity) return null;
-
-  const facts = [
-    ["Legal entity", identity.legalEntity],
-    ["Registration number", identity.registrationNumber],
-    ["Incorporated in", identity.jurisdiction],
-  ].filter((fact): fact is [string, string] => Boolean(fact[1]));
-
-  if (!facts.length) return null;
+  if (!identity || (!identity.legalEntity && !identity.registrationNumber && !identity.jurisdiction)) return null;
 
   return (
-    <dl
-      className={`relative z-10 m-0 grid gap-px border-0 border-b border-solid border-emerald-950/10 bg-neutral-200 ${
-        facts.length >= 3 ? "sm:grid-cols-3" : facts.length === 2 ? "sm:grid-cols-2" : "sm:grid-cols-1"
-      }`}
-    >
-      {facts.map(([label, value]) => (
-        <div key={label} className="min-w-0 bg-neutral-50 px-5 py-3 sm:px-6">
-          <dt className="m-0 text-[9px] font-bold uppercase tracking-[0.11em] text-[#52716b]">{label}</dt>
-          <dd className="m-0 mt-1 truncate text-sm font-bold text-[#073b34]">{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <section className="relative grid flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-5 px-5 py-5 sm:px-6">
+      <div className="min-w-0">
+      {/* Contact chip, as on a payment or ID card */}
+      <span
+        aria-hidden
+        className="mb-3 block h-7 w-10 rounded-[5px] ring-1 ring-inset ring-amber-900/20"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 32%, rgba(120,80,20,0.28) 32%, rgba(120,80,20,0.28) 35%, transparent 35%, transparent 65%, rgba(120,80,20,0.28) 65%, rgba(120,80,20,0.28) 68%, transparent 68%), linear-gradient(0deg, transparent 45%, rgba(120,80,20,0.28) 45%, rgba(120,80,20,0.28) 55%, transparent 55%), linear-gradient(135deg, #f6dc8f 0%, #d9ae4f 50%, #f3d58a 100%)",
+        }}
+      />
+      <p className="m-0 text-[11.5px] font-semibold text-emerald-700">Registered legal entity</p>
+      {/* The full name, never truncated: it is the fact people are checking */}
+      {identity.legalEntity && (
+        <p className="m-0 mt-1 break-words text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-[#073b34] sm:text-[22px]">
+          {identity.legalEntity}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {identity.registrationNumber && (
+          <span className="inline-flex items-baseline gap-2 text-[12px] text-[#52716b]">
+            Reg. no.
+            <span className="font-mono text-[15px] font-bold tracking-[0.18em] text-[#073b34]">{identity.registrationNumber}</span>
+          </span>
+        )}
+        {identity.jurisdiction && (
+          <span className="inline-flex items-center gap-1 rounded-md bg-[#f1f8f6] px-2 py-0.5 text-[12px] text-[#52716b] ring-1 ring-inset ring-emerald-900/10">
+            <MapPin className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+            <span className="font-semibold text-[#073b34]">{identity.jurisdiction}</span>
+          </span>
+        )}
+      </div>
+      </div>
+      <CredentialQr label="Scan to recheck" />
+    </section>
   );
 }
 
@@ -777,44 +870,48 @@ function IdentityCredential({
     lastReviewed: string | null;
   };
 }) {
+  // The header already says "Company identity", so only extra facts earn a row here.
   const facts = [
-    ["Record type", "Company identity"],
     ["Official domain", identity.website?.value || null],
     ["Last reviewed", formatDate(identity.lastReviewed)],
   ].filter((fact): fact is [string, string] => Boolean(fact[1]));
 
+  if (!facts.length) return null;
+
   return (
-    <div className="relative z-10 grid gap-5 p-5 sm:grid-cols-[112px_minmax(0,1fr)] sm:p-6">
-      <CredentialQr label="Entity record" />
-      <dl className="m-0 grid content-center grid-cols-2 gap-x-6 gap-y-4">
-        {facts.map(([label, value], index) => (
-          <div key={label} className={`min-w-0 ${index === 0 && facts.length > 2 ? "col-span-2" : ""}`}>
-            <dt className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-[#52716b]">{label}</dt>
-            <dd className={`m-0 mt-1 truncate font-extrabold tracking-[-0.01em] ${index === 0 && facts.length > 2 ? "text-base" : "text-sm"}`}>{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-emerald-950/[0.08] bg-emerald-950/[0.06]">
+      {facts.map(([label, value], index) => (
+        <div key={label} className={`min-w-0 bg-white px-5 py-3 sm:px-6 ${facts.length === 1 && index === 0 ? "col-span-2" : ""}`}>
+          <dt className="m-0 text-[11.5px] text-[#6a837e]">{label}</dt>
+          <dd className="m-0 mt-0.5 truncate text-[14px] font-bold text-[#073b34]">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
 function RecordsCredential({ records }: { records: VerificationRecord[] }) {
   return (
-    <div className="relative z-10 grid gap-5 p-5 sm:grid-cols-[112px_minmax(0,1fr)] sm:p-6">
-      <CredentialQr label={`${records.length} ${records.length === 1 ? "record" : "records"}`} />
-      <div className="divide-y divide-emerald-950/10">
-        {records.map((record) => (
-          <div key={record.key} className="flex items-center gap-3 py-3 first:pt-1 last:pb-1">
-            <div className="min-w-0 flex-1">
-              <p className="m-0 truncate text-sm font-bold">{record.displayName}</p>
-              <p className="m-0 mt-1 truncate text-[10px] font-bold uppercase tracking-[0.09em] text-[#52716b]">
-                {record.authorityName || record.jurisdiction || record.registrationNumber || "Published record"}
-              </p>
-            </div>
-            <span className={`h-2 w-2 flex-shrink-0 rounded-full ${isRecordActive(record) ? "bg-emerald-600" : "bg-amber-500"}`} />
-          </div>
-        ))}
-      </div>
+    <div className="border-0 border-t border-solid border-emerald-950/[0.08] px-5 py-4 sm:px-6">
+      <ul className="m-0 grid list-none gap-2 p-0">
+        {records.map((record) => {
+          const active = isRecordActive(record);
+          return (
+            <li key={record.key} className="flex items-center gap-3 rounded-xl bg-[#f7fbfa] px-3 py-2.5 ring-1 ring-inset ring-emerald-900/[0.07]">
+              <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ${active ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                {active ? <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden /> : <ShieldAlert className="h-3.5 w-3.5" aria-hidden />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="m-0 truncate text-[14px] font-bold text-[#073b34]">{record.displayName}</p>
+                <p className="m-0 mt-0.5 truncate text-[12px] text-[#6a837e]">
+                  {record.authorityName || record.jurisdiction || record.registrationNumber || "Published record"}
+                </p>
+              </div>
+              <span className={`flex-shrink-0 text-[11.5px] font-semibold ${active ? "text-emerald-700" : "text-amber-700"}`}>{active ? "Active" : "Check"}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -823,40 +920,41 @@ function ChannelsCredential({ channels }: { channels: Channel[] }) {
   if (!channels.length) return null;
 
   return (
-    <div className="relative z-10 grid gap-5 p-5 sm:grid-cols-[112px_minmax(0,1fr)] sm:p-6">
-      <CredentialQr label="Official channel" />
-      <div className="divide-y divide-emerald-950/10">
+    <div className="border-0 border-t border-solid border-emerald-950/[0.08] px-5 py-4 sm:px-6">
+      <ul className="m-0 grid list-none gap-2 p-0">
         {channels.map((channel) => {
           const Icon = CHANNEL_ICONS[String(channel.channelType || "").toUpperCase()] || Link2;
           return (
-            <div key={`${channel.channelType}-${channel.value}`} className="flex min-w-0 items-center gap-3 py-3 first:pt-1 last:pb-1">
-              <Icon className="h-5 w-5 flex-shrink-0 text-emerald-700" />
+            <li key={`${channel.channelType}-${channel.value}`} className="flex min-w-0 items-center gap-3 rounded-xl bg-[#f7fbfa] px-3 py-2.5 ring-1 ring-inset ring-emerald-900/[0.07]">
+              <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                <Icon className="h-4 w-4" aria-hidden />
+              </span>
               <div className="min-w-0">
-                <p className="m-0 text-[10px] font-bold uppercase tracking-[0.11em] text-[#52716b]">{channel.label}</p>
-                <p className="m-0 mt-1 truncate text-base font-bold">{channel.value}</p>
+                <p className="m-0 text-[12px] text-[#6a837e]">{channel.label}</p>
+                <p className="m-0 mt-0.5 truncate text-[15px] font-bold text-[#073b34]">{channel.value}</p>
               </div>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </div>
   );
 }
 
 function CredentialQr({ label }: { label: string }) {
   return (
-    <div className="flex min-h-32 flex-col items-center justify-center rounded-md border border-solid border-neutral-200 bg-neutral-50 px-2 py-3">
-      <span className="flex h-[78px] w-[78px] items-center justify-center bg-white p-1 ring-1 ring-neutral-200">
+    <div className="flex flex-col items-center">
+      <span className="flex h-[88px] w-[88px] items-center justify-center rounded-md bg-white p-1.5 ring-1 ring-inset ring-emerald-900/15">
         {/* eslint-disable-next-line @next/next/no-img-element -- the API returns a sharp verification SVG. */}
         <img
           src="/api/public/verify/qr.svg"
           alt="QR code that opens the live NoLSAF verification page"
-          width={70}
-          height={70}
-          className="h-[70px] w-[70px]"
+          width={80}
+          height={80}
+          className="h-20 w-20"
         />
       </span>
-      <span className="mt-3 text-center text-[10px] font-bold uppercase tracking-[0.1em] text-[#52716b]">{label}</span>
+      <span className="mt-1.5 text-center text-[10.5px] font-semibold text-[#52716b]">{label}</span>
     </div>
   );
 }

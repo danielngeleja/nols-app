@@ -413,7 +413,7 @@ export default function AgentFooter({ withRail = true }: { withRail?: boolean })
                 <ul className="m-0 list-none p-0 grid grid-cols-2 gap-x-6 gap-y-1">
                   {[
                     { href: "/account/agent", label: "Agent Portal" },
-                    { href: "/account/agent/assignments", label: "My Assignments" },
+                    { href: "/account/agent/bookings", label: "My Bookings" },
                     { href: "/account/agent/notifications", label: "Notifications" },
                     { href: "/account/agent/profile", label: "My Profile" },
                     { href: "/account/agent/profile/preview", label: "Preview" },

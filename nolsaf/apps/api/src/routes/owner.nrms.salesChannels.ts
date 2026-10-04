@@ -54,7 +54,9 @@ const RESERVATION_SELECT = {
   guestInquiry: { select: { channel: true } },
   // Marketplace stays keep their money on Booking, and the payout invoice is
   // the only place the commission the owner gives up is recorded.
-  booking: { select: { totalAmount: true, invoices: { select: { commissionAmount: true, netPayable: true, status: true }, orderBy: { id: "desc" as const }, take: 1 } } },
+  // createdAt is the moment the traveller actually bought. The Reservation next
+  // to it is only a projection, created whenever the sync happened to run.
+  booking: { select: { createdAt: true, totalAmount: true, invoices: { select: { commissionAmount: true, netPayable: true, status: true }, orderBy: { id: "desc" as const }, take: 1 } } },
 } as const;
 
 function toChannelReservation(row: any): SalesChannelReservation {
@@ -65,7 +67,10 @@ function toChannelReservation(row: any): SalesChannelReservation {
     source: row.source,
     status: row.status,
     currency: row.currency,
-    createdAt: row.createdAt,
+    // The sale date, not the projection date. Every consumer downstream
+    // (period bucketing, lead time, the previous-window comparison) reads this
+    // one field, so correcting it here corrects all of them.
+    createdAt: row.booking?.createdAt ?? row.createdAt,
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     cancelledAt: row.cancelledAt,
@@ -108,7 +113,22 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     const db = prisma as any;
     // One window filter per basis: BOOKED measures selling activity, STAY
     // measures the business that actually arrived.
-    const windowFilter = (start: Date, end: Date) => (basis === "BOOKED" ? { createdAt: { gte: start, lt: end } } : { checkIn: { gte: start, lt: end } });
+    //
+    // BOOKED has to ask each row for its own sale date. A marketplace stay's
+    // Reservation is a projection whose createdAt is when the sync ran, which
+    // for a self-healed booking is simply the day someone opened the calendar.
+    // Windowing those rows on it reported database maintenance as sales
+    // activity, so they are windowed on the Booking that actually took the
+    // money. The two branches are mutually exclusive: a row either has a
+    // booking or it does not.
+    const windowFilter = (start: Date, end: Date) => (basis === "BOOKED"
+      ? {
+          OR: [
+            { bookingId: null, createdAt: { gte: start, lt: end } },
+            { booking: { is: { createdAt: { gte: start, lt: end } } } },
+          ],
+        }
+      : { checkIn: { gte: start, lt: end } });
 
     // NrmsPublicMetric.metricDate is a DATE column stored at UTC midnight, so
     // the +03:00 window boundary has to be normalised before it is compared.

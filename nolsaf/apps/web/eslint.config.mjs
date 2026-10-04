@@ -1,10 +1,14 @@
 import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 import nextTypescript from 'eslint-config-next/typescript';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 const config = [
   ...nextCoreWebVitals,
   ...nextTypescript,
   {
+    plugins: {
+      'react-hooks': reactHooks,
+    },
     linterOptions: {
       reportUnusedDisableDirectives: false,
     },
@@ -43,6 +47,14 @@ const config = [
     files: ['tailwind.config.{js,ts}'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  // Node's CommonJS tests intentionally use require() and a local module object.
+  {
+    files: ['**/*.test.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@next/next/no-assign-module-variable': 'off',
     },
   },
 ];

@@ -4,6 +4,13 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { loadOwnedActiveNrmsProperty, requireNrms } from "../lib/nrms.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
+import { buildNrmsCommercialReport } from "../lib/nrmsCommercialReport.js";
+import { nrmsReservationReference } from "../lib/customerBookingReference.js";
+
+/** Report links open the reservation by its opaque reference, never the row id. */
+function reservationReference(id: number | null | undefined): string | null {
+  return id != null ? nrmsReservationReference(id) : null;
+}
 
 export const router = Router();
 
@@ -199,6 +206,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         where: { propertyId, block: { checkIn: { lt: rangeEnd }, checkOut: { gt: rangeStart } } },
         select: {
           id: true, reference: true, billToName: true, currency: true, status: true,
+          block: { select: { checkOut: true } },
           items: { where: { voidedAt: null }, select: { amount: true } },
           payments: { where: { voidedAt: null }, select: { amount: true } },
           refunds: { where: { voidedAt: null }, select: { amount: true } },
@@ -409,6 +417,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       const settlementStatus = due <= 0.005 ? "PAID" : folioPaid > 0 ? "PARTIAL" : "UNPAID";
       return {
         reservationId: reservation.id,
+        reservationReference: reservationReference(reservation.id),
         receiptNumber: reservation.receiptNumber,
         guest: reservation.guestProfile?.fullName || "Guest",
         phone: reservation.guestProfile?.phone || null,
@@ -589,6 +598,184 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       .map((row) => ({ ...row, sales: round(row.sales), tips: round(row.tips) }))
       .sort((a, b) => b.sales - a.sales);
 
+    // ---- Receivables aging, F&B cost and stock, TRA fiscal receipts ----
+    // Each block is independent and fails soft (null) so one missing module
+    // can never take the whole report down.
+    const asOf = new Date(Math.min(Date.now(), rangeEnd.getTime()));
+    const ageBucket = (from: Date | string | null | undefined): "current" | "d1_30" | "d31_60" | "d61_90" | "d90plus" => {
+      if (!from) return "current";
+      const days = Math.floor((asOf.getTime() - new Date(from).getTime()) / 86_400_000);
+      if (days <= 0) return "current";
+      if (days <= 30) return "d1_30";
+      if (days <= 60) return "d31_60";
+      if (days <= 90) return "d61_90";
+      return "d90plus";
+    };
+    const emptyBuckets = () => ({ current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 });
+
+    // Receivables: guest folios aged from checkout, agency folios from the
+    // block's checkout. "current" means the stay has not ended yet.
+    const receivablesAging = (() => {
+      const byCurrency = new Map<string, { currency: string; guest: ReturnType<typeof emptyBuckets>; agency: ReturnType<typeof emptyBuckets>; rows: any[] }>();
+      const bucketFor = (currency: string) => {
+        const row = byCurrency.get(currency) ?? { currency, guest: emptyBuckets(), agency: emptyBuckets(), rows: [] as any[] };
+        byCurrency.set(currency, row);
+        return row;
+      };
+      for (const balance of guestBalances as any[]) {
+        if (balance.amountDue <= 0.005) continue;
+        const bucket = ageBucket(balance.checkOut);
+        const row = bucketFor(balance.currency || "TZS");
+        row.guest[bucket] = round(row.guest[bucket] + balance.amountDue);
+        row.rows.push({ kind: "GUEST", name: balance.guest, reference: balance.reservationReference, dueSince: balance.checkOut, bucket, amount: balance.amountDue });
+      }
+      for (const folio of masterFolios as any[]) {
+        const billed = folio.items.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+        const paid = folio.payments.reduce((sum: number, item: any) => sum + decimal(item.amount), 0) - folio.refunds.reduce((sum: number, item: any) => sum + decimal(item.amount), 0);
+        const due = round(billed - paid);
+        if (due <= 0.005) continue;
+        const bucket = ageBucket(folio.block?.checkOut);
+        const row = bucketFor(folio.currency || "TZS");
+        row.agency[bucket] = round(row.agency[bucket] + due);
+        row.rows.push({ kind: "AGENCY", name: folio.billToName, reference: folio.reference, dueSince: folio.block?.checkOut ?? null, bucket, amount: due });
+      }
+      return [...byCurrency.values()].map((row) => ({ ...row, rows: row.rows.sort((a, b) => b.amount - a.amount) }));
+    })();
+
+    let foodAndBeverage: any = null;
+    try {
+      const FNB_REVENUE = ["4200", "4210", "4220"];
+      const COGS = ["5010", "5020"];
+      const LOSSES = ["5030", "5040", "5050", "5060"];
+      const [costEntries, stockBalances, supplierInvoices, supplierPayments] = await Promise.all([
+        db.nrmsLedgerEntry.findMany({
+          where: { accountCode: { in: [...FNB_REVENUE, ...COGS, ...LOSSES] }, transaction: { propertyId, occurredAt: dateWindow } },
+          select: { accountCode: true, accountName: true, debit: true, credit: true, transaction: { select: { currency: true } } },
+        }),
+        db.nrmsStockBalance.findMany({
+          where: { stockItem: { propertyId, status: "ACTIVE" }, quantity: { gt: 0 } },
+          select: { quantity: true, stockItem: { select: { averageCost: true } } },
+        }),
+        db.nrmsSupplierInvoice.findMany({
+          where: { propertyId, voidedAt: null, invoiceDate: { lte: asOf } },
+          select: { id: true, supplierId: true, invoiceNumber: true, invoiceDate: true, dueDate: true, amount: true, supplier: { select: { name: true } } },
+          orderBy: [{ invoiceDate: "asc" }, { id: "asc" }],
+        }),
+        db.nrmsSupplierPayment.findMany({
+          where: { propertyId, voidedAt: null, paidAt: { lte: asOf } },
+          select: { supplierId: true, amount: true },
+        }),
+      ]);
+      const byCurrency = new Map<string, { currency: string; revenue: number; cogs: number; losses: number; lossesByAccount: Map<string, number> }>();
+      for (const entry of costEntries as any[]) {
+        const currency = entry.transaction.currency || "TZS";
+        const row = byCurrency.get(currency) ?? { currency, revenue: 0, cogs: 0, losses: 0, lossesByAccount: new Map<string, number>() };
+        const debit = decimal(entry.debit);
+        const credit = decimal(entry.credit);
+        if (FNB_REVENUE.includes(entry.accountCode)) row.revenue += credit - debit;
+        else if (COGS.includes(entry.accountCode)) row.cogs += debit - credit;
+        else {
+          row.losses += debit - credit;
+          row.lossesByAccount.set(entry.accountName, (row.lossesByAccount.get(entry.accountName) ?? 0) + debit - credit);
+        }
+        byCurrency.set(currency, row);
+      }
+      // Supplier payables: payments settle each supplier's oldest invoices
+      // first, and whatever is left is aged from its due date (or invoice date).
+      const paidBySupplier = new Map<number, number>();
+      for (const payment of supplierPayments as any[]) paidBySupplier.set(payment.supplierId, (paidBySupplier.get(payment.supplierId) ?? 0) + decimal(payment.amount));
+      const payableBuckets = emptyBuckets();
+      const payableRows: any[] = [];
+      for (const invoice of supplierInvoices as any[]) {
+        const available = paidBySupplier.get(invoice.supplierId) ?? 0;
+        const amount = decimal(invoice.amount);
+        const applied = Math.min(available, amount);
+        paidBySupplier.set(invoice.supplierId, available - applied);
+        const open = round(amount - applied);
+        if (open <= 0.005) continue;
+        const bucket = ageBucket(invoice.dueDate ?? invoice.invoiceDate);
+        payableBuckets[bucket] = round(payableBuckets[bucket] + open);
+        payableRows.push({ supplier: invoice.supplier?.name ?? "Supplier", invoiceNumber: invoice.invoiceNumber, invoiceDate: invoice.invoiceDate, dueDate: invoice.dueDate, bucket, amount: open });
+      }
+      foodAndBeverage = {
+        byCurrency: [...byCurrency.values()].map((row) => ({
+          currency: row.currency,
+          revenue: round(row.revenue),
+          cogs: round(row.cogs),
+          grossProfit: round(row.revenue - row.cogs),
+          marginPercent: row.revenue > 0 ? round(((row.revenue - row.cogs) / row.revenue) * 100) : null,
+          losses: round(row.losses),
+          lossesByAccount: [...row.lossesByAccount.entries()].map(([name, amount]) => ({ name, amount: round(amount) })).filter((item) => Math.abs(item.amount) > 0.005),
+          afterLosses: round(row.revenue - row.cogs - row.losses),
+        })),
+        stockValue: round((stockBalances as any[]).reduce((sum, balance) => sum + decimal(balance.quantity) * decimal(balance.stockItem.averageCost), 0)),
+        payables: { total: round(payableRows.reduce((sum, row) => sum + row.amount, 0)), buckets: payableBuckets, rows: payableRows.sort((a, b) => b.amount - a.amount).slice(0, 200) },
+      };
+    } catch (error) {
+      console.error("[owner.nrms.reports] food and beverage section failed", error);
+    }
+
+    let fiscal: any = null;
+    try {
+      const connection = await db.nrmsFiscalConnection.findUnique({ where: { propertyId }, select: { id: true, mode: true, status: true, tin: true, vrn: true } });
+      if (connection && connection.mode !== "OFF") {
+        const [inRangeReceipts, backlog] = await Promise.all([
+          db.nrmsFiscalReceipt.findMany({ where: { propertyId, saleOccurredAt: dateWindow }, select: { status: true, kind: true, grossAmount: true, taxAmount: true, currency: true } }),
+          db.nrmsFiscalReceipt.groupBy({ by: ["status"], where: { propertyId, status: { in: ["PENDING", "SENDING", "FAILED", "DEAD_LETTER"] } }, _count: { _all: true } }),
+        ]);
+        const statusCounts: Record<string, number> = {};
+        let confirmedGross = 0;
+        let confirmedTax = 0;
+        for (const receipt of inRangeReceipts as any[]) {
+          statusCounts[receipt.status] = (statusCounts[receipt.status] ?? 0) + 1;
+          if (receipt.status === "CONFIRMED") {
+            const sign = receipt.kind === "CREDIT_NOTE" ? -1 : 1;
+            confirmedGross += sign * decimal(receipt.grossAmount);
+            confirmedTax += sign * decimal(receipt.taxAmount);
+          }
+        }
+        fiscal = {
+          mode: connection.mode,
+          status: connection.status,
+          tin: connection.tin,
+          vrn: connection.vrn,
+          inRange: { total: inRangeReceipts.length, byStatus: statusCounts, confirmedGross: round(confirmedGross), confirmedTax: round(confirmedTax) },
+          backlog: Object.fromEntries((backlog as any[]).map((row) => [row.status, row._count._all])),
+        };
+      } else {
+        fiscal = { mode: connection?.mode ?? "OFF", status: connection?.status ?? "DISABLED", tin: null, vrn: null, inRange: null, backlog: {} };
+      }
+    } catch (error) {
+      console.error("[owner.nrms.reports] fiscal section failed", error);
+    }
+
+    // Built from its own queries rather than threaded through the datasets
+    // above: none of them overlap, and folding six more models into that
+    // Promise.all would make a already long destructuring longer for no gain.
+    //
+    // Caught on its own so a failure here cannot take the whole reporting
+    // centre with it. Operations, finance and audit are what an owner needs
+    // at close of business; losing the commercial section is a gap, losing
+    // the pack is an outage. The web side already treats it as optional.
+    const commercial = await buildNrmsCommercialReport({
+      propertyId,
+      // The caller. This route is requireRole("OWNER") and resolves the property
+      // through loadOwnedActiveNrmsProperty, so the signed-in user IS the owner.
+      // Reading active.property.ownerId would have been undefined: that loader
+      // selects only id, title and nrmsActivatedAt, and prisma is loose enough
+      // here that the mistake compiles.
+      ownerId: req.user!.id,
+      rangeStart,
+      rangeEnd,
+      rangeDays,
+      // Same reason: the property row carries no currency here. Every currency
+      // in play has already been collected from the reservations and folios.
+      fallbackCurrency: [...currencies].sort()[0] ?? "TZS",
+    }).catch((commercialError) => {
+      console.error("[owner.nrms.reports] commercial section failed", commercialError);
+      return null;
+    });
+
     const recordedSources = new Set<string>(RESERVATION_SOURCE_ORDER);
     for (const reservation of reservations) recordedSources.add(String(reservation.source || "OTHER").toUpperCase());
     const orderedSources = [...recordedSources].sort((left, right) => {
@@ -658,6 +845,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "FOLIO_PAYMENT",
         occurredAt: payment.createdAt,
         reservationId: payment.reservation.id,
+        reservationReference: reservationReference(payment.reservation.id),
         referenceNumber: payment.reservation.receiptNumber,
         guest: payment.reservation.guestProfile?.fullName || "Guest",
         room: roomLabel(payment.reservation.allocations),
@@ -674,6 +862,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "MASTER_FOLIO_PAYMENT",
         occurredAt: payment.createdAt,
         reservationId: null,
+        reservationReference: null,
         referenceNumber: payment.receiptNumber,
         guest: payment.masterFolio.billToName,
         room: "Agency master folio",
@@ -690,6 +879,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "MASTER_FOLIO_REFUND",
         occurredAt: refund.createdAt,
         reservationId: null,
+        reservationReference: null,
         referenceNumber: refund.refundNumber,
         guest: refund.masterFolio.billToName,
         room: "Agency master folio",
@@ -706,6 +896,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         type: "OUTLET_PAYMENT",
         occurredAt: order.settledAt,
         reservationId: order.reservation?.id ?? null,
+        reservationReference: reservationReference(order.reservation?.id),
         referenceNumber: order.orderNumber,
         guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in",
         room: order.reservation ? roomLabel(order.reservation.allocations) : "Walk-in",
@@ -729,6 +920,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
         guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in",
         room: order.reservation ? roomLabel(order.reservation.allocations) : "Walk-in",
         reservationId: order.reservation?.id ?? null,
+        reservationReference: reservationReference(order.reservation?.id),
         customerType: order.reservation ? "RESIDENT" : "NON_RESIDENT",
         status: order.status,
         settlementMode: order.settlementMode,
@@ -760,6 +952,7 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       type: event.type,
       occurredAt: event.createdAt,
       reservationId: event.reservation.id,
+      reservationReference: reservationReference(event.reservation.id),
       referenceNumber: event.reservation.receiptNumber,
       guest: event.reservation.guestProfile?.fullName || "Guest",
       room: roomLabel(event.reservation.allocations),
@@ -900,6 +1093,13 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       expenses: { rows: expenseRows },
       profitLoss,
       staffPerformance,
+      receivablesAging,
+      foodAndBeverage,
+      fiscal,
+      // The commercial half: group business, the inquiry funnel, agency
+      // relationships, per person production and who holds access. Everything
+      // above answers how the hotel ran; this answers how it sold.
+      commercial,
     });
   } catch (error) {
     console.error("[owner.nrms.reports] report failed", error);

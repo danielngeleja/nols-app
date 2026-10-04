@@ -1,16 +1,33 @@
 "use client";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Search, X, Calendar, MapPin, Clock, User, BarChart3, TrendingUp, Loader2, FileText, AlertTriangle, Edit, Send, Eye, MessageSquare, ChevronDown, Star, Building2, Utensils, Car, Target, Ticket, Plane, Users, Gift } from "lucide-react";
+import { Search, X, Calendar, MapPin, Clock, User, BarChart3, TrendingUp, Loader2, FileText, AlertTriangle, Edit, Send, Eye, MessageSquare, ChevronDown, Star } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
-import TripProposalReport from "@/components/TripProposalReport";
-import apiClient from "@/lib/apiClient";
+import axios from "axios";
 import Chart from "@/components/Chart";
 import type { ChartData } from "chart.js";
 
 // Use same-origin for HTTP calls so Next.js rewrites proxy to the API
-const api = apiClient;
-function authify() {}
+const api = axios.create({ baseURL: "", withCredentials: true });
+function authify() {
+  if (typeof window === "undefined") return;
+
+  const lsToken =
+    window.localStorage.getItem("token") ||
+    window.localStorage.getItem("nolsaf_token") ||
+    window.localStorage.getItem("__Host-nolsaf_token");
+
+  if (lsToken) {
+    api.defaults.headers.common["Authorization"] = `Bearer ${lsToken}`;
+    return;
+  }
+
+  const m = String(document.cookie || "").match(/(?:^|;\s*)(?:nolsaf_token|__Host-nolsaf_token)=([^;]+)/);
+  const cookieToken = m?.[1] ? decodeURIComponent(m[1]) : "";
+  if (cookieToken) {
+    api.defaults.headers.common["Authorization"] = `Bearer ${cookieToken}`;
+  }
+}
 
 type ConversationMessage = {
   type: string;
@@ -212,30 +229,19 @@ export default function AdminPlanWithUsRequestsPage() {
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
   const agentDropdownRef = useRef<HTMLDivElement>(null);
 
-  // -- Structured feedback builder state --------------------------------------
+  // ── Structured feedback builder state ──────────────────────────────────────
   type ItineraryOption = {
     id: string; name: string; days: number; pricePerPerson: string;
     inclusions: string[]; customInclusion: string; dayOutline: string;
-    autoFilled?: boolean;
-    priceMode: "trip" | "night";
-    inclusionDetails: Record<string, string>;
-    feeAmounts: Record<string, string>; // per selected fee-item ? TZS amount per person
-    linkedProperties: Array<{ id: number; title: string; type: string | null; regionName?: string | null }>;
   };
   const [itineraryOptions, setItineraryOptions] = useState<ItineraryOption[]>([]);
   const [activeSections, setActiveSections] = useState<Set<string>>(
     new Set(["itinerary", "permits", "timeline", "agent"])
   );
   const [selectedPermits, setSelectedPermits] = useState<string[]>([]);
+  const [customPermitInput, setCustomPermitInput] = useState("");
   const [tripSpecificNotes, setTripSpecificNotes] = useState("");
-  // Property search state for linking approved listings to accommodation
-  const [propSearch, setPropSearch] = useState<{
-    optId: string;
-    query: string;
-    results: Array<{ id: number; title: string; type: string | null; regionName?: string | null }>;
-    loading: boolean;
-  } | null>(null);
-  // ---------------------------------------------------------------------------
+  // ───────────────────────────────────────────────────────────────────────────
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -416,27 +422,10 @@ export default function AdminPlanWithUsRequestsPage() {
         adminResponse: response.data.adminResponse || "",
       });
       setQuickMessage("");
-      // Auto-populate itinerary options from the guest's requested destinations
-      if (response.data.destinations) {
-        const parsed = parseDestinationsForItinerary(response.data.destinations);
-        setItineraryOptions(parsed.map((d, i) => ({
-          id: `dest-${Date.now()}-${i}`,
-          name: d.name,
-          days: d.nights,
-          pricePerPerson: "",
-          inclusions: [],
-          customInclusion: "",
-          dayOutline: "",
-          autoFilled: true,
-          priceMode: "trip" as const,
-          inclusionDetails: {},
-          feeAmounts: {},
-          linkedProperties: [],
-        })));
-      } else {
-        setItineraryOptions([]);
-      }
+      // Reset structured builder state
+      setItineraryOptions([]);
       setSelectedPermits([]);
+      setCustomPermitInput("");
       setTripSpecificNotes("");
       setActiveSections(new Set(["itinerary", "permits", "timeline", "agent"]));
     } catch (err) {
@@ -657,56 +646,11 @@ export default function AdminPlanWithUsRequestsPage() {
     };
   }, [statsData]);
 
-  // -- Structured feedback helpers ---------------------------------------------
-  const INCLUSION_CATEGORIES = [
-    { id: "accommodation", label: "Accommodation", emoji: "??", icon: Building2,
-      chipActive: "bg-purple-100 text-purple-700 border-purple-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-purple-300",
-      headerColor: "text-purple-700", countBg: "bg-purple-100 text-purple-700",
-      options: ["Luxury Lodge","Tented Safari Camp","Boutique Hotel","Budget Guesthouse","Beach Resort","Mountain Hut","Self-Catering Villa"],
-      placeholder: "Lodge name, star rating, room type, amenities (pool, wifi, A/C), location highlights..." },
-    { id: "meals", label: "Meals", emoji: "???", icon: Utensils,
-      chipActive: "bg-orange-100 text-orange-700 border-orange-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-orange-300",
-      headerColor: "text-orange-700", countBg: "bg-orange-100 text-orange-700",
-      options: ["Full Board","Half Board","Bed & Breakfast","All-Inclusive","Lunch Only","Dinner Only","Self-Catering"],
-      placeholder: "Meal schedule, restaurant style, dietary options (vegetarian, halal, vegan) accommodated on request..." },
-    { id: "transport", label: "Transport", emoji: "??", icon: Car,
-      chipActive: "bg-blue-100 text-blue-700 border-blue-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-blue-300",
-      headerColor: "text-blue-700", countBg: "bg-blue-100 text-blue-700",
-      options: ["4WD Safari Vehicle","Luxury Minibus","Private Car","Shared Shuttle","Domestic Flight","Charter Flight","Boat / Ferry"],
-      placeholder: "Vehicle type, seating capacity, pop-up roof, driver-guide details, airline/operator name..." },
-    { id: "activities", label: "Activities & Experiences", emoji: "??", icon: Target,
-      chipActive: "bg-emerald-100 text-emerald-700 border-emerald-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-300",
-      headerColor: "text-emerald-700", countBg: "bg-emerald-100 text-emerald-700",
-      options: ["Game Drives (AM/PM)","Night Game Drive","Walking Safari","Boat Safari","Cultural Village Visit","Cooking Class","Photography Session","Hot Air Balloon","Snorkeling / Diving","Bird Watching","Guided Hike"],
-      placeholder: "Schedule, frequency (e.g. 2x daily), duration, ranger/guide included, what makes each activity special..." },
-    { id: "fees", label: "Fees & Entry", emoji: "??", icon: Ticket,
-      chipActive: "bg-amber-100 text-amber-700 border-amber-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-amber-300",
-      headerColor: "text-amber-700", countBg: "bg-amber-100 text-amber-700",
-      options: ["National Park Entry","Conservation Levy","Crater Access Fee","Beach Access Fee","Museum / Heritage Site","Equipment / Gear Rental","Climbing Permit"],
-      placeholder: "Fee amounts in USD or TZS, which parks/sites covered, gear rental items included..." },
-    { id: "transfers", label: "Airport & Transfers", emoji: "??", icon: Plane,
-      chipActive: "bg-sky-100 text-sky-700 border-sky-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-sky-300 hover:border-sky-300",
-      headerColor: "text-sky-700", countBg: "bg-sky-100 text-sky-700",
-      options: ["Airport Pickup","Airport Drop-off","Hotel-to-Hotel Transfer","Port / Ferry Transfer","Train Station Transfer"],
-      placeholder: "Airport name (e.g. KIA / JRO), meet & greet details, transfer vehicle, timing, driving distance..." },
-    { id: "guides", label: "Guides & Crew", emoji: "??", icon: Users,
-      chipActive: "bg-indigo-100 text-indigo-700 border-indigo-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-indigo-300",
-      headerColor: "text-indigo-700", countBg: "bg-indigo-100 text-indigo-700",
-      options: ["Professional Driver-Guide","Specialist Wildlife Guide","Cultural Interpreter","Mountain Guide (KCMC)","Porters","Security Escort"],
-      placeholder: "Guide certification body, languages spoken, years of experience, crew-to-guest ratio..." },
-    { id: "extras", label: "Extras & Add-ons", emoji: "?", icon: Gift,
-      chipActive: "bg-pink-100 text-pink-700 border-pink-300",
-      chipIdle: "bg-gray-50 text-gray-600 border-gray-200 hover:border-pink-300",
-      headerColor: "text-pink-700", countBg: "bg-pink-100 text-pink-700",
-      options: ["Travel Insurance","Visa Assistance","SIM Card / Data","Laundry Service","Gratuities Included","Welcome Pack","Certificate of Achievement","Pre-trip Briefing"],
-      placeholder: "Insurance coverage amount, visa type, SIM data limit, special welcome extras..." },
+  // ── Structured feedback helpers ─────────────────────────────────────────────
+  const INCLUSION_PRESETS = [
+    "Accommodation","Meals (Full Board)","Meals (Half Board)","Meals (Bed & Breakfast)",
+    "Transport","Game Drives","Park Entry Fees","Guided Tours","Equipment/Gear",
+    "Airport Transfers","Cultural Activities","Photography Session","Boat Safari","Walking Safari",
   ];
   const PERMIT_PRESETS: Record<string, string[]> = {
     "Safari": ["National Park Entry Permit","Vehicle Entry Fee","Photography/Filming Permit","Yellow Fever Certificate","Valid International Passport","Travel Insurance"],
@@ -733,49 +677,15 @@ export default function AdminPlanWithUsRequestsPage() {
   const getAvailableSections = (tripType: string) => SECTION_DEFS[tripType] || SECTION_DEFS["default"];
   const getPermitPresets = (tripType: string) => PERMIT_PRESETS[tripType] || ["Travel Insurance","Valid ID Documents","Entry Permits"];
   const getTripSpecificLabel = (tripType: string) => (({ "Safari":"Game Drive & Lodge Options","Cultural":"Cultural Sites & Local Guide Info","Adventure / Hiking":"Safety, Fitness & Gear Requirements","School / Teacher":"Educational Objectives & Safety Protocols","Local tourism":"Route Highlights & Local Tips" } as Record<string,string>)[tripType] || "Trip-Specific Information");
-  // Parse destinations string into {name, nights} array for auto-populating itinerary cards
-  const parseDestinationsForItinerary = (raw: string): { name: string; nights: number }[] => {
-    const parts = raw.split(/\d+\)/).map((s: string) => s.trim()).filter(Boolean);
-    const extract = (str: string) => {
-      const m = str.match(/[-\u2014\u2013]\s*(\d+)\s*nights?/i);
-      const nights = m ? Number(m[1]) : 3;
-      const name = str.replace(/[-\u2014\u2013]\s*\d+\s*nights?/i, "").trim().replace(/[,;]+$/, "");
-      return { name: name || str, nights };
-    };
-    if (parts.length <= 1) return [extract(raw.replace(/^\d+\)\s*/, ""))];
-    return parts.map(extract);
-  };
-
   const getTripSpecificPlaceholder = (tripType: string) => (({ "Safari":"Describe lodge options, game reserve highlights, Big Five sightings, best drive times...","Cultural":"List cultural sites, local guides, historical significance, cultural etiquette...","Adventure / Hiking":"Fitness requirements, altitude info, gear checklist, emergency protocols...","School / Teacher":"Learning objectives, age-appropriate activities, emergency plan, dietary notes...","Local tourism":"Route map notes, local gems, viewpoints, lunch spots, photo opportunities..." } as Record<string,string>)[tripType] || "Any trip-specific details, highlights, or important information...");
   const toggleSection = (id: string) => setActiveSections(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const addItineraryOption = () => setItineraryOptions(prev => [...prev, { id: Date.now().toString(), name: `Option ${String.fromCharCode(65 + prev.length)}`, days: 3, pricePerPerson: "", inclusions: [], customInclusion: "", dayOutline: "", priceMode: "trip" as const, inclusionDetails: {}, feeAmounts: {}, linkedProperties: [] }]);
-  const linkProperty = (optId: string, p: { id: number; title: string; type: string | null; regionName?: string | null }) =>
-    setItineraryOptions(prev => prev.map(o => o.id === optId ? { ...o, linkedProperties: [...(o.linkedProperties ?? []).filter(lp => lp.id !== p.id), p] } : o));
-  const unlinkProperty = (optId: string, propId: number) =>
-    setItineraryOptions(prev => prev.map(o => o.id === optId ? { ...o, linkedProperties: (o.linkedProperties ?? []).filter(lp => lp.id !== propId) } : o));
-  const searchApprovedProperties = async (optId: string, query: string) => {
-    setPropSearch({ optId, query, results: [], loading: !!query.trim() });
-    if (!query.trim()) return;
-    try {
-      const r = await api.get("/api/admin/properties", {
-        params: { status: "APPROVED", q: query.trim(), page: 1, pageSize: 10 },
-      });
-      const items: Array<{ id: number; title: string; type: string | null; regionName?: string | null }> =
-        r.data?.items ?? r.data?.data?.items ?? [];
-      setPropSearch(prev => prev?.optId === optId && prev.query === query ? { ...prev, results: items, loading: false } : prev);
-    } catch {
-      setPropSearch(prev => prev?.optId === optId ? { ...prev, results: [], loading: false } : prev);
-    }
-  };
+  const addItineraryOption = () => setItineraryOptions(prev => [...prev, { id: Date.now().toString(), name: `Option ${String.fromCharCode(65 + prev.length)}`, days: 3, pricePerPerson: "", inclusions: [], customInclusion: "", dayOutline: "" }]);
   const removeItineraryOption = (id: string) => setItineraryOptions(prev => prev.filter(o => o.id !== id));
   const updateItineraryOption = (id: string, field: string, value: unknown) => setItineraryOptions(prev => prev.map(o => o.id === id ? { ...o, [field]: value } : o));
-  const updateInclusionDetail = (optId: string, catId: string, text: string) =>
-    setItineraryOptions(prev => prev.map(o => o.id === optId ? { ...o, inclusionDetails: { ...o.inclusionDetails, [catId]: text } } : o));
-  const updateFeeAmount = (optId: string, feeName: string, amount: string) =>
-    setItineraryOptions(prev => prev.map(o => o.id === optId ? { ...o, feeAmounts: { ...o.feeAmounts, [feeName]: amount } } : o));
   const toggleInclusion = (optId: string, item: string) => setItineraryOptions(prev => prev.map(o => o.id === optId ? { ...o, inclusions: o.inclusions.includes(item) ? o.inclusions.filter(i => i !== item) : [...o.inclusions, item] } : o));
   const addCustomInclusion = (optId: string) => setItineraryOptions(prev => prev.map(o => o.id === optId ? { ...o, inclusions: o.customInclusion.trim() ? [...o.inclusions, o.customInclusion.trim()] : o.inclusions, customInclusion: "" } : o));
   const togglePermit = (item: string) => setSelectedPermits(prev => prev.includes(item) ? prev.filter(p => p !== item) : [...prev, item]);
+  const addCustomPermit = () => { if (customPermitInput.trim()) { togglePermit(customPermitInput.trim()); setCustomPermitInput(""); } };
 
   const handleSubmitResponseNew = async () => {
     if (!selectedRequest) return;
@@ -785,46 +695,8 @@ export default function AdminPlanWithUsRequestsPage() {
         ? itineraryOptions.map((opt, i) => {
             const lines: string[] = [`=== ${opt.name || `Option ${String.fromCharCode(65 + i)}`} ===`];
             lines.push(`Duration: ${opt.days} ${opt.days === 1 ? "day" : "days"}`);
-            if (opt.pricePerPerson) {
-              const p = Number(String(opt.pricePerPerson).replace(/[^0-9.]/g, ""));
-              const g = Number(selectedRequest?.groupSize) || 0;
-              const n = Number(opt.days) || 0;
-              const mode = opt.priceMode || "trip";
-              const perPersonTotal = mode === "night" ? p * n : p;
-              const groupTotal = perPersonTotal * g;
-              if (mode === "night") {
-                lines.push(`Price per person per night: TZS ${opt.pricePerPerson}`);
-                if (n) lines.push(`Price per person (${n} nights): TZS ${perPersonTotal.toLocaleString()}`);
-              } else {
-                lines.push(`Price per person (full stay): TZS ${opt.pricePerPerson}`);
-              }
-              if (p && g) lines.push(`Total for group (${g} ${g===1?"person":"people"}): TZS ${groupTotal.toLocaleString()}`);
-            }
-            if (opt.inclusions.length > 0) {
-              lines.push("\n--- WHAT'S INCLUDED ---");
-              INCLUSION_CATEGORIES.forEach(cat => {
-                const sel = cat.options.filter(o => opt.inclusions.includes(o));
-                if (sel.length > 0) {
-                  lines.push(`${cat.emoji} ${cat.label}: ${sel.join(", ")}`);
-                  if (cat.id === "fees") {
-                    sel.forEach(item => {
-                      const amt = Number(String(opt.feeAmounts?.[item] || "0").replace(/[^0-9.]/g, ""));
-                      if (amt > 0) lines.push(`   ${item}: TZS ${amt.toLocaleString()} /person`);
-                    });
-                    const feesTotal = sel.reduce((sum, item) => sum + (Number(String(opt.feeAmounts?.[item] || "0").replace(/[^0-9.]/g, "")) || 0), 0);
-                    if (feesTotal > 0 && sel.length > 1) lines.push(`   Fees subtotal: TZS ${feesTotal.toLocaleString()} /person`);
-                  }
-                  const det = opt.inclusionDetails?.[cat.id];
-                  if (det?.trim()) lines.push(`   ${det.trim()}`);
-                  if (cat.id === "accommodation" && (opt.linkedProperties?.length ?? 0) > 0) {
-                    lines.push(`   Linked listings: ${opt.linkedProperties!.map(p => p.title).join(", ")}`);
-                  }
-                }
-              });
-              const known = INCLUSION_CATEGORIES.flatMap(c => c.options);
-              const custom = opt.inclusions.filter(i => !known.includes(i));
-              if (custom.length > 0) lines.push(`Additional: ${custom.join(", ")}`);
-            }
+            if (opt.pricePerPerson) lines.push(`Price per person: TZS ${opt.pricePerPerson}`);
+            if (opt.inclusions.length > 0) lines.push(`Includes: ${opt.inclusions.join(", ")}`);
             if (opt.dayOutline.trim()) lines.push(`\nItinerary:\n${opt.dayOutline.trim()}`);
             return lines.join("\n");
           }).join("\n\n")
@@ -855,6 +727,7 @@ export default function AdminPlanWithUsRequestsPage() {
       setResponseForm({ suggestedItineraries:"", requiredPermits:"", estimatedTimeline:"", assignedAgent:"", assignedAgentId:null, adminResponse:"" });
       setItineraryOptions([]);
       setSelectedPermits([]);
+      setCustomPermitInput("");
       setTripSpecificNotes("");
       setActiveSections(new Set(["itinerary","permits","timeline","agent"]));
       setQuickMessage("");
@@ -867,7 +740,7 @@ export default function AdminPlanWithUsRequestsPage() {
       setSubmitting(false);
     }
   };
-  // ---------------------------------------------------------------------------
+  // ───────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1052,297 +925,277 @@ export default function AdminPlanWithUsRequestsPage() {
       })()}
 
       {/* Requests Table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-md overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-teal-500" />
-
-        {/* -- Loading skeletons -- */}
         {loading ? (
-          <div className="p-4 space-y-3">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="animate-pulse flex items-center gap-4 p-4 rounded-xl border border-gray-100 bg-gray-50">
-                <div className="w-10 h-10 rounded-full bg-gray-200 shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3.5 bg-gray-200 rounded w-40" />
-                  <div className="h-3 bg-gray-200 rounded w-64" />
-                </div>
-                <div className="h-6 bg-gray-200 rounded-full w-20 shrink-0" />
-                <div className="h-8 bg-gray-200 rounded-lg w-28 shrink-0" />
-              </div>
-            ))}
-          </div>
-        ) : list.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center mx-auto mb-4">
-              <FileText className="h-8 w-8 text-gray-300" />
+          <>
+            {/* Skeleton Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trip Type</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dates</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group Size</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Budget</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {[...Array(5)].map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-12"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-24"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-32 mb-2"></div>
+                        <div className="h-3 bg-gray-200 rounded w-40"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-20"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-28"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-32"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-16"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-4 bg-gray-200 rounded w-20"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="h-6 bg-gray-200 rounded-full w-20"></div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="h-8 bg-gray-200 rounded w-24 ml-auto"></div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <p className="text-sm font-semibold text-gray-500">No plan requests found</p>
+          </>
+        ) : list.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <FileText className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-500">No plan requests found.</p>
             <p className="text-xs text-gray-400 mt-1">Try adjusting your filters or search query.</p>
           </div>
         ) : (
           <>
-            {/* -- Column header row (desktop only) -- */}
-            <div className="hidden lg:grid grid-cols-[56px_1fr_1fr_1fr_1fr_140px_120px] gap-x-4 px-5 py-2.5 bg-gray-50 border-b border-gray-100">
-              {["#", "Customer", "Trip Type", "Destination", "Dates", "Status", ""].map((h) => (
-                <span key={h} className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{h}</span>
-              ))}
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trip Type</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dates</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group Size</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Budget</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {list.map((request) => {
+                    return (
+                      <tr key={request.id} className={`hover:bg-gray-50 transition-colors duration-150 ${request.isUrgent ? "bg-amber-50 border-l-4 border-l-amber-500" : ""}`}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          <div className="flex items-center gap-2">
+                            #{request.id}
+                            {request.isUrgent && (
+                              <div title="Urgent request">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{request.role}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <div>
+                            <div className="font-medium">{request.customer.name}</div>
+                            <div className="text-xs text-gray-400">{request.customer.email}</div>
+                            {request.customer.phone && (
+                              <div className="text-xs text-gray-400">{request.customer.phone}</div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{request.tripType}</td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                            <span className="max-w-xs truncate">{request.destinations || "N/A"}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {request.dateFrom && request.dateTo ? (
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-gray-400" />
+                              <span>{new Date(request.dateFrom).toLocaleDateString()} - {new Date(request.dateTo).toLocaleDateString()}</span>
+                            </div>
+                          ) : (
+                            "Flexible"
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{request.groupSize || "N/A"}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{request.budget || "N/A"}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full border ${
+                            request.status === "COMPLETED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                            request.status === "IN_PROGRESS" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                            "bg-amber-50 text-amber-700 border-amber-200"
+                          }`}>
+                            <span className={`inline-block h-1.5 w-1.5 rounded-full ${request.status === "COMPLETED" ? "bg-emerald-500" : request.status === "IN_PROGRESS" ? "bg-blue-500" : "bg-amber-500"}`} />{request.status === "NEW" ? "New" : request.status === "IN_PROGRESS" ? "In Progress" : "Completed"}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end gap-2">
+                            {request.status === "NEW" && (
+                              <button
+                                onClick={() => handleStartWork(request.id)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold hover:bg-blue-100 hover:border-blue-300 transition-all"
+                              >
+                                <Edit className="h-4 w-4" />
+                                Start Work
+                              </button>
+                            )}
+                            {request.status === "IN_PROGRESS" && (
+                              <button
+                                onClick={() => handleOpenResponse(request)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-all shadow-sm"
+                              >
+                                <Send className="h-4 w-4" />
+                                Provide Feedback
+                              </button>
+                            )}
+                            {request.status === "COMPLETED" && (
+                              <button
+                                onClick={() => handleOpenResponse(request)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 border border-gray-200 text-xs font-semibold hover:bg-gray-200 transition-all"
+                              >
+                                <Eye className="h-4 w-4" />
+                                View Response
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {/* -- Rows -- */}
-            <div className="divide-y divide-gray-50">
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-gray-200">
               {list.map((request) => {
-                const initials = (request.customer.name || "?").split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
-                const avatarColors: Record<string, string> = {
-                  "Tourist": "bg-blue-100 text-blue-700",
-                  "Teacher": "bg-amber-100 text-amber-700",
-                  "School": "bg-violet-100 text-violet-700",
-                  "Local": "bg-emerald-100 text-emerald-700",
-                };
-                const avatarColor = avatarColors[request.role?.split(" ")[0] ?? ""] ?? "bg-indigo-100 text-indigo-700";
-
-                const statusMeta = request.status === "COMPLETED"
-                  ? { label: "Completed", dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 border-emerald-200", glow: "" }
-                  : request.status === "IN_PROGRESS"
-                  ? { label: "In Progress", dot: "bg-blue-500", pill: "bg-blue-50 text-blue-700 border-blue-200", glow: "" }
-                  : { label: "New", dot: "bg-amber-400 animate-pulse", pill: "bg-amber-50 text-amber-700 border-amber-200", glow: "" };
-
-                const tripTypeMeta: Record<string, { color: string; short: string }> = {
-                  "Safari": { color: "bg-emerald-100 text-emerald-800 border-emerald-200", short: "Safari" },
-                  "Cultural": { color: "bg-orange-100 text-orange-800 border-orange-200", short: "Cultural" },
-                  "Adventure / Hiking": { color: "bg-sky-100 text-sky-800 border-sky-200", short: "Hiking" },
-                  "School / Teacher": { color: "bg-violet-100 text-violet-800 border-violet-200", short: "School" },
-                  "Local tourism": { color: "bg-teal-100 text-teal-800 border-teal-200", short: "Local" },
-                  "Multi-destination tour": { color: "bg-indigo-100 text-indigo-800 border-indigo-200", short: "Multi" },
-                };
-                const ttMeta = tripTypeMeta[request.tripType] ?? { color: "bg-gray-100 text-gray-700 border-gray-200", short: request.tripType };
-
-                // Parse destinations for a compact display
-                const destRaw = request.destinations || "";
-                const destParts = destRaw.split(/\d+\)/).map((s: string) => s.trim()).filter(Boolean);
-                const firstDest = destParts.length > 0
-                  ? destParts[0].replace(/\s*[-\u2014\u2013]\s*\d+\s*nights?/i, "").trim()
-                  : destRaw.replace(/\s*[-\u2014\u2013]\s*\d+\s*nights?/i, "").trim() || "N/A";
-                const extraDestCount = destParts.length > 1 ? destParts.length - 1 : 0;
-
-                // Date display
-                const dateStr = (() => {
-                  if (!request.dateFrom || !request.dateTo) return null;
-                  const from = new Date(request.dateFrom);
-                  const to = new Date(request.dateTo);
-                  const fmtShort = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-                  const sameYear = from.getFullYear() === to.getFullYear();
-                  return sameYear
-                    ? `${fmtShort(from)} - ${fmtShort(to)}, ${to.getFullYear()}`
-                    : `${fmtShort(from)} ${from.getFullYear()} - ${fmtShort(to)} ${to.getFullYear()}`;
-                })();
-
-                const isOverdue = request.hoursSinceCreation > 48 && request.status === "NEW";
-                const agingColor = request.hoursSinceCreation > 48 ? "text-red-500" : request.hoursSinceCreation > 24 ? "text-amber-500" : "text-emerald-500";
-                const agingLabel = request.respondedAt ? null : request.hoursSinceCreation < 24
-                  ? `${request.hoursSinceCreation}h ago`
-                  : `${Math.floor(request.hoursSinceCreation / 24)}d ago`;
-
+                const responseTimeColor = request.hoursSinceCreation > 48 
+                  ? "text-red-600" 
+                  : request.hoursSinceCreation > 24 
+                  ? "text-amber-600" 
+                  : "text-green-600";
+                const responseTimeText = request.hoursSinceCreation < 24
+                  ? `${request.hoursSinceCreation}h`
+                  : `${Math.floor(request.hoursSinceCreation / 24)}d`;
+                
                 return (
-                  <div
-                    key={request.id}
-                    className={`group relative px-5 py-4 transition-all duration-150 hover:bg-blue-50/30 ${
-                      request.isUrgent ? "bg-amber-50/60 hover:bg-amber-50" : ""
-                    }`}
-                  >
-                    {/* Urgent left stripe */}
-                    {request.isUrgent && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1 rounded-r bg-amber-400" />
-                    )}
-
-                    {/* -- Desktop layout -- */}
-                    <div className="hidden lg:grid grid-cols-[56px_1fr_1fr_1fr_1fr_140px_120px] gap-x-4 items-center">
-
-                      {/* ID */}
-                      <div className="flex flex-col items-start gap-1">
-                        <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-0.5 leading-none">
-                          #{request.id}
-                        </span>
-                        {request.isUrgent && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
-                      </div>
-
-                      {/* Customer */}
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${avatarColor}`}>
-                          {initials}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{request.customer.name}</p>
-                          <p className="text-[11px] text-gray-400 truncate leading-tight">{request.customer.email}</p>
-                          {request.customer.phone && (
-                            <p className="text-[11px] text-gray-400 truncate leading-tight">{request.customer.phone}</p>
-                          )}
-                          <span className={`inline-block mt-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${avatarColor} border-current/20`}>
-                            {request.role}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Trip type */}
-                      <div>
-                        <span className={`inline-flex items-center px-2 py-1 rounded-lg border text-[11px] font-semibold ${ttMeta.color}`}>
-                          {request.tripType}
-                        </span>
-                        {request.groupSize && (
-                          <div className="flex items-center gap-1 mt-1">
-                            <Users className="w-3 h-3 text-gray-400" />
-                            <span className="text-[11px] text-gray-500">{request.groupSize} {Number(request.groupSize) === 1 ? "person" : "people"}</span>
+                  <div key={request.id} className={`p-4 bg-white hover:bg-gray-50 transition-colors duration-150 ${request.isUrgent ? "bg-amber-50 border-l-4 border-l-amber-500" : ""}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">Request #{request.id}</span>
+                        {request.isUrgent && (
+                          <div title="Urgent request">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
                           </div>
                         )}
-                        {request.budget && (
-                          <p className="text-[10px] text-gray-400 mt-0.5 truncate">Budget: {request.budget}</p>
-                        )}
                       </div>
-
-                      {/* Destination */}
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5 text-teal-500 shrink-0" />
-                          <span className="text-xs font-semibold text-gray-800 truncate">{firstDest}</span>
-                        </div>
-                        {extraDestCount > 0 && (
-                          <span className="mt-0.5 inline-block text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-1.5 py-0.5">
-                            +{extraDestCount} more stop{extraDestCount > 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Dates */}
-                      <div>
-                        {dateStr ? (
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                            <span className="text-xs text-gray-700 leading-tight">{dateStr}</span>
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-gray-400 bg-gray-50 border border-gray-100 rounded-lg px-2 py-0.5">
-                            <Calendar className="w-3 h-3" /> Flexible
-                          </span>
-                        )}
-                        {agingLabel && (
-                          <p className={`text-[10px] font-medium mt-1 ${agingColor}`}>
-                            {isOverdue ? "Overdue-- " : ""}{agingLabel}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Status */}
-                      <div>
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-full border ${statusMeta.pill}`}>
-                          <span className={`inline-block h-1.5 w-1.5 rounded-full ${statusMeta.dot}`} />
-                          {statusMeta.label}
-                        </span>
-                        {request.assignedAgent && (
-                          <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                            <User className="w-3 h-3" />{request.assignedAgent}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Action */}
-                      <div className="flex justify-end">
-                        {request.status === "NEW" && (
-                          <button
-                            onClick={() => handleStartWork(request.id)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border-2 border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-sm"
-                          >
-                            <Edit className="h-3.5 w-3.5" /> Start
-                          </button>
-                        )}
-                        {request.status === "IN_PROGRESS" && (
-                          <button
-                            onClick={() => handleOpenResponse(request)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-bold hover:from-green-600 hover:to-emerald-700 transition-all shadow-md"
-                          >
-                            <Send className="h-3.5 w-3.5" /> Respond
-                          </button>
-                        )}
-                        {request.status === "COMPLETED" && (
-                          <button
-                            onClick={() => handleOpenResponse(request)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-100 transition-all"
-                          >
-                            <Eye className="h-3.5 w-3.5" /> Review
-                          </button>
-                        )}
-                      </div>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full border ${
+                      request.status === "COMPLETED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                      request.status === "IN_PROGRESS" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                      "bg-amber-50 text-amber-700 border-amber-200"
+                    }`}>
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${request.status === "COMPLETED" ? "bg-emerald-500" : request.status === "IN_PROGRESS" ? "bg-blue-500" : "bg-amber-500"}`} />{request.status === "NEW" ? "New" : request.status === "IN_PROGRESS" ? "In Progress" : "Completed"}
+                    </span>
                     </div>
-
-                    {/* -- Mobile / Tablet layout -- */}
-                    <div className="lg:hidden space-y-3">
-                      {/* Top row */}
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${avatarColor}`}>
-                          {initials}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-bold text-gray-900">{request.customer.name}</span>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${avatarColor} border-current/20`}>{request.role}</span>
-                            {request.isUrgent && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
-                          </div>
-                          <p className="text-[11px] text-gray-400 truncate">{request.customer.email}{request.customer.phone ? ` - ${request.customer.phone}` : ""}</p>
-                        </div>
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full border shrink-0 ${statusMeta.pill}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${statusMeta.dot}`} />{statusMeta.label}
-                        </span>
-                      </div>
-                      {/* Meta pills */}
-                      <div className="flex flex-wrap gap-1.5">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[11px] font-semibold ${ttMeta.color}`}>{request.tripType}</span>
-                        {request.groupSize && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-gray-200 bg-gray-50 text-[11px] text-gray-600">
-                            <Users className="w-3 h-3" />{request.groupSize}
-                          </span>
-                        )}
-                        {request.budget && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-lg border border-gray-200 bg-gray-50 text-[11px] text-gray-600">{request.budget}</span>
-                        )}
-                        <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-full px-2 py-0.5">#{request.id}</span>
-                      </div>
-                      {/* Destination + Dates */}
-                      <div className="flex items-start gap-3 text-xs text-gray-600">
-                        {firstDest !== "N/A" && (
-                          <div className="flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-teal-500 shrink-0" />
-                            <span className="font-medium truncate max-w-[160px]">{firstDest}{extraDestCount > 0 ? ` +${extraDestCount}` : ""}</span>
-                          </div>
-                        )}
-                        {dateStr && (
-                          <div className="flex items-center gap-1 text-gray-500">
-                            <Calendar className="w-3.5 h-3.5 shrink-0" />
-                            <span>{dateStr}</span>
-                          </div>
-                        )}
-                      </div>
-                      {/* Action row */}
-                      <div className="flex items-center justify-between">
-                        {agingLabel && (
-                          <span className={`text-[11px] font-medium ${agingColor}`}>{isOverdue ? "Overdue - " : ""}{agingLabel}</span>
-                        )}
-                        <div className="ml-auto flex gap-2">
-                          {request.status === "NEW" && (
-                            <button onClick={() => handleStartWork(request.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border-2 border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all shadow-sm">
-                              <Edit className="h-3.5 w-3.5" /> Start
-                            </button>
-                          )}
-                          {request.status === "IN_PROGRESS" && (
-                            <button onClick={() => handleOpenResponse(request)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-bold hover:from-green-600 hover:to-emerald-700 transition-all shadow-md">
-                              <Send className="h-3.5 w-3.5" /> Respond
-                            </button>
-                          )}
-                          {request.status === "COMPLETED" && (
-                            <button onClick={() => handleOpenResponse(request)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border-2 border-gray-200 text-gray-600 text-xs font-bold hover:bg-gray-100 transition-all">
-                              <Eye className="h-3.5 w-3.5" /> Review
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                    <div className="text-sm text-gray-600 mb-1 flex items-center gap-2">
+                      <Clock className={`h-4 w-4 ${responseTimeColor}`} />
+                      <span className={responseTimeColor}>
+                        Response: {request.respondedAt ? "Responded" : responseTimeText}
+                      </span>
+                      {request.hoursSinceCreation > 48 && request.status === "NEW" && (
+                        <span className="text-xs text-red-600 font-medium">· Overdue</span>
+                      )}
                     </div>
+                  <div className="text-sm text-gray-600 mb-1">
+                    <span>Role: {request.role} · Type: {request.tripType}</span>
                   </div>
+                  <div className="text-sm text-gray-600 mb-1 flex items-center gap-2">
+                    <User className="h-4 w-4 text-gray-400" />
+                    <span>Customer: {request.customer.name}</span>
+                  </div>
+                  <div className="text-sm text-gray-600 mb-1 flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-gray-400" />
+                    <span>Destination: {request.destinations || "N/A"}</span>
+                  </div>
+                  <div className="text-sm text-gray-600 mb-1 flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                    <span>
+                      {request.dateFrom && request.dateTo
+                        ? `${new Date(request.dateFrom).toLocaleDateString()} - ${new Date(request.dateTo).toLocaleDateString()}`
+                        : "Flexible dates"}
+                    </span>
+                  </div>
+                  <div className="text-sm text-gray-600 mb-1">
+                    <span>Group Size: {request.groupSize || "N/A"}</span>
+                    {request.transportRequired && (
+                      <span className="ml-2 px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">Transport</span>
+                    )}
+                  </div>
+                  <div className="mt-3 flex gap-2 justify-end">
+                    {request.status === "NEW" && (
+                      <button
+                        onClick={() => handleStartWork(request.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold hover:bg-blue-100 transition-all"
+                      >
+                        <Edit className="h-4 w-4" />
+                        Start Work
+                      </button>
+                    )}
+                    {request.status === "IN_PROGRESS" && (
+                      <button
+                        onClick={() => handleOpenResponse(request)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-all shadow-sm"
+                      >
+                        <Send className="h-4 w-4" />
+                        Provide Feedback
+                      </button>
+                    )}
+                    {request.status === "COMPLETED" && (
+                      <button
+                        onClick={() => handleOpenResponse(request)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 border border-gray-200 text-xs font-semibold hover:bg-gray-200 transition-all"
+                      >
+                        <Eye className="h-4 w-4" />
+                        View Response
+                      </button>
+                    )}
+                  </div>
+                </div>
                 );
               })}
             </div>
@@ -1718,7 +1571,7 @@ export default function AdminPlanWithUsRequestsPage() {
           <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[5vh] overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full my-8 h-[90vh] flex flex-col overflow-hidden">
 
-              {/* -- Modal Header -- */}
+              {/* ── Modal Header ── */}
               <div
                 className="sticky top-0 z-10 flex-shrink-0 rounded-t-2xl"
                 style={{ background: "linear-gradient(135deg,#1e3a8a 0%,#1d4ed8 50%,#0f766e 100%)" }}
@@ -1737,7 +1590,7 @@ export default function AdminPlanWithUsRequestsPage() {
                         <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${selectedRequest.status === "COMPLETED" ? "bg-emerald-500/70 text-white" : selectedRequest.status === "IN_PROGRESS" ? "bg-blue-400/70 text-white" : "bg-amber-400/70 text-white"}`}>{selectedRequest.status === "NEW" ? "New" : selectedRequest.status === "IN_PROGRESS" ? "In Progress" : "Completed"}</span>
                       </div>
                       <p className="text-blue-200 text-xs mt-1">
-                        {selectedRequest.tripType} - {selectedRequest.role} - Group of {selectedRequest.groupSize ?? "?"}
+                        {selectedRequest.tripType} · {selectedRequest.role} · Group of {selectedRequest.groupSize ?? "?"}
                       </p>
                     </div>
                   </div>
@@ -1751,11 +1604,11 @@ export default function AdminPlanWithUsRequestsPage() {
                 </div>
               </div>
 
-              {/* -- Scrollable Content -- */}
+              {/* ── Scrollable Content ── */}
               <div className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden px-5 py-5 space-y-4 bg-gray-50">
 
-                {/* Request Details - full context panel - hidden on COMPLETED (A4 report replaces all) */}
-                {selectedRequest.status !== "COMPLETED" && <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Request Details - full context panel */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="h-1 bg-gradient-to-r from-blue-400 to-indigo-500" />
                   <div className="p-5">
                     <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2 mb-4">
@@ -1772,6 +1625,7 @@ export default function AdminPlanWithUsRequestsPage() {
                         { label:"Role", value:selectedRequest.role, color:"purple" },
                         { label:"Trip Type", value:selectedRequest.tripType, color:"emerald" },
                         { label:"Group Size", value:selectedRequest.groupSize?`${selectedRequest.groupSize} people`:"-", color:"amber" },
+                        { label:"Travel Dates", value:selectedRequest.dateFrom?`${selectedRequest.dateFrom}${selectedRequest.dateTo?" "+selectedRequest.dateTo:""}`:"Not specified", color:"teal" },
                         { label:"Budget", value:selectedRequest.budget?`TZS ${Number(selectedRequest.budget).toLocaleString()}`:"Not specified", color:"green" },
                         { label:"Transport", value:selectedRequest.transportRequired?"Required":"Not required", color:selectedRequest.transportRequired?"orange":"gray" },
                       ].map(({ label, value, color }) => (
@@ -1781,143 +1635,9 @@ export default function AdminPlanWithUsRequestsPage() {
                         </div>
                       ))}
                     </div>
-                    {/* Travel Dates - premium card */}
-                    {(() => {
-                      const fmtDate = (d: string) => {
-                        const dt = new Date(d);
-                        return { day: dt.toLocaleDateString("en-US",{day:"2-digit"}), month: dt.toLocaleDateString("en-US",{month:"short"}), year: dt.toLocaleDateString("en-US",{year:"numeric"}) };
-                      };
-                      const rawFrom = selectedRequest.dateFrom;
-                      const rawTo = selectedRequest.dateTo;
-                      const from = rawFrom ? fmtDate(rawFrom) : null;
-                      const to = rawTo ? fmtDate(rawTo) : null;
-                      const tripDays = (rawFrom && rawTo) ? Math.round((new Date(rawTo).getTime() - new Date(rawFrom).getTime()) / 86400000) : null;
-                      return (
-                        <div className="mt-2.5">
-                          <div className="text-[10px] font-bold uppercase tracking-wider mb-2 text-teal-600 flex items-center gap-1.5">
-                            <Calendar className="h-3 w-3" />
-                            Travel Dates
-                          </div>
-                          {from ? (
-                            <div className="rounded-xl border border-teal-200 overflow-hidden shadow-sm">
-                              <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-4 py-2 flex items-center justify-between">
-                                <span className="text-[11px] font-bold text-white uppercase tracking-wider">Trip Window</span>
-                                {tripDays !== null && (
-                                  <div className="flex items-center gap-1.5 bg-white/20 rounded-full px-2.5 py-0.5">
-                                    <Clock className="h-3 w-3 text-white" />
-                                    <span className="text-[11px] font-bold text-white">{tripDays} days</span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className="bg-gradient-to-b from-teal-50/60 to-white px-4 py-3 flex items-center gap-3">
-                                {/* From */}
-                                <div className="flex-1 flex flex-col items-center bg-white rounded-lg border border-teal-100 py-2 px-3 shadow-sm">
-                                  <span className="text-[9px] font-bold uppercase tracking-wider text-teal-500 mb-0.5">Departure</span>
-                                  <span className="text-xl font-black text-teal-800 leading-none">{from.day}</span>
-                                  <span className="text-[11px] font-semibold text-teal-700">{from.month} {from.year}</span>
-                                </div>
-                                {/* Divider arrow */}
-                                {to && (
-                                  <>
-                                    <div className="flex flex-col items-center gap-0.5">
-                                      <div className="h-0.5 w-6 bg-teal-300 rounded" />
-                                      <div className="w-0 h-0 border-t-[4px] border-b-[4px] border-l-[6px] border-transparent border-l-teal-400" />
-                                    </div>
-                                    {/* To */}
-                                    <div className="flex-1 flex flex-col items-center bg-white rounded-lg border border-teal-100 py-2 px-3 shadow-sm">
-                                      <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-500 mb-0.5">Return</span>
-                                      <span className="text-xl font-black text-teal-800 leading-none">{to.day}</span>
-                                      <span className="text-[11px] font-semibold text-teal-700">{to.month} {to.year}</span>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm text-gray-400 italic">Not specified</div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                    <div className="mt-2.5">
-                      <div className="text-[10px] font-bold uppercase tracking-wider mb-2 text-teal-600 flex items-center gap-1.5">
-                        <MapPin className="h-3 w-3" />
-                        Destination(s)
-                      </div>
-                      {selectedRequest.destinations ? (() => {
-                        const raw = selectedRequest.destinations;
-                        const parts = raw.split(/\d+\)/).map((s: string) => s.trim()).filter(Boolean);
-                        if (parts.length <= 1) {
-                          return (
-                            <div className="flex items-center gap-3 bg-gradient-to-r from-teal-50 to-cyan-50 border border-teal-200 rounded-xl px-4 py-3 shadow-sm">
-                              <div className="h-8 w-8 rounded-full bg-teal-500 flex items-center justify-center shrink-0 shadow-sm">
-                                <MapPin className="h-4 w-4 text-white" />
-                              </div>
-                              <span className="text-sm font-semibold text-teal-900">{raw}</span>
-                            </div>
-                          );
-                        }
-                        const totalNights = parts.reduce((sum: number, part: string) => {
-                          const m = part.match(/[--]\s*(\d+)\s*nights?/i);
-                          return sum + (m ? Number(m[1]) : 0);
-                        }, 0);
-                        return (
-                          <div className="rounded-xl border border-teal-200 overflow-hidden shadow-sm">
-                            {/* Header banner */}
-                            <div className="bg-gradient-to-r from-teal-600 to-cyan-600 px-4 py-2.5 flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <MapPin className="h-3.5 w-3.5 text-teal-100" />
-                                <span className="text-[11px] font-bold text-white uppercase tracking-wider">Multi-Destination Journey</span>
-                              </div>
-                              {totalNights > 0 && (
-                                <div className="flex items-center gap-1.5 bg-white/20 rounded-full px-2.5 py-0.5">
-                                  <Clock className="h-3 w-3 text-white" />
-                                  <span className="text-[11px] font-bold text-white">{totalNights} nights total</span>
-                                </div>
-                              )}
-                            </div>
-                            {/* Timeline */}
-                            <div className="bg-gradient-to-b from-teal-50/60 to-white px-4 py-3">
-                              <div className="relative">
-                                {/* Vertical connector line */}
-                                {parts.length > 1 && (
-                                  <div className="absolute left-[13px] top-5 bottom-5 w-0.5 bg-gradient-to-b from-teal-300 to-cyan-200 z-0" />
-                                )}
-                                <div className="flex flex-col gap-2.5">
-                                  {parts.map((part: string, idx: number) => {
-                                    const nightsMatch = part.match(/[--]\s*(\d+)\s*nights?/i);
-                                    const nights = nightsMatch ? Number(nightsMatch[1]) : null;
-                                    const name = part.replace(/[--]\s*\d+\s*nights?/i, "").trim().replace(/[,;]+$/, "");
-                                    const isLast = idx === parts.length - 1;
-                                    return (
-                                      <div key={idx} className="relative flex items-center gap-3 z-10">
-                                        {/* Step dot */}
-                                        <div className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 shadow-sm font-bold text-[11px] text-white
-                                          ${isLast ? "bg-gradient-to-br from-cyan-500 to-teal-600 ring-2 ring-teal-200" : "bg-teal-500"}`}>
-                                          {idx + 1}
-                                        </div>
-                                        {/* Card */}
-                                        <div className={`flex-1 flex items-center justify-between rounded-lg px-3 py-2 border gap-2 min-w-0
-                                          ${isLast ? "bg-white border-teal-200 shadow-sm" : "bg-white/70 border-teal-100"}`}>
-                                          <span className={`text-sm font-semibold truncate ${isLast ? "text-teal-900" : "text-gray-800"}`}>{name}</span>
-                                          {nights !== null && (
-                                            <span className="inline-flex items-center gap-1 bg-teal-50 border border-teal-200 text-teal-700 text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-                                              <Clock className="h-2.5 w-2.5" />
-                                              {nights}n
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })() : (
-                        <div className="text-sm text-gray-400 italic">Not specified</div>
-                      )}
+                    <div className="mt-2.5 bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-[10px] font-bold uppercase tracking-wider mb-1 text-teal-600">Destination(s)</div>
+                      <div className="text-sm text-gray-900">{selectedRequest.destinations || "-"}</div>
                     </div>
                     {selectedRequest.notes && (
                       <div className="mt-2.5 bg-amber-50 rounded-lg p-3 border border-amber-200">
@@ -1926,10 +1646,10 @@ export default function AdminPlanWithUsRequestsPage() {
                       </div>
                     )}
                   </div>
-                </div>}
+                </div>
 
-                {/* Conversation History - hidden on COMPLETED (A4 report is shown instead) */}
-                {selectedRequest.status !== "COMPLETED" && <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Conversation History */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="h-1 bg-gradient-to-r from-slate-400 to-gray-400" />
                   <div className="p-5">
                     <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2 mb-3">
@@ -1959,9 +1679,9 @@ export default function AdminPlanWithUsRequestsPage() {
                       </div>
                     </div>
                   </div>
-                </div>}
+                </div>
 
-                {/* -- Feedback builder (only when not COMPLETED) -- */}
+                {/* ── Feedback builder (only when not COMPLETED) ── */}
                 {selectedRequest.status !== "COMPLETED" && (
                   <>
                     {/* Section selector chips */}
@@ -1981,7 +1701,7 @@ export default function AdminPlanWithUsRequestsPage() {
                                 : "bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600"
                             }`}
                           >
-                            {activeSections.has(sec.id) ? "? " : "+ "}{sec.label}
+                            {activeSections.has(sec.id) ? "✓ " : "+ "}{sec.label}
                           </button>
                         ))}
                       </div>
@@ -2009,30 +1729,21 @@ export default function AdminPlanWithUsRequestsPage() {
                           </div>
                           {itineraryOptions.length === 0 && (
                             <div className="text-center py-7 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-xl">
-                              Click <strong>+ Add Option</strong> to build proposals (e.g. Budget Option, Premium Option).<br />
-                              <span className="text-xs text-teal-500">For multi-destination requests, cards are auto-created per destination.</span>
+                              Click <strong>+ Add Option</strong> to build proposals (e.g. Budget Option, Premium Option)
                             </div>
                           )}
                           <div className="space-y-4">
                             {itineraryOptions.map((opt, idx) => (
                               <div key={opt.id} className="w-full min-w-0 border border-gray-200 rounded-xl overflow-hidden">
                                 {/* Option name bar */}
-                                <div className={`px-4 py-2.5 flex items-center justify-between border-b border-gray-200 min-w-0 ${opt.autoFilled ? "bg-teal-50" : "bg-gray-50"}`}>
-                                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                                    {opt.autoFilled && (
-                                      <span className="inline-flex items-center gap-1 bg-teal-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md shrink-0 uppercase tracking-wide">
-                                        <MapPin className="h-2.5 w-2.5" />
-                                        Destination
-                                      </span>
-                                    )}
-                                    <input
-                                      type="text"
-                                      value={opt.name}
-                                      onChange={e => updateItineraryOption(opt.id, "name", e.target.value)}
-                                      className={`bg-transparent text-sm font-bold outline-none flex-1 min-w-0 ${opt.autoFilled ? "text-teal-900" : "text-gray-900"}`}
-                                      placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                                    />
-                                  </div>
+                                <div className="bg-gray-50 px-4 py-2.5 flex items-center justify-between border-b border-gray-200 min-w-0">
+                                  <input
+                                    type="text"
+                                    value={opt.name}
+                                    onChange={e => updateItineraryOption(opt.id, "name", e.target.value)}
+                                    className="bg-transparent text-sm font-bold text-gray-900 outline-none flex-1 min-w-0"
+                                    placeholder={`Option ${String.fromCharCode(65 + idx)}`}
+                                  />
                                   <button
                                     type="button"
                                     onClick={() => removeItineraryOption(opt.id)}
@@ -2041,304 +1752,56 @@ export default function AdminPlanWithUsRequestsPage() {
                                     Remove
                                   </button>
                                 </div>
-                                {/* Days + Price + Auto-computation */}
-                                <div className="p-4 space-y-3 min-w-0">
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">Duration (nights)</label>
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        value={opt.days}
-                                        onChange={e => updateItineraryOption(opt.id, "days", Number(e.target.value))}
-                                        className="w-full max-w-full box-border px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                      />
-                                    </div>
-                                    <div>
-                                      {/* Price mode toggle - admin must explicitly choose to avoid mistakes */}
-                                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">
-                                        {opt.priceMode === "night" ? "Price / Person / Night (TZS)" : "Price / Person - Full Stay (TZS)"}
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={opt.pricePerPerson}
-                                        onChange={e => updateItineraryOption(opt.id, "pricePerPerson", e.target.value)}
-                                        className="w-full max-w-full box-border px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="e.g. 850,000"
-                                      />
-                                    </div>
+                                {/* Days + Price */}
+                                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
+                                  <div>
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">Duration (days)</label>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={opt.days}
+                                      onChange={e => updateItineraryOption(opt.id, "days", Number(e.target.value))}
+                                      className="w-full max-w-full box-border px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    />
                                   </div>
-                                  {/* Price mode selector */}
-                                  <div className="flex items-center gap-0 rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
-                                    <button
-                                      type="button"
-                                      onClick={() => updateItineraryOption(opt.id, "priceMode", "trip")}
-                                      className={`flex-1 py-2 text-center transition-all ${
-                                        opt.priceMode === "trip"
-                                          ? "bg-indigo-600 text-white"
-                                          : "bg-gray-50 text-gray-500 hover:bg-gray-100"
-                                      }`}
-                                    >
-                                      Total for full stay
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => updateItineraryOption(opt.id, "priceMode", "night")}
-                                      className={`flex-1 py-2 text-center transition-all border-l border-gray-200 ${
-                                        opt.priceMode === "night"
-                                          ? "bg-amber-500 text-white"
-                                          : "bg-gray-50 text-gray-500 hover:bg-gray-100"
-                                      }`}
-                                    >
-                                      Per night x {opt.days} nights
-                                    </button>
-                                  </div>
-                                  {/* Live price computation */}
-                                  {(() => {
-                                    const priceCleaned = Number(String(opt.pricePerPerson).replace(/[^0-9.]/g, ""));
-                                    const groupSize = Number(selectedRequest?.groupSize) || 0;
-                                    const nights = Number(opt.days) || 0;
-                                    const basePerPerson = opt.priceMode === "night" ? priceCleaned * nights : priceCleaned;
-                                    const feesTotal = Object.values(opt.feeAmounts || {}).reduce((sum, v) => sum + (Number(String(v).replace(/[^0-9.]/g, "")) || 0), 0);
-                                    const perPersonTotal = basePerPerson + feesTotal;
-                                    const groupTotal = perPersonTotal * groupSize;
-                                    const fmt = (n: number) => n > 0 ? `TZS ${n.toLocaleString()}` : "-";
-                                    if (!priceCleaned && !feesTotal) return null;
-                                    return (
-                                      <div className={`border rounded-xl p-3 ${
-                                        opt.priceMode === "night"
-                                          ? "bg-gradient-to-r from-amber-50 to-orange-50 border-amber-100"
-                                          : "bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-100"
-                                      }`}>
-                                        <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${
-                                          opt.priceMode === "night" ? "text-amber-600" : "text-blue-500"
-                                        }`}>
-                                          Price Summary - {opt.priceMode === "night" ? `${priceCleaned.toLocaleString()} x ${nights} nights` : "Full Stay Rate"}{feesTotal > 0 ? " + Fees" : ""}
-                                        </p>
-                                        <div className="grid grid-cols-2 gap-2 mb-2">
-                                          <div className="bg-white rounded-lg border border-gray-100 p-2 text-center">
-                                            <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-0.5">Base rate</p>
-                                            <p className="text-xs font-bold text-gray-700">{fmt(basePerPerson)}</p>
-                                            <p className="text-[9px] text-gray-400 mt-0.5">{opt.priceMode === "night" ? `${nights} nights` : "full stay"}</p>
-                                          </div>
-                                          <div className="bg-white rounded-lg border border-amber-100 p-2 text-center">
-                                            <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-0.5">?? Fees / person</p>
-                                            <p className="text-xs font-bold text-amber-600">{feesTotal > 0 ? fmt(feesTotal) : "-"}</p>
-                                            <p className="text-[9px] text-gray-400 mt-0.5">park &amp; entry</p>
-                                          </div>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-2">
-                                          <div className="bg-white rounded-lg border border-indigo-100 p-2 text-center">
-                                            <p className="text-[9px] text-gray-400 uppercase tracking-wider mb-0.5">Per person total</p>
-                                            <p className="text-xs font-bold text-indigo-700">{fmt(perPersonTotal)}</p>
-                                            <p className="text-[9px] text-gray-400 mt-0.5">base + fees</p>
-                                          </div>
-                                          <div className={`rounded-lg p-2 text-center ${
-                                            opt.priceMode === "night" ? "bg-amber-500" : "bg-indigo-600"
-                                          }`}>
-                                            <p className="text-[9px] text-white/70 uppercase tracking-wider mb-0.5">{groupSize} {groupSize === 1 ? "person" : "people"} total</p>
-                                            <p className="text-xs font-bold text-white">{fmt(groupTotal)}</p>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                                {/* Inclusions - Categorized */}
-                                <div className="px-4 pb-4">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">What&apos;s Included</label>
-                                    <span className="text-[9px] text-gray-400 normal-case">pick sub-types, then describe each category</span>
-                                  </div>
-                                  <div className="space-y-2.5">
-                                    {INCLUSION_CATEGORIES.map(cat => {
-                                      const selected = cat.options.filter(o => opt.inclusions.includes(o));
-                                      const hasSelected = selected.length > 0;
-                                      const CatIcon = cat.icon;
-                                      return (
-                                        <div key={cat.id} className={`rounded-xl border transition-all ${hasSelected ? "border-gray-300 shadow-sm" : "border-gray-100"}`}>
-                                          <div className={`flex items-center gap-2 px-3 py-2 ${hasSelected ? "bg-gray-50 border-b border-gray-200 rounded-t-xl" : "rounded-xl"}`}>
-                                            <CatIcon className={`w-3.5 h-3.5 flex-shrink-0 ${cat.headerColor}`} />
-                                            <span className={`text-xs font-bold ${cat.headerColor}`}>{cat.label}</span>
-                                            {hasSelected && (
-                                              <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cat.countBg}`}>
-                                                {selected.length} selected
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="px-3 py-2 flex flex-wrap gap-1.5">
-                                            {cat.options.map(item => (
-                                              <button
-                                                key={item}
-                                                type="button"
-                                                onClick={() => toggleInclusion(opt.id, item)}
-                                                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${opt.inclusions.includes(item) ? cat.chipActive : cat.chipIdle}`}
-                                              >
-                                                {opt.inclusions.includes(item) ? "? " : ""}{item}
-                                              </button>
-                                            ))}
-                                          </div>
-                                          {hasSelected && (
-                                            <div className="px-3 pb-3">
-                                              {cat.id === "fees" && (
-                                                <div className="space-y-1.5 mb-2.5 bg-amber-50 border border-amber-100 rounded-lg p-2.5">
-                                                  <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1.5">Enter amount per person (TZS)</p>
-                                                  {selected.map(item => (
-                                                    <div key={item} className="flex items-center gap-2">
-                                                      <span className="text-[11px] text-amber-800 font-medium flex-1 min-w-0 truncate">{item}</span>
-                                                      <div className="flex items-center gap-1 shrink-0">
-                                                        <span className="text-[10px] text-gray-400 font-mono">TZS</span>
-                                                        <input
-                                                          type="text"
-                                                          value={opt.feeAmounts?.[item] || ""}
-                                                          onChange={e => updateFeeAmount(opt.id, item, e.target.value)}
-                                                          placeholder="0"
-                                                          className="w-28 px-2 py-1 border-2 border-amber-200 bg-white rounded-lg text-xs focus:ring-2 focus:ring-amber-400 outline-none text-right font-mono"
-                                                        />
-                                                        <span className="text-[10px] text-gray-400">/person</span>
-                                                      </div>
-                                                    </div>
-                                                  ))}
-                                                  {selected.length > 0 && (() => {
-                                                    const feesPerPerson = selected.reduce((sum, item) => sum + (Number(String(opt.feeAmounts?.[item] || "0").replace(/[^0-9.]/g, "")) || 0), 0);
-                                                    const grpSize = Number(selectedRequest?.groupSize) || 0;
-                                                    const feesGroupTotal = feesPerPerson * grpSize;
-                                                    return (
-                                                      <div className="pt-1.5 border-t border-amber-200 mt-1 space-y-1">
-                                                        <div className="flex items-center justify-between">
-                                                          <span className="text-[11px] font-bold text-amber-700">Total fees / person</span>
-                                                          <span className="text-[11px] font-bold text-amber-700 font-mono">
-                                                            TZS {feesPerPerson.toLocaleString()}
-                                                          </span>
-                                                        </div>
-                                                        {grpSize > 0 && (
-                                                          <div className="flex items-center justify-between bg-amber-100 rounded-md px-2 py-1">
-                                                            <span className="text-[11px] font-bold text-amber-800">Total fees / {grpSize} {grpSize === 1 ? "person" : "people"}</span>
-                                                            <span className="text-[11px] font-bold text-amber-800 font-mono">
-                                                              TZS {feesGroupTotal.toLocaleString()}
-                                                            </span>
-                                                          </div>
-                                                        )}
-                                                      </div>
-                                                    );
-                                                  })()}
-                                                </div>
-                                              )}
-                                              {cat.id === "accommodation" && (
-                                                <div className="mb-2.5">
-                                                  <p className="text-[10px] font-bold text-purple-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                                                    <Building2 className="w-3 h-3" /> Link Approved Properties
-                                                  </p>
-                                                  {/* Linked property chips */}
-                                                  {(opt.linkedProperties?.length ?? 0) > 0 && (
-                                                    <div className="flex flex-wrap gap-1.5 mb-2">
-                                                      {opt.linkedProperties!.map(p => (
-                                                        <span key={p.id} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-[11px] font-medium bg-purple-100 text-purple-800 border border-purple-300">
-                                                          <Building2 className="w-3 h-3 shrink-0 text-purple-500" />
-                                                          <button
-                                                            type="button"
-                                                            onClick={() => window.open(`/admin/properties/previews?id=${p.id}`, "_blank")}
-                                                            className="hover:underline font-semibold max-w-[130px] truncate text-left leading-none"
-                                                            title={`Open ${p.title} listing`}
-                                                          >
-                                                            {p.title}
-                                                          </button>
-                                                          {p.regionName && <span className="text-purple-400 text-[10px]">- {p.regionName}</span>}
-                                                          <button
-                                                            type="button"
-                                                            onClick={() => unlinkProperty(opt.id, p.id)}
-                                                            className="ml-0.5 w-4 h-4 shrink-0 flex items-center justify-center rounded-full hover:bg-red-100 text-purple-400 hover:text-red-500 text-sm leading-none"
-                                                            title="Remove"
-                                                          ><X className="w-2.5 h-2.5" /></button>
-                                                        </span>
-                                                      ))}
-                                                    </div>
-                                                  )}
-                                                  {/* Search input */}
-                                                  <div className="relative">
-                                                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-50 border-2 border-purple-200 rounded-lg focus-within:ring-2 focus-within:ring-purple-400">
-                                                      <Search className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                                                      <input
-                                                        type="text"
-                                                        value={propSearch?.optId === opt.id ? propSearch.query : ""}
-                                                        onChange={e => searchApprovedProperties(opt.id, e.target.value)}
-                                                        onFocus={() => { if (!propSearch || propSearch.optId !== opt.id) setPropSearch({ optId: opt.id, query: "", results: [], loading: false }); }}
-                                                        placeholder="Search approved properties to link..."
-                                                        className="flex-1 min-w-0 bg-transparent text-xs outline-none placeholder-purple-300 text-purple-900"
-                                                      />
-                                                      {propSearch?.optId === opt.id && propSearch.loading && <Loader2 className="w-3 h-3 text-purple-400 animate-spin shrink-0" />}
-                                                      {propSearch?.optId === opt.id && propSearch.query && !propSearch.loading && (
-                                                        <button type="button" onClick={() => setPropSearch(null)} className="shrink-0 text-purple-300 hover:text-purple-600"><X className="w-3 h-3" /></button>
-                                                      )}
-                                                    </div>
-                                                    {propSearch?.optId === opt.id && (propSearch.results.length > 0 || (propSearch.query && !propSearch.loading)) && (
-                                                      <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-purple-200 rounded-xl shadow-2xl overflow-hidden">
-                                                        {propSearch.results.length === 0 ? (
-                                                          <div className="px-3 py-2.5 text-[11px] text-gray-400 italic">No approved properties found - describe it manually in the field below.</div>
-                                                        ) : (
-                                                          <div className="max-h-44 overflow-y-auto divide-y divide-gray-100">
-                                                            {propSearch.results.map((p) => {
-                                                              const alreadyLinked = opt.linkedProperties?.some(lp => lp.id === p.id);
-                                                              return (
-                                                                <button
-                                                                  key={p.id}
-                                                                  type="button"
-                                                                  disabled={alreadyLinked}
-                                                                  onClick={() => { linkProperty(opt.id, p); setPropSearch(null); }}
-                                                                  className={`w-full text-left px-3 py-2 flex items-start gap-2 transition-colors ${
-                                                                    alreadyLinked ? "opacity-50 cursor-default bg-gray-50" : "hover:bg-purple-50 cursor-pointer"
-                                                                  }`}
-                                                                >
-                                                                  <Building2 className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
-                                                                  <div className="min-w-0 flex-1">
-                                                                    <p className="text-xs font-semibold text-gray-800 truncate">{p.title}</p>
-                                                                    <p className="text-[10px] text-gray-400">{[p.type, p.regionName].filter(Boolean).join(" - ")}{alreadyLinked ? " - already linked" : ""}</p>
-                                                                  </div>
-                                                                  {!alreadyLinked && <span className="shrink-0 text-[10px] text-purple-500 font-medium self-center">Link</span>}
-                                                                </button>
-                                                              );
-                                                            })}
-                                                          </div>
-                                                        )}
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                              )}
-                                              <textarea
-                                                rows={2}
-                                                value={opt.inclusionDetails?.[cat.id] || ""}
-                                                onChange={e => updateInclusionDetail(opt.id, cat.id, e.target.value)}
-                                                placeholder={cat.placeholder}
-                                                className="w-full max-w-full box-border px-3 py-2 border-2 border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none resize-none bg-white"
-                                              />
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="mt-3">
-                                    <p className="text-[10px] text-gray-400 mb-1">Custom item not listed? Type and press Enter:</p>
+                                  <div>
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1">Price / Person (TZS)</label>
                                     <input
                                       type="text"
-                                      value={opt.customInclusion}
-                                      onChange={e => updateItineraryOption(opt.id, "customInclusion", e.target.value)}
-                                      onKeyDown={e => { if (e.key === "Enter") { addCustomInclusion(opt.id); e.preventDefault(); } }}
-                                      placeholder="e.g. Traditional Maasai Welcome Ceremony + Enter"
-                                      className="w-full max-w-full box-border px-3 py-2 border-2 border-dashed border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                      value={opt.pricePerPerson}
+                                      onChange={e => updateItineraryOption(opt.id, "pricePerPerson", e.target.value)}
+                                      className="w-full max-w-full box-border px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                      placeholder="e.g. 850,000"
                                     />
-                                    {opt.inclusions.filter(i => !INCLUSION_CATEGORIES.flatMap(c => c.options).includes(i)).length > 0 && (
-                                      <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                        {opt.inclusions.filter(i => !INCLUSION_CATEGORIES.flatMap(c => c.options).includes(i)).map(item => (
-                                          <span key={item} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-gray-100 text-gray-700 border border-gray-300">
-                                            {item}
-                                            <button type="button" onClick={() => toggleInclusion(opt.id, item)} className="text-gray-400 hover:text-red-500 leading-none ml-0.5">&times;</button>
-                                          </span>
-                                        ))}
-                                      </div>
-                                    )}
                                   </div>
+                                </div>
+                                {/* Inclusions */}
+                                <div className="px-4 pb-3">
+                                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-2">What&apos;s Included - click to toggle</label>
+                                  <div className="flex flex-wrap gap-1.5 mb-2">
+                                    {INCLUSION_PRESETS.map(item => (
+                                      <button
+                                        key={item}
+                                        type="button"
+                                        onClick={() => toggleInclusion(opt.id, item)}
+                                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                                          opt.inclusions.includes(item)
+                                            ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+                                            : "bg-gray-50 text-gray-600 border-gray-200 hover:border-emerald-300"
+                                        }`}
+                                      >
+                                        {opt.inclusions.includes(item) ? "✓ " : ""}{item}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={opt.customInclusion}
+                                    onChange={e => updateItineraryOption(opt.id, "customInclusion", e.target.value)}
+                                    onKeyDown={e => { if (e.key === "Enter") { addCustomInclusion(opt.id); e.preventDefault(); } }}
+                                    placeholder="Custom item + Enter to add"
+                                    className="w-full max-w-full box-border px-3 py-2 border-2 border-gray-200 rounded-lg text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                                  />
                                 </div>
                                 {/* Day outline */}
                                 <div className="px-4 pb-4 overflow-hidden">
@@ -2384,7 +1847,7 @@ export default function AdminPlanWithUsRequestsPage() {
                                     : "bg-gray-50 text-gray-600 border-gray-200 hover:border-amber-300"
                                 }`}
                               >
-                                {selectedPermits.includes(item) ? "? " : ""}{item}
+                                {selectedPermits.includes(item) ? "✓ " : ""}{item}
                               </button>
                             ))}
                           </div>
@@ -2402,7 +1865,7 @@ export default function AdminPlanWithUsRequestsPage() {
                                       onClick={() => togglePermit(p)}
                                       className="text-amber-500 hover:text-amber-700 ml-0.5 leading-none"
                                     >
-                                      x
+                                      ×
                                     </button>
                                   </span>
                                 ))}
@@ -2426,7 +1889,7 @@ export default function AdminPlanWithUsRequestsPage() {
                           </h3>
 
                           {/* Preset chips */}
-                          <p className="text-[11px] text-gray-400 mb-2">Quick presets - tap to apply</p>
+                          <p className="text-[11px] text-gray-400 mb-2">Quick presets tap to apply</p>
                           <div className="flex flex-wrap gap-2 mb-5">
                             {TIMELINE_PRESETS.map(preset => (
                               <button
@@ -2548,112 +2011,6 @@ export default function AdminPlanWithUsRequestsPage() {
                       </div>
                     )}
 
-                    {/* Trip Cost Summary */}
-                    {activeSections.has("agent") && (() => {
-                      const groupSize = Number(selectedRequest?.groupSize) || 0;
-                      const pricedOptions = itineraryOptions.filter(opt => {
-                        const base = Number(String(opt.pricePerPerson).replace(/[^0-9.]/g, "")) || 0;
-                        const fees = Object.values(opt.feeAmounts || {}).reduce((s, v) => s + (Number(String(v).replace(/[^0-9.]/g, "")) || 0), 0);
-                        return base > 0 || fees > 0;
-                      });
-                      if (pricedOptions.length === 0) return null;
-                      const fmt = (n: number) => `TZS ${n.toLocaleString()}`;
-                      return (
-                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                          <div className="h-1 bg-gradient-to-r from-emerald-400 to-teal-500" />
-                          <div className="p-5">
-                            <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2 mb-4">
-                              <span className="inline-flex h-7 w-7 rounded-md bg-emerald-50 border border-emerald-100 items-center justify-center">
-                                <BarChart3 className="h-4 w-4 text-emerald-600" />
-                              </span>
-                              Trip Cost Summary
-                              {groupSize > 0 && (
-                                <span className="ml-auto text-[11px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                                  {groupSize} {groupSize === 1 ? "person" : "people"}
-                                </span>
-                              )}
-                            </h3>
-                            <div className="space-y-3">
-                              {pricedOptions.map((opt, idx) => {
-                                const priceCleaned = Number(String(opt.pricePerPerson).replace(/[^0-9.]/g, "")) || 0;
-                                const nights = Number(opt.days) || 0;
-                                const basePerPerson = opt.priceMode === "night" ? priceCleaned * nights : priceCleaned;
-                                const feeItems = Object.entries(opt.feeAmounts || {}).filter(([, v]) => (Number(String(v).replace(/[^0-9.]/g, "")) || 0) > 0);
-                                const feesPerPerson = feeItems.reduce((s, [, v]) => s + (Number(String(v).replace(/[^0-9.]/g, "")) || 0), 0);
-                                const perPersonTotal = basePerPerson + feesPerPerson;
-                                const groupTotal = perPersonTotal * groupSize;
-                                return (
-                                  <div key={opt.id} className="rounded-xl border border-gray-200 overflow-hidden">
-                                    {/* Option header */}
-                                    <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                                      <div className="flex items-center gap-2">
-                                        <span className="inline-flex h-5 w-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold items-center justify-center shrink-0">{idx + 1}</span>
-                                        <span className="text-sm font-bold text-gray-800 truncate">{opt.name}</span>
-                                      </div>
-                                      <span className="text-[11px] font-medium text-gray-500 shrink-0 ml-2">{nights} {nights === 1 ? "night" : "nights"}</span>
-                                    </div>
-                                    <div className="px-4 py-3 space-y-2">
-                                      {/* Base rate row */}
-                                      <div className="flex items-center justify-between text-xs">
-                                        <span className="text-gray-500">
-                                          {opt.priceMode === "night"
-                                            ? `Base rate (${fmt(priceCleaned)} x ${nights} nights)`
-                                            : "Base rate (full stay)"}
-                                        </span>
-                                        <span className="font-semibold text-gray-800">{fmt(basePerPerson)} <span className="font-normal text-gray-400">/person</span></span>
-                                      </div>
-                                      {/* Fee rows */}
-                                      {feeItems.map(([name, val]) => {
-                                        const amt = Number(String(val).replace(/[^0-9.]/g, "")) || 0;
-                                        return (
-                                          <div key={name} className="flex items-center justify-between text-xs">
-                                            <span className="text-amber-700 flex items-center gap-1">
-                                              <Ticket className="h-3 w-3 shrink-0" />{name}
-                                            </span>
-                                            <span className="font-semibold text-amber-700">{fmt(amt)} <span className="font-normal text-amber-400">/person</span></span>
-                                          </div>
-                                        );
-                                      })}
-                                      {/* Divider + per-person total */}
-                                      <div className="border-t border-dashed border-gray-200 pt-2 flex items-center justify-between text-xs">
-                                        <span className="font-semibold text-gray-700">Total per person</span>
-                                        <span className="font-bold text-gray-900">{fmt(perPersonTotal)}</span>
-                                      </div>
-                                      {/* Group total highlight */}
-                                      {groupSize > 0 && (
-                                        <div className="rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 px-3 py-2 flex items-center justify-between">
-                                          <span className="text-xs font-bold text-emerald-800">Total for {groupSize} {groupSize === 1 ? "person" : "people"}</span>
-                                          <span className="text-sm font-black text-emerald-700">{fmt(groupTotal)}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                              {/* Grand total across all options */}
-                              {pricedOptions.length > 1 && groupSize > 0 && (
-                                <div className="rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 flex items-center justify-between shadow-sm mt-1">
-                                  <div>
-                                    <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider">Grand Total - All Options Combined</p>
-                                    <p className="text-[11px] text-indigo-100 mt-0.5">{pricedOptions.length} options x {groupSize} {groupSize === 1 ? "person" : "people"}</p>
-                                  </div>
-                                  <span className="text-lg font-black text-white">
-                                    {fmt(pricedOptions.reduce((sum, opt) => {
-                                      const base = opt.priceMode === "night"
-                                        ? (Number(String(opt.pricePerPerson).replace(/[^0-9.]/g, "")) || 0) * (Number(opt.days) || 0)
-                                        : (Number(String(opt.pricePerPerson).replace(/[^0-9.]/g, "")) || 0);
-                                      const fees = Object.values(opt.feeAmounts || {}).reduce((s, v) => s + (Number(String(v).replace(/[^0-9.]/g, "")) || 0), 0);
-                                      return sum + (base + fees) * groupSize;
-                                    }, 0))}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
                     {/* Assign Agent */}
                     {activeSections.has("agent") && (
                       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-hidden overflow-y-visible">
@@ -2742,12 +2099,52 @@ export default function AdminPlanWithUsRequestsPage() {
                   </>
                 )}
 
+                {/* ── View completed response (read-only) ── */}
                 {selectedRequest.status === "COMPLETED" && (
-                  <TripProposalReport request={selectedRequest} />
+                  <div className="bg-white rounded-xl border border-emerald-200 shadow-sm overflow-hidden">
+                    <div className="h-1 bg-gradient-to-r from-emerald-400 to-teal-500" />
+                    <div className="p-5 space-y-4">
+                      <h3 className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                        <span className="inline-flex h-7 w-7 rounded-md bg-emerald-50 border border-emerald-200 items-center justify-center">
+                          <Eye className="h-4 w-4 text-emerald-600" />
+                        </span>
+                        Feedback Sent to Customer
+                      </h3>
+                      {selectedRequest.suggestedItineraries && (
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-1.5">Itineraries &amp; Prices</div>
+                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 text-sm text-gray-800 whitespace-pre-wrap">{selectedRequest.suggestedItineraries}</div>
+                        </div>
+                      )}
+                      {selectedRequest.requiredPermits && (
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mb-1.5">Required Permits &amp; Documents</div>
+                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 text-sm text-gray-800 whitespace-pre-wrap">{selectedRequest.requiredPermits}</div>
+                        </div>
+                      )}
+                      {selectedRequest.estimatedTimeline && (
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-teal-600 mb-1.5">Timeline</div>
+                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 text-sm text-gray-800 whitespace-pre-wrap">{selectedRequest.estimatedTimeline}</div>
+                        </div>
+                      )}
+                      {selectedRequest.assignedAgent && (
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 mb-1.5">Assigned Agent</div>
+                          <div className="text-sm font-semibold text-gray-900">{selectedRequest.assignedAgent}</div>
+                        </div>
+                      )}
+                      {selectedRequest.respondedAt && (
+                        <div className="text-xs text-gray-400 pt-2 border-t border-gray-100">
+                          Sent on {new Date(selectedRequest.respondedAt).toLocaleDateString("en-US", { year:"numeric", month:"long", day:"numeric" })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
 
-              {/* -- Footer actions -- */}
+              {/* ── Footer actions ── */}
               {selectedRequest.status !== "COMPLETED" && (
                 <div className="flex-shrink-0 flex flex-col sm:flex-row justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-white rounded-b-2xl">
                   <button

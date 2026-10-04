@@ -43,7 +43,8 @@ const HOME_PROPERTY_TYPE_CARDS = [
 
 const HOME_FEATURED_DESTINATIONS = [
   { city: "Dar es Salaam", filterParam: "region" },
-  { city: "Nairobi", filterParam: "city" },
+  // Must match FEATURED_DESTINATIONS in apps/web/app/public/PublicHomeClient.tsx (Tanzania only for now).
+  { city: "Kilimanjaro", filterParam: "region" },
   { city: "Zanzibar", filterParam: "region" },
   { city: "Arusha", filterParam: "region" },
   { city: "Mwanza", filterParam: "region" },
@@ -174,13 +175,11 @@ function parseAmenities(v: any): string[] {
   return out.slice(0, 50);
 }
 
-function extractIdFromSlug(idOrSlug: string): number | null {
-  const raw = String(idOrSlug || "").trim();
+function extractPublicKeyFromSlug(idOrSlug: string): string | null {
+  const raw = String(idOrSlug || "").trim().toLowerCase();
   if (!raw) return null;
-  if (/^\d+$/.test(raw)) return Number(raw);
-  const m = raw.match(/(\d+)\s*$/);
-  if (!m) return null;
-  return Number(m[1]);
+  const key = raw.includes("-") ? raw.slice(raw.lastIndexOf("-") + 1) : raw;
+  return /^[a-z0-9]{20,40}$/.test(key) ? key : null;
 }
 
 function bboxFromKm(lat: number, lng: number, radiusKm: number) {
@@ -218,6 +217,12 @@ async function batchResolvePrimaryImages(ids: number[]): Promise<Map<number, str
       Prisma.sql`
         SELECT p.id,
           COALESCE(
+            -- The owner's chosen cover: photos[0], when it is a real web URL
+            CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+              THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+              ELSE NULL
+            END,
             (SELECT pi.thumbnailUrl FROM \`property_images\` pi
               WHERE pi.propertyId = p.id
                 AND pi.status IN ('READY','PROCESSING')
@@ -564,11 +569,17 @@ const listPublicProperties: RequestHandler = async (req, res) => {
               const rows = (await prisma.$queryRaw(
                 Prisma.sql`
                   SELECT
-                    p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                    p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                     p.district, p.ward, p.street, p.city, p.country,
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                     COALESCE(
+                      -- The owner's chosen cover: photos[0], when it is a real web URL
+                      CASE
+                        WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                        THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                        ELSE NULL
+                      END,
                       (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                         WHERE pi.propertyId = p.id
                           AND pi.status IN ('READY','PROCESSING')
@@ -640,11 +651,17 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   ? (prisma.$queryRaw(
                       Prisma.sql`
                         SELECT
-                          p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                           p.district, p.ward, p.street, p.city, p.country,
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                           COALESCE(
+                            -- The owner's chosen cover: photos[0], when it is a real web URL
+                            CASE
+                              WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                              THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                              ELSE NULL
+                            END,
                             (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                               WHERE pi.propertyId = p.id
                                 AND pi.status IN ('READY','PROCESSING')
@@ -702,11 +719,17 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   ? (prisma.$queryRaw(
                       Prisma.sql`
                         SELECT
-                          p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                          p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                           p.district, p.ward, p.street, p.city, p.country,
                           p.services, p.basePrice, p.currency, p.roomsSpec,
                           p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                           COALESCE(
+                            -- The owner's chosen cover: photos[0], when it is a real web URL
+                            CASE
+                              WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                              THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                              ELSE NULL
+                            END,
                             (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                               WHERE pi.propertyId = p.id
                                 AND pi.status IN ('READY','PROCESSING')
@@ -744,6 +767,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   orderBy,
                   select: {
                     id: true,
+                    nrmsBookingKey: true,
                     title: true,
                     type: true,
                     parkPlacement: true,
@@ -784,6 +808,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                   orderBy: fallbackOrderBy,
                   select: {
                     id: true,
+                    nrmsBookingKey: true,
                     title: true,
                     type: true,
                     parkPlacement: true,
@@ -830,6 +855,7 @@ const listPublicProperties: RequestHandler = async (req, res) => {
                 orderBy,
                 select: {
                   id: true,
+                  nrmsBookingKey: true,
                   title: true,
                   type: true,
                   parkPlacement: true,
@@ -887,18 +913,19 @@ const listPublicProperties: RequestHandler = async (req, res) => {
  */
 const getPublicProperty: RequestHandler = async (req, res) => {
   const idOrSlug = String((req.params as any)?.idOrSlug ?? "");
-  const id = extractIdFromSlug(idOrSlug);
-  if (!id) return res.status(400).json({ error: "invalid_id" });
+  const publicKey = extractPublicKeyFromSlug(idOrSlug);
+  if (!publicKey) return res.status(404).json({ error: "property_not_found" });
 
   try {
-    const { result, duration } = await measureTime(`public.properties.get:${id}`, async () => {
+    const { result, duration } = await measureTime(`public.properties.get:${publicKey}`, async () => {
       return await withCache(
-        cacheKeys.property(id),
+        publicCacheKey("property-detail", { publicKey }),
         async () => {
           const p = await prisma.property.findFirst({
-            where: { id, status: "APPROVED" },
+            where: { nrmsBookingKey: publicKey, status: "APPROVED" },
             select: {
               id: true,
+              nrmsBookingKey: true,
               title: true,
               type: true,
               status: true,
@@ -937,6 +964,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
           });
 
           if (!p) return null;
+          const id = p.id;
 
           const [legacyPhotos, physicalVerification] = await Promise.all([
             resolveLegacyPhotoUrls(id),
@@ -1018,7 +1046,7 @@ const getPublicProperty: RequestHandler = async (req, res) => {
         {
           skipCache: true,
           ttl: 600, // Cache for 10 minutes (property details change less frequently)
-          tags: [cacheTags.property(id), cacheTags.propertyList],
+          tags: [cacheTags.propertyList],
         }
       );
     });
@@ -1096,11 +1124,17 @@ const homeSummary: RequestHandler = async (_req, res) => {
             ? (prisma.$queryRaw(
                 Prisma.sql`
                   SELECT
-                    p.id, p.title, p.type, p.parkPlacement, p.regionName,
+                    p.id, p.nrmsBookingKey, p.title, p.type, p.parkPlacement, p.regionName,
                     p.district, p.ward, p.street, p.city, p.country,
                     p.services, p.basePrice, p.currency, p.roomsSpec,
                     p.maxGuests, p.totalBedrooms, p.totalBathrooms,
                     COALESCE(
+                      -- The owner's chosen cover: photos[0], when it is a real web URL
+                      CASE
+                        WHEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]')) LIKE 'http%'
+                        THEN JSON_UNQUOTE(JSON_EXTRACT(p.photos, '$[0]'))
+                        ELSE NULL
+                      END,
                       (SELECT pi.thumbnailUrl FROM \`property_images\` pi
                         WHERE pi.propertyId = p.id
                           AND pi.status IN ('READY','PROCESSING','PENDING')
@@ -1274,6 +1308,7 @@ const topCities: RequestHandler = async (req, res) => {
           orderBy: { id: "desc" },
           select: {
             id: true,
+            nrmsBookingKey: true,
             title: true,
             type: true,
             regionName: true,
@@ -1312,6 +1347,109 @@ const topCities: RequestHandler = async (req, res) => {
 };
 
 router.get("/top-cities", topCities);
+
+/**
+ * GET /api/public/properties/city-summary?cities=Dar es Salaam,Arusha,...
+ * Listing count and the newest listing card for each named city, in one call,
+ * so the mobile landing screen does not fire a request per city. The city
+ * match is the same as the list endpoint's ?city= filter. Cached 5 minutes.
+ */
+const citySummary: RequestHandler = async (req, res) => {
+  const cities = Array.from(new Set(parseCsv((req.query as any)?.cities).map((c) => c.trim()).filter(Boolean))).slice(0, 30);
+  if (!cities.length) return res.json({ items: [] });
+  try {
+    const items = await withCache(
+      publicCacheKey("properties-city-summary", { version: 1, cities: cities.join("|").toLowerCase() }),
+      async () =>
+        Promise.all(
+          cities.map(async (city) => {
+            const where = { status: "APPROVED", AND: [{ OR: locationContainsClauses("city", city) }] } as any;
+            const [count, sample] = await Promise.all([
+              prisma.property.count({ where }),
+              prisma.property.findFirst({
+                where,
+                orderBy: { id: "desc" },
+                select: {
+                  id: true, title: true, type: true, regionName: true, district: true, ward: true, street: true, city: true, country: true,
+                  basePrice: true, currency: true, roomsSpec: true, maxGuests: true, totalBedrooms: true, totalBathrooms: true,
+                  images: { select: { url: true, thumbnailUrl: true, status: true }, orderBy: { createdAt: "asc" }, take: 6 },
+                },
+              }),
+            ]);
+            return { city, count, sample: sample ? toPublicCard(sample) : null };
+          })
+        ),
+      { ttl: 300, tags: [cacheTags.propertyList] }
+    );
+    res.set("Cache-Control", "no-store");
+    return res.json({ items });
+  } catch (err: any) {
+    console.error("public.properties.citySummary failed", err);
+    return res.status(500).json({ error: "failed" });
+  }
+};
+
+router.get("/city-summary", citySummary);
+
+/**
+ * GET /api/public/properties/park-summary?limit=8
+ * Parks and tourism sites that have approved stays linked to them, busiest
+ * first: the site, how many stays, and one real photo from the newest stay.
+ * Sites with no stays are left out. Cached 5 minutes.
+ */
+const parkSummary: RequestHandler = async (req, res) => {
+  const limit = Math.min(12, Math.max(1, Number((req.query as any)?.limit) || 8));
+  try {
+    const items = await withCache(
+      publicCacheKey("properties-park-summary", { version: 1, limit }),
+      async () => {
+        const groups = await prisma.property.groupBy({
+          by: ["tourismSiteId"],
+          where: { status: "APPROVED", tourismSiteId: { not: null } },
+          _count: { _all: true },
+          orderBy: { _count: { tourismSiteId: "desc" } },
+          take: limit,
+        });
+        const siteIds = groups.map((g) => Number(g.tourismSiteId)).filter(Number.isFinite);
+        if (!siteIds.length) return [];
+        const [sites, newest] = await Promise.all([
+          prisma.tourismSite.findMany({ where: { id: { in: siteIds } }, select: { id: true, slug: true, name: true, country: true } }),
+          Promise.all(
+            siteIds.map((siteId) =>
+              prisma.property.findFirst({ where: { status: "APPROVED", tourismSiteId: siteId }, orderBy: { id: "desc" }, select: { id: true, tourismSiteId: true } })
+            )
+          ),
+        ]);
+        const sampleIds = newest.filter(Boolean).map((p) => p!.id);
+        const images = await batchResolvePrimaryImages(sampleIds);
+        const siteById = new Map<number, (typeof sites)[number]>(sites.map((s) => [s.id, s]));
+        return groups
+          .map((g) => {
+            const site = siteById.get(Number(g.tourismSiteId));
+            if (!site) return null;
+            const sample = newest.find((p) => p?.tourismSiteId === site.id);
+            const image = sample ? images.get(sample.id) ?? null : null;
+            return {
+              slug: site.slug,
+              name: site.name,
+              country: site.country,
+              stays: g._count._all,
+              image: image && /^https?:\/\//i.test(image) ? image : null,
+            };
+          })
+          .filter(Boolean);
+      },
+      { ttl: 300, tags: [cacheTags.propertyList] }
+    );
+    res.set("Cache-Control", "no-store");
+    return res.json({ items });
+  } catch (err: any) {
+    console.error("public.properties.parkSummary failed", err);
+    return res.status(500).json({ error: "failed" });
+  }
+};
+
+router.get("/park-summary", parkSummary);
 
 /**
  * GET /api/public/properties/verification?token=...

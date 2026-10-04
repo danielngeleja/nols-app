@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { getRoomTypeDailyAvailability } from "./nrmsAvailability.js";
+import { calendarDepartureSpan, getRoomTypeDailyAvailability } from "./nrmsAvailability.js";
 
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+describe("calendar checkout span", () => {
+  it("ends an early checkout on the actual hotel business date while retaining the scheduled end", () => {
+    expect(calendarDepartureSpan(day("2026-09-30"), new Date("2026-09-03T09:30:00.000Z"))).toEqual({
+      endDate: day("2026-09-03"),
+      scheduledEndDate: day("2026-09-30"),
+      earlyDeparture: true,
+    });
+  });
+
+  it("does not extend or label a checkout completed on the planned date", () => {
+    expect(calendarDepartureSpan(day("2026-09-03"), new Date("2026-09-03T09:30:00.000Z"))).toEqual({
+      endDate: day("2026-09-03"),
+      scheduledEndDate: null,
+      earlyDeparture: false,
+    });
+  });
+});
 
 /**
  * A stub standing in for the four inventory consumers the calculation reads.

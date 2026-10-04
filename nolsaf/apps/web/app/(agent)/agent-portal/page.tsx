@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
-import { BadgeCheck, Ban, BedDouble, CalendarSearch, CheckCircle2, Clock, Handshake, Loader2, Minus, Plus, Search, ShieldAlert, Users, X } from "lucide-react";
+import { ArrowRight, BadgeCheck, Ban, BedDouble, Building2, CalendarSearch, CheckCircle2, Clock, Handshake, Loader2, Minus, Plus, Search, Send, ShieldAlert, Users, X } from "lucide-react";
 
 type Hotel = { linkId: number; property: { id: number; title: string }; currency: string; bookingMode: string; ratePlans: number; prepayWindowMinutes: number };
 type Invitation = { linkId: number; property: { id: number; title: string }; currency: string; bookingMode: string };
@@ -23,14 +23,14 @@ const nights = (a: string, b: string) => Math.max(0, Math.round((new Date(`${b}T
 const stayDate = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 function GuestStepper({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  const stepClass =
+    "grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded-md border-0 bg-neutral-100 text-neutral-600 transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-35";
   return (
-    <div className="min-w-0">
-      <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-500">{label}</span>
-      <div className="flex h-10 items-center justify-between rounded-xl border border-solid border-neutral-200 bg-white px-1.5 shadow-sm">
-        <button type="button" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min} className="grid h-7 w-7 place-items-center rounded-lg border-0 bg-neutral-100 text-neutral-600 transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-35" aria-label={`Remove one ${label.toLowerCase()}`}><Minus className="h-3 w-3" /></button>
-        <span className="min-w-8 text-center text-sm font-extrabold tabular-nums text-neutral-900">{value}</span>
-        <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className="grid h-7 w-7 place-items-center rounded-lg border-0 bg-neutral-100 text-neutral-600 transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-35" aria-label={`Add one ${label.toLowerCase()}`}><Plus className="h-3 w-3" /></button>
-      </div>
+    <div className="flex min-w-0 flex-1 items-center gap-2 px-2">
+      <span className="min-w-0 flex-1 truncate text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">{label}</span>
+      <button type="button" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min} className={stepClass} aria-label={`Remove one ${label.toLowerCase()}`}><Minus className="h-3 w-3" /></button>
+      <span className="min-w-6 text-center text-sm font-bold tabular-nums text-neutral-900">{value}</span>
+      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className={stepClass} aria-label={`Add one ${label.toLowerCase()}`}><Plus className="h-3 w-3" /></button>
     </div>
   );
 }
@@ -49,6 +49,7 @@ export default function AgentBookPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [completedBookingId, setCompletedBookingId] = useState<number | null>(null);
   const [booking, setBooking] = useState<Room | null>(null);
+  const [decidingInvitation, setDecidingInvitation] = useState<number | null>(null);
 
   const hotel = useMemo(() => hotels?.find((h) => h.linkId === hotelId) ?? null, [hotels, hotelId]);
 
@@ -76,12 +77,16 @@ export default function AgentBookPage() {
 
   const decideInvitation = async (linkId: number, action: "accept" | "reject") => {
     setError(null);
+    setNotice(null);
+    setDecidingInvitation(linkId);
     try {
       await apiClient.post(`/api/agent-portal/hotels/${linkId}/${action}`, {});
       setNotice(action === "accept" ? "Invitation accepted. The hotel can activate you after NoLSAF verification." : "Invitation declined.");
       await loadHotels();
     } catch (e: any) {
       setError(e?.response?.data?.error || "The invitation could not be updated");
+    } finally {
+      setDecidingInvitation(null);
     }
   };
 
@@ -105,23 +110,61 @@ export default function AgentBookPage() {
   }
 
   const invitationPanel = invitations.length > 0 ? (
-    <section className="rounded-2xl border border-solid border-blue-200 bg-blue-50 p-4">
-      <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-blue-900"><Handshake className="h-4 w-4" /> Hotel invitations</h2>
-      <p className="m-0 mt-1 text-xs text-blue-700">Accept only hotels your agency intends to work with. Acceptance does not expose raw KYC documents.</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">{invitations.map((invitation) => <div key={invitation.linkId} className="rounded-xl border border-blue-100 bg-white p-3"><p className="m-0 text-sm font-bold text-neutral-900">{invitation.property.title}</p><p className="m-0 mt-1 text-[11px] text-neutral-500">{invitation.bookingMode === "INSTANT" ? "Instant confirmation" : "Request to book"} · {invitation.currency}</p><div className="mt-3 flex gap-2"><button type="button" onClick={() => void decideInvitation(invitation.linkId, "accept")} className="inline-flex items-center gap-1 rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"><CheckCircle2 className="h-3.5 w-3.5" /> Accept</button><button type="button" onClick={() => void decideInvitation(invitation.linkId, "reject")} className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-bold text-neutral-600"><Ban className="h-3.5 w-3.5" /> Decline</button></div></div>)}</div>
+    <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><Handshake className="h-[18px] w-[18px]" /></span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="m-0 text-base font-extrabold tracking-[-0.01em] text-neutral-950">Partnership invitations</h2>
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{invitations.length} to review</span>
+            </div>
+            <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">Hotels that want to work with your agency.</p>
+          </div>
+        </div>
+        <Link href="/agent-portal/partners" className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 text-xs font-bold text-neutral-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800">
+          Find hotels <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+      <div className="divide-y divide-neutral-100">
+        {invitations.map((invitation) => {
+          const isDeciding = decidingInvitation === invitation.linkId;
+          return (
+            <article key={invitation.linkId} className="flex min-w-0 flex-col gap-4 px-4 py-4 transition hover:bg-neutral-50/70 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-solid border-neutral-200 bg-white text-neutral-700 shadow-sm"><Building2 className="h-5 w-5" /></span>
+                <div className="min-w-0 flex-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.08em] text-amber-700"><Clock className="h-3 w-3" /> Your decision needed</span>
+                  <h3 className="m-0 mt-2 truncate text-[15px] font-extrabold text-neutral-950" title={invitation.property.title}>{invitation.property.title}</h3>
+                  <p className="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-neutral-500"><span>{invitation.bookingMode === "INSTANT" ? "Instant confirmation" : "Request-to-book"}</span><span aria-hidden>•</span><span>{invitation.currency}</span></p>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col gap-2 border-0 border-t border-solid border-neutral-200 pt-3 min-[420px]:flex-row sm:border-0 sm:pt-0">
+                <button type="button" onClick={() => void decideInvitation(invitation.linkId, "reject")} disabled={decidingInvitation !== null} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-solid border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 transition hover:border-neutral-300 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Decline</button>
+                <button type="button" onClick={() => void decideInvitation(invitation.linkId, "accept")} disabled={decidingInvitation !== null} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-solid border-emerald-700 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">{isDeciding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Accept partnership</button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <div className="flex items-start gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-4 py-3 text-[11px] leading-5 text-neutral-500 sm:px-5"><ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" /><span>Accepting creates a hotel partnership only. Your original KYC files remain private.</span></div>
     </section>
   ) : null;
   const outgoingPanel = outgoingRequests.length > 0 ? (
-    <section className="rounded-2xl border border-solid border-cyan-200 bg-cyan-50 p-4">
-      <h2 className="m-0 flex items-center gap-2 text-sm font-bold text-cyan-900"><Handshake className="h-4 w-4" /> Partnership requests</h2>
-      <p className="m-0 mt-1 text-xs text-cyan-700">Waiting for each hotel to review and explicitly approve your request.</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">{outgoingRequests.map((request) => <div key={request.linkId} className="rounded-xl border border-cyan-100 bg-white p-3"><p className="m-0 text-sm font-bold text-neutral-900">{request.property.title}</p><p className="m-0 mt-1 text-[11px] text-neutral-500">Requested {new Date(request.requestedAt).toLocaleDateString()} · Hotel decision pending</p></div>)}</div>
+    <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex min-w-0 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><Send className="h-4 w-4" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="m-0 text-sm font-extrabold text-neutral-950">Requests you sent</h2><span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-bold text-neutral-600">{outgoingRequests.length} pending</span></div><p className="m-0 mt-1 text-xs text-neutral-500">The hotel owner will review and decide.</p></div></div>
+        <Link href="/agent-portal/partners" className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-neutral-900 px-3.5 text-xs font-bold text-white no-underline transition hover:bg-neutral-800">Request another hotel <ArrowRight className="h-3.5 w-3.5" /></Link>
+      </div>
+      <div className="grid gap-px border-0 border-t border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-2">{outgoingRequests.map((request) => <article key={request.linkId} className="flex min-w-0 items-center gap-3 bg-white px-4 py-3.5 sm:px-5"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-neutral-100 text-neutral-500"><Building2 className="h-4 w-4" /></span><div className="min-w-0 flex-1"><p className="m-0 truncate text-sm font-bold text-neutral-900">{request.property.title}</p><p className="m-0 mt-1 text-[11px] text-neutral-500">Sent {new Date(request.requestedAt).toLocaleDateString()} · Awaiting owner</p></div><Clock className="h-4 w-4 shrink-0 text-amber-500" /></article>)}</div>
     </section>
   ) : null;
 
+  const feedback = <>{notice && <div role="status" className="rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-800">{notice}</div>}{error && <div role="alert" className="rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">{error}</div>}</>;
+
   if (!canBook) {
     return (
-      <div className="flex flex-col gap-4">{invitationPanel}{outgoingPanel}<div className="rounded-2xl border border-solid border-amber-200 bg-amber-50 p-8 text-center">
+      <div className="flex flex-col gap-4">{feedback}{invitationPanel}{outgoingPanel}<div className="rounded-2xl border border-solid border-amber-200 bg-amber-50 p-8 text-center">
         <ShieldAlert className="mx-auto h-8 w-8 text-amber-500" />
         <p className="m-0 mt-2 text-[15px] font-bold text-amber-800">Your agency is awaiting NoLSAF verification</p>
         <p className="m-0 mt-1 text-[13px] text-amber-700">Once verified, the hotels that approved you will appear here and you can start booking.</p>
@@ -131,10 +174,11 @@ export default function AgentBookPage() {
 
   if (hotels.length === 0) {
     return (
-      <div className="flex flex-col gap-4">{invitationPanel}{outgoingPanel}{awaitingApproval.length > 0 && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">Awaiting hotel activation: {awaitingApproval.map((row) => row.property.title).join(", ")}.</div>}<div className="rounded-2xl border border-dashed border-solid border-neutral-200 bg-white p-8 text-center">
+      <div className="flex flex-col gap-4">{feedback}{invitationPanel}{outgoingPanel}{awaitingApproval.length > 0 && <div className="rounded-xl border border-solid border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Awaiting hotel activation: {awaitingApproval.map((row) => row.property.title).join(", ")}.</div>}<div className="rounded-2xl border border-dashed border-solid border-neutral-300 bg-white p-8 text-center">
         <BedDouble className="mx-auto h-8 w-8 text-neutral-300" />
-        <p className="m-0 mt-2 text-[15px] font-bold text-neutral-700">No hotels yet</p>
-        <p className="m-0 mt-1 text-[13px] text-neutral-500">When a hotel approves your agency, it will show here for booking.</p>
+        <p className="m-0 mt-2 text-[15px] font-bold text-neutral-800">Build your hotel network</p>
+        <p className="m-0 mt-1 text-[13px] text-neutral-500">Browse eligible hotels and send a partnership request directly to the owner.</p>
+        <Link href="/agent-portal/partners" className="mt-4 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white no-underline transition hover:bg-emerald-800"><Search className="h-4 w-4" /> Find partner hotels</Link>
       </div></div>
     );
   }
@@ -143,13 +187,16 @@ export default function AgentBookPage() {
     <div className="flex flex-col gap-5">
       {invitationPanel}
       {outgoingPanel}
-      {awaitingApproval.length > 0 && <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">Accepted and awaiting hotel activation: {awaitingApproval.map((row) => row.property.title).join(", ")}.</div>}
-      <div className="flex items-start gap-3">
-        <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700"><CalendarSearch className="h-[18px] w-[18px]" /></span>
-        <div className="min-w-0">
-          <h1 className="m-0 text-xl font-extrabold tracking-[-0.02em] text-neutral-950">Book a stay</h1>
-          <p className="m-0 mt-1 text-[13px] text-neutral-500">Search live availability and your negotiated rates at an approved partner hotel.</p>
+      {awaitingApproval.length > 0 && <div className="flex items-center gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800"><Clock className="h-4 w-4 shrink-0" /><span><b>Awaiting hotel activation:</b> {awaitingApproval.map((row) => row.property.title).join(", ")}.</span></div>}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700"><CalendarSearch className="h-[18px] w-[18px]" /></span>
+          <div className="min-w-0">
+            <h1 className="m-0 text-xl font-extrabold tracking-[-0.02em] text-neutral-950">Book a stay</h1>
+            <p className="m-0 mt-1 text-[13px] text-neutral-500">Search live availability and your negotiated rates at an approved partner hotel.</p>
+          </div>
         </div>
+        <Link href="/agent-portal/partners" className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 no-underline shadow-sm transition hover:border-emerald-300 hover:text-emerald-800"><Search className="h-3.5 w-3.5" /> Find more hotels</Link>
       </div>
 
       {notice && <div className="flex flex-col gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[13px] text-emerald-800 sm:flex-row sm:items-center sm:justify-between"><span>{notice}</span>{completedBookingId ? <Link href={`/agent-portal/bookings/${completedBookingId}/guests`} className="inline-flex h-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white no-underline hover:bg-emerald-800">Add traveller details</Link> : null}</div>}
@@ -176,20 +223,34 @@ export default function AgentBookPage() {
           ) : null}
         </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-2.5 p-3 sm:grid-cols-2 md:grid-cols-5">
-          <div className="min-w-0">
-            <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-500">Check-in</span>
-            <DatePickerField label="Check-in date" value={q.checkIn} min={todayStr()} allowPast={false} widthClassName="w-full" size="sm" onChangeAction={(next) => { setQ((current) => ({ ...current, checkIn: next, checkOut: next >= current.checkOut ? addDays(next, 1) : current.checkOut })); setRooms(null); }} />
+        <div className="flex min-w-0 flex-wrap items-stretch gap-2.5 p-3">
+          {/* Dates and guests each read as one control rather than four loose
+              fields, so the row scans as "when" then "who" then the action. */}
+          <div className="flex min-w-0 flex-1 basis-[22rem] items-center gap-1.5 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 p-1">
+            <div className="min-w-0 flex-1 px-1">
+              <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Check-in</span>
+              <DatePickerField label="Check-in date" value={q.checkIn} min={todayStr()} allowPast={false} widthClassName="!w-full" size="sm" onChangeAction={(next) => { setQ((current) => ({ ...current, checkIn: next, checkOut: next >= current.checkOut ? addDays(next, 1) : current.checkOut })); setRooms(null); }} />
+            </div>
+            <span className="h-8 w-px shrink-0 bg-neutral-200" aria-hidden />
+            <div className="min-w-0 flex-1 px-1">
+              <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-400">Check-out</span>
+              <DatePickerField label="Check-out date" value={q.checkOut} min={addDays(q.checkIn, 1)} allowPast={false} widthClassName="!w-full" size="sm" onChangeAction={(next) => { setQ((current) => ({ ...current, checkOut: next })); setRooms(null); }} />
+            </div>
           </div>
-          <div className="min-w-0">
-            <span className="mb-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-neutral-500">Check-out</span>
-            <DatePickerField label="Check-out date" value={q.checkOut} min={addDays(q.checkIn, 1)} allowPast={false} widthClassName="w-full" size="sm" onChangeAction={(next) => { setQ((current) => ({ ...current, checkOut: next })); setRooms(null); }} />
+
+          <div className="flex min-w-0 flex-1 basis-64 items-center gap-1 rounded-xl border border-solid border-neutral-200 bg-neutral-50/70 py-2">
+            <GuestStepper label="Adults" value={q.adults} min={1} max={20} onChange={(value) => { setQ((current) => ({ ...current, adults: value })); setRooms(null); }} />
+            <span className="h-8 w-px shrink-0 bg-neutral-200" aria-hidden />
+            <GuestStepper label="Children" value={q.children} min={0} max={20} onChange={(value) => { setQ((current) => ({ ...current, children: value })); setRooms(null); }} />
           </div>
-          <GuestStepper label="Adults" value={q.adults} min={1} max={20} onChange={(value) => { setQ((current) => ({ ...current, adults: value })); setRooms(null); }} />
-          <GuestStepper label="Children" value={q.children} min={0} max={20} onChange={(value) => { setQ((current) => ({ ...current, children: value })); setRooms(null); }} />
-          <div className="flex min-w-0 flex-col justify-end sm:col-span-2 md:col-span-1">
-            <span className="mb-1 truncate text-[9px] font-semibold text-neutral-400">{stayNights} night{stayNights === 1 ? "" : "s"} · {q.adults + q.children} guest{q.adults + q.children === 1 ? "" : "s"}</span>
-            <button type="button" onClick={() => void search()} disabled={!hotelId || searching || stayNights < 1} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-solid border-emerald-700 bg-emerald-700 px-3 text-xs font-bold text-white shadow-sm transition hover:border-emerald-800 hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none">
+
+          <div className="flex min-w-0 flex-1 basis-56 items-center gap-2.5">
+            <span className="hidden shrink-0 text-[10px] font-semibold leading-tight text-neutral-400 lg:block">
+              {stayNights} night{stayNights === 1 ? "" : "s"}
+              <br />
+              {q.adults + q.children} guest{q.adults + q.children === 1 ? "" : "s"}
+            </span>
+            <button type="button" onClick={() => void search()} disabled={!hotelId || searching || stayNights < 1} className="flex h-12 min-w-0 flex-1 cursor-pointer appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-emerald-700 px-4 text-xs font-bold text-white outline-none transition hover:bg-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-500/30 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">
               {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} {searching ? "Searching..." : "Search rooms"}
             </button>
           </div>

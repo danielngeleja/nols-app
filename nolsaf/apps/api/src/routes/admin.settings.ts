@@ -6,6 +6,7 @@ import { resolveTierLadder, defaultTierLadderConfig, validateTierLadder } from "
 import { invalidateSessionPolicyCache } from "../lib/securitySettings.js";
 import { enforceSocketSessionPolicy } from "../middleware/socketAuth.js";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH_FLOOR } from "../lib/security.js";
+import { hasFinanceGrant } from "../lib/financeGrantStore.js";
 
 /** Convert a resolved tier-spec list back to the editable {TIER:{thresholds}} config. */
 function tierLadderToConfig(raw: unknown) {
@@ -87,6 +88,34 @@ async function hasSupportColumns(): Promise<boolean> {
   }
 }
 
+let payoutSafeguardColumnsAvailable: boolean | null = null;
+async function hasPayoutSafeguardColumns(): Promise<boolean> {
+  // Positive result only, like the tier ladder: the migration may be applied
+  // while the API is running.
+  if (payoutSafeguardColumnsAvailable === true) return true;
+  try {
+    await prisma.systemSetting.findUnique({
+      where: { id: 1 },
+      select: { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true } as any,
+    });
+    payoutSafeguardColumnsAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (
+      err?.code === "P2022" ||
+      String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")
+    ) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+const PAYOUT_LIMIT_MIN_TZS = 1_000;
+const PAYOUT_LIMIT_MAX_TZS = 2_000_000_000; // INT column ceiling, with headroom
+const PAYOUT_RECENT_CHANGE_DEFAULT_HOURS = 72;
+
 let tierLadderColumnAvailable: boolean | null = null;
 async function hasTierLadderColumn(): Promise<boolean> {
   // Only cache the POSITIVE result. Caching a negative for the process lifetime
@@ -118,6 +147,7 @@ router.get("/", async (_req, res) => {
   const currencyCol = await hasCurrencyColumn();
   const supportCols = await hasSupportColumns();
   const tierCol = await hasTierLadderColumn();
+  const payoutCols = await hasPayoutSafeguardColumns();
   const s =
     (await prisma.systemSetting.findUnique({
       where: { id: 1 },
@@ -157,6 +187,7 @@ router.get("/", async (_req, res) => {
         logFailedLoginAttempts: true,
         alertOnSuspiciousActivity: true,
         ...(supportCols ? { supportEmail: true, supportPhone: true } : {}),
+        ...(payoutCols ? { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true } : {}),
         ...(roleCols
           ? {
               sessionMaxMinutesAdmin: true,
@@ -187,6 +218,11 @@ router.get("/", async (_req, res) => {
     out.supportEmail = out.supportEmail ?? null;
     out.supportPhone = out.supportPhone ?? null;
   }
+  out.payoutReviewThresholdTzs = out.payoutReviewThresholdTzs ?? null;
+  out.payoutDailyCapPerPayeeTzs = out.payoutDailyCapPerPayeeTzs ?? null;
+  out.payoutRecentChangeHours = out.payoutRecentChangeHours ?? PAYOUT_RECENT_CHANGE_DEFAULT_HOURS;
+  // Tells the UI whether these can be saved yet (false until the migration is applied).
+  out.payoutSafeguardsAvailable = payoutCols;
   // Ensure new commission fields always appear in the response with safe defaults.
   out.driverCommissionPercent = out.driverCommissionPercent ?? 10;
   out.agentCommissionPercent = out.agentCommissionPercent ?? 15;
@@ -241,6 +277,7 @@ router.put("/", async (req, res) => {
   const currencyCol = await hasCurrencyColumn();
   const supportCols = await hasSupportColumns();
   const tierCol = await hasTierLadderColumn();
+  const payoutCols = await hasPayoutSafeguardColumns();
   // Fetch full record so the audit diff covers ALL changed fields, not just session ones.
   const before = await prisma.systemSetting.findUnique({ where: { id: 1 } });
 
@@ -304,6 +341,36 @@ router.put("/", async (req, res) => {
 
   // `agentTierLadderDefaults` is a read-only echo — never persist it.
   delete (sanitizedUpdate as any).agentTierLadderDefaults;
+  delete (sanitizedUpdate as any).payoutSafeguardsAvailable;
+
+  // Payout safeguards. Validated explicitly because the body is otherwise
+  // copied into the update as-is. Tightening needs nothing extra; loosening
+  // (raising or removing a limit, shortening the recent-change window) needs
+  // the same finance re-authentication as approving a payout, so a hijacked
+  // admin session cannot quietly switch the safeguards off before draining.
+  let loosensPayoutSafeguards = false;
+  for (const k of ["payoutReviewThresholdTzs", "payoutDailyCapPerPayeeTzs"] as const) {
+    if (body[k] === undefined) continue;
+    const parsed = toIntOrNull(body[k]) ?? null;
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < PAYOUT_LIMIT_MIN_TZS || parsed > PAYOUT_LIMIT_MAX_TZS)) {
+      errors.push({ field: k, message: `Must be a whole TZS amount from ${PAYOUT_LIMIT_MIN_TZS.toLocaleString("en-US")} to ${PAYOUT_LIMIT_MAX_TZS.toLocaleString("en-US")}, or blank to turn it off.` });
+      continue;
+    }
+    sanitizedUpdate[k] = parsed;
+    const previous = (before as any)?.[k] ?? null;
+    if (previous !== null && (parsed === null || (parsed as number) > previous)) loosensPayoutSafeguards = true;
+  }
+  if (body.payoutRecentChangeHours !== undefined) {
+    const raw = toIntOrNull(body.payoutRecentChangeHours) ?? null;
+    const parsed = raw === null ? PAYOUT_RECENT_CHANGE_DEFAULT_HOURS : raw;
+    if (!Number.isFinite(parsed) || parsed < 24 || parsed > 336) {
+      errors.push({ field: "payoutRecentChangeHours", message: "Must be between 24 and 336 hours (two weeks)." });
+    } else {
+      sanitizedUpdate.payoutRecentChangeHours = parsed;
+      const previous = (before as any)?.payoutRecentChangeHours ?? PAYOUT_RECENT_CHANGE_DEFAULT_HOURS;
+      if (parsed < previous) loosensPayoutSafeguards = true;
+    }
+  }
 
   // Operator tier ladder: validate (thresholds non-negative + monotonic across tiers).
   if (body.agentTierLadder !== undefined) {
@@ -401,6 +468,20 @@ router.put("/", async (req, res) => {
       message: 'One or more settings values are invalid.',
       details: errors,
     });
+  }
+
+  if (loosensPayoutSafeguards && !(await hasFinanceGrant(req))) {
+    return res.status(403).json({
+      error: "OTP required",
+      require2fa: true,
+      message: "Raising or removing a payout safeguard needs finance verification. Verify, then save again.",
+    });
+  }
+
+  if (!payoutCols) {
+    delete (sanitizedUpdate as any).payoutReviewThresholdTzs;
+    delete (sanitizedUpdate as any).payoutDailyCapPerPayeeTzs;
+    delete (sanitizedUpdate as any).payoutRecentChangeHours;
   }
 
   // If the DB isn't migrated yet, drop per-role TTL keys so the update doesn't fail.

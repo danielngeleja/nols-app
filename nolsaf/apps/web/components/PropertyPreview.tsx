@@ -47,6 +47,10 @@ import {
   Tags,
   Building2,
   Calendar,
+  Clock,
+  PawPrint,
+  CigaretteOff,
+  AlertCircle,
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 import apiClient from "@/lib/apiClient";
@@ -54,9 +58,12 @@ import { motion } from "framer-motion";
 import NeighborhoodGuide from "./NeighborhoodGuide";
 import TableRow from "./TableRow";
 import PropertyEditModal from "./PropertyEditModal";
+import PropertyPinEditor from "./admin/PropertyPinEditor";
+import PinHealthBadge from "./admin/PinHealthBadge";
 import NearbyServices from "./NearbyServices";
 import ServicesAndFacilities from "./ServicesAndFacilities";
 import { PropertyVisualizationPreview } from "../app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
+import { parseFloorUses } from "../app/(owner)/owner/properties/add/_components/floorUses";
 import { 
   getPropertyCommission, 
   calculatePriceWithCommission,
@@ -239,6 +246,12 @@ export default function PropertyPreview({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adminNotice, setAdminNotice] = useState<null | { kind: "success" | "error" | "info"; title: string; body?: string }>(null);
+  // Success toasts close themselves; errors stay until dismissed
+  useEffect(() => {
+    if (!adminNotice || adminNotice.kind === "error") return;
+    const id = window.setTimeout(() => setAdminNotice(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [adminNotice]);
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<Property> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -529,7 +542,7 @@ export default function PropertyPreview({
   function openCoordinateEditor() {
     if (!property) return;
     const propertyLocation = property.location || {};
-    const latitude = Number(property.latitude ?? (propertyLocation as any).lat ?? propertyLocation.latitude);
+    const latitude = Number(property.latitude ?? (propertyLocation as any).latitude ?? (propertyLocation as any).lat);
     const longitude = Number(property.longitude ?? (propertyLocation as any).lng ?? propertyLocation.longitude);
     setCoordinateLatitude(Number.isFinite(latitude) ? latitude.toFixed(6) : "");
     setCoordinateLongitude(Number.isFinite(longitude) ? longitude.toFixed(6) : "");
@@ -537,14 +550,15 @@ export default function PropertyPreview({
     setShowCoordinateDialog(true);
   }
 
-  async function handleCoordinateCorrection() {
-    if (!coordinateLatitude.trim() || !coordinateLongitude.trim()) {
+  async function handleCoordinateCorrection(next?: { latitude: number; longitude: number; reason: string }) {
+    if (!next && (!coordinateLatitude.trim() || !coordinateLongitude.trim())) {
       setAdminNotice({ kind: "error", title: "Coordinates required", body: "Enter both latitude and longitude." });
       return;
     }
-    const latitude = Number(coordinateLatitude);
-    const longitude = Number(coordinateLongitude);
-    const reason = coordinateReason.trim();
+    // Values come straight from the pin editor when provided (state updates are async)
+    const latitude = next ? next.latitude : Number(coordinateLatitude);
+    const longitude = next ? next.longitude : Number(coordinateLongitude);
+    const reason = (next ? next.reason : coordinateReason).trim();
 
     if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
       setAdminNotice({ kind: "error", title: "Invalid latitude", body: "Latitude must be between -90 and 90." });
@@ -886,6 +900,22 @@ export default function PropertyPreview({
         latitude: (property as any).latitude || null,
         longitude: (property as any).longitude || null,
       };
+  // One source for the saved pin: some records keep it on the property, others inside `location`.
+  // The map, the pin badge and the pin editor must all read the same value.
+  const pinCoords = (() => {
+    const loc: any = location || {};
+    const pick = (...vals: unknown[]) => {
+      for (const v of vals) {
+        if (v === null || v === undefined || String(v).trim() === "") continue;
+        const n = Number(v);
+        if (Number.isFinite(n) && n !== 0) return n;
+      }
+      return null;
+    };
+    const lat = pick((property as any).latitude, loc.latitude, loc.lat);
+    const lng = pick((property as any).longitude, loc.longitude, loc.lng);
+    return lat !== null && lng !== null ? { lat, lng } : null;
+  })();
   const status = property.status;
   const totalBedrooms = property.totalBedrooms;
   const totalBathrooms = property.totalBathrooms;
@@ -1055,182 +1085,242 @@ export default function PropertyPreview({
 
   return (
     <div className="w-full bg-white">
-      {/* Header with Status and Actions */}
-      {mode === "admin" && (
-        <div className="bg-white border-b border-gray-200 shadow-sm mb-6">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {onClose && (
-                  <button
-                    onClick={onClose}
-                    className="group flex items-center justify-center w-9 h-9 rounded-full hover:bg-slate-100 transition-colors"
-                    aria-label="Back"
-                  >
-                    <ChevronLeft className="w-5 h-5 text-slate-600 group-hover:text-slate-900" />
-                  </button>
-                )}
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  status === "PENDING" ? "bg-amber-100 text-amber-800" :
-                  status === "APPROVED" ? "bg-emerald-100 text-emerald-800" :
-                  status === "REJECTED" ? "bg-red-100 text-red-800" :
-                  status === "SUSPENDED" ? "bg-orange-100 text-orange-800" :
-                  "bg-gray-100 text-gray-800"
-                }`}>
-                  {status}
-                </span>
-                {property.owner && (
-                  <div className="text-sm text-gray-600">
-                    Owner: <span className="font-medium">{property.owner.name || property.owner.email}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
+      {/* Admin command bar: back, identity, and the actions that fit the current status */}
+      {mode === "admin" && (() => {
+        const btn =
+          "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+        return (
+          <div className="sticky top-0 z-30 border-0 border-b border-solid border-slate-200 bg-white/95 backdrop-blur">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Back to properties"
+                  className="flex h-9 w-9 flex-none items-center justify-center rounded-lg border-0 bg-slate-100 text-slate-600 transition-colors hover:bg-slate-200 hover:text-slate-900"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              )}
+              <p className="m-0 min-w-0 flex-1 truncate text-[13px] text-slate-500">
+                Properties <span className="text-slate-300">/</span>{" "}
+                <span className="font-semibold text-slate-900">#{property.id}</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
                 {!isEditing ? (
                   <>
                     <button
+                      type="button"
                       onClick={() => setShowEditModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      className={`${btn} border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
                     >
-                      <Edit className="h-4 w-4" />
-                      Edit
+                      <Edit className="h-4 w-4" /> Edit
                     </button>
+                    {status === "PENDING" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setShowRejectDialog(true)}
+                          disabled={saving}
+                          className={`${btn} border border-solid border-rose-200 bg-white text-rose-700 hover:bg-rose-50`}
+                        >
+                          <XCircle className="h-4 w-4" /> Reject
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleApprove}
+                          disabled={saving}
+                          className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}
+                        >
+                          <CheckCircle2 className="h-4 w-4" /> Approve
+                        </button>
+                      </>
+                    )}
                     {status === "APPROVED" && (
                       <button
+                        type="button"
                         onClick={() => setShowSuspendDialog(true)}
                         disabled={saving}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50"
+                        className={`${btn} border border-solid border-orange-200 bg-white text-orange-700 hover:bg-orange-50`}
                       >
-                        <Ban className="h-4 w-4" />
-                        Suspend
+                        <Ban className="h-4 w-4" /> Suspend
                       </button>
                     )}
                     {status === "SUSPENDED" && (
                       <button
+                        type="button"
                         onClick={() => setShowUnsuspendDialog(true)}
                         disabled={saving}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}
                       >
-                        <CheckCircle2 className="h-4 w-4" />
-                        Unsuspend
+                        <CheckCircle2 className="h-4 w-4" /> Unsuspend
                       </button>
-                    )}
-                    {status === "PENDING" && (
-                      <>
-                        <button
-                          onClick={handleApprove}
-                          disabled={saving}
-                          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => setShowRejectDialog(true)}
-                          disabled={saving}
-                          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-                        >
-                          <XCircle className="h-4 w-4" />
-                          Reject
-                        </button>
-                      </>
                     )}
                   </>
                 ) : (
                   <>
                     <button
+                      type="button"
                       onClick={() => {
                         setIsEditing(false);
                         setEditData(property);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      className={`${btn} border border-solid border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
                     >
-                      <X className="h-4 w-4" />
-                      Cancel
+                      <X className="h-4 w-4" /> Cancel
                     </button>
                     <button
+                      type="button"
                       onClick={handleSaveEdit}
                       disabled={saving}
-                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                      className={`${btn} border-0 bg-[#02665e] text-white hover:bg-[#014e47]`}
                     >
-                      <Save className="h-4 w-4" />
-                      {saving ? "Saving..." : "Save"}
+                      <Save className="h-4 w-4" /> {saving ? "Saving" : "Save"}
                     </button>
                   </>
                 )}
               </div>
             </div>
-
-            {/* Admin action banner (approval success/failure, etc.) */}
-            {adminNotice ? (
-              <div
-                role="status"
-                aria-live="polite"
-                className={[
-                  "mt-4 rounded-xl border px-4 py-3 flex items-start justify-between gap-3",
-                  adminNotice.kind === "success"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                    : adminNotice.kind === "error"
-                      ? "border-red-200 bg-red-50 text-red-900"
-                      : "border-slate-200 bg-slate-50 text-slate-900",
-                ].join(" ")}
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold">{adminNotice.title}</div>
-                  {adminNotice.body ? (
-                    <div className="text-sm opacity-90 mt-0.5">{adminNotice.body}</div>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAdminNotice(null)}
-                  className="shrink-0 inline-flex items-center justify-center rounded-lg border border-transparent hover:border-black/10 hover:bg-white/40 px-2 py-1 text-sm"
-                  aria-label="Dismiss message"
-                  title="Dismiss"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* Main Content Container */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Title and Location - Match Public View */}
-        <div className="mt-5">
-          <h1 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight">
-            {isEditing ? (
-              <input
-                type="text"
-                value={editData?.title || ""}
-                onChange={(e) => setEditData({ ...editData, title: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-2xl sm:text-3xl font-bold"
-                aria-label="Property title"
-                title="Property title"
-              />
-            ) : (
-              property.title
-            )}
-          </h1>
-          <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">
-            <MapPin className="w-4 h-4" />
-            <span className="truncate">
-              {location.street && `${location.street}${location.apartment ? `, ${location.apartment}` : ''}, `}
-              {location.ward && `${location.ward}, `}
-              {location.district && `${location.district}, `}
-              {location.regionName && location.regionName}
-              {location.city && `, ${location.city}`}
-              {!location.street && !location.ward && !location.district && !location.regionName && !location.city && "—"}
-                    </span>
+      {/* Admin notice as a toast, so it never pushes the page down */}
+      {mode === "admin" && adminNotice && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              role="status"
+              aria-live="polite"
+              className={`fixed right-4 top-4 z-[140] box-border flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-xl bg-white px-4 py-3 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.45)] ring-1 ring-inset ${
+                adminNotice.kind === "success" ? "ring-emerald-200" : adminNotice.kind === "error" ? "ring-rose-200" : "ring-slate-200"
+              }`}
+            >
+              <span
+                className={`mt-0.5 flex h-7 w-7 flex-none items-center justify-center rounded-lg ${
+                  adminNotice.kind === "success" ? "bg-emerald-100 text-emerald-700" : adminNotice.kind === "error" ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {adminNotice.kind === "error" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="m-0 text-[13.5px] font-semibold text-slate-900">{adminNotice.title}</p>
+                {adminNotice.body ? <p className="m-0 mt-0.5 text-[12.5px] text-slate-600">{adminNotice.body}</p> : null}
               </div>
+              <button
+                type="button"
+                onClick={() => setAdminNotice(null)}
+                aria-label="Dismiss message"
+                className="flex h-7 w-7 flex-none items-center justify-center rounded-md border-0 bg-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>,
+            document.body
+          )
+        : null}
+
+      {/* Main Content Container (admin workspace already provides the page gutter) */}
+      <div className={mode === "admin" ? "py-5" : "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"}>
+        {/* Identity: status, type, title, address and owner */}
+        {(() => {
+          const soften = (v: unknown) => {
+            const s = String(v ?? "").trim();
+            if (!s || s !== s.toUpperCase()) return s;
+            return s
+              .split(/\s+/)
+              .map((w) => (w.length <= 3 ? w : w.charAt(0) + w.slice(1).toLowerCase().replace(/-(\w)/g, (_m, c: string) => ` ${c.toUpperCase()}`)))
+              .join(" ");
+          };
+          const seen = new Set<string>();
+          const addressText = [
+            location.street ? `${soften(location.street)}${location.apartment ? `, ${location.apartment}` : ""}` : "",
+            soften(location.ward),
+            soften(location.district),
+            soften(location.regionName),
+            soften(location.city),
+          ]
+            .filter((p) => {
+              const k = String(p).toLowerCase().replace(/[^a-z]/g, "");
+              if (!k || seen.has(k)) return false;
+              seen.add(k);
+              return true;
+            })
+            .join(", ");
+          const statusMeta: Record<string, { label: string; cls: string; dot: string }> = {
+            APPROVED: { label: "Live", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500" },
+            PENDING: { label: "Pending review", cls: "bg-amber-50 text-amber-800 ring-amber-200", dot: "bg-amber-500" },
+            REJECTED: { label: "Rejected", cls: "bg-rose-50 text-rose-700 ring-rose-200", dot: "bg-rose-500" },
+            SUSPENDED: { label: "Suspended", cls: "bg-orange-50 text-orange-700 ring-orange-200", dot: "bg-orange-500" },
+            DRAFT: { label: "Draft", cls: "bg-slate-100 text-slate-600 ring-slate-200", dot: "bg-slate-400" },
+          };
+          const sm = statusMeta[String(status)] ?? { label: String(status || "Unknown"), cls: "bg-slate-100 text-slate-600 ring-slate-200", dot: "bg-slate-400" };
+          const owner: any = (property as any).owner;
+          const ownerName = owner ? String(owner.name || owner.fullName || owner.email || "Owner") : "";
+          const initials = ownerName
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((w: string) => w[0]?.toUpperCase())
+            .join("");
+
+          return (
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  {mode === "admin" && (
+                    <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] font-semibold ring-1 ring-inset ${sm.cls}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${sm.dot}`} aria-hidden />
+                      {sm.label}
+                    </span>
+                  )}
+                  {(property as any).type && (
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[12px] font-semibold capitalize text-slate-600">
+                      {String((property as any).type).toLowerCase().replace(/_/g, " ")}
+                    </span>
+                  )}
+                </div>
+                <h1 className="m-0 mt-2 break-words text-[26px] font-bold leading-tight tracking-tight text-slate-900 sm:text-[32px]">
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editData?.title || ""}
+                      onChange={(e) => setEditData({ ...editData, title: e.target.value })}
+                      className="box-border w-full rounded-lg border border-solid border-slate-300 px-3 py-2 text-[26px] font-bold sm:text-[30px]"
+                      aria-label="Property title"
+                      title="Property title"
+                    />
+                  ) : (
+                    soften(property.title)
+                  )}
+                </h1>
+                <p className="m-0 mt-2 flex min-w-0 items-center gap-1.5 text-[14px] text-slate-500">
+                  <MapPin className="h-4 w-4 flex-none text-slate-400" />
+                  <span className="truncate">{addressText || "No address on file"}</span>
+                </p>
+              </div>
+
+              {mode === "admin" && owner && (
+                <div className="box-border flex flex-none items-center gap-3 rounded-xl border border-solid border-slate-200 bg-white px-3.5 py-2.5 lg:min-w-[260px]">
+                  <span className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-[#02665e]/10 text-[13px] font-bold text-[#02665e]">
+                    {initials || "O"}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Owner</p>
+                    <p className="m-0 truncate text-[14px] font-semibold text-slate-900">{soften(ownerName)}</p>
+                    {(owner.email || owner.phone) && (
+                      <p className="m-0 truncate text-[12px] text-slate-500">{owner.phone || owner.email}</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
+          );
+        })()}
 
         {/* Gallery */}
         <div className="mt-6">
         {photos.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-solid border-slate-200">
                   <button
               type="button"
               className={[
@@ -1253,7 +1343,7 @@ export default function PropertyPreview({
                       priority
                     />
               <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0" />
-              <div className="absolute left-4 bottom-4 inline-flex items-center gap-2 rounded-full bg-white/90 border border-white/70 px-3 py-1 text-xs font-semibold text-slate-900">
+              <div className="absolute left-4 bottom-4 inline-flex items-center gap-2 rounded-full bg-white/90 border border-solid border-white/70 px-3 py-1 text-xs font-semibold text-slate-900">
                 Approved photos • {photos.length}
               </div>
                   </button>
@@ -1344,7 +1434,7 @@ export default function PropertyPreview({
         ) : (
           <div>
             {/* Photo layout preview (until Cloudinary / approved photos are available) */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-slate-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-2xl overflow-hidden border border-solid border-slate-200">
                         <button
                 type="button"
                           onClick={() => {
@@ -1363,13 +1453,13 @@ export default function PropertyPreview({
                 <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-black/0 to-white/35" />
                 <div className="absolute inset-0 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.06)]" />
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-700">
-                  <div className="h-14 w-14 rounded-2xl bg-white/85 border border-slate-200 shadow-sm flex items-center justify-center">
+                  <div className="h-14 w-14 rounded-2xl bg-white/85 border border-solid border-slate-200 shadow-sm flex items-center justify-center">
                     <ImageIcon className="w-7 h-7 text-slate-500" aria-hidden />
                       </div>
                   <div className="mt-3 text-sm font-semibold">Photo preview</div>
                   <div className="text-xs text-slate-500">Hero image will appear here</div>
                     </div>
-                <div className="absolute left-4 bottom-4 inline-flex items-center gap-2 rounded-full bg-white/90 border border-white/70 px-3 py-1 text-xs font-semibold text-slate-900">
+                <div className="absolute left-4 bottom-4 inline-flex items-center gap-2 rounded-full bg-white/90 border border-solid border-white/70 px-3 py-1 text-xs font-semibold text-slate-900">
                   Approved photos • 0
               </div>
                           </button>
@@ -1413,49 +1503,32 @@ export default function PropertyPreview({
                       )}
                     </div>
                   
-        {/* Facts - Match Public View */}
-                  {(totalBedrooms || totalBathrooms || maxGuests) && (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              {maxGuests && (
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <span className="text-slate-600"><Users className="w-4 h-4" /></span>
-                    <span className="text-xs font-semibold">Guests</span>
-                        </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">{maxGuests}</div>
-                        </div>
-                      )}
-                      {totalBedrooms && (
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <span className="text-slate-600"><BedDouble className="w-4 h-4" /></span>
-                    <span className="text-xs font-semibold">Bedrooms</span>
-                        </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">{totalBedrooms}</div>
-                        </div>
-                      )}
-                      {totalBathrooms && (
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <span className="text-slate-600"><Bath className="w-4 h-4" /></span>
-                    <span className="text-xs font-semibold">Bathrooms</span>
-                        </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">{totalBathrooms}</div>
-                        </div>
-                      )}
-              {property.status === "APPROVED" && (
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                  <div className="flex items-center gap-2 text-slate-700">
-                    <span className="text-slate-600"><BadgeCheck className="w-4 h-4" /></span>
-                    <span className="text-xs font-semibold">Status</span>
-                  </div>
-                  <div className="mt-2 text-sm font-bold text-slate-900">Verified</div>
-                    </div>
-                  )}
+        {/* Facts */}
+        {(totalBedrooms || totalBathrooms || maxGuests) && (
+          <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-xl border border-solid border-slate-200 bg-white sm:grid-cols-4">
+            {[
+              { show: Boolean(maxGuests), Icon: Users, label: "Guests", value: maxGuests },
+              { show: Boolean(totalBedrooms), Icon: BedDouble, label: "Bedrooms", value: totalBedrooms },
+              { show: Boolean(totalBathrooms), Icon: Bath, label: "Bathrooms", value: totalBathrooms },
+              { show: property.status === "APPROVED", Icon: BadgeCheck, label: "Status", value: "Verified" },
+            ]
+              .filter((f) => f.show)
+              .map(({ Icon, label, value }, i) => (
+                <div
+                  key={label}
+                  className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? "border-0 border-l border-solid border-slate-100" : ""}`}
+                >
+                  <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[11.5px] font-medium text-slate-500">{label}</span>
+                    <span className="block text-[16px] font-bold leading-tight tabular-nums text-slate-900">{value}</span>
+                  </span>
                 </div>
-                    </div>
-                  )}
+              ))}
+          </div>
+        )}
 
       {/* Main Content */}
       <div className="mt-6">
@@ -1464,7 +1537,7 @@ export default function PropertyPreview({
             {/* Amenities - Match Public View */}
             {/* About this place */}
             <section className="border-b border-gray-200 pb-6">
-              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+              <div className="rounded-2xl border border-solid border-slate-200 bg-white overflow-hidden">
                 <div className="p-5 sm:p-6">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -1482,7 +1555,7 @@ export default function PropertyPreview({
                       <button
                         type="button"
                         onClick={() => setAboutExpanded((v) => !v)}
-                        className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        className="inline-flex items-center justify-center rounded-full border border-solid border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                       >
                         {aboutExpanded ? "Show less" : "Read more"}
                       </button>
@@ -1557,7 +1630,7 @@ export default function PropertyPreview({
             {/* Building Structure Information - Admin/Owner Only */}
             {(mode === "admin" || mode === "owner") && (effectiveBuildingType || effectiveTotalFloors) && (
               <section className="border-b border-gray-200 pb-6">
-                <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 p-5 sm:p-6 shadow-sm">
+                <div className="rounded-2xl border border-solid border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 p-5 sm:p-6 shadow-sm">
                   <div className="flex items-center gap-2 mb-4">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                       <Building2 className="w-5 h-5" aria-hidden />
@@ -1566,7 +1639,7 @@ export default function PropertyPreview({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {effectiveBuildingType && (
-                      <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3">
                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Building Type</div>
                         <div className="text-sm font-medium text-slate-900">
                           {effectiveBuildingType === "single_storey" ? "Single Storey" : 
@@ -1577,7 +1650,7 @@ export default function PropertyPreview({
                       </div>
                     )}
                     {typeof effectiveTotalFloors === "number" && effectiveTotalFloors > 0 && (
-                      <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3">
+                      <div className="rounded-lg border border-solid border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3">
                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Total Floors</div>
                         <div className="text-sm font-medium text-slate-900">{effectiveTotalFloors} {effectiveTotalFloors === 1 ? "Floor" : "Floors"}</div>
                       </div>
@@ -1594,6 +1667,7 @@ export default function PropertyPreview({
                   title={property.title || "Property"}
                   buildingType={effectiveBuildingType}
                   totalFloors={effectiveTotalFloors || ""}
+                  floorUses={parseFloorUses((property as any)?.services)}
                   showHeader={false}
                   rooms={rooms.map((room) => {
                     // Parse floorDistribution if it's a JSON string
@@ -1626,7 +1700,7 @@ export default function PropertyPreview({
             {/* Rooms Section - Match Public View with Table */}
             {rooms.length > 0 && (
               <section className="border-b border-gray-200 pb-10">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
                             <div className="flex items-center gap-2">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                       <DoorClosed className="w-5 h-5" aria-hidden />
@@ -1642,7 +1716,7 @@ export default function PropertyPreview({
                         {/* Mobile: stacked rows */}
                         <div className="space-y-3 md:hidden">
                           {rows.map((r, idx) => (
-                            <div key={`${r.roomType}-${idx}`} className="rounded-xl border border-slate-200 bg-white p-4">
+                            <div key={`${r.roomType}-${idx}`} className="rounded-xl border border-solid border-slate-200 bg-white p-4">
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0">
                                   <div className="text-sm font-semibold text-slate-900 truncate">
@@ -1651,7 +1725,7 @@ export default function PropertyPreview({
                                       <span className="truncate">{r.roomType}</span>
                                 </span>
                                     {typeof r.roomsCount === "number" && r.roomsCount > 0 ? (
-                                      <span className="ml-2 inline-flex items-center rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                                      <span className="ml-2 inline-flex items-center rounded-full bg-slate-50 border border-solid border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                                         x{r.roomsCount}
                                       </span>
                                     ) : null}
@@ -1678,7 +1752,7 @@ export default function PropertyPreview({
                           </div>
                           
                               {r.description ? (
-                                <div className="mt-3 p-3 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-lg border border-slate-200/60">
+                                <div className="mt-3 p-3 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-lg border border-solid border-slate-200/60">
                                   <p className="text-sm text-slate-800 leading-relaxed font-normal">
                                     {capWords(r.description, 180)}
                                   </p>
@@ -1703,8 +1777,8 @@ export default function PropertyPreview({
                                     {r.bathPrivate && (r.bathPrivate === "yes" || r.bathPrivate === "no") && (
                                       <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 ${
                                         r.bathPrivate === "yes" 
-                                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
-                                          : "bg-blue-50 text-blue-700 border border-blue-200"
+                                          ? "bg-emerald-50 text-emerald-700 border border-solid border-emerald-200" 
+                                          : "bg-blue-50 text-blue-700 border border-solid border-blue-200"
                                       }`}>
                                         {r.bathPrivate === "yes" ? (
                                           <>
@@ -1735,8 +1809,8 @@ export default function PropertyPreview({
                                     </div>
                                     <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 ${
                                       r.bathPrivate === "yes" 
-                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
-                                        : "bg-blue-50 text-blue-700 border border-blue-200"
+                                        ? "bg-emerald-50 text-emerald-700 border border-solid border-emerald-200" 
+                                        : "bg-blue-50 text-blue-700 border border-solid border-blue-200"
                                     }`}>
                                       {r.bathPrivate === "yes" ? (
                                         <>
@@ -1772,7 +1846,7 @@ export default function PropertyPreview({
                               {mode === "owner" && (
                                 <div className="mt-3">
                                   {editingRoomIdx === idx ? (
-                                    <div className="rounded-lg border border-[#02665e]/15 bg-[#02665e]/[0.02] p-3 space-y-2">
+                                    <div className="rounded-lg border border-solid border-[#02665e]/15 bg-[#02665e]/[0.02] p-3 space-y-2">
                                       {/* Price */}
                                       <div>
                                         <div className="text-[10px] font-medium text-slate-500 mb-1">Price/night</div>
@@ -1782,7 +1856,7 @@ export default function PropertyPreview({
                                             type="number"
                                             value={roomPriceInput}
                                             onChange={(e) => setRoomPriceInput(e.target.value)}
-                                            className="w-full h-9 pl-9 pr-3 text-sm font-bold text-[#02665e] rounded-lg bg-white border border-[#02665e]/20 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/15 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            className="w-full h-9 pl-9 pr-3 text-sm font-bold text-[#02665e] rounded-lg bg-white border border-solid border-[#02665e]/20 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/15 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             min={1}
                                             autoFocus
                                           />
@@ -1796,7 +1870,7 @@ export default function PropertyPreview({
                                             type="number"
                                             value={roomDiscountInput}
                                             onChange={(e) => setRoomDiscountInput(e.target.value)}
-                                            className="w-full h-9 pl-3 pr-8 text-sm rounded-lg bg-white border border-slate-200 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/15 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                            className="w-full h-9 pl-3 pr-8 text-sm rounded-lg bg-white border border-solid border-slate-200 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/15 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             min={0}
                                             max={100}
                                             placeholder="0"
@@ -1866,7 +1940,7 @@ export default function PropertyPreview({
 
                         {/* Desktop: full-width table */}
                         <div className="hidden md:block">
-                          <div className="rounded-xl border border-slate-200 overflow-hidden">
+                          <div className="rounded-xl border border-solid border-slate-200 overflow-hidden">
                             <table className="w-full table-fixed border-collapse">
                               <thead className="bg-slate-50 text-slate-700">
                                 <tr>
@@ -1909,7 +1983,7 @@ export default function PropertyPreview({
                                         <span>{r.roomType}</span>
                             </div>
                                       {typeof r.roomsCount === "number" && r.roomsCount > 0 ? (
-                                        <div className="mt-1 inline-flex items-center rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                        <div className="mt-1 inline-flex items-center rounded-full bg-slate-50 border border-solid border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
                                           {r.roomsCount} rooms
                         </div>
                                       ) : null}
@@ -1929,7 +2003,7 @@ export default function PropertyPreview({
                                     </td>
                                     <td className="align-top px-3 py-4 border-t border-slate-200">
                                       {r.description ? (
-                                        <div className="p-3 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-lg border border-slate-200/60">
+                                        <div className="p-3 bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-lg border border-solid border-slate-200/60">
                                           <p className="text-sm text-slate-800 leading-relaxed font-normal break-words">
                                             {capWords(r.description, 220)}
                                           </p>
@@ -1954,8 +2028,8 @@ export default function PropertyPreview({
                                             {r.bathPrivate && (r.bathPrivate === "yes" || r.bathPrivate === "no") && (
                                               <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 ${
                                                 r.bathPrivate === "yes" 
-                                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
-                                                  : "bg-blue-50 text-blue-700 border border-blue-200"
+                                                  ? "bg-emerald-50 text-emerald-700 border border-solid border-emerald-200" 
+                                                  : "bg-blue-50 text-blue-700 border border-solid border-blue-200"
                                               }`}>
                                                 {r.bathPrivate === "yes" ? (
                                                   <>
@@ -1986,8 +2060,8 @@ export default function PropertyPreview({
                                             </div>
                                             <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 ${
                                               r.bathPrivate === "yes" 
-                                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
-                                                : "bg-blue-50 text-blue-700 border border-blue-200"
+                                                ? "bg-emerald-50 text-emerald-700 border border-solid border-emerald-200" 
+                                                : "bg-blue-50 text-blue-700 border border-solid border-blue-200"
                                             }`}>
                                               {r.bathPrivate === "yes" ? (
                                                 <>
@@ -2014,7 +2088,7 @@ export default function PropertyPreview({
                                               type="number"
                                               value={roomPriceInput}
                                               onChange={(e) => setRoomPriceInput(e.target.value)}
-                                              className="w-full h-9 px-2 text-sm font-bold text-[#02665e] rounded-lg border border-[#02665e]/30 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/20"
+                                              className="w-full h-9 px-2 text-sm font-bold text-[#02665e] rounded-lg border border-solid border-[#02665e]/30 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/20"
                                               min={1}
                                               autoFocus
                                             />
@@ -2025,7 +2099,7 @@ export default function PropertyPreview({
                                               type="number"
                                               value={roomDiscountInput}
                                               onChange={(e) => setRoomDiscountInput(e.target.value)}
-                                              className="w-full h-9 px-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/20"
+                                              className="w-full h-9 px-2 text-sm rounded-lg border border-solid border-slate-200 focus:outline-none focus:border-[#02665e] focus:ring-1 focus:ring-[#02665e]/20"
                                               min={0}
                                               max={100}
                                               placeholder="0"
@@ -2037,7 +2111,7 @@ export default function PropertyPreview({
                                             if (p > 0 && d > 0 && d <= 100) {
                                               const discounted = Math.round(p - (p * d / 100));
                                               return (
-                                                <div className="rounded-md bg-emerald-50 border border-emerald-200 px-2 py-1.5">
+                                                <div className="rounded-md bg-emerald-50 border border-solid border-emerald-200 px-2 py-1.5">
                                                   <div className="flex items-center justify-between text-[11px]">
                                                     <span className="text-slate-500 line-through">{fmtMoney(p, property.currency)}</span>
                                                     <span className="font-bold text-emerald-700">{fmtMoney(discounted, property.currency)}</span>
@@ -2072,7 +2146,7 @@ export default function PropertyPreview({
                                           <div className="text-base font-bold text-[#02665e]">{fmtMoney(r.pricePerNight, property.currency)}</div>
                                           <div className="text-xs text-slate-500">per night</div>
                                           {r.discountLabel ? (
-                                            <div className="mt-1 inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                            <div className="mt-1 inline-flex items-center rounded-full bg-emerald-50 border border-solid border-emerald-200 px-2 py-0.5 text-xs font-semibold text-emerald-800">
                                               {r.discountLabel}
                                             </div>
                                           ) : (
@@ -2084,7 +2158,7 @@ export default function PropertyPreview({
                                     <td className="align-top px-3 py-4 border-t border-slate-200">
                                       {mode === "owner" ? (
                                         editingRoomIdx === idx ? (
-                                          <div className="rounded-lg bg-amber-50 border border-amber-200 px-2 py-2 text-[10px] text-amber-800 leading-tight">
+                                          <div className="rounded-lg bg-amber-50 border border-solid border-amber-200 px-2 py-2 text-[10px] text-amber-800 leading-tight">
                                             Saving triggers re-approval
                                           </div>
                                         ) : (
@@ -2096,7 +2170,7 @@ export default function PropertyPreview({
                                               const rawRoom = rooms[idx] as any;
                                               setRoomDiscountInput(String(rawRoom?.discountPercent ?? ""));
                                             }}
-                                            className="w-full rounded-md bg-white text-[#02665e] border border-[#02665e]/30 px-2.5 py-1.5 text-sm font-medium hover:bg-[#02665e]/5 transition-colors"
+                                            className="w-full rounded-md bg-white text-[#02665e] border border-solid border-[#02665e]/30 px-2.5 py-1.5 text-sm font-medium hover:bg-[#02665e]/5 transition-colors"
                                           >
                                             <Edit className="w-3.5 h-3.5 inline mr-1" />
                                             Edit price
@@ -2143,7 +2217,7 @@ export default function PropertyPreview({
             {/* Admin/Owner Info Card - Moved here for full-width rooms table */}
             {(mode === "admin" || mode === "owner") && (
               <section className="border-b border-gray-200 pb-6">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-6 motion-safe:transition-all motion-safe:duration-300 hover:shadow-md">
+                <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-6 motion-safe:transition-all motion-safe:duration-300 hover:shadow-md">
                   {/* Owner Quick Actions */}
                   {mode === "owner" && (
                     <div className="pb-6 border-b border-slate-200/60">
@@ -2151,7 +2225,7 @@ export default function PropertyPreview({
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <Link
                           href={`/owner/properties/add?id=${propertyId}`}
-                          className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
+                          className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-solid border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
                         >
                           <div className="w-10 h-10 rounded-lg bg-[#02665e] flex items-center justify-center group-hover:scale-110 transition-transform">
                             <Edit className="w-5 h-5 text-white" />
@@ -2164,7 +2238,7 @@ export default function PropertyPreview({
                         </Link>
                         <Link
                           href={`/owner/properties/${propertyId}/availability/manage`}
-                          className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
+                          className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-solid border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
                         >
                           <div className="w-10 h-10 rounded-lg bg-[#02665e] flex items-center justify-center group-hover:scale-110 transition-transform">
                             <Calendar className="w-5 h-5 text-white" />
@@ -2177,7 +2251,7 @@ export default function PropertyPreview({
                         </Link>
                         <Link
                           href={`/owner/bookings`}
-                          className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
+                          className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-solid border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
                         >
                           <div className="w-10 h-10 rounded-lg bg-[#02665e] flex items-center justify-center group-hover:scale-110 transition-transform">
                             <BedDouble className="w-5 h-5 text-white" />
@@ -2224,7 +2298,7 @@ export default function PropertyPreview({
                         <div className="relative p-5 sm:p-6">
                           {/* Top row: avatar + name */}
                           <div className="flex items-center gap-4 mb-5">
-                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 border border-white/20">
+                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center flex-shrink-0 border border-solid border-white/20">
                               <Users className="h-7 w-7 sm:h-8 sm:w-8 text-white" />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -2243,7 +2317,7 @@ export default function PropertyPreview({
                             {property.owner.email && (
                               <a
                                 href={`mailto:${property.owner.email}`}
-                                className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/20 transition-colors no-underline"
+                                className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-solid border-white/15 hover:bg-white/20 transition-colors no-underline"
                               >
                                 <Mail className="h-4 w-4 text-white/80 flex-shrink-0" />
                                 <span className="text-sm text-white font-medium truncate">{property.owner.email}</span>
@@ -2252,7 +2326,7 @@ export default function PropertyPreview({
                             {property.owner.phone && (
                               <a
                                 href={`tel:${property.owner.phone}`}
-                                className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 hover:bg-white/20 transition-colors no-underline"
+                                className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-sm border border-solid border-white/15 hover:bg-white/20 transition-colors no-underline"
                               >
                                 <Phone className="h-4 w-4 text-white/80 flex-shrink-0" />
                                 <span className="text-sm text-white font-medium">{property.owner.phone}</span>
@@ -2276,78 +2350,119 @@ export default function PropertyPreview({
               </section>
             )}
 
-            {/* House Rules Section */}
-            {houseRules && (
-              <section className="pb-10">
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-5">House Rules</h2>
-                
-                {/* Compact inline rules */}
-                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                  {/* Top: Check-in, Check-out, Pets, Smoking as a row */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-slate-100">
-                    {/* Check-in */}
-                    <div className="p-4">
-                      <div className="text-[10px] font-bold text-[#02665e] uppercase tracking-widest mb-1">Check-in</div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        {formatTimeRange(houseRules.checkInFrom, houseRules.checkInTo) || "Not set"}
-                      </div>
-                    </div>
-                    {/* Check-out */}
-                    <div className="p-4">
-                      <div className="text-[10px] font-bold text-[#02665e] uppercase tracking-widest mb-1">Check-out</div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        {formatTimeRange(houseRules.checkOutFrom, houseRules.checkOutTo) || "Not set"}
-                      </div>
-                    </div>
-                    {/* Pets */}
-                    <div className="p-4">
-                      <div className="text-[10px] font-bold text-[#02665e] uppercase tracking-widest mb-1">Pets</div>
-                      <div className={`text-sm font-semibold ${
-                        houseRules.petsAllowed === true ? "text-emerald-700" : houseRules.petsAllowed === false ? "text-rose-700" : "text-slate-900"
-                      }`}>
-                        {houseRules.petsAllowed === undefined ? "Not set" : houseRules.petsAllowed ? "Allowed" : "Not allowed"}
-                      </div>
-                    </div>
-                    {/* Smoking */}
-                    <div className="p-4">
-                      <div className="text-[10px] font-bold text-[#02665e] uppercase tracking-widest mb-1">Smoking</div>
-                      <div className={`text-sm font-semibold ${
-                        houseRules.smokingNotAllowed === true ? "text-rose-700" : houseRules.smokingNotAllowed === false ? "text-emerald-700" : "text-slate-900"
-                      }`}>
-                        {houseRules.smokingNotAllowed === undefined ? "Not set" : houseRules.smokingNotAllowed ? "Not allowed" : "Allowed"}
-                      </div>
-                    </div>
-                  </div>
+            {/* House rules: the owner's rules first, missing ones flagged for admins, general guidelines last */}
+            {houseRules && (() => {
+              const checkIn = formatTimeRange(houseRules.checkInFrom, houseRules.checkInTo);
+              const checkOut = formatTimeRange(houseRules.checkOutFrom, houseRules.checkOutTo);
+              const pets = houseRules.petsAllowed;
+              const smokingBanned = houseRules.smokingNotAllowed;
+              const items = [
+                { key: "in", label: "Check-in", Icon: Clock, value: checkIn ? `From ${checkIn}` : null, tone: "neutral" as const },
+                { key: "out", label: "Check-out", Icon: Clock, value: checkOut ? `By ${checkOut}` : null, tone: "neutral" as const },
+                {
+                  key: "pets",
+                  label: "Pets",
+                  Icon: PawPrint,
+                  value: pets === undefined || pets === null ? null : pets ? "Allowed" : "Not allowed",
+                  hint: pets && houseRules.petsNote ? String(houseRules.petsNote) : "",
+                  tone: pets === undefined || pets === null ? ("neutral" as const) : pets ? ("yes" as const) : ("no" as const),
+                },
+                {
+                  key: "smoke",
+                  label: "Smoking",
+                  Icon: CigaretteOff,
+                  value: smokingBanned === undefined || smokingBanned === null ? null : smokingBanned ? "Not allowed" : "Allowed",
+                  tone: smokingBanned === undefined || smokingBanned === null ? ("neutral" as const) : smokingBanned ? ("no" as const) : ("yes" as const),
+                },
+              ];
+              const missing = items.filter((i) => !i.value).length;
+              // Guests only see rules the owner actually set
+              const visible = mode === "admin" || mode === "owner" ? items : items.filter((i) => i.value);
+              const other = String(houseRules.other || "").trim();
 
-                  {/* Divider */}
-                  <div className="border-t border-slate-100" />
-
-                  {/* Bottom: Guidelines */}
-                  <div className="p-4 sm:p-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-                      {[
-                        "Keep the property clean and well-maintained",
-                        "Return all keys and access cards upon checkout",
-                        "Report any incidents or damages immediately",
-                        "Respect quiet hours and neighbors",
-                        "Follow all posted safety guidelines"
-                      ].map((rule, idx) => (
-                        <div key={idx} className="flex items-start gap-2 py-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-[#02665e] flex-shrink-0 mt-0.5" />
-                          <span className="text-sm text-slate-600">{rule}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {houseRules.other && houseRules.other.trim() && (
-                      <div className="mt-3 pt-3 border-t border-slate-100">
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Additional</div>
-                        <div className="text-sm text-slate-600">{houseRules.other}</div>
-                      </div>
+              return (
+                <section className="pb-10">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="m-0 text-xl font-bold text-slate-900 sm:text-2xl">House rules</h2>
+                    {(mode === "admin" || mode === "owner") && missing > 0 && (
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-[12px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        {missing} of 4 not set by the owner
+                      </span>
                     )}
                   </div>
-                </div>
-              </section>
-            )}
+
+                  <div className="box-border overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                    {visible.length > 0 && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4">
+                        {visible.map(({ key, label, Icon, value, tone, hint }: any, i: number) => (
+                          <div
+                            key={key}
+                            className={`flex items-start gap-3 px-4 py-3.5 ${i % 2 === 1 ? "border-0 border-l border-solid border-slate-100" : ""} ${
+                              i >= 2 ? "border-0 border-t border-solid border-slate-100 lg:border-t-0" : ""
+                            } ${i >= 1 ? "lg:border-0 lg:border-l lg:border-solid lg:border-slate-100" : ""}`}
+                          >
+                            <span
+                              className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ${
+                                !value
+                                  ? "bg-slate-100 text-slate-400"
+                                  : tone === "yes"
+                                    ? "bg-emerald-50 text-emerald-600"
+                                    : tone === "no"
+                                      ? "bg-rose-50 text-rose-600"
+                                      : "bg-[#02665e]/10 text-[#02665e]"
+                              }`}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-[11.5px] font-medium text-slate-500">{label}</span>
+                              {value ? (
+                                <span
+                                  className={`block text-[14.5px] font-semibold ${
+                                    tone === "yes" ? "text-emerald-700" : tone === "no" ? "text-rose-700" : "text-slate-900"
+                                  }`}
+                                >
+                                  {value}
+                                </span>
+                              ) : (
+                                <span className="block text-[13.5px] font-medium italic text-slate-400">Not set</span>
+                              )}
+                              {hint && <span className="mt-0.5 block text-[12px] text-slate-500">{hint}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {other && (
+                      <div className="border-0 border-t border-solid border-slate-100 px-4 py-3.5 sm:px-5">
+                        <p className="m-0 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">From the owner</p>
+                        <p className="m-0 mt-1 whitespace-pre-line text-[14px] leading-relaxed text-slate-700">{other}</p>
+                      </div>
+                    )}
+
+                    <div className="border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-4 py-3.5 sm:px-5">
+                      <p className="m-0 text-[11.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">Applies to every NoLSAF stay</p>
+                      <ul className="m-0 mt-2 grid list-none gap-x-6 gap-y-1.5 p-0 sm:grid-cols-2">
+                        {[
+                          "Keep the property clean and well maintained",
+                          "Return all keys and access cards at checkout",
+                          "Report any incidents or damage straight away",
+                          "Respect quiet hours and neighbours",
+                          "Follow all posted safety guidelines",
+                        ].map((rule) => (
+                          <li key={rule} className="flex items-start gap-2 text-[13px] text-slate-600">
+                            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-none text-[#02665e]" />
+                            {rule}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </section>
+              );
+            })()}
 
             {/* Reviews Section */}
             {(mode === "public" || mode === "owner") && reviews && (
@@ -2361,7 +2476,7 @@ export default function PropertyPreview({
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Guest Reviews</h2>
                   {reviews.stats && (
-                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200">
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-solid border-amber-200">
                       <Star className="h-5 w-5 fill-amber-400 text-amber-400" />
                       <span className="text-lg font-bold text-gray-900">
                         {reviews.stats.averageRating.toFixed(1)}
@@ -2408,7 +2523,7 @@ export default function PropertyPreview({
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.4, delay: idx * 0.08 }}
-                      className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 hover:shadow-md transition-shadow duration-200"
+                      className="rounded-xl border border-solid border-slate-200 bg-white p-4 sm:p-5 hover:shadow-md transition-shadow duration-200"
                     >
                       <div className="flex items-center gap-3 mb-3">
                         <div className="w-10 h-10 rounded-xl bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
@@ -2483,22 +2598,26 @@ export default function PropertyPreview({
                   <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Where you&apos;ll be</h2>
                 </div>
                 {mode === "admin" && (
-                  <button
-                    type="button"
-                    onClick={openCoordinateEditor}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-[#02665e]/40 hover:bg-[#02665e]/5 hover:text-[#02665e]"
-                  >
-                    <Edit className="h-4 w-4" aria-hidden />
-                    Correct coordinates
-                  </button>
+                  <PinHealthBadge
+                    latitude={pinCoords?.lat ?? null}
+                    longitude={pinCoords?.lng ?? null}
+                    address={{
+                      street: location.street,
+                      ward: location.ward,
+                      district: location.district,
+                      regionName: location.regionName,
+                      city: location.city,
+                    }}
+                    onFix={openCoordinateEditor}
+                  />
                 )}
               </div>
 
               {/* Map Card */}
-              <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200/80">
+              <div className="rounded-2xl overflow-hidden shadow-lg border border-solid border-slate-200/80">
                 {(() => {
-                  const lat = Number(property.latitude) || Number((property as any).latitude) || Number((location as any).lat) || Number(location.latitude) || 0;
-                  const lng = Number(property.longitude) || Number((property as any).longitude) || Number((location as any).lng) || Number(location.longitude) || 0;
+                  const lat = pinCoords?.lat ?? 0;
+                  const lng = pinCoords?.lng ?? 0;
                   const hasCoords = lat !== 0 && lng !== 0;
                   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
@@ -2546,7 +2665,7 @@ export default function PropertyPreview({
             {/* Audit History Section - Admin Only */}
             {mode === "admin" && (
               <section className="border-b border-gray-200 pb-6">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
+                <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
                   <div className="mb-6 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
                     <div className="flex items-start gap-3">
                       <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
@@ -2558,7 +2677,7 @@ export default function PropertyPreview({
                       </div>
                     </div>
                     {!auditLoading && auditHistory.length > 0 && (
-                      <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                      <span className="shrink-0 rounded-full border border-solid border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
                         {auditHistory.length} {auditHistory.length === 1 ? "event" : "events"}
                       </span>
                     )}
@@ -2656,7 +2775,7 @@ export default function PropertyPreview({
                         return (
                           <article key={audit.id?.toString() || index} className="relative pb-6 pl-12 last:pb-0">
                             <span className="absolute left-2 top-5 flex h-5 w-5 items-center justify-center rounded-full border-4 border-white bg-[#02665e] ring-1 ring-slate-200" aria-hidden />
-                            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">
+                            <div className="rounded-xl border border-solid border-slate-200 bg-slate-50/60 p-4 sm:p-5">
                               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="min-w-0">
                                   <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${actionColor}`}>{actionLabel}</span>
@@ -2674,7 +2793,7 @@ export default function PropertyPreview({
                                 </time>
                               </div>
                               {beforeStatus && afterStatus && beforeStatus !== afterStatus && (
-                                  <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                                  <div className="mt-4 rounded-lg border border-solid border-slate-200 bg-white p-3">
                                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status change</div>
                                     <div className="flex flex-wrap items-center gap-2 text-sm">
                                       <span className={`rounded-md border px-2 py-1 font-medium ${statusTone(beforeStatus)}`}>{humanizeStatus(beforeStatus)}</span>
@@ -2690,7 +2809,7 @@ export default function PropertyPreview({
                                 )}
 
                               {(audit.action === "PROPERTY_UPDATE" || audit.action === "PROPERTY_COORDINATES_UPDATE") && extraChanges.length > 0 && (
-                                  <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                  <div className="mt-4 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
                                     <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
                                       Updated fields
                                     </div>
@@ -2727,7 +2846,7 @@ export default function PropertyPreview({
             {/* Owner Audit Trail */}
             {mode === "owner" && (
               <section className="border-b border-gray-200 pb-6">
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
+                <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
                   <div className="flex items-center gap-2 mb-5">
                     <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
                       <FileText className="w-5 h-5" aria-hidden />
@@ -2925,7 +3044,7 @@ export default function PropertyPreview({
                 type="button"
                 onClick={() => setShowApproveDialog(false)}
                 disabled={saving}
-                className="order-2 sm:order-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="order-2 sm:order-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-solid border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -2951,7 +3070,7 @@ export default function PropertyPreview({
             <textarea
               value={rejectReasons}
               onChange={(e) => setRejectReasons(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 min-h-[100px] max-h-[200px] resize-y overflow-y-auto text-sm"
+              className="w-full px-3 py-2 border border-solid border-gray-300 rounded-lg mb-4 min-h-[100px] max-h-[200px] resize-y overflow-y-auto text-sm"
               placeholder="e.g., Insufficient photos, Missing location details, Quality issues"
             />
             <div className="flex flex-col sm:flex-row gap-2 justify-end mt-auto">
@@ -2960,7 +3079,7 @@ export default function PropertyPreview({
                   setShowRejectDialog(false);
                   setRejectReasons("");
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-solid border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
@@ -2992,7 +3111,7 @@ export default function PropertyPreview({
             </div>
             
             {/* Warning Box */}
-            <div className="bg-amber-50/80 border border-amber-200/60 rounded-lg p-2.5 sm:p-3 mb-3 flex-shrink-0">
+            <div className="bg-amber-50/80 border border-solid border-amber-200/60 rounded-lg p-2.5 sm:p-3 mb-3 flex-shrink-0">
               <p className="text-[11px] sm:text-xs text-amber-800 leading-relaxed">
                 <strong className="font-semibold">Important:</strong> Suspending this property will remove it from public search and booking. 
                 This is a temporary action to resolve disputes. The property will remain visible to admins only.
@@ -3019,7 +3138,7 @@ export default function PropertyPreview({
                       }, 0);
                     }
                   }}
-                  className="w-full max-w-full min-w-0 px-3 py-2 border border-gray-300 rounded-lg min-h-[100px] max-h-[150px] resize-y overflow-y-auto text-xs sm:text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all box-border"
+                  className="w-full max-w-full min-w-0 px-3 py-2 border border-solid border-gray-300 rounded-lg min-h-[100px] max-h-[150px] resize-y overflow-y-auto text-xs sm:text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all box-border"
                   placeholder="Provide a detailed reason for suspending this property..."
                 />
                 <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5">This reason will be stored in audit history and sent to the owner.</p>
@@ -3047,7 +3166,7 @@ export default function PropertyPreview({
                   setSuspendReason("");
                   setNotifyOwnerOnSuspend(true);
                 }}
-                className="order-2 sm:order-1 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto box-border"
+                className="order-2 sm:order-1 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 bg-white border border-solid border-gray-300 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto box-border"
               >
                 Cancel
               </button>
@@ -3079,7 +3198,7 @@ export default function PropertyPreview({
             </div>
             
             {/* Warning Box */}
-            <div className="bg-blue-50/80 border border-blue-200/60 rounded-lg p-2.5 sm:p-3 mb-3 flex-shrink-0">
+            <div className="bg-blue-50/80 border border-solid border-blue-200/60 rounded-lg p-2.5 sm:p-3 mb-3 flex-shrink-0">
               <p className="text-[11px] sm:text-xs text-blue-800 leading-relaxed">
                 <strong className="font-semibold">Note:</strong> Unsuspending this property will restore it to public search and booking. 
                 The property will be visible to all users and ready for bookings.
@@ -3095,7 +3214,7 @@ export default function PropertyPreview({
                 <textarea
                   value={unsuspendReason}
                   onChange={(e) => setUnsuspendReason(e.target.value)}
-                  className="w-full max-w-full min-w-0 px-3 py-2 border border-gray-300 rounded-lg min-h-[100px] max-h-[150px] resize-y overflow-y-auto text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all box-border"
+                  className="w-full max-w-full min-w-0 px-3 py-2 border border-solid border-gray-300 rounded-lg min-h-[100px] max-h-[150px] resize-y overflow-y-auto text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all box-border"
                   placeholder="Provide a detailed reason for unsuspending this property..."
                 />
                 <p className="text-[10px] sm:text-xs text-gray-500 mt-1.5">This reason will be stored in audit history.</p>
@@ -3109,7 +3228,7 @@ export default function PropertyPreview({
                   setShowUnsuspendDialog(false);
                   setUnsuspendReason("");
                 }}
-                className="order-2 sm:order-1 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto box-border"
+                className="order-2 sm:order-1 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-medium text-gray-700 bg-white border border-solid border-gray-300 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto box-border"
               >
                 Cancel
               </button>
@@ -3125,91 +3244,27 @@ export default function PropertyPreview({
         </div>
       )}
 
-      {showCoordinateDialog && typeof document !== "undefined" ? createPortal(
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 p-4" onMouseDown={() => !savingCoordinates && setShowCoordinateDialog(false)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="coordinate-dialog-title"
-            className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
-              <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                  <MapPin className="h-5 w-5" aria-hidden />
-                </span>
-                <div>
-                  <h2 id="coordinate-dialog-title" className="text-lg font-semibold text-slate-900 sm:text-xl">Correct property coordinates</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">Use coordinates you have verified against the property location.</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setShowCoordinateDialog(false)} disabled={savingCoordinates} className="flex h-9 w-9 shrink-0 appearance-none items-center justify-center rounded-lg border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-100" aria-label="Close coordinate editor">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-              <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <label className="block min-w-0">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">Latitude</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="-90"
-                    max="90"
-                    step="0.000001"
-                    value={coordinateLatitude}
-                    onChange={(event) => setCoordinateLatitude(event.target.value)}
-                    className="box-border h-11 min-w-0 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
-                    placeholder="-6.792400"
-                  />
-                </label>
-                <label className="block min-w-0">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">Longitude</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="-180"
-                    max="180"
-                    step="0.000001"
-                    value={coordinateLongitude}
-                    onChange={(event) => setCoordinateLongitude(event.target.value)}
-                    className="box-border h-11 min-w-0 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
-                    placeholder="39.208300"
-                  />
-                </label>
-              </div>
-
-              <label className="block min-w-0 max-w-full overflow-hidden">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-700">Correction reason</span>
-                <textarea
-                  value={coordinateReason}
-                  onChange={(event) => setCoordinateReason(event.target.value)}
-                  maxLength={500}
-                  rows={3}
-                  className="box-border block min-w-0 max-w-full w-full resize-none overflow-x-hidden break-words rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
-                  placeholder="Example: Verified against the property entrance and map imagery."
-                />
-                <span className="mt-1 block text-right text-[11px] text-slate-400">{coordinateReason.length}/500</span>
-              </label>
-
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                This changes the location used by maps, distance calculations and transport routing. The old and new coordinates will remain in the audit history.
-              </div>
-            </div>
-
-            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => setShowCoordinateDialog(false)} disabled={savingCoordinates} className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={() => void handleCoordinateCorrection()} disabled={savingCoordinates} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#01554f] disabled:cursor-not-allowed disabled:opacity-50">
-                <Save className="h-4 w-4" aria-hidden />
-                {savingCoordinates ? "Saving…" : "Save verified coordinates"}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      ) : null}
+      <PropertyPinEditor
+        open={showCoordinateDialog}
+        onClose={() => !savingCoordinates && setShowCoordinateDialog(false)}
+        propertyTitle={property?.title || "Property"}
+        address={{
+          street: (property as any)?.street ?? (property?.location as any)?.street,
+          ward: (property as any)?.ward ?? (property?.location as any)?.ward,
+          district: (property as any)?.district ?? (property?.location as any)?.district,
+          regionName: (property as any)?.regionName ?? (property?.location as any)?.regionName,
+          city: (property as any)?.city ?? (property?.location as any)?.city,
+        }}
+        latitude={pinCoords?.lat ?? null}
+        longitude={pinCoords?.lng ?? null}
+        saving={savingCoordinates}
+        onSave={async ({ latitude, longitude, reason }) => {
+          setCoordinateLatitude(String(latitude));
+          setCoordinateLongitude(String(longitude));
+          setCoordinateReason(reason);
+          await handleCoordinateCorrection({ latitude, longitude, reason });
+        }}
+      />
 
       {/* Property Edit Modal */}
       {property && (

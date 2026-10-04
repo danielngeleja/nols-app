@@ -5,13 +5,14 @@ import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { requireNrmsPropertyCapability } from "../lib/nrmsPropertyAccess.js";
 import { NRMS_REVIEW_CATEGORIES, NRMS_REVIEW_CATEGORY_KEYS, averageCategoryRatings, resolveReviewCategories } from "../lib/nrmsReviewCategories.js";
 import { NRMS_CHECK_IN_WELCOME_TEMPLATE_NAME } from "../lib/nrmsCheckInWelcome.js";
 import { computeOutstanding } from "../lib/nrmsFolio.js";
 import { nrmsGuestContactSchema, parseNrmsGuestContactSettings } from "../lib/nrmsGuestContact.js";
 
 export const router = Router();
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+router.use(requireAuth as RequestHandler);
 
 const dateText = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const optionalId = z.number().int().positive().nullable().optional();
@@ -111,12 +112,25 @@ async function owned(req: AuthedRequest, res: Response) {
   return loadOwnedActiveNrmsProperty(res, req.user!.id, Number(req.params.propertyId));
 }
 
+router.get("/:propertyId/guest-contact", (async (req: AuthedRequest, res: Response) => {
+  const propertyId = Number(req.params.propertyId);
+  const access = await requireNrmsPropertyCapability(req, res, propertyId, "property.settings.read");
+  if (!access) return;
+  const metricFrom = new Date(); metricFrom.setUTCDate(metricFrom.getUTCDate() - 29); metricFrom.setUTCHours(0, 0, 0, 0);
+  const [property, directMetrics] = await Promise.all([
+    prisma.property.findUnique({ where: { id: propertyId }, select: { nrmsGuestContactSettings: true } }),
+    prisma.nrmsPublicMetric.findMany({ where: { propertyId, metricDate: { gte: metricFrom }, kind: { startsWith: "DIRECT:" } }, select: { kind: true, count: true } }),
+  ]);
+  res.json({ guestContact: parseNrmsGuestContactSettings(property?.nrmsGuestContactSettings), directConversion: buildDirectConversionSummary(directMetrics) });
+}) as RequestHandler);
+
 router.put("/:propertyId/guest-contact", (async (req: AuthedRequest, res: Response) => {
   const parsed = nrmsGuestContactSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message || "Enter valid guest contact details", details: parsed.error.flatten() });
   try {
-    const active = await owned(req, res); if (!active) return;
     const propertyId = Number(req.params.propertyId);
+    const access = await requireNrmsPropertyCapability(req, res, propertyId, "property.settings.manage");
+    if (!access) return;
     await prisma.property.update({ where: { id: propertyId }, data: { nrmsGuestContactSettings: json(parsed.data) } });
     res.json({ guestContact: parsed.data });
   } catch (error) {
@@ -124,6 +138,10 @@ router.put("/:propertyId/guest-contact", (async (req: AuthedRequest, res: Respon
     res.status(500).json({ error: "Failed to save guest contact channels" });
   }
 }) as RequestHandler);
+
+// Everything below remains owner-governed. Staff receive only the narrowly
+// capability-scoped guest-contact routes above.
+router.use(requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
 
 /**
  * Reputation summary for the owner: overall average, per-category averages and
@@ -439,15 +457,20 @@ router.post("/:propertyId/forecast/recompute", (async (req: AuthedRequest, res: 
 
 router.post("/:propertyId/recommendations/:recommendationId/:decision", (async (req: AuthedRequest, res: Response) => {
   const decision = z.enum(["apply", "dismiss"]).safeParse(req.params.decision); if (!decision.success) return res.status(400).json({ error: "Decision must be apply or dismiss" });
+  const decisionInput = z.object({ note: z.string().trim().min(3).max(300).nullable().optional() }).safeParse(req.body ?? {}); if (!decisionInput.success) return res.status(400).json({ error: "Write a valid decision note" });
+  if (decision.data === "dismiss" && !decisionInput.data.note) return res.status(400).json({ error: "Add a reason before declining this proposal" });
   try {
     const active = await owned(req, res); if (!active) return; const propertyId = Number(req.params.propertyId); const id = Number(req.params.recommendationId);
     const recommendation = await prisma.nrmsPricingRecommendation.findFirst({ where: { id, propertyId, status: "PENDING" }, include: { roomType: true } }); if (!recommendation) return res.status(404).json({ error: "Pending recommendation not found" });
-    if (decision.data === "dismiss") { const updated = await prisma.nrmsPricingRecommendation.update({ where: { id }, data: { status: "DISMISSED", dismissedAt: new Date() } }); return res.json({ recommendation: updated }); }
+    const previousFactors = recommendation.factors && typeof recommendation.factors === "object" && !Array.isArray(recommendation.factors) ? recommendation.factors : {};
+    const decidedAt = new Date();
+    const decisionFactors = json({ ...previousFactors, decision: { outcome: decision.data === "apply" ? "APPROVED" : "DECLINED", note: decisionInput.data.note ?? null, decidedById: req.user!.id, decidedAt: decidedAt.toISOString() } });
+    if (decision.data === "dismiss") { const updated = await prisma.nrmsPricingRecommendation.update({ where: { id }, data: { status: "DISMISSED", dismissedAt: decidedAt, factors: decisionFactors } }); return res.json({ recommendation: updated }); }
     const updated = await prisma.$transaction(async (tx) => {
       let plan = await tx.nrmsRatePlan.findFirst({ where: { propertyId, roomTypeId: recommendation.roomTypeId, status: "ACTIVE" }, orderBy: [{ isDefault: "desc" }, { id: "asc" }] });
       if (!plan) plan = await tx.nrmsRatePlan.create({ data: { propertyId, roomTypeId: recommendation.roomTypeId, code: `GUIDANCE_${recommendation.roomTypeId}`, name: `${recommendation.roomType.name} managed rate`, currency: recommendation.currency, adjustmentType: "BASE" } });
       await tx.nrmsRateSeason.create({ data: { ratePlanId: plan.id, name: `Pricing guidance ${recommendation.stayDate.toISOString().slice(0, 10)}`, startDate: recommendation.stayDate, endDate: recommendation.stayDate, adjustmentType: "FIXED", adjustment: recommendation.recommendedRate, priority: 90 } });
-      return tx.nrmsPricingRecommendation.update({ where: { id }, data: { status: "APPLIED", appliedAt: new Date() } });
+      return tx.nrmsPricingRecommendation.update({ where: { id }, data: { status: "APPLIED", appliedAt: decidedAt, factors: decisionFactors } });
     });
     res.json({ recommendation: updated });
   } catch (error) { console.error("[owner.nrms.market-readiness] recommendation decision failed", error); res.status(500).json({ error: "Failed to apply pricing decision" }); }

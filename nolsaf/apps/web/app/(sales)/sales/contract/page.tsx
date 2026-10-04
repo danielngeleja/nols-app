@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { CalendarClock, CheckCircle2, Download, FileSignature, Hash, MapPinned, Percent, ShieldCheck } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import SalesShell, { statusTone } from "@/components/SalesShell";
+import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import { useSalesWorkspace } from "@/components/sales/SalesWorkspaceContext";
 
 type ContractPayload = {
@@ -510,7 +510,7 @@ export default function SalesContractPage() {
               {data.timeline.map((event, index) => (
                 <li key={`${event.status}-${index}`} className="relative border-l-2 border-brand pl-4">
                   <CheckCircle2 className="absolute -left-[9px] top-0 h-4 w-4 bg-white text-emerald-700" />
-                  <p className="text-xs font-bold text-gray-900">{event.status}</p>
+                  <p className="text-xs font-bold text-gray-900">{codeLabel(event.status)}</p>
                   <p className="mt-1 text-xs text-gray-500">{date(event.at)}</p>
                 </li>
               ))}

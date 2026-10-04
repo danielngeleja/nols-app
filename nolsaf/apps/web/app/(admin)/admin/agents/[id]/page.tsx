@@ -1,18 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams,
+  useSearchParams } from "next/navigation";
+import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import {
   ArrowLeft,
-  User,
-  Mail,
   Phone,
   Calendar,
   Building2,
-  DollarSign,
   ShieldCheck,
   Bell,
   Copy,
@@ -35,9 +40,12 @@ import {
   MapPin,
   Package,
   Handshake,
+  ArrowRight,
+  Lock,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import TableRow from "@/components/TableRow";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
@@ -64,6 +72,36 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   TOURISM_LICENSE: "Tourism License",
   NDA: "NDA",
 };
+
+// Operator data often arrives in capitals ("SALALAMASAKA TOUR COMPANY LIMITED").
+// Title-case shouting values for display; short tokens like CBD or TIN stay as they are.
+function niceCase(value: string | null | undefined) {
+  const v = String(value ?? "").trim();
+  if (!v || v === "-" || /[a-z]/.test(v)) return v;
+  return v.split(/(\s+)/).map((w) => (w.trim().length <= 3 ? w : w.charAt(0) + w.slice(1).toLowerCase())).join("");
+}
+
+// "ARUSHA CBD, ARUSHA / ARUSHA CBD" -> "Arusha CBD, Arusha"
+function uniquePlaces(...parts: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of parts) {
+    for (const piece of String(part ?? "").split(/[,/]/)) {
+      const t = piece.trim();
+      if (!t || t === "-" || seen.has(t.toLowerCase())) continue;
+      seen.add(t.toLowerCase());
+      out.push(niceCase(t));
+    }
+  }
+  return out.join(", ");
+}
+
+function fmtLong(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
 
 function unwrapApiData<T = any>(axiosData: any): T {
   return axiosData && typeof axiosData === "object" && "data" in axiosData ? (axiosData.data as T) : (axiosData as T);
@@ -114,7 +152,6 @@ type Agent = {
   };
   maxActiveRequests: number;
   currentActiveRequests: number;
-  assignedPlanRequests?: Array<{ id: number; status: string }>;
   accommodationCapability?: {
     workspace: "ACCOMMODATION";
     status: string | null;
@@ -204,18 +241,7 @@ function initials(name: string | null | undefined) {
   return (first + second).toUpperCase();
 }
 
-function kycLikeBadge(status: string) {
-  const s = String(status || "").toUpperCase();
-  if (s === "ACTIVE") return "bg-emerald-50 border border-emerald-200 text-emerald-700";
-  if (s === "SUSPENDED") return "bg-red-50 border border-red-200 text-red-700";
-  return "bg-amber-50 border border-amber-200 text-amber-800";
-}
 
-function accountStatusBadge(suspendedAt?: string | null) {
-  return suspendedAt
-    ? "bg-red-50 border border-red-200 text-red-700"
-    : "bg-emerald-50 border border-emerald-200 text-emerald-700";
-}
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
@@ -430,9 +456,16 @@ function SubmittedProfileCard({
 
 export default function AdminAgentDetailPage() {
   const params = useParams<{ id?: string | string[] }>();
+  return (
+    <AdminRecordGate kind="agent" param={params?.id} backHref="/admin/agents">
+      {(agentId) => <AdminAgentDetail agentId={agentId} />}
+    </AdminRecordGate>
+  );
+}
+
+function AdminAgentDetail({ agentId }: { agentId: number }) {
+  const recordHref = useAdminHref();
   const searchParams = useSearchParams();
-  const idParam = Array.isArray(params?.id) ? params?.id[0] : params?.id;
-  const agentId = Number(idParam);
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -556,8 +589,10 @@ export default function AdminAgentDetailPage() {
     }
   }, []);
 
+  // Documents load with the page: the onboarding journey and next step depend on them.
+  // Opening the Documents tab refreshes them.
   useEffect(() => {
-    if (tab === "documents" && agent?.id) {
+    if (agent?.id) {
       void loadDocuments(agent.id);
     }
   }, [tab, agent?.id, loadDocuments]);
@@ -983,7 +1018,7 @@ export default function AdminAgentDetailPage() {
   const submittedProfileSlug = String(
     submittedProfileRaw.profileSlug || slugifyProfile(String(submittedProfileRaw.companyName || companyName || "operator-profile"), agent?.id),
   );
-  const submittedProfileReviewHref = agent?.id ? `/admin/agents/${agent.id}/submitted-profile/${submittedProfileSlug}` : "#";
+  const submittedProfileReviewHref = agent?.id ? recordHref("agent", agent.id, { suffix: `/submitted-profile/${submittedProfileSlug}` }) : "#";
   const accommodationCapability = agent?.accommodationCapability;
   const accommodationEligible = agent?.status === "ACTIVE"
     && submittedProfileReviewStatus === "APPROVED"
@@ -998,8 +1033,69 @@ export default function AdminAgentDetailPage() {
     && !agent?.suspendedAt
     && accommodationUnexpired;
 
+  // Onboarding journey: Hired, Documents, Profile, Partnerships
+  const docsKnown = !docsLoading || documents.length > 0;
+  const docsTotal = REQUIRED_OPERATOR_DOC_TYPES.length;
+  const docsApproved = requiredDocumentCards.filter(({ doc }) => String(doc?.status || "").toUpperCase() === "APPROVED").length;
+  const docsAwaitingReview = requiredDocumentCards.filter(({ doc }) => doc?.id && String(doc.status || "PENDING").toUpperCase() === "PENDING").length;
+  const docsMissing = requiredDocumentCards.filter(({ doc }) => !doc).length;
+  const isSuspended = Boolean(agent?.suspendedAt) || String(agent?.status || "").toUpperCase() === "SUSPENDED";
+  const profileWord = submittedProfileReviewStatus === "APPROVED" ? "Approved" : submittedProfileReviewStatus === "REJECTED" ? "Rejected" : "In review";
+
+  type StageState = "done" | "waiting" | "blocked" | "locked";
+  const journey: Array<{ label: string; state: StageState; sub: string }> = [
+    { label: "Hired", state: "done", sub: fmtLong(agent?.createdAt) || "Done" },
+    {
+      label: "Documents",
+      state: docsApproved === docsTotal ? "done" : "waiting",
+      sub: docsKnown ? `${docsApproved} of ${docsTotal} approved` : "Checking",
+    },
+    {
+      label: "Profile",
+      state: submittedProfileReviewStatus === "APPROVED" ? "done" : submittedProfileReviewStatus === "REJECTED" ? "blocked" : "waiting",
+      sub: profileWord,
+    },
+    {
+      label: "Partnerships",
+      state: accommodationActive ? "done" : accommodationEligible ? "waiting" : "locked",
+      sub: accommodationActive ? "Active" : accommodationEligible ? "Ready to activate" : "Locked",
+    },
+  ];
+  const stagesDone = journey.filter((j) => j.state === "done").length;
+  let leadingDone = 0;
+  while (leadingDone < journey.length && journey[leadingDone].state === "done") leadingDone += 1;
+
+  // The one thing an admin should do next, worked out from the state above
+  const nextStep: { tone: "red" | "amber" | "teal" | "green"; title: string; text: string; action?: { label: string; run: () => void } } = isSuspended
+    ? { tone: "red", title: "Account suspended", text: "The operator can't take tours. Restore the account once the issue is resolved.", action: { label: "Restore account", run: () => void restoreAgent() } }
+    : docsKnown && docsAwaitingReview > 0
+      ? { tone: "amber", title: `Review ${docsAwaitingReview} uploaded ${docsAwaitingReview === 1 ? "document" : "documents"}`, text: "Uploaded and waiting for your approval.", action: { label: "Open documents", run: () => setTab("documents") } }
+      : submittedProfileReviewStatus !== "APPROVED" && submittedProfileReviewStatus !== "REJECTED"
+        ? { tone: "amber", title: "Review the submitted profile", text: "Approving it moves the operator toward hotel partnerships.", action: { label: "Review profile", run: () => setTab("profile") } }
+        : docsKnown && docsMissing > 0
+          ? { tone: "amber", title: `${docsMissing} ${docsMissing === 1 ? "document is" : "documents are"} missing`, text: "Ask the operator to upload the rest.", action: { label: "Send a reminder", run: () => { setTab("overview"); setShowNotificationForm(true); } } }
+          : submittedProfileReviewStatus === "REJECTED"
+            ? { tone: "red", title: "Profile was rejected", text: "Waiting for the operator to fix it and resubmit.", action: { label: "View profile", run: () => setTab("profile") } }
+            : !accommodationActive && accommodationEligible
+              ? { tone: "teal", title: "Activate hotel partnerships", text: "Everything is approved. The operator can now partner with hotels.", action: { label: "Review and activate", run: () => setAccommodationDetailOpen(true) } }
+              : !accommodationActive
+                ? { tone: "amber", title: "Partnerships not ready", text: "Some requirements are still open.", action: { label: "See what is missing", run: () => setAccommodationDetailOpen(true) } }
+                : { tone: "green", title: "Fully onboarded", text: "Hired, documented, approved and partnering with hotels." };
+  const NEXT_TONES = {
+    red: { box: "border-red-200 bg-red-50", eyebrow: "text-red-700", title: "text-red-950", text: "text-red-800", button: "border-red-300 text-red-900 hover:bg-red-100" },
+    amber: { box: "border-amber-200 bg-amber-50", eyebrow: "text-amber-700", title: "text-amber-950", text: "text-amber-800", button: "border-amber-300 text-amber-900 hover:bg-amber-100" },
+    teal: { box: "border-emerald-200 bg-emerald-50", eyebrow: "text-emerald-700", title: "text-emerald-950", text: "text-emerald-800", button: "border-emerald-300 text-emerald-900 hover:bg-emerald-100" },
+    green: { box: "border-emerald-200 bg-emerald-50", eyebrow: "text-emerald-700", title: "text-emerald-950", text: "text-emerald-800", button: "border-emerald-300 text-emerald-900 hover:bg-emerald-100" },
+  } as const;
+  const nextTone = NEXT_TONES[nextStep.tone];
+  const displayName = niceCase(agent?.user.fullName || agent?.user.name) || `Tour Operator #${agent?.id ?? ""}`;
+  const displayCompany = niceCase(companyName);
+  const basedIn = uniquePlaces(physicalLocation, profileDistrict, profileRegion);
+
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div id="operator-detail" className="w-full min-w-0 space-y-4">
+      {/* Preflight is disabled in this project; scope border-box so w-full pieces don't overflow */}
+      <style>{`#operator-detail, #operator-detail * { box-sizing: border-box; }`}</style>
       {loading ? (
         <AgentDetailSkeleton />
       ) : error || !agent ? (
@@ -1016,127 +1112,189 @@ export default function AdminAgentDetailPage() {
         </div>
       ) : (
         <>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm overflow-hidden">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-                <Link
-                  href="/admin/agents/tour-operators"
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
-                  title="Back to operators"
-                >
-                  <ArrowLeft className="h-5 w-5 text-gray-600" />
-                </Link>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                    <div className="relative w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {agent.user.avatarUrl ? (
-                        <Image src={agent.user.avatarUrl} alt="avatar" fill unoptimized={/^https?:\/\//i.test(agent.user.avatarUrl)} className="object-cover" />
-                      ) : (
-                        <span className="text-[#02665e] font-bold">{initials(agent.user.fullName || agent.user.name)}</span>
-                      )}
-                    </div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
-                      {agent.user.fullName || agent.user.name || `Tour Operator #${agent.id}`}
-                    </h1>
+          {/* Profile hero: who, where, how far along, and what to do next */}
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+            <div className="grid min-w-0 gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center">
+              <div className="flex min-w-0 items-start gap-4">
+                <div className="relative h-[76px] w-[76px] shrink-0">
+                  <svg width="76" height="76" viewBox="0 0 76 76" className="absolute inset-0" aria-hidden>
+                    <circle cx="38" cy="38" r="35" fill="none" stroke="#e5e7eb" strokeWidth="4" />
+                    <circle
+                      cx="38"
+                      cy="38"
+                      r="35"
+                      fill="none"
+                      stroke={isSuspended ? "#ef4444" : "#059669"}
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      strokeDasharray={2 * Math.PI * 35}
+                      strokeDashoffset={2 * Math.PI * 35 * (1 - stagesDone / journey.length)}
+                      transform="rotate(-90 38 38)"
+                      style={{ transition: "stroke-dashoffset 600ms ease" }}
+                    />
+                  </svg>
+                  <div className="absolute inset-[8px] overflow-hidden rounded-full bg-emerald-50">
+                    {agent.user.avatarUrl ? (
+                      <Image src={agent.user.avatarUrl} alt="" fill unoptimized={/^https?:\/\//i.test(agent.user.avatarUrl)} className="object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-lg font-black text-emerald-800">{initials(agent.user.fullName || agent.user.name)}</span>
+                    )}
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${kycLikeBadge(agent.status)}`}>
-                      <ShieldCheck className="h-3.5 w-3.5 mr-1" /> {agent.status}
-                    </span>
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${accountStatusBadge(agent.suspendedAt)}`}>
-                      {agent.suspendedAt ? "Suspended" : "Active"}
-                    </span>
+                  <span className="absolute -bottom-1 -right-1 rounded-full border border-solid border-neutral-200 bg-white px-1.5 py-px text-[10px] font-bold tabular-nums text-emerald-700" title="Onboarding stages done">
+                    {stagesDone}/{journey.length}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <Link href="/admin/agents/tour-operators" className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-400 no-underline transition hover:text-emerald-700">
+                    <ArrowLeft className="h-3 w-3" aria-hidden /> Tour operators
+                  </Link>
+                  <h1 className="m-0 mt-1 break-words text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{displayName}</h1>
+                  {displayCompany && displayCompany !== "-" && displayCompany !== displayName ? (
+                    <p className="m-0 mt-0.5 break-words text-sm text-neutral-600">{displayCompany}</p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-neutral-500">
+                    <span className="font-semibold text-neutral-400">#{agent.id}</span>
+                    {basedIn ? <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden /> {basedIn}</span> : null}
+                    <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5 shrink-0" aria-hidden /> Joined {fmtLong(agent.createdAt)}</span>
+                    {isSuspended ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-solid border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-700"><Ban className="h-3 w-3" aria-hidden /> Suspended</span>
+                    ) : null}
                   </div>
                 </div>
               </div>
+
+              <div className={`min-w-0 rounded-xl border border-solid p-3.5 ${nextTone.box}`}>
+                <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${nextTone.eyebrow}`}>{nextStep.tone === "green" ? "Status" : "Next step"}</p>
+                <p className={`m-0 mt-1 text-[14px] font-bold leading-snug ${nextTone.title}`}>{nextStep.title}</p>
+                <p className={`m-0 mt-0.5 text-[12px] leading-snug ${nextTone.text}`}>{nextStep.text}</p>
+                {nextStep.action ? (
+                  <button
+                    type="button"
+                    onClick={nextStep.action.run}
+                    className={`mt-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold transition ${nextTone.button}`}
+                  >
+                    {nextStep.action.label} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
             </div>
+
+            {/* Onboarding journey */}
+            <ol className="relative m-0 grid list-none grid-cols-4 border-0 border-t border-solid border-neutral-100 px-2 py-4 sm:px-5">
+              <span className="absolute left-[12.5%] right-[12.5%] top-[30px] h-0.5 rounded-full bg-neutral-200" aria-hidden />
+              <span
+                className="absolute left-[12.5%] top-[30px] h-0.5 rounded-full bg-emerald-600 transition-all duration-500"
+                style={{ width: `${(Math.max(0, leadingDone - 1) / (journey.length - 1)) * 75}%` }}
+                aria-hidden
+              />
+              {journey.map((stage) => (
+                <li key={stage.label} className="relative flex min-w-0 flex-col items-center px-1 text-center">
+                  <span
+                    className={[
+                      "inline-flex h-7 w-7 items-center justify-center rounded-full",
+                      stage.state === "done" ? "bg-emerald-600 text-white" : "",
+                      stage.state === "waiting" ? "border-2 border-solid border-amber-400 bg-amber-50 text-amber-700" : "",
+                      stage.state === "blocked" ? "border-2 border-solid border-red-300 bg-red-50 text-red-600" : "",
+                      stage.state === "locked" ? "border-2 border-solid border-neutral-200 bg-white text-neutral-400" : "",
+                    ].join(" ")}
+                  >
+                    {stage.state === "done" ? <Check className="h-4 w-4" strokeWidth={3} aria-hidden /> : stage.state === "waiting" ? <Clock className="h-3.5 w-3.5" aria-hidden /> : stage.state === "blocked" ? <X className="h-3.5 w-3.5" aria-hidden /> : <Lock className="h-3.5 w-3.5" aria-hidden />}
+                  </span>
+                  <span className="mt-1.5 text-[12px] font-bold text-neutral-800">{stage.label}</span>
+                  <span className={`text-[11px] leading-tight ${stage.state === "waiting" ? "text-amber-700" : stage.state === "blocked" ? "text-red-600" : "text-neutral-400"}`}>{stage.sub}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          {/* Money */}
+          <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
+            {[
+              { label: "Paid invoices", value: String(financialSummary.paidCount), tone: "text-neutral-950" },
+              { label: "Gross revenue", value: fmtMoney(financialSummary.grossSum, financialCurrency), tone: "text-neutral-950" },
+              { label: `Commission${financialSummary.commissionPercent ? ` ${financialSummary.commissionPercent}%` : ""}`, value: fmtMoney(financialSummary.commissionSum, financialCurrency), tone: "text-neutral-950" },
+              { label: "Net to operator", value: fmtMoney(financialSummary.netSum, financialCurrency), tone: "text-emerald-700" },
+            ].map((m) => (
+              <div key={m.label} className="min-w-0 rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-3 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+                <p className="m-0 text-[11px] font-semibold text-neutral-500">{m.label}</p>
+                <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${m.tone}`}>{m.value}</p>
+              </div>
+            ))}
           </div>
 
+          {/* Sections */}
+          <nav aria-label="Operator sections" className="flex gap-1 overflow-x-auto rounded-2xl border border-solid border-neutral-200 bg-white px-2 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+            {[
+              { key: "overview", label: "Overview" } as { key: string; label: string; badge?: string; dot?: boolean },
+              { key: "documents", label: "Documents", badge: docsKnown ? `${docsApproved}/${docsTotal}` : "" },
+              { key: "notes", label: "Notes" },
+              { key: "profile", label: "Submitted profile", dot: submittedProfileReviewStatus !== "APPROVED" },
+              { key: "bookings", label: "Bookings" },
+            ].map((item: { key: string; label: string; badge?: string; dot?: boolean }) => {
+              const active = tab === (item.key as typeof tab);
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => setTab(item.key as typeof tab)}
+                  className={`shrink-0 cursor-pointer border-0 border-b-2 border-solid bg-transparent px-3.5 py-3 text-[13px] font-bold transition ${active ? "border-emerald-700 text-emerald-800" : "border-transparent text-neutral-500 hover:text-neutral-800"}`}
+                >
+                  {item.label}
+                  {item.badge ? <span className="ml-1.5 rounded-full bg-neutral-100 px-1.5 py-px text-[10px] font-bold tabular-nums text-neutral-500">{item.badge}</span> : null}
+                  {item.dot ? <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-amber-500 align-middle" aria-label="Needs review" /> : null}
+                </button>
+              );
+            })}
+          </nav>
+
+          {tab === "overview" ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6 min-w-0">
-              <Card
-                icon={<User className="h-5 w-5 text-blue-600" />}
-                title="Tour Operator Information"
-                subtitle="Submitted company and operation profile details"
-              >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <Field label="Company Name" icon={<Building2 className="h-4 w-4 text-gray-400" />} value={companyName} />
-                  <Field label="Hired At" icon={<Calendar className="h-4 w-4 text-gray-400" />} value={fmtDate(agent.createdAt)} sub={fmtTime(agent.createdAt)} />
-                  <Field label="Email" icon={<Mail className="h-4 w-4 text-gray-400" />} value={profileEmail} />
-                  <Field label="Phone" icon={<Phone className="h-4 w-4 text-gray-400" />} value={profilePhone} />
-                  <Field label="Region" icon={<Building2 className="h-4 w-4 text-gray-400" />} value={profileRegion} />
-                  <Field label="District" icon={<Building2 className="h-4 w-4 text-gray-400" />} value={profileDistrict} />
-                  <Field
-                    label="Physical Location"
-                    icon={<Building2 className="h-4 w-4 text-gray-400" />}
-                    value={physicalLocation}
-                  />
-                  <Field
-                    label="Type of Tourism"
-                    icon={<Building2 className="h-4 w-4 text-gray-400" />}
-                    value={tourismTypes}
-                  />
-                  <Field
-                    label="Area of Operation"
-                    icon={<Building2 className="h-4 w-4 text-gray-400" />}
-                    value={areaOfOperation}
-                  />
-                  <Field label="Experience (years)" icon={<Building2 className="h-4 w-4 text-gray-400" />} value={String(agent.yearsOfExperience ?? "-")} />
-                </div>
-                <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:p-4">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Description</div>
-                  <p className="text-sm text-gray-800 leading-6">{profileDescription}</p>
-                </div>
-              </Card>
-
-              <Card
-                icon={<DollarSign className="h-5 w-5 text-amber-600" />}
-                title="Financial Summary"
-                subtitle="Revenue and commission overview"
-              >
-                <div className="space-y-3 sm:space-y-4">
-                  <MetricRow label="Paid Invoices" value={String(financialSummary.paidCount)} />
-                  <MetricRow label="Gross Revenue" value={fmtMoney(financialSummary.grossSum, financialCurrency)} />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 sm:p-4 bg-blue-50 rounded-lg min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Commission</div>
-                      <div className="text-base sm:text-lg font-bold text-blue-900 mt-1 break-words">{fmtMoney(financialSummary.commissionSum, financialCurrency)}</div>
-                    </div>
-                    <div className="p-3 sm:p-4 bg-emerald-50 rounded-lg border-2 border-emerald-200 min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Net Revenue</div>
-                      <div className="text-base sm:text-lg font-bold text-emerald-900 mt-1 break-words">{fmtMoney(financialSummary.netSum, financialCurrency)}</div>
-                    </div>
-                  </div>
+              <Card icon={<Building2 className="h-5 w-5" />} title="Company" subtitle="Details from the operator's submitted profile">
+                <dl className="m-0">
+                  <DetailRow label="Company name" value={displayCompany} />
+                  <DetailRow label="Email" value={profileEmail} href={profileEmail && profileEmail !== "-" ? `mailto:${profileEmail}` : undefined} />
+                  <DetailRow label="Phone" value={profilePhone} href={profilePhone && profilePhone !== "-" ? `tel:${profilePhone}` : undefined} />
+                  <DetailRow label="Based in" value={basedIn} />
+                  <DetailRow label="Type of tourism" value={niceCase(tourismTypes)} />
+                  <DetailRow label="Area of operation" value={niceCase(areaOfOperation)} />
+                  <DetailRow label="Experience" value={agent.yearsOfExperience != null ? `${agent.yearsOfExperience} ${Number(agent.yearsOfExperience) === 1 ? "year" : "years"}` : ""} />
+                </dl>
+                <div className="mt-4 rounded-xl bg-neutral-50/80 p-3.5 sm:p-4">
+                  <p className="m-0 text-[11px] font-semibold text-neutral-500">About the company</p>
+                  <p className={`m-0 mt-1 text-[13px] leading-6 ${profileDescription && profileDescription !== "-" ? "text-neutral-700" : "text-neutral-400"}`}>
+                    {profileDescription && profileDescription !== "-" ? profileDescription : "No description provided yet."}
+                  </p>
                 </div>
               </Card>
             </div>
 
             <div className="space-y-6">
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow duration-200 hover:shadow-md sm:p-6">
-                <div className="mb-4 flex items-start gap-3 sm:mb-6">
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50">
-                    <Handshake className="h-5 w-5 text-blue-600" aria-hidden />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-base font-semibold text-gray-900 sm:text-lg">Accommodation partnerships</h2>
-                      <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${accommodationActive ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : "bg-gray-400"}`} />
-                        {accommodationActive ? "Active" : "Not activated"}
-                      </span>
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+                <div className="flex items-start justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:px-5">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700"><Handshake className="h-5 w-5" aria-hidden /></span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-sm font-bold text-neutral-900">Hotel partnerships</h2>
+                      <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">Lets this operator partner with hotels on NoLSAF.</p>
                     </div>
-                    <p className="mt-1 text-sm leading-5 text-gray-500">Hotel partnership access for this operator&apos;s existing account.</p>
-                    <button
-                      type="button"
-                      onClick={() => setAccommodationDetailOpen(true)}
-                      className="mt-4 min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-2"
-                    >
-                      <Eye className="h-4 w-4" />
-                      View partnership details
-                    </button>
                   </div>
+                  <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${accommodationActive ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-600"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : "bg-neutral-400"}`} />
+                    {accommodationActive ? "Active" : "Off"}
+                  </span>
                 </div>
-              </div>
+                <div className="space-y-2 p-4 sm:p-5">
+                  <CapabilityRow label="Operator profile" value={submittedProfileReviewStatus} ready={submittedProfileReviewStatus === "APPROVED"} />
+                  <CapabilityRow label="Approved evidence" value={String(accommodationCapability?.approvedEvidenceCount || 0)} ready={Boolean(accommodationCapability?.approvedEvidenceCount)} />
+                  <CapabilityRow label="Agency identity" value={accommodationCapability?.identity?.verificationStatus || "Not created"} ready={accommodationCapability?.identity?.verificationStatus === "VERIFIED"} />
+                  <button type="button" onClick={() => setAccommodationDetailOpen(true)} className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 mt-1 justify-center">
+                    <Eye className="h-4 w-4" aria-hidden />
+                    {accommodationActive ? "View partnership details" : accommodationEligible ? "Review and activate" : "See what is missing"}
+                  </button>
+                </div>
+              </section>
 
               {mounted && accommodationDetailOpen && createPortal(
                 <div
@@ -1264,13 +1422,16 @@ export default function AdminAgentDetailPage() {
                 document.body
               )}
 
-              <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-                <div className="flex items-start gap-3 mb-4 sm:mb-6">
-                  <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                    <ShieldCheck className="h-5 w-5 text-blue-600" />
+              <div className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+                <div className="flex items-start gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:px-5">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
+                  <div className="min-w-0">
+                    <h2 className="m-0 text-sm font-bold text-neutral-900">Account actions</h2>
+                    <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">Every action here is written to the audit trail.</p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">Account Actions</h2>
+                </div>
+                <div className="p-4 sm:p-5">
+                  <div className="min-w-0">
 
                     <div className="space-y-2 sm:space-y-3">
                       {agent.suspendedAt ? (
@@ -1295,12 +1456,12 @@ export default function AdminAgentDetailPage() {
                         <>
                           {!showSuspendForm ? (
                             <button
-                              className="min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-red-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-red-700 active:bg-red-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                              className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-red-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={handleSuspendClick}
                               disabled={actionLoading}
                             >
                               <Ban className="h-4 w-4" />
-                              Suspend Tour Operator
+                              Suspend operator
                             </button>
                           ) : (
                             <div className="space-y-3 p-3 sm:p-4 bg-red-50 rounded-lg border border-red-200">
@@ -1364,12 +1525,12 @@ export default function AdminAgentDetailPage() {
 
                       {!showImpersonateForm ? (
                         <button
-                          className="min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-[#02665e] text-white rounded-lg text-sm sm:text-base font-medium hover:bg-[#02665e]/90 active:bg-[#02665e]/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
                           onClick={handleImpersonateClick}
                           disabled={actionLoading}
                         >
                           <Copy className="h-4 w-4" />
-                          Impersonate
+                          Sign in as this operator
                         </button>
                       ) : (
                         <div className="space-y-3 p-3 sm:p-4 bg-[#02665e]/5 rounded-lg border border-[#02665e]/20">
@@ -1418,12 +1579,12 @@ export default function AdminAgentDetailPage() {
                       )}
 
                       <button
-                        className="min-h-11 w-full appearance-none border-0 px-4 py-2.5 sm:min-h-12 sm:py-3 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={handleNotificationToggle}
                         disabled={actionLoading || !agent.user.email}
                       >
                         <Bell className="h-4 w-4" />
-                        {showNotificationForm ? "Hide Notification Form" : "Send Notification"}
+                        {showNotificationForm ? "Hide notification form" : "Send a notification"}
                       </button>
 
                       {showNotificationForm ? (
@@ -1478,12 +1639,13 @@ export default function AdminAgentDetailPage() {
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                    <History className="h-4 w-4 text-purple-600" />
+              <div className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white p-4 sm:p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+                <div className="-mx-4 -mt-4 mb-4 flex items-start gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:-mx-5 sm:-mt-5 sm:px-5">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700"><History className="h-5 w-5" aria-hidden /></span>
+                  <div className="min-w-0">
+                    <h3 className="m-0 text-sm font-bold text-neutral-900">Audit and history</h3>
+                    <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">Latest admin actions on this account.</p>
                   </div>
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900">Audit & History</h3>
                 </div>
                 {auditLoading ? (
                   <div className="flex items-center justify-center py-8">
@@ -1495,7 +1657,7 @@ export default function AdminAgentDetailPage() {
                     <p className="text-sm text-gray-500">No audit history found</p>
                   </div>
                 ) : (
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  <div className="max-h-[420px] overflow-y-auto pr-1">
                     {auditItems.slice(0, 10).map((audit: any, idx: number) => {
                       const getActionIcon = () => {
                         const action = String(audit.action || "").toUpperCase();
@@ -1506,44 +1668,21 @@ export default function AdminAgentDetailPage() {
                         return <Activity className="h-4 w-4 text-gray-600" />;
                       };
 
-                      const getActionColor = () => {
-                        const action = String(audit.action || "").toUpperCase();
-                        if (action.includes("SUSPEND") || action.includes("REJECT")) return "bg-red-50 border-red-200";
-                        if (action.includes("RESTORE") || action.includes("UNSUSPEND") || action.includes("APPROVE")) return "bg-emerald-50 border-emerald-200";
-                        if (action.includes("IMPERSONATE") || action.includes("NOTIFY")) return "bg-blue-50 border-blue-200";
-                        return "bg-gray-50 border-gray-200";
-                      };
 
                       return (
-                        <div key={audit.id || idx} className={`p-3 rounded-lg border ${getActionColor()} transition-all hover:shadow-sm`}>
-                          <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 mt-0.5">{getActionIcon()}</div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-2 mb-1">
-                                <span className="text-xs sm:text-sm font-semibold text-gray-900 truncate">
-                                  {formatAuditActionLabel(audit.action)}
-                                </span>
-                                <span className="text-xs text-gray-500 flex-shrink-0">
-                                  {new Date(audit.createdAt).toLocaleDateString()}
-                                </span>
-                              </div>
-                              {audit.details && (
-                                <p className="text-xs text-gray-600 mb-1 line-clamp-2">
-                                  {typeof audit.details === "string" ? audit.details : JSON.stringify(audit.details)}
-                                </p>
-                              )}
-                              <div className="flex items-center gap-2 text-xs text-gray-500">
-                                <Clock className="h-3 w-3" />
-                                <span>{new Date(audit.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                                {audit.adminId ? (
-                                  <>
-                                    <span>•</span>
-                                    <span>Admin ID: {audit.adminId}</span>
-                                  </>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
+                        <div key={audit.id || idx} className="relative pb-4 pl-7 last:pb-0">
+                          {idx < Math.min(auditItems.length, 10) - 1 ? <span className="absolute bottom-0 left-[9px] top-6 w-px bg-neutral-200" aria-hidden /> : null}
+                          <span className="absolute left-0 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200 [&_svg]:h-3 [&_svg]:w-3">{getActionIcon()}</span>
+                          <p className="m-0 text-[13px] font-semibold text-neutral-900">{formatAuditActionLabel(audit.action)}</p>
+                          {audit.details ? (
+                            <p className="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-neutral-500">
+                              {typeof audit.details === "string" ? audit.details : JSON.stringify(audit.details)}
+                            </p>
+                          ) : null}
+                          <p className="m-0 mt-0.5 text-[11px] text-neutral-400">
+                            {fmtLong(audit.createdAt)}, {new Date(audit.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            {audit.adminId ? ` · admin #${audit.adminId}` : ""}
+                          </p>
                         </div>
                       );
                     })}
@@ -1557,34 +1696,7 @@ export default function AdminAgentDetailPage() {
               </div>
             </div>
           </div>
-
-          <div className="bg-white/90 backdrop-blur rounded-2xl border border-gray-200 px-3 py-2 sm:px-4 sm:py-3 shadow-sm">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-              {[
-                { key: "overview", label: "Overview" },
-                { key: "documents", label: "Documents" },
-                { key: "notes", label: "Notes" },
-                { key: "profile", label: "Submitted Profile" },
-                { key: "bookings", label: "Bookings" },
-              ].map((item) => {
-                const active = tab === (item.key as typeof tab);
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setTab(item.key as typeof tab)}
-                    className={`w-full px-2 sm:px-5 py-2.5 rounded-full border text-sm sm:text-base font-medium transition-all ${
-                      active
-                        ? "bg-[#02665e] text-white border-[#02665e] shadow-md"
-                        : "bg-white text-gray-600 border-gray-400 hover:bg-gray-50"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          ) : null}
 
           {tab === "documents" ? (
             <Card
@@ -1961,9 +2073,27 @@ export default function AdminAgentDetailPage() {
   );
 }
 
+function DetailRow({ label, value, href }: { label: string; value?: string | null; href?: string }) {
+  const empty = !value || value === "-";
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 border-0 border-b border-solid border-neutral-100 py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
+      <dt className="shrink-0 text-[12.5px] text-neutral-500">{label}</dt>
+      <dd className="m-0 min-w-0 break-words text-[13px] font-semibold text-neutral-900 sm:text-right">
+        {empty ? (
+          <span className="font-medium text-neutral-400">Not provided</span>
+        ) : href ? (
+          <a href={href} className="text-emerald-700 no-underline hover:underline">{value}</a>
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
+  );
+}
+
 function CapabilityRow({ label, value, ready }: { label: string; value: string; ready: boolean }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2.5">
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-neutral-50/80 px-3 py-2.5">
       <span className="min-w-0 text-xs font-medium text-gray-600">{label}</span>
       <span className={`inline-flex flex-shrink-0 items-center gap-1.5 text-xs font-semibold ${ready ? "text-emerald-700" : "text-gray-700"}`}>
         <span className={`grid h-4 w-4 place-items-center rounded-full ${ready ? "bg-emerald-100" : "bg-gray-200"}`}>
@@ -1977,40 +2107,21 @@ function CapabilityRow({ label, value, ready }: { label: string; value: string; 
 
 function Card({ icon, title, subtitle, children }: { icon: ReactNode; title: string; subtitle: string; children: ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-      <div className="flex items-start gap-3 mb-4 sm:mb-6">
-        <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">{icon}</div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900">{title}</h2>
-          <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
-          <div className="mt-4">{children}</div>
+    <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+      <div className="flex items-start gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:px-5">
+        {/* One icon colour across the page, whatever colour the caller passed */}
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 [&_svg]:!text-emerald-700">{icon}</span>
+        <div className="min-w-0">
+          <h2 className="m-0 text-sm font-bold text-neutral-900">{title}</h2>
+          <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">{subtitle}</p>
         </div>
       </div>
-    </div>
+      <div className="p-4 sm:p-5">{children}</div>
+    </section>
   );
 }
 
-function Field({ label, icon, value, sub }: { label: string; icon: ReactNode; value: string; sub?: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</div>
-      <div className="flex items-center gap-2 min-w-0">
-        {icon}
-        <span className="font-semibold text-sm text-gray-900 truncate">{value}</span>
-      </div>
-      {sub ? <div className="text-xs text-gray-500 ml-6 mt-0.5">{sub}</div> : null}
-    </div>
-  );
-}
 
-function MetricRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg min-w-0">
-      <span className="text-xs sm:text-sm font-medium text-gray-700 truncate pr-2">{label}</span>
-      <span className="text-base sm:text-lg font-bold text-gray-900 flex-shrink-0">{value}</span>
-    </div>
-  );
-}
 
 function AgentDetailSkeleton() {
   return (

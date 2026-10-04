@@ -30,11 +30,12 @@ import { describeIncidentalCover } from "../lib/nrmsAgentIncidentals.js";
 import { CHARGE_CATEGORIES } from "../lib/nrmsFolio.js";
 import { agentInvoiceInclude } from "../lib/nrmsAgentInvoice.js";
 import { renderMasterProFormaPdf, serializeProForma } from "../lib/nrmsProForma.js";
+import { agentAccountReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
 
-const agentRef = (id: number) => `AGT-${String(id).padStart(6, "0")}`;
+const agentRef = agentAccountReference;
 
 const HOLD_TX = { maxWait: 5000, timeout: 15000 };
 const prepayWindowMinutes = 0;
@@ -273,7 +274,50 @@ router.get("/profile", (async (req: AuthedRequest, res: Response) => {
     where: { id: account.id },
     select: { id: true, legalName: true, tradingName: true, registrationNo: true, tin: true, licenseNo: true, contactName: true, contactEmail: true, contactPhone: true, address: true, countryCode: true, nationality: true, documents: true, verificationStatus: true, verificationNote: true, verifiedAt: true, updatedAt: true },
   });
-  res.json({ profile });
+  if (!profile || String(req.user?.role || "").toUpperCase() !== "AGENT") return res.json({ profile });
+
+  // Established operators maintain one source of truth in My Profile. This
+  // portal page is a read-only qualification record, so show the current
+  // operator details while retaining NoLSAF's central verification decision.
+  const operator = await prisma.agent.findUnique({
+    where: { userId: req.user!.id },
+    select: {
+      operatorProfile: true,
+      user: {
+        select: {
+          name: true, fullName: true, email: true, phone: true, address: true, tin: true, nationality: true,
+          documents: { where: { status: "APPROVED", url: { not: null } }, select: { type: true, url: true, createdAt: true } },
+        },
+      },
+    },
+  });
+  if (!operator?.user) return res.json({ profile });
+
+  const source = operator.operatorProfile && typeof operator.operatorProfile === "object" && !Array.isArray(operator.operatorProfile)
+    ? operator.operatorProfile as Record<string, any>
+    : {};
+  const clean = (value: unknown) => String(value ?? "").trim() || null;
+  res.json({
+    profile: {
+      ...profile,
+      legalName: clean(source.companyName) || clean(operator.user.fullName) || clean(operator.user.name) || profile.legalName,
+      tradingName: clean(source.companyName) || profile.tradingName,
+      registrationNo: clean(source.businessRegistrationNumber) || profile.registrationNo,
+      tin: clean(source.tinNumber) || clean(operator.user.tin) || profile.tin,
+      licenseNo: clean(source.tourismPermitNumber) || clean(source.businessLicenseNumber) || profile.licenseNo,
+      contactName: clean(source.contactPersonName) || clean(operator.user.fullName) || clean(operator.user.name) || profile.contactName,
+      contactEmail: (clean(source.companyEmail) || clean(source.contactPersonEmail) || clean(operator.user.email))?.toLowerCase() || profile.contactEmail,
+      contactPhone: clean(source.companyPhone) || clean(source.contactPersonPhone) || clean(operator.user.phone) || profile.contactPhone,
+      address: clean(source.businessAddress) || clean(operator.user.address) || profile.address,
+      countryCode: String(source.countryCode || profile.countryCode || "TZ").trim().toUpperCase().slice(0, 2) || "TZ",
+      nationality: clean(source.contactPersonNationality) || clean(operator.user.nationality) || profile.nationality,
+      documents: operator.user.documents.map((document) => ({
+        type: String(document.type || "OTHER").trim().toUpperCase(),
+        url: document.url,
+        uploadedAt: document.createdAt.toISOString(),
+      })),
+    },
+  });
 }) as RequestHandler);
 
 router.put("/profile", (async (req: AuthedRequest, res: Response) => {

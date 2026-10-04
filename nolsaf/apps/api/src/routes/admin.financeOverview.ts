@@ -16,7 +16,8 @@
 //   Pending        = in the pipeline, not yet realized.
 //
 // Recognition signal per stream (realized):
-//   Accommodation : Invoice.status = PAID              (rev = commissionAmount)
+//   Accommodation : guest has paid the booking invoice (money stage, see
+//                   lib/platformMargin.accommodationTake) (rev = commissionAmount)
 //   Tours         : TourBooking.paymentStatus = PAID   (rev = commissionAmount)
 //   Transport     : TransportBooking.paymentStatus = PAID (rev = commissionAmount)
 //   Group stay    : GroupBooking.depositPaid = true    (rev = totalAmount - ownerAmount)
@@ -31,28 +32,21 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { requireAdminFinanceGrant } from "../middleware/financeGrant.js";
 import { getFxRates, BASE_CURRENCY } from "../lib/fx.js";
+import { computeFinanceOverview } from "../lib/financeOverview.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
 router.use(requireRole("ADMIN") as unknown as RequestHandler);
+// Platform-wide revenue is sensitive: require the short-lived finance OTP grant, not just an admin session.
+router.use(requireAdminFinanceGrant as unknown as RequestHandler);
 
 const n = (v: unknown): number => {
   const x = Number(v);
   return Number.isFinite(x) ? x : 0;
 };
 
-type StreamSummary = {
-  key: "accommodation" | "tours" | "transport" | "groupStay" | "subscriptions";
-  label: string;
-  gmv: number; // realized gross, in TZS
-  nolsafRevenue: number; // realized platform take, in TZS
-  partnerNet: number; // realized paid/payable to partner, in TZS
-  realizedCount: number;
-  pendingRevenue: number; // platform take in the pipeline, in TZS
-  pendingCount: number;
-  note?: string;
-};
 
 /**
  * GET /overview?from=&to=
@@ -63,271 +57,152 @@ type StreamSummary = {
 router.get("/overview", async (req, res) => {
   try {
     const { from, to } = req.query as { from?: string; to?: string };
-    const hasRange = Boolean(from || to);
-    const dateClause = () => {
-      if (!hasRange) return undefined;
-      const range: any = {};
-      if (from) range.gte = new Date(String(from));
-      if (to) range.lte = new Date(String(to));
-      return range;
-    };
-
-    const fx = await getFxRates();
-    // Convert an amount expressed in `currency` into TZS (the money of record).
-    const toTzs = (amount: number, currency?: string | null): number => {
-      const cur = String(currency || BASE_CURRENCY).toUpperCase();
-      if (cur === BASE_CURRENCY) return amount;
-      const rate = fx.tzsPerUnit[cur];
-      return Number.isFinite(rate) && rate > 0 ? amount * rate : amount;
-    };
-
-    // ── Accommodation (Invoice) ─────────────────────────────────────────────
-    const accDate = dateClause();
-    const [accRealized, accPending] = await Promise.all([
-      prisma.invoice.aggregate({
-        where: { status: "PAID", ...(accDate ? { paidAt: accDate } : {}) },
-        _sum: { total: true, commissionAmount: true, netPayable: true },
-        _count: { _all: true },
-      }),
-      prisma.invoice.aggregate({
-        where: {
-          status: { in: ["REQUESTED", "VERIFIED", "APPROVED", "PROCESSING"] },
-          ...(accDate ? { issuedAt: accDate } : {}),
-        },
-        _sum: { commissionAmount: true },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const accommodation: StreamSummary = {
-      key: "accommodation",
-      label: "Accommodation",
-      gmv: n(accRealized._sum.total),
-      nolsafRevenue: n(accRealized._sum.commissionAmount),
-      partnerNet: n(accRealized._sum.netPayable),
-      realizedCount: accRealized._count._all,
-      pendingRevenue: n(accPending._sum.commissionAmount),
-      pendingCount: accPending._count._all,
-    };
-
-    // ── Tours (TourBooking) — multi-currency, normalize to TZS ───────────────
-    const tourDate = dateClause();
-    const [tourRealizedRows, tourPendingRows] = await Promise.all([
-      prisma.tourBooking.groupBy({
-        by: ["currency"],
-        where: { paymentStatus: "PAID", ...(tourDate ? { paidAt: tourDate } : {}) },
-        _sum: { grossAmount: true, commissionAmount: true },
-        _count: { _all: true },
-      }),
-      prisma.tourBooking.groupBy({
-        by: ["currency"],
-        where: {
-          paymentStatus: { not: "PAID" },
-          payoutStatus: { in: ["CLAIMED", "VERIFIED", "APPROVED", "REQUESTED"] },
-          ...(tourDate ? { createdAt: tourDate } : {}),
-        },
-        _sum: { commissionAmount: true },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const tours: StreamSummary = {
-      key: "tours",
-      label: "Tours",
-      gmv: 0,
-      nolsafRevenue: 0,
-      partnerNet: 0,
-      realizedCount: 0,
-      pendingRevenue: 0,
-      pendingCount: 0,
-      note: "Tours in other currencies are normalized to TZS at display rates.",
-    };
-    for (const row of tourRealizedRows) {
-      const gross = toTzs(n(row._sum.grossAmount), row.currency);
-      const commission = toTzs(n(row._sum.commissionAmount), row.currency);
-      tours.gmv += gross;
-      tours.nolsafRevenue += commission;
-      tours.partnerNet += gross - commission;
-      tours.realizedCount += row._count._all;
-    }
-    for (const row of tourPendingRows) {
-      tours.pendingRevenue += toTzs(n(row._sum.commissionAmount), row.currency);
-      tours.pendingCount += row._count._all;
-    }
-
-    // ── Transport (TransportPayout) ──────────────────────────────────────────
-    // Customer payment realizes GMV and NoLSAF commission. Driver payout is a
-    // separate liability lifecycle, so only a PAID payout contributes to the
-    // global "Paid to partners" value.
-    const txDate = dateClause();
-    const [txCollected, txPartnerPaid, txPending] = await Promise.all([
-      prisma.transportPayout.aggregate({
-        where: {
-          booking: {
-            paymentStatus: "PAID",
-            ...(txDate ? { updatedAt: txDate } : {}),
-          },
-        },
-        _sum: { grossAmount: true, commissionAmount: true },
-        _count: { _all: true },
-      }),
-      prisma.transportPayout.aggregate({
-        where: { status: "PAID", ...(txDate ? { paidAt: txDate } : {}) },
-        _sum: { netPaid: true },
-      }),
-      prisma.transportPayout.aggregate({
-        where: {
-          status: { in: ["PENDING", "APPROVED"] },
-          booking: {
-            OR: [
-              { paymentStatus: null },
-              { paymentStatus: { not: "PAID" } },
-            ],
-            ...(txDate ? { updatedAt: txDate } : {}),
-          },
-        },
-        _sum: { commissionAmount: true },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const transport: StreamSummary = {
-      key: "transport",
-      label: "Transport",
-      gmv: n(txCollected._sum.grossAmount),
-      nolsafRevenue: n(txCollected._sum.commissionAmount),
-      partnerNet: n(txPartnerPaid._sum.netPaid),
-      realizedCount: txCollected._count._all,
-      pendingRevenue: n(txPending._sum.commissionAmount),
-      pendingCount: txPending._count._all,
-    };
-
-    // ── Group stay (GroupBooking) ────────────────────────────────────────────
-    // NoLSAF take = totalAmount - ownerAmount (commission markup).
-    const gsDate = dateClause();
-    const [gsRealized, gsPending] = await Promise.all([
-      prisma.groupBooking.aggregate({
-        where: { depositPaid: true, ...(gsDate ? { depositPaidAt: gsDate } : {}) },
-        _sum: { totalAmount: true, ownerAmount: true },
-        _count: { _all: true },
-      }),
-      prisma.groupBooking.aggregate({
-        where: {
-          depositPaid: false,
-          status: { in: ["AWAITING_DEPOSIT", "CONFIRMED", "PROCESSING"] },
-          ...(gsDate ? { createdAt: gsDate } : {}),
-        },
-        _sum: { totalAmount: true, ownerAmount: true },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const gsGmv = n(gsRealized._sum.totalAmount);
-    const gsOwner = n(gsRealized._sum.ownerAmount);
-    const groupStay: StreamSummary = {
-      key: "groupStay",
-      label: "Group stay",
-      gmv: gsGmv,
-      nolsafRevenue: Math.max(0, gsGmv - gsOwner),
-      partnerNet: gsOwner,
-      realizedCount: gsRealized._count._all,
-      pendingRevenue: Math.max(0, n(gsPending._sum.totalAmount) - n(gsPending._sum.ownerAmount)),
-      pendingCount: gsPending._count._all,
-      note: "Realized at deposit; full settlement may be partial.",
-    };
-
-    // ── Subscriptions (NRMS PAYG) ─────────────────────────────────────────────
-    // NRMS room-night billing is NoLSAF's subscription/software-fee product:
-    // properties pay directly for the tool, so the whole amount IS NoLSAF
-    // revenue (no partner split). Realized includes both provider-verified and
-    // administrator-reconciled payments. The reconciliation route records the
-    // latter as MANUALLY_VERIFIED, and both represent collected money. Pending
-    // means open PAYABLE statements not yet collected. Both are normalized to
-    // TZS in case a future policy currency differs (today NRMS is always TZS).
-    const subDate = dateClause();
-    const [subRealizedRows, subPendingRows] = await Promise.all([
-      prisma.nrmsServicePayment.groupBy({
-        by: ["currency"],
-        where: {
-          status: { in: ["VERIFIED", "MANUALLY_VERIFIED"] },
-          ...(subDate ? { verifiedAt: subDate } : {}),
-        },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
-      prisma.nrmsBillingStatement.groupBy({
-        by: ["currency"],
-        where: { status: "PAYABLE", ...(subDate ? { createdAt: subDate } : {}) },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
-    ]);
-
-    const subscriptions: StreamSummary = {
-      key: "subscriptions",
-      label: "Subscriptions",
-      gmv: 0,
-      nolsafRevenue: 0,
-      partnerNet: 0,
-      realizedCount: 0,
-      pendingRevenue: 0,
-      pendingCount: 0,
-      note: "NRMS property-management billing. The full amount is NoLSAF revenue (no partner split).",
-    };
-    for (const row of subRealizedRows) {
-      const amount = toTzs(n(row._sum.amount), row.currency);
-      subscriptions.gmv += amount;
-      subscriptions.nolsafRevenue += amount;
-      subscriptions.realizedCount += row._count._all;
-    }
-    for (const row of subPendingRows) {
-      subscriptions.pendingRevenue += toTzs(n(row._sum.amount), row.currency);
-      subscriptions.pendingCount += row._count._all;
-    }
-
-    const streams = [accommodation, tours, transport, groupStay, subscriptions];
-
-    const totals = streams.reduce(
-      (acc, s) => {
-        acc.gmv += s.gmv;
-        acc.nolsafRevenue += s.nolsafRevenue;
-        acc.partnerNet += s.partnerNet;
-        acc.realizedCount += s.realizedCount;
-        acc.pendingRevenue += s.pendingRevenue;
-        acc.pendingCount += s.pendingCount;
-        return acc;
-      },
-      { gmv: 0, nolsafRevenue: 0, partnerNet: 0, realizedCount: 0, pendingRevenue: 0, pendingCount: 0 },
-    );
-
-    // round to 2dp for transport
-    const round2 = (x: number) => Math.round(x * 100) / 100;
-    const cleanup = (s: StreamSummary): StreamSummary => ({
-      ...s,
-      gmv: round2(s.gmv),
-      nolsafRevenue: round2(s.nolsafRevenue),
-      partnerNet: round2(s.partnerNet),
-      pendingRevenue: round2(s.pendingRevenue),
-    });
-
-    return res.json({
-      ok: true,
-      baseCurrency: BASE_CURRENCY,
-      range: { from: from ?? null, to: to ?? null, allTime: !hasRange },
-      totals: {
-        gmv: round2(totals.gmv),
-        nolsafRevenue: round2(totals.nolsafRevenue),
-        partnerNet: round2(totals.partnerNet),
-        realizedCount: totals.realizedCount,
-        pendingRevenue: round2(totals.pendingRevenue),
-        pendingCount: totals.pendingCount,
-      },
-      streams: streams.map(cleanup),
-      generatedAt: new Date().toISOString(),
-    });
+    return res.json(await computeFinanceOverview(from, to));
   } catch (err: any) {
     console.error("[GET /api/admin/finance/overview] Error:", err);
     return res.status(500).json({ ok: false, error: "Failed to load finance overview" });
+  }
+});
+
+/**
+ * GET /overview/series?from=&to=&bucket=day|week|month
+ * Revenue, GMV and partner payouts per bucket across a range, for the chart
+ * on /admin/finance. Each bucket uses the same rules as /overview, so the
+ * points add up to its totals. Buckets are calendar days, weeks starting
+ * Monday, or months, in EAT; at most 40.
+ */
+const SERIES_CACHE = new Map<string, { at: number; body: unknown }>();
+const EAT_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" });
+const eatMidnight = (day: string) => new Date(`${day}T00:00:00.000+03:00`);
+const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+router.get("/overview/series", async (req, res) => {
+  try {
+    const from = new Date(String(req.query.from ?? ""));
+    const to = new Date(String(req.query.to ?? ""));
+    const bucket = String(req.query.bucket ?? "day");
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) return res.status(400).json({ ok: false, error: "Pick a valid range" });
+    if (!["day", "week", "month"].includes(bucket)) return res.status(400).json({ ok: false, error: "Unknown bucket" });
+
+    const key = `${EAT_DAY.format(from)}|${EAT_DAY.format(to)}|${bucket}`;
+    const hit = SERIES_CACHE.get(key);
+    if (hit && Date.now() - hit.at < 60_000) return res.json(hit.body);
+
+    // Bucket edges as EAT calendar days.
+    const first = EAT_DAY.format(from);
+    const last = EAT_DAY.format(to);
+    const edges: Array<{ start: string; end: string }> = [];
+    let cursor = first;
+    if (bucket === "week") {
+      const weekday = (new Date(`${first}T00:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
+      cursor = addDays(first, -weekday);
+    } else if (bucket === "month") {
+      cursor = `${first.slice(0, 7)}-01`;
+    }
+    while (cursor <= last && edges.length < 40) {
+      let next: string;
+      if (bucket === "day") next = addDays(cursor, 1);
+      else if (bucket === "week") next = addDays(cursor, 7);
+      else {
+        const [y, m] = cursor.split("-").map(Number);
+        next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+      }
+      edges.push({ start: cursor, end: next });
+      cursor = next;
+    }
+
+    const points: Array<{ start: string; end: string; revenue: number; gmv: number; partnerNet: number; count: number }> = [];
+    // A few at a time: each bucket runs the full stream aggregation.
+    for (let i = 0; i < edges.length; i += 6) {
+      const batch = await Promise.all(edges.slice(i, i + 6).map(async (e) => {
+        const lo = new Date(Math.max(eatMidnight(e.start).getTime(), from.getTime()));
+        const hi = new Date(Math.min(eatMidnight(e.end).getTime() - 1, to.getTime()));
+        const o = await computeFinanceOverview(lo.toISOString(), hi.toISOString(), { margin: false });
+        return { start: e.start, end: addDays(e.end, -1), revenue: n(o.totals.nolsafRevenue), gmv: n(o.totals.gmv), partnerNet: n(o.totals.partnerNet), count: o.totals.realizedCount };
+      }));
+      points.push(...batch);
+    }
+
+    const body = { ok: true, bucket, points };
+    SERIES_CACHE.set(key, { at: Date.now(), body });
+    if (SERIES_CACHE.size > 200) SERIES_CACHE.delete(SERIES_CACHE.keys().next().value as string);
+    return res.json(body);
+  } catch (err: any) {
+    console.error("[GET /api/admin/finance/overview/series] Error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to load the revenue series" });
+  }
+});
+
+/**
+ * GET /invoice-register?from=&to=&page=&pageSize=
+ *
+ * The invoice level detail behind the management revenue report: invoice number,
+ * property, total, net payable and the implied NoLSAF commission, row by row.
+ * It lives on this router on purpose, so reading the register needs the finance
+ * OTP grant and not merely an admin session (the same gate as /overview).
+ *
+ * Visibility matches GET /admin/revenue/invoices exactly, so both surfaces
+ * report the same figures: owner invoices in any state, plus paid booking
+ * invoices.
+ */
+router.get("/invoice-register", async (req, res) => {
+  try {
+    const { from, to } = req.query as { from?: string; to?: string };
+    const page = Math.max(1, Number((req.query as any).page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number((req.query as any).pageSize) || 50));
+
+    // A date only `to` must cover that whole day, otherwise the last day of the
+    // period is silently dropped.
+    const dayOnly = (value: string) => /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value);
+    const where: any = {
+      AND: [
+        {
+          OR: [
+            { invoiceNumber: { startsWith: "OINV-" } },
+            { AND: [{ invoiceNumber: { startsWith: "INV-" } }, { status: "PAID" }] },
+          ],
+        },
+      ],
+    };
+
+    if (from || to) {
+      const issuedAt: any = {};
+      if (from) issuedAt.gte = new Date(dayOnly(String(from)) ? `${from}T00:00:00.000Z` : String(from));
+      if (to) issuedAt.lte = new Date(dayOnly(String(to)) ? `${to}T23:59:59.999Z` : String(to));
+      where.issuedAt = issuedAt;
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.invoice.findMany({
+        where,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          receiptNumber: true,
+          status: true,
+          issuedAt: true,
+          total: true,
+          netPayable: true,
+          commissionAmount: true,
+          commissionPercent: true,
+          booking: {
+            select: {
+              id: true,
+              property: { select: { id: true, title: true } },
+            },
+          },
+        },
+        orderBy: { issuedAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.invoice.count({ where }),
+    ]);
+
+    return res.json({ ok: true, items, total, page, pageSize });
+  } catch (err: any) {
+    console.error("[GET /api/admin/finance/invoice-register] Error:", err);
+    return res.status(500).json({ ok: false, error: "Failed to load the invoice register" });
   }
 });
 

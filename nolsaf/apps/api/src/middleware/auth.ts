@@ -5,6 +5,7 @@ import { prisma } from '@nolsaf/prisma';
 import { getRoleSessionMaxMinutes, getSessionIdleMinutes } from '../lib/securitySettings.js';
 import { clearAuthCookie } from '../lib/sessionManager.js';
 import { touchActiveUser } from '../lib/activePresence.js';
+import { accountMfaSessionAllowed } from '../lib/accountMfaPolicy.js';
 
 export type Role = 'ADMIN' | 'OWNER' | 'USER' | 'DRIVER' | 'AGENT' | 'NRMS_AGENT';
 
@@ -22,7 +23,7 @@ interface JwtTokenPayload {
   amr?: string;
 }
 
-function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED" | "ACCOUNT_DISABLED" | "ADMIN_MFA_REQUIRED", message: string) {
+function authError(code: "SESSION_EXPIRED" | "SESSION_REVOKED" | "ACCOUNT_SUSPENDED" | "ACCOUNT_DISABLED" | "ADMIN_MFA_REQUIRED" | "MFA_REQUIRED", message: string) {
   const e: any = new Error(message);
   e.code = code;
   return e;
@@ -130,6 +131,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
             select: {
               id: true, role: true, email: true, nrmsFinanceRole: true,
               suspendedAt: true, isDisabled: true, tokensValidAfter: true,
+              twoFactorEnabled: true, twoFactorMethod: true, totpSecretEnc: true,
               agentProfile: { select: { status: true } },
             },
           },
@@ -154,6 +156,7 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
             select: {
               id: true, role: true, email: true, suspendedAt: true,
               isDisabled: true, tokensValidAfter: true,
+              twoFactorEnabled: true, twoFactorMethod: true, totpSecretEnc: true,
               agentProfile: { select: { status: true } },
             },
           },
@@ -168,6 +171,9 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
 
     const user = activeSession.user;
     if (!user) return null;
+    if (!accountMfaSessionAllowed(user, decoded)) {
+      throw authError("MFA_REQUIRED", "Sign in again and complete authenticator verification");
+    }
 
     // Check if account is suspended - suspended users cannot access their account.
     if (user.suspendedAt) {
@@ -302,6 +308,10 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
         clearAuthCookie(res);
         return res.status(403).json({ error: "Account disabled", code: "ACCOUNT_DISABLED" });
       }
+      if (err?.code === 'MFA_REQUIRED') {
+        clearAuthCookie(res);
+        return res.status(401).json({ error: err.message, code: "MFA_REQUIRED" });
+      }
       if (err?.code === 'ADMIN_MFA_REQUIRED') {
         clearAuthCookie(res);
         return res.status(401).json({ error: "Administrator verification required", code: "ADMIN_MFA_REQUIRED" });
@@ -346,6 +356,10 @@ export function requireRole(required?: Role) {
           if (err?.code === 'ACCOUNT_DISABLED') {
             clearAuthCookie(res);
             return res.status(403).json({ error: "Account disabled", code: "ACCOUNT_DISABLED" });
+          }
+          if (err?.code === 'MFA_REQUIRED') {
+            clearAuthCookie(res);
+            return res.status(401).json({ error: err.message, code: "MFA_REQUIRED" });
           }
           if (err?.code === 'ADMIN_MFA_REQUIRED') {
             clearAuthCookie(res);

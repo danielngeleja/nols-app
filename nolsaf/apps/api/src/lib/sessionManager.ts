@@ -68,6 +68,7 @@ export async function signUserJwt(
     expiresInSeconds?: number;
     /** Required authentication method for a usable ADMIN session. */
     adminMfa?: "passkey" | "totp";
+    accountMfa?: { method: "totp" | "backup_code"; binding: string };
   } = {},
 ): Promise<string> {
   let sessionId: string | null = null;
@@ -105,6 +106,7 @@ export async function signUserJwt(
         sid: session.id,
         ...(options.impersonated ? { imp: true } : {}),
         ...(options.adminMfa ? { amr: options.adminMfa } : {}),
+        ...(options.accountMfa ? { mfa: options.accountMfa.method, mfaBinding: options.accountMfa.binding } : {}),
         iat: Math.floor(Date.now() / 1000), // Issued at time
       },
       JWT_SECRET,

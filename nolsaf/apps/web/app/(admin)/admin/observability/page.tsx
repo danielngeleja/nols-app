@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Activity, AlertTriangle, Clock3, RefreshCw, Server, Trash2, UserRound, Zap } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Clock3, RefreshCw, Server, Trash2, UserRound, Zap } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type ObservedRequest = {
@@ -94,6 +94,19 @@ type ImpactedUser = {
   };
 };
 
+const REFRESH_SECONDS = 15;
+
+/** "2h 14m" from the API's uptime seconds. */
+function formatUptime(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 const emptyData: ObservabilityData = {
   summary: null,
   recent: [],
@@ -108,6 +121,8 @@ export default function AdminObservabilityPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [countdown, setCountdown] = useState(REFRESH_SECONDS);
 
   const load = async (quiet = false) => {
     if (quiet) setRefreshing(true);
@@ -134,9 +149,23 @@ export default function AdminObservabilityPage() {
 
   useEffect(() => {
     load();
-    const id = window.setInterval(() => load(true), 15000);
-    return () => window.clearInterval(id);
   }, []);
+
+  // One second tick drives the visible countdown, and fires the refresh at zero.
+  useEffect(() => {
+    if (!autoRefresh) return;
+    setCountdown(REFRESH_SECONDS);
+    const id = window.setInterval(() => {
+      setCountdown((seconds) => {
+        if (seconds <= 1) {
+          void load(true);
+          return REFRESH_SECONDS;
+        }
+        return seconds - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [autoRefresh]);
 
   const statusText = useMemo(() => {
     if (loading) return "Loading";
@@ -146,6 +175,28 @@ export default function AdminObservabilityPage() {
 
   const summary = data.summary;
   const errorRatePct = summary ? `${(summary.errorRate * 100).toFixed(2)}%` : "0.00%";
+  const errorsPresent = Boolean(summary && summary.errorRate > 0) || data.errors.length > 0;
+  const latencyWatch = Boolean(summary && summary.p95DurationMs > 750);
+  const slowCount = summary?.slowRequestsInWindow ?? 0;
+  const slowShare = summary && summary.requestsInWindow > 0 ? (slowCount / summary.requestsInWindow) * 100 : 0;
+  const worstRoute = summary?.slowRoutes?.[0] ?? null;
+
+  /** Status codes grouped into the four bands an operator reacts to. */
+  const statusMix = useMemo(() => {
+    const counts = summary?.statusCounts ?? {};
+    const bands = [
+      { label: "2xx", bar: "bg-emerald-500", test: (code: number) => code < 300 },
+      { label: "3xx", bar: "bg-sky-400", test: (code: number) => code >= 300 && code < 400 },
+      { label: "4xx", bar: "bg-amber-400", test: (code: number) => code >= 400 && code < 500 },
+      { label: "5xx", bar: "bg-rose-500", test: (code: number) => code >= 500 },
+    ];
+    const totals = bands.map((band) => ({
+      ...band,
+      count: Object.entries(counts).reduce((sum, [code, value]) => (band.test(Number(code)) ? sum + Number(value || 0) : sum), 0),
+    }));
+    const total = totals.reduce((sum, band) => sum + band.count, 0) || 1;
+    return totals.map((band) => ({ ...band, pct: (band.count / total) * 100 }));
+  }, [summary?.statusCounts]);
 
   async function clearWindow() {
     await apiClient.delete("/api/admin/observability/requests");
@@ -154,65 +205,151 @@ export default function AdminObservabilityPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-        <div className="rounded-lg border border-slate-200 bg-white px-5 py-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-bold text-slate-950">Observability</h1>
-                <div className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                  <span className={`h-2 w-2 rounded-full ${error ? "bg-red-500" : "bg-emerald-500"}`} />
+    <div className="w-full min-w-0">
+      <div className="space-y-4">
+        {/* Console header: what this is, whether it is live, and the controls. */}
+        <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5">
+            <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-slate-900 text-white"><Activity className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 flex flex-wrap items-center gap-2">
+                <span className="text-base font-bold text-slate-900">Observability</span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${error ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                  <span className="relative flex h-1.5 w-1.5">
+                    {!error && autoRefresh && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400" />}
+                    <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${error ? "bg-rose-500" : "bg-emerald-500"}`} />
+                  </span>
                   {statusText}
-                </div>
-              </div>
-              <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600">
-                Request logs, API latency, slow calls, and server errors from the current API process.
+                </span>
+              </p>
+              <p className="m-0 mt-0.5 text-xs text-slate-500">
+                Request logs, latency, slow calls and server errors from the current API process
+                {summary ? ` · up ${formatUptime(summary.uptimeSeconds)} · window keeps ${summary.windowSize.toLocaleString()} requests` : ""}
               </p>
             </div>
-
             <div className="flex flex-wrap items-center gap-2">
-            <a
-              href="/api/admin/observability/prometheus"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 no-underline shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25"
-            >
-              <Server className="h-4 w-4" />
-              Metrics
-            </a>
-            <button
-              type="button"
-              onClick={() => load(true)}
-              disabled={refreshing}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmClearOpen(true)}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 shadow-sm transition-colors hover:border-red-300 hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-200"
-            >
-              <Trash2 className="h-4 w-4" />
-              Clear
-            </button>
+              {/* Auto refresh is the page's heartbeat: make it visible and stoppable. */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoRefresh}
+                onClick={() => setAutoRefresh((on) => !on)}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                title="Refresh every 15 seconds"
+              >
+                <span className={`relative inline-flex h-4 w-7 rounded-full transition-colors ${autoRefresh ? "bg-emerald-600" : "bg-slate-300"}`}>
+                  <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${autoRefresh ? "left-3.5" : "left-0.5"}`} />
+                </span>
+                <span className="tabular-nums">{autoRefresh ? `Live ${countdown}s` : "Paused"}</span>
+              </button>
+              <button type="button" onClick={() => load(true)} disabled={refreshing} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60">
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+              </button>
+              <a href="/api/admin/observability/prometheus" target="_blank" rel="noopener noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 no-underline transition hover:bg-slate-50 hover:no-underline">
+                <Server className="h-3.5 w-3.5" /> Metrics
+              </a>
+              <button type="button" onClick={() => setConfirmClearOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 text-xs font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-700" title="Clear the in-memory request window">
+                <Trash2 className="h-3.5 w-3.5" /> Clear
+              </button>
             </div>
           </div>
         </div>
 
         {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
-            {error}
+          <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" /> {error}
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricTile icon={Activity} label="Requests" value={summary?.requestsInWindow ?? 0} helper={`${summary?.totalRequestsObserved ?? 0} since start`} status="Traffic" tone="sky" />
-          <MetricTile icon={Clock3} label="Average latency" value={`${summary?.averageDurationMs ?? 0}ms`} helper={`p95 ${summary?.p95DurationMs ?? 0}ms`} status={summary && summary.p95DurationMs > 750 ? "Watch" : "Stable"} tone={summary && summary.p95DurationMs > 750 ? "amber" : "indigo"} />
-          <MetricTile icon={Zap} label="Slow requests" value={summary?.slowRequestsInWindow ?? 0} helper={`threshold ${summary?.slowRequestThresholdMs ?? 1000}ms`} status={summary && summary.slowRequestsInWindow > 0 ? "Attention" : "Clean"} tone={summary && summary.slowRequestsInWindow > 0 ? "amber" : "violet"} />
-          <MetricTile icon={AlertTriangle} label="Error rate" value={errorRatePct} helper={`${data.errors.length} recent server errors`} status={summary && summary.errorRate > 0 ? "Alert" : "Healthy"} tone={summary && summary.errorRate > 0 ? "red" : "green"} />
+        {/* Metric strip: each tile carries its own small visual, not just a number. */}
+        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-solid border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4">
+          {/* Traffic with its status mix */}
+          <div className="min-w-0 bg-white px-4 py-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Requests</span>
+              <Activity className="h-4 w-4 text-sky-500" />
+            </div>
+            <p className="m-0 mt-1.5 text-2xl font-bold tabular-nums leading-none text-slate-900">{(summary?.requestsInWindow ?? 0).toLocaleString()}</p>
+            <p className="m-0 mt-1 text-[11px] text-slate-500">{(summary?.totalRequestsObserved ?? 0).toLocaleString()} since start</p>
+            <div className="mt-2.5 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              {statusMix.map((band) => band.count > 0 ? <span key={band.label} className={band.bar} style={{ width: `${band.pct}%` }} title={`${band.label}: ${band.count}`} /> : null)}
+            </div>
+            <p className="m-0 mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+              {statusMix.filter((b) => b.count > 0).map((band) => (
+                <span key={band.label} className="inline-flex items-center gap-1"><span className={`h-1.5 w-1.5 rounded-full ${band.bar}`} />{band.label} {band.count}</span>
+              ))}
+              {statusMix.every((b) => b.count === 0) && <span>No traffic captured yet</span>}
+            </p>
+          </div>
+
+          {/* Latency percentiles */}
+          <div className="min-w-0 bg-white px-4 py-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Latency</span>
+              <Clock3 className={`h-4 w-4 ${latencyWatch ? "text-amber-500" : "text-indigo-500"}`} />
+            </div>
+            <p className="m-0 mt-1.5 flex items-baseline gap-1 leading-none">
+              <span className={`text-2xl font-bold tabular-nums ${latencyWatch ? "text-amber-700" : "text-slate-900"}`}>{Math.round(summary?.averageDurationMs ?? 0)}</span>
+              <span className="text-xs text-slate-400">ms average</span>
+            </p>
+            <p className="m-0 mt-1 text-[11px] text-slate-500">Slow threshold {summary?.slowRequestThresholdMs ?? 1000}ms</p>
+            <div className="mt-2.5 space-y-1">
+              {[
+                { label: "p95", value: summary?.p95DurationMs ?? 0 },
+                { label: "p99", value: summary?.p99DurationMs ?? 0 },
+              ].map((row) => {
+                const threshold = summary?.slowRequestThresholdMs || 1000;
+                const width = Math.min(100, (row.value / Math.max(threshold, 1)) * 100);
+                return (
+                  <div key={row.label} className="flex items-center gap-2">
+                    <span className="w-7 text-[10px] text-slate-400">{row.label}</span>
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <span className={`block h-full rounded-full ${row.value >= threshold ? "bg-rose-500" : row.value > threshold * 0.6 ? "bg-amber-400" : "bg-indigo-400"}`} style={{ width: `${Math.max(width, 3)}%` }} />
+                    </span>
+                    <span className="w-14 text-right text-[10px] tabular-nums text-slate-600">{Math.round(row.value)}ms</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Slow requests */}
+          <div className="min-w-0 bg-white px-4 py-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Slow requests</span>
+              <Zap className={`h-4 w-4 ${slowCount ? "text-amber-500" : "text-violet-500"}`} />
+            </div>
+            <p className="m-0 mt-1.5 flex items-baseline gap-2 leading-none">
+              <span className={`text-2xl font-bold tabular-nums ${slowCount ? "text-amber-700" : "text-slate-900"}`}>{slowCount}</span>
+              <span className="text-xs text-slate-400">{slowShare.toFixed(1)}% of traffic</span>
+            </p>
+            <p className="m-0 mt-1 truncate text-[11px] text-slate-500">
+              {worstRoute ? <>Worst: <span className="font-mono text-slate-700">{worstRoute.route}</span></> : "No slow route captured"}
+            </p>
+            <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full ${slowCount ? "bg-amber-400" : "bg-violet-300"}`} style={{ width: `${Math.max(slowShare, slowCount ? 3 : 0)}%` }} />
+            </div>
+            <p className="m-0 mt-1.5 text-[10px] text-slate-500">{worstRoute ? `p95 ${worstRoute.p95DurationMs}ms on ${worstRoute.slowCount} calls` : "Everything under the threshold"}</p>
+          </div>
+
+          {/* Errors */}
+          <div className="min-w-0 bg-white px-4 py-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Error rate</span>
+              <AlertTriangle className={`h-4 w-4 ${errorsPresent ? "text-rose-500" : "text-emerald-500"}`} />
+            </div>
+            <p className="m-0 mt-1.5 flex items-baseline gap-2 leading-none">
+              <span className={`text-2xl font-bold tabular-nums ${errorsPresent ? "text-rose-700" : "text-emerald-700"}`}>{errorRatePct}</span>
+              <span className="text-xs text-slate-400">{errorsPresent ? "needs review" : "healthy"}</span>
+            </p>
+            <p className="m-0 mt-1 text-[11px] text-slate-500">{data.errors.length} server {data.errors.length === 1 ? "error" : "errors"} in the window</p>
+            <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full ${errorsPresent ? "bg-rose-500" : "bg-emerald-500"}`} style={{ width: `${errorsPresent ? Math.max((summary?.errorRate ?? 0) * 100, 3) : 100}%` }} />
+            </div>
+            <p className="m-0 mt-1.5 truncate text-[10px] text-slate-500">
+              {data.errors[0] ? <>Last: <span className="font-mono">{data.errors[0].statusCode} {data.errors[0].path}</span></> : "No 5xx responses captured"}
+            </p>
+          </div>
         </div>
 
         <ImpactCenterSummary items={data.impactedUsers} loading={loading} />
@@ -354,138 +491,75 @@ function ImpactCenterSummary({ items, loading }: { items: ImpactedUser[]; loadin
       ? `${restoredItems.length} restored ${restoredItems.length === 1 ? "case" : "cases"}`
       : "No active impact";
 
+  // Who is worst affected right now, so the card names a person, not only counts.
+  const worst = [...activeItems].sort(
+    (a, b) => (b.serverErrorCount + b.clientErrorCount) - (a.serverErrorCount + a.clientErrorCount) || b.eventCount - a.eventCount,
+  )[0];
+  const stats = [
+    { label: "Active", value: activeItems.length, tone: hasCritical ? "text-rose-700" : "text-slate-900", bar: hasCritical ? "bg-rose-500" : "bg-slate-300" },
+    { label: "Errors", value: errorEvents, tone: errorEvents ? "text-rose-700" : "text-slate-900", bar: errorEvents ? "bg-rose-500" : "bg-slate-300" },
+    { label: "Slow", value: slowEvents, tone: slowEvents ? "text-amber-700" : "text-slate-900", bar: slowEvents ? "bg-amber-400" : "bg-slate-300" },
+    { label: "Restored", value: restoredItems.length, tone: restoredItems.length ? "text-emerald-700" : "text-slate-900", bar: restoredItems.length ? "bg-emerald-500" : "bg-slate-300" },
+  ];
+  const peak = Math.max(1, ...stats.map((s) => s.value));
+
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="grid gap-6 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_minmax(420px,520px)] xl:items-center">
-        <div className="flex min-w-0 items-start gap-4">
-          <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${hasCritical ? "border-red-100 bg-red-50 text-red-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}>
-            <UserRound className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="whitespace-nowrap text-lg font-black tracking-tight text-slate-950">Impact Center</h2>
-              <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-black ${hasCritical ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                {healthLabel}
-              </span>
-            </div>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-              People-first view of users tied to slow calls, server errors, and frontend crashes.
-            </p>
-            <div className={`mt-3 inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${statusClass}`}>
-              <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass}`} />
-              <span className="font-black">Status: {healthLabel}</span>
-              <span className="hidden text-current/80 sm:inline">{statusDetail}</span>
+    <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <div className="grid gap-px bg-slate-200 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        {/* What it is, and the single sentence of current state */}
+        <div className="min-w-0 bg-white px-4 py-4 sm:px-5">
+          <div className="flex items-start gap-3">
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${hasCritical ? "bg-rose-50 text-rose-600" : restoredItems.length > 0 ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+              <UserRound className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold text-slate-900">Impact Center</span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass}`} />{healthLabel}
+                </span>
+              </p>
+              <p className="m-0 mt-1 text-xs leading-5 text-slate-500">
+                Users tied to slow calls, server errors and frontend crashes. {loading ? "Checking…" : statusDetail + "."}
+              </p>
+              {!loading && worst && (
+                <p className="m-0 mt-2 flex min-w-0 items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+                  <span className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-full bg-white text-[10px] font-semibold text-slate-500 ring-1 ring-slate-200">
+                    {(worst.name || worst.label || "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    Most affected: <span className="font-medium text-slate-800">{worst.name || worst.label}</span>
+                    {worst.lastEvent?.route ? <span className="font-mono text-slate-500"> · {worst.lastEvent.route}</span> : null}
+                  </span>
+                  <span className="flex-shrink-0 tabular-nums text-slate-400">{worst.eventCount} {worst.eventCount === 1 ? "event" : "events"}</span>
+                </p>
+              )}
             </div>
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-3">
-          <div className="grid min-w-0 grid-cols-2 gap-2 text-center sm:grid-cols-4">
-            <SummaryPill label="Active" value={loading ? "..." : activeItems.length} tone={hasCritical ? "red" : "slate"} />
-            <SummaryPill label="Resolved" value={loading ? "..." : restoredItems.length} tone={restoredItems.length > 0 ? "green" : "slate"} />
-            <SummaryPill label="Events" value={loading ? "..." : activeEvents} tone={hasCritical ? "red" : "slate"} />
-            <SummaryPill label="Slow" value={loading ? "..." : slowEvents} tone={slowEvents > 0 ? "amber" : "slate"} />
+        {/* Counts with proportion, and the way in */}
+        <div className="min-w-0 bg-white px-4 py-4 sm:px-5">
+          <div className="grid grid-cols-4 gap-3">
+            {stats.map((stat) => (
+              <div key={stat.label} className="min-w-0">
+                <p className={`m-0 text-xl font-bold tabular-nums leading-none ${stat.tone}`}>{loading ? "…" : stat.value}</p>
+                <p className="m-0 mt-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">{stat.label}</p>
+                <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                  <span className={`block h-full rounded-full ${stat.bar}`} style={{ width: `${stat.value > 0 ? Math.max((stat.value / peak) * 100, 12) : 0}%` }} />
+                </span>
+              </div>
+            ))}
           </div>
           <Link
             href="/admin/impact-center"
-            className="inline-flex h-10 w-fit justify-self-end items-center justify-center rounded-lg border border-emerald-200 bg-emerald-700 px-4 text-sm font-black text-white no-underline shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-800 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+            className="mt-3.5 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border-0 bg-slate-900 px-4 text-xs font-semibold text-white no-underline transition hover:bg-slate-800 hover:no-underline sm:w-auto"
           >
-            <span>Open Impact Center</span>
+            Open Impact Center <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       </div>
     </section>
-  );
-}
-
-function SummaryPill({ label, value, tone = "slate" }: { label: string; value: string | number; tone?: "slate" | "amber" | "red" | "green" }) {
-  const valueClass = tone === "red" ? "text-red-700" : tone === "amber" ? "text-amber-700" : tone === "green" ? "text-emerald-700" : "text-slate-900";
-  return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-      <div className={`text-xl font-black leading-none ${valueClass}`}>{value}</div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-    </div>
-  );
-}
-
-function MetricTile({
-  icon: Icon,
-  label,
-  value,
-  helper,
-  status,
-  tone = "slate",
-}: {
-  icon: typeof Activity;
-  label: string;
-  value: string | number;
-  helper: string;
-  status: string;
-  tone?: "slate" | "green" | "red" | "sky" | "indigo" | "amber" | "violet";
-}) {
-  const styles = {
-    slate: {
-      card: "hover:border-slate-300 hover:shadow-slate-200/70",
-      icon: "text-slate-700 bg-slate-50 border-slate-200 group-hover:bg-slate-100",
-      value: "text-slate-950",
-      chip: "bg-slate-100 text-slate-700 border-slate-200",
-    },
-    sky: {
-      card: "hover:border-sky-200 hover:shadow-sky-100",
-      icon: "text-sky-700 bg-sky-50 border-sky-200 group-hover:bg-sky-100",
-      value: "text-sky-950",
-      chip: "bg-sky-50 text-sky-700 border-sky-200",
-    },
-    indigo: {
-      card: "hover:border-indigo-200 hover:shadow-indigo-100",
-      icon: "text-indigo-700 bg-indigo-50 border-indigo-200 group-hover:bg-indigo-100",
-      value: "text-indigo-950",
-      chip: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    },
-    amber: {
-      card: "hover:border-amber-200 hover:shadow-amber-100",
-      icon: "text-amber-700 bg-amber-50 border-amber-200 group-hover:bg-amber-100",
-      value: "text-amber-950",
-      chip: "bg-amber-50 text-amber-700 border-amber-200",
-    },
-    violet: {
-      card: "hover:border-violet-200 hover:shadow-violet-100",
-      icon: "text-violet-700 bg-violet-50 border-violet-200 group-hover:bg-violet-100",
-      value: "text-violet-950",
-      chip: "bg-violet-50 text-violet-700 border-violet-200",
-    },
-    green: {
-      card: "hover:border-emerald-200 hover:shadow-emerald-100",
-      icon: "text-emerald-700 bg-emerald-50 border-emerald-200 group-hover:bg-emerald-100",
-      value: "text-emerald-950",
-      chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    },
-    red: {
-      card: "hover:border-red-200 hover:shadow-red-100",
-      icon: "text-red-700 bg-red-50 border-red-200 group-hover:bg-red-100",
-      value: "text-red-950",
-      chip: "bg-red-50 text-red-700 border-red-200",
-    },
-  }[tone];
-
-  return (
-    <div className={`group rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 transition-colors duration-300 group-hover:text-slate-700">{label}</div>
-          <div className={`mt-2 text-2xl font-bold transition-colors duration-300 ${styles.value}`}>{value}</div>
-        </div>
-        <div className={`grid h-11 w-11 place-items-center rounded-xl border shadow-sm transition-all duration-300 group-hover:scale-105 ${styles.icon}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="text-xs text-slate-500 transition-colors duration-300 group-hover:text-slate-600">{helper}</div>
-        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${styles.chip}`}>
-          {status}
-        </span>
-      </div>
-    </div>
   );
 }
 

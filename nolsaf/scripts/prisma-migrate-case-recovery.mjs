@@ -613,10 +613,26 @@ function assertForeignKeyDefinition(actual, table, column, onDelete) {
   }
 }
 
+/**
+ * Checksum a migration the same way scripts/check-migration-integrity.mjs does.
+ *
+ * Git stores this SQL with LF, but a Windows worktree checked out with
+ * core.autocrlf=true exposes CRLF, and hashing those raw bytes yields a
+ * different digest for byte-identical content. Migration immutability has to be
+ * platform-independent, otherwise this guard rejects every unmodified migration
+ * on Windows with a message that reads like corruption.
+ */
+function canonicalChecksum(contents) {
+  const canonical = Buffer.isBuffer(contents) ? contents.toString("utf8") : String(contents);
+  return createHash("sha256")
+    .update(canonical.replace(/\r\n/g, "\n"))
+    .digest("hex");
+}
+
 function assertLocalMigrationChecksum(migrationName) {
   const path = join(migrationsPath, migrationName, "migration.sql");
   if (!existsSync(path)) fail(`${migrationName} SQL is missing.`);
-  const actual = createHash("sha256").update(readFileSync(path)).digest("hex");
+  const actual = canonicalChecksum(readFileSync(path));
   if (manifest.migrations?.[migrationName] !== actual) {
     fail(`${migrationName} checksum is not approved by the manifest.`);
   }

@@ -1,5 +1,6 @@
 import { prisma } from "@nolsaf/prisma";
 import { buildErrorDiagnostic, type ErrorDiagnostic } from "./errorDiagnostics.js";
+import { adminRecordReferenceOrNull as recordRef } from "../lib/adminRecordReference.js";
 
 export type ObservedRequest = {
   requestId: string;
@@ -563,20 +564,20 @@ function buildImpactProfile(
 
   switch (String(role || "").toUpperCase()) {
     case "OWNER":
-      return { kind: "owner", href: `/admin/owners/${userId}`, label: "View owner" };
+      return { kind: "owner", href: `/admin/owners/${recordRef("owner", userId) ?? userId}`, label: "View owner" };
     case "DRIVER":
-      return { kind: "driver", href: `/admin/drivers/audit/${userId}`, label: "View driver" };
+      return { kind: "driver", href: `/admin/drivers/audit/${recordRef("driver", userId) ?? userId}`, label: "View driver" };
     case "AGENT": {
       const agentId = agentIdByUserId.get(userId);
       return agentId
-        ? { kind: "agent", href: `/admin/agents/${agentId}`, label: "View agent" }
-        : { kind: "agent", href: `/admin/management/users?userId=${userId}`, label: "Review agent account" };
+        ? { kind: "agent", href: `/admin/agents/${recordRef("agent", agentId) ?? agentId}`, label: "View agent" }
+        : { kind: "agent", href: `/admin/management/users?userId=${recordRef("user", userId) ?? userId}`, label: "Review agent account" };
     }
     case "ADMIN":
-      return { kind: "admin", href: `/admin/management/users?userId=${userId}`, label: "View admin" };
+      return { kind: "admin", href: `/admin/management/users?userId=${recordRef("user", userId) ?? userId}`, label: "View admin" };
     case "CUSTOMER":
     default:
-      return { kind: "customer", href: `/admin/users/${userId}`, label: "View customer" };
+      return { kind: "customer", href: `/admin/users/${recordRef("user", userId) ?? userId}`, label: "View customer" };
   }
 }
 

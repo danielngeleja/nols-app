@@ -111,7 +111,17 @@ function getOrCreatePrisma() {
     throw new Error('DATABASE_URL environment variable is not set. Please configure it (e.g. in nolsaf/apps/api/.env).')
   }
   const adapter = createMariaDbAdapterFromDatabaseUrl(DATABASE_URL)
-  prismaInstance = new PrismaClient({ adapter })
+  prismaInstance = new PrismaClient({
+    adapter,
+    // Default limits for every interactive $transaction. Prisma's own 5 s
+    // timeout expired in production on multi-step writes (a sales conversion
+    // approval rolled back at its final audit write after 6 s), and ~190 call
+    // sites rely on the default. Calls that pass their own options still win.
+    transactionOptions: {
+      maxWait: intFromEnv('DB_TX_MAX_WAIT_MS', 5000),   // wait for a connection to start the transaction
+      timeout: intFromEnv('DB_TX_TIMEOUT_MS', 15000),   // total time the transaction may stay open
+    },
+  })
   return prismaInstance
 }
 

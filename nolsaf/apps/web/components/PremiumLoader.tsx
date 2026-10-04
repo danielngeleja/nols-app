@@ -7,9 +7,9 @@ export type PremiumLoaderSize = "xs" | "sm" | "md" | "lg" | "xl";
 const sizeMap: Record<PremiumLoaderSize, { px: number; stroke: number; font: string; subFont: string }> = {
   xs: { px: 20, stroke: 3, font: "text-[10px]", subFont: "text-[9px]" },
   sm: { px: 24, stroke: 3, font: "text-xs", subFont: "text-[10px]" },
-  md: { px: 44, stroke: 4, font: "text-base", subFont: "text-xs" },
-  lg: { px: 56, stroke: 5, font: "text-xl", subFont: "text-sm" },
-  xl: { px: 72, stroke: 6, font: "text-3xl", subFont: "text-sm" },
+  md: { px: 44, stroke: 4, font: "text-xs", subFont: "text-xs" },
+  lg: { px: 56, stroke: 5, font: "text-sm", subFont: "text-xs" },
+  xl: { px: 72, stroke: 6, font: "text-lg", subFont: "text-sm" },
 };
 
 function clamp01(n: number) {
@@ -53,7 +53,7 @@ export default function PremiumLoader({
       role="status"
       aria-label={ariaLabel || label}
       aria-live="polite"
-      className={`inline-flex items-center justify-center ${className}`.trim()}
+      className={`inline-flex flex-col items-center justify-center gap-2 ${className}`.trim()}
     >
       <span className="relative inline-flex items-center justify-center">
         <svg
@@ -78,7 +78,7 @@ export default function PremiumLoader({
             cy={cy}
             r={radius}
             fill="none"
-            className="stroke-slate-400/20"
+            className="stroke-neutral-200"
             strokeWidth={meta.stroke}
           />
 
@@ -101,17 +101,16 @@ export default function PremiumLoader({
           />
         </svg>
 
-        {(shouldShowPercent || shouldShowLabel) && (
-          <span className="absolute inset-0 flex flex-col items-center justify-center text-slate-100">
-            {shouldShowPercent ? (
-              <span className={`font-semibold tracking-tight ${meta.font}`}>{percentText}</span>
-            ) : null}
-            {shouldShowLabel ? (
-              <span className={`mt-1 text-slate-200/80 ${meta.subFont}`}>{label}</span>
-            ) : null}
+        {shouldShowPercent ? (
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className={`font-bold tabular-nums tracking-tight text-neutral-900 ${meta.font}`}>{percentText}</span>
           </span>
-        )}
+        ) : null}
       </span>
+
+      {shouldShowLabel ? (
+        <span aria-hidden className={`font-semibold text-neutral-400 ${meta.subFont}`}>{label}</span>
+      ) : null}
 
       <span className="sr-only">{label}</span>
     </span>

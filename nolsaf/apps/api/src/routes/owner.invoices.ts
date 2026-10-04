@@ -7,17 +7,50 @@ import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
+import {
+  isCustomerBookingReference,
+  isOwnerInvoiceReference,
+  matchesCustomerBookingReference,
+  matchesOwnerInvoiceReference,
+  ownerInvoiceReference,
+} from "../lib/customerBookingReference.js";
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
 
 const OWNER_INVOICE_PREFIX = "OINV-";
 
+async function resolveOwnedBookingId(ownerId: number, identifier: unknown): Promise<number | null> {
+  const raw = String(identifier ?? "").trim();
+  const numericId = Number(raw);
+  if (/^\d+$/.test(raw) && Number.isSafeInteger(numericId) && numericId > 0) return numericId;
+  if (!isCustomerBookingReference(raw)) return null;
+
+  const candidates = await prisma.booking.findMany({
+    where: { property: { ownerId } },
+    select: { id: true },
+  });
+  return candidates.find((candidate) => matchesCustomerBookingReference(raw, candidate.id))?.id ?? null;
+}
+
+async function resolveOwnedInvoiceId(ownerId: number, identifier: unknown): Promise<number | null> {
+  const raw = String(identifier ?? "").trim();
+  const numericId = Number(raw);
+  if (/^\d+$/.test(raw) && Number.isSafeInteger(numericId) && numericId > 0) return numericId;
+  if (!isOwnerInvoiceReference(raw)) return null;
+
+  const candidates = await prisma.invoice.findMany({
+    where: { ownerId, invoiceNumber: { startsWith: OWNER_INVOICE_PREFIX } } as any,
+    select: { id: true },
+  });
+  return candidates.find((candidate) => matchesOwnerInvoiceReference(raw, candidate.id))?.id ?? null;
+}
+
 /** GET /owner/invoices/for-booking/:bookingId — check if invoice already exists (used to lock Generate Invoice UI) */
 router.get("/for-booking/:bookingId", async (req, res) => {
   const r = req as AuthedRequest;
   const ownerId = r.user!.id;
-  const bookingId = Number(req.params.bookingId);
-  if (!bookingId) return res.status(400).json({ error: "bookingId is required" });
+  const bookingId = await resolveOwnedBookingId(ownerId, req.params.bookingId);
+  if (!bookingId) return res.status(400).json({ error: "booking reference is required" });
 
   // IMPORTANT:
   // - "Customer payment invoices" created by the public payment flow use paymentRef like "INVREF-..."
@@ -33,6 +66,7 @@ router.get("/for-booking/:bookingId", async (req, res) => {
     ok: true,
     exists: !!inv,
     invoiceId: inv?.id ?? null,
+    invoiceReference: inv ? ownerInvoiceReference(inv.id) : null,
     status: inv?.status ?? null,
     invoiceNumber: inv?.invoiceNumber ?? null,
   });
@@ -75,9 +109,10 @@ router.post("/from-booking", async (req, res) => {
   try {
     const authReq = req as AuthedRequest;
     const ownerId = authReq.user!.id;
-    const { bookingId } = authReq.body as { bookingId: number };
+    const body = authReq.body as { bookingReference?: string; bookingId?: number };
+    const bookingId = await resolveOwnedBookingId(ownerId, body.bookingReference ?? body.bookingId);
 
-    if (!bookingId) return res.status(400).json({ error: "bookingId is required" });
+    if (!bookingId) return res.status(400).json({ error: "booking reference is required" });
 
     const booking = await prisma.booking.findFirst({
       where: { id: bookingId, property: { ownerId } },
@@ -96,6 +131,7 @@ router.post("/from-booking", async (req, res) => {
         ok: true,
         existed: true,
         invoiceId: existingForBooking.id,
+        invoiceReference: ownerInvoiceReference(existingForBooking.id),
         status: existingForBooking.status,
       });
     }
@@ -170,10 +206,10 @@ router.post("/from-booking", async (req, res) => {
 
     if ("duplicate" in created) {
       // Idempotent: return existing invoice as success (avoid "error" UX and prevent retries creating duplicates).
-      return res.status(200).json({ ok: true, existed: true, invoiceId: created.duplicate, status: created.status });
+      return res.status(200).json({ ok: true, existed: true, invoiceId: created.duplicate, invoiceReference: ownerInvoiceReference(created.duplicate), status: created.status });
     }
 
-    return res.status(201).json({ ok: true, existed: false, invoiceId: created.invoiceId, status: "DRAFT" });
+    return res.status(201).json({ ok: true, existed: false, invoiceId: created.invoiceId, invoiceReference: ownerInvoiceReference(created.invoiceId), status: "DRAFT" });
   } catch (err: any) {
     console.error("POST /api/owner/invoices/from-booking error:", {
       message: err?.message,
@@ -187,11 +223,12 @@ router.post("/from-booking", async (req, res) => {
       if (isPrismaErrorCode(err, "P2002")) {
         const authReq = req as AuthedRequest;
         const ownerId = authReq.user!.id;
-        const { bookingId } = authReq.body as { bookingId: number };
+        const body = authReq.body as { bookingReference?: string; bookingId?: number };
+        const bookingId = await resolveOwnedBookingId(ownerId, body.bookingReference ?? body.bookingId);
         if (bookingId) {
           const existing = await findOwnerInvoiceForBooking(ownerId, Number(bookingId));
           if (existing?.id) {
-            return res.status(200).json({ ok: true, existed: true, invoiceId: existing.id, status: existing.status });
+            return res.status(200).json({ ok: true, existed: true, invoiceId: existing.id, invoiceReference: ownerInvoiceReference(existing.id), status: existing.status });
           }
         }
       }
@@ -205,7 +242,8 @@ router.post("/from-booking", async (req, res) => {
 /** GET /owner/invoices/:id — fetch full invoice (for preview) */
 router.get("/:id", async (req: Request, res: Response) => {
   const authReq = req as AuthedRequest;
-  const id = Number(authReq.params.id);
+  const id = await resolveOwnedInvoiceId(authReq.user!.id, authReq.params.id);
+  if (!id) return res.status(404).json({ error: "Not found" });
   const inv = await prisma.invoice.findFirst({
     where: { id, ownerId: authReq.user!.id, invoiceNumber: { startsWith: OWNER_INVOICE_PREFIX } } as any,
     include: {
@@ -238,6 +276,7 @@ router.get("/:id", async (req: Request, res: Response) => {
 
   return res.json({
     ...inv,
+    invoiceReference: ownerInvoiceReference(inv.id),
     title: `${propertyTitle} | Accommodation Invoice`,
     currency: "TZS",
     senderName: owner?.name ?? `Owner #${authReq.user!.id}`,
@@ -265,8 +304,9 @@ router.get("/:id", async (req: Request, res: Response) => {
 /** POST /owner/invoices/:id/submit — move DRAFT → REQUESTED (one-time) and notify admin */
 router.post("/:id/submit", async (req, res) => {
   const authReq = req as AuthedRequest;
-  const id = Number(authReq.params.id);
   const ownerId = authReq.user!.id;
+  const id = await resolveOwnedInvoiceId(ownerId, authReq.params.id);
+  if (!id) return res.status(404).json({ error: "Not found" });
 
   const inv = await prisma.invoice.findFirst({ where: { id, ownerId, invoiceNumber: { startsWith: OWNER_INVOICE_PREFIX } } as any });
   if (!inv) return res.status(404).json({ error: "Not found" });

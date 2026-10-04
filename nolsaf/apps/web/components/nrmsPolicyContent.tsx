@@ -3,7 +3,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const NRMS_POLICY_LAST_UPDATED = "12 August 2026";
+export const NRMS_POLICY_LAST_UPDATED = "9 September 2026";
 
 export const NRMS_POLICY_SECTIONS: TermsSection[] = [
   {
@@ -141,6 +141,14 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
           collect the master account payment, and does not guarantee, underwrite, or recover an amount that
           party fails to pay.
         </p>
+        <p id="accurate-occupancy-and-departure" className="scroll-mt-24">
+          <strong>4.6 Accurate occupancy and departure records.</strong> The Owner and Staff Members must record
+          checkout only after the guest has physically left the room. An early checkout requires an affirmative
+          vacancy declaration and a recorded reason because it releases unused booked dates. Deliberately checking out a guest
+          who remains in the room, altering stay dates to conceal occupancy, or otherwise understating occupied
+          room-nights is misuse of NRMS and a breach of this policy. The Owner remains responsible for actions
+          taken by Staff Members using access the Owner or Manager granted.
+        </p>
       </div>
     ),
   },
@@ -199,6 +207,14 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
           Forma verification link works the same way, exposing that document and the Property's own payment
           instructions to anyone holding the token.
         </p>
+        <p>
+          <strong>5.7 Early departures and released inventory.</strong> When a guest genuinely leaves before the
+          scheduled checkout date, NRMS records the actual departure business date, retains the original dates
+          and stated reason in the audit history, ends the occupied span shown on the room calendar, releases
+          future inventory, and sends the room into the departure housekeeping workflow. A historical
+          checked-out entry does not consume future availability. Group departures apply this rule separately
+          to every included room reservation.
+        </p>
       </div>
     ),
   },
@@ -236,6 +252,13 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
           NoLSAF processes what is submitted in line with the <Link href="/privacy" className="text-blue-600 hover:text-blue-800 underline">Privacy Policy</Link> and section 8.5, and does
           not verify that a submitted name, contact number, or nationality is accurate or lawfully provided.
         </p>
+        <p>
+          <strong>6.5 Service access after checkout.</strong> Checkout ends the guest's private stay link and
+          charge-to-room entitlement immediately. A permanent room QR may continue to support pay-now service,
+          but activity from that room during the unused part of an early-departure window may be retained as an
+          integrity signal. Such a signal does not by itself create a charge; NoLSAF may review it together with
+          reservation, folio, outlet, housekeeping, and other available operational evidence.
+        </p>
       </div>
     ),
   },
@@ -245,7 +268,9 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
       <div className="space-y-4">
         <p>
           <strong>7.1 What is billed.</strong> PAYG usage charges apply only to External Reservation room-nights
-          recorded by the Property. Marketplace bookings carry no NRMS usage fee and remain subject to the
+          actually occupied and recorded by the Property. Usage accrues as each occupied night elapses and an
+          event already recorded for that room-night is not removed by a later checkout or date change.
+          Marketplace bookings carry no NRMS usage fee and remain subject to the
           Owner's normal Marketplace commission under the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link>.
         </p>
         <p>
@@ -304,6 +329,15 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
           picked up in full accrues usage for every one of its rooms. Held but unnamed block rooms accrue
           nothing: usage begins only once a picked-up stay is checked in and its nights elapse.
         </p>
+        <p>
+          <strong>7.9 Early checkout and billing review.</strong> A genuine early departure is charged only for
+          occupied room-nights through the actual departure business date, subject to events already accrued.
+          The scheduled dates, actual departure, vacancy declaration, reason, actor, and time remain available
+          for audit. If credible operational evidence indicates that a room remained occupied after checkout,
+          NoLSAF may investigate, correct omitted usage through an auditable adjustment, request supporting
+          records, and apply section 8. An adjustment is not made solely because a guest used a pay-now QR after
+          departure; the available evidence is reviewed in context.
+        </p>
       </div>
     ),
   },
@@ -315,6 +349,11 @@ export const NRMS_POLICY_SECTIONS: TermsSection[] = [
           <strong>8.1 Grounds for suspension.</strong> NoLSAF may freeze or suspend NRMS access for a Property
           where its Marketplace approval is withdrawn, PAYG usage remains unpaid past the applicable limit, or
           the Owner or a Staff Member violates this policy, the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link>, or applicable law.
+          Deliberate false checkout, concealed occupancy, repeated unexplained post-checkout room activity,
+          tampering with dates or records to avoid PAYG charges, and refusal to provide reasonably requested
+          supporting records are examples of violations that may lead to billing correction, restriction,
+          suspension, or closure after review. Honest recording errors and genuine early departures may be
+          corrected through the ordinary audit and dispute process.
         </p>
         <p>
           <strong>8.2 Reversibility.</strong> A freeze or suspension under this policy is reversible once the

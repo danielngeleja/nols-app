@@ -88,47 +88,6 @@ export default function AboutWhatPage() {
       </div>
 
       <div className="not-prose -mx-5 grid min-w-0 gap-4 sm:-mx-8 lg:grid-cols-2">
-        <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card sm:p-7 lg:col-span-2">
-          <div aria-hidden className="pointer-events-none absolute inset-0">
-            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-[#02665e]/0 via-[#02665e]/45 to-[#02665e]/0" />
-            <div className="absolute inset-0 bg-gradient-to-br from-white via-[#02665e]/5 to-slate-50" />
-            <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-[#02665e]/12 blur-3xl" />
-            <div className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-[#02665e]/8 blur-3xl" />
-          </div>
-          <div className="relative">
-            <div className="text-base font-semibold tracking-tight text-slate-900">5) Planning support for solo travelers (“Plan with Us”)</div>
-            <ul className="mt-3 space-y-2 text-sm leading-relaxed text-slate-700">
-              <li className="flex min-w-0 gap-3">
-                <span
-                  aria-hidden
-                  className="mt-[0.35rem] h-5 w-1 flex-none rounded-full bg-gradient-to-b from-[#02665e]/60 via-[#02665e]/35 to-[#02665e]/15"
-                />
-                <span className="min-w-0 flex-1 break-words">
-                  Help for travelers who have a destination in mind but insufficient information about cost, timing, and what matters most.
-                </span>
-              </li>
-              <li className="flex min-w-0 gap-3">
-                <span
-                  aria-hidden
-                  className="mt-[0.35rem] h-5 w-1 flex-none rounded-full bg-gradient-to-b from-[#02665e]/60 via-[#02665e]/35 to-[#02665e]/15"
-                />
-                <span className="min-w-0 flex-1 break-words">
-                  Guidance for visits to places like Serengeti, Zanzibar, or similar destinations so travelers can plan with confidence.
-                </span>
-              </li>
-              <li className="flex min-w-0 gap-3">
-                <span
-                  aria-hidden
-                  className="mt-[0.35rem] h-5 w-1 flex-none rounded-full bg-gradient-to-b from-[#02665e]/60 via-[#02665e]/35 to-[#02665e]/15"
-                />
-                <span className="min-w-0 flex-1 break-words">
-                  Linked services in one place: <strong>transport + accommodation + tourist-site planning</strong>.
-                </span>
-              </li>
-            </ul>
-          </div>
-        </section>
-
         <section className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-6 shadow-card sm:p-7">
           <div aria-hidden className="pointer-events-none absolute inset-0">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-[#02665e]/0 via-[#02665e]/35 to-[#02665e]/0" />
@@ -136,7 +95,7 @@ export default function AboutWhatPage() {
             <div className="absolute -top-20 -right-20 h-60 w-60 rounded-full bg-[#02665e]/10 blur-3xl" />
           </div>
           <div className="relative">
-            <div className="text-base font-semibold tracking-tight text-slate-900">6) Group Stays: budget-friendly offers with owner claiming</div>
+            <div className="text-base font-semibold tracking-tight text-slate-900">5) Group Stays: budget-friendly offers with owner claiming</div>
             <p className="mt-2 text-sm leading-relaxed text-slate-700">
               For certain circumstances, we support a group-stay flow where travelers can submit offers and property owners can claim
               offers that fit them. This approach helps expand access and supports budget-friendly travel across the region.
@@ -151,7 +110,7 @@ export default function AboutWhatPage() {
             <div className="absolute -bottom-20 -left-20 h-60 w-60 rounded-full bg-[#02665e]/10 blur-3xl" />
           </div>
           <div className="relative">
-            <div className="text-base font-semibold tracking-tight text-slate-900">7) Agents and event managers</div>
+            <div className="text-base font-semibold tracking-tight text-slate-900">6) Agents and event managers</div>
             <p className="mt-2 text-sm leading-relaxed text-slate-700">
               Travel is not only about visiting towns many travelers come for traditional tourism and need clarity on arrangements,
               budgets, timing, and what to prioritize. Our agent system is designed to make that easy and structured.

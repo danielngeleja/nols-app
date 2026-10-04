@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Users, Calendar, CheckCircle, Clock, TrendingUp, Utensils, Car, UserCheck, Wrench } from "lucide-react";
+import { Users, Calendar, CheckCircle, Clock, TrendingUp, Utensils, Car, UserCheck, Wrench, ArrowRight, MapPin } from "lucide-react";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import Chart from "@/components/Chart";
@@ -40,9 +40,57 @@ type SummaryData = {
   }>;
 };
 
+function humanizeLabel(value: string | null | undefined) {
+  const text = String(value || "").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";
+}
+
+// Region slugs arrive as "dar-es-salaam"; keep connective words lowercase.
+function formatRegion(slug: string) {
+  return slug
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word, i) => (i > 0 && ["es", "la", "wa", "na", "ya"].includes(word.toLowerCase()) ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()))
+    .join(" ");
+}
+
+function customerInitials(name: string) {
+  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
+  return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
+}
+
+function relativeDays(date: Date) {
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  if (!Number.isFinite(days) || days < 0) return "";
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "1 month ago" : `${months} months ago`;
+}
+
+function groupStayStatusTone(status: string) {
+  switch (String(status || "").toUpperCase()) {
+    case "AWAITING_DEPOSIT":
+      return { pill: "bg-amber-50 text-amber-700 ring-amber-200", dot: "bg-amber-500" };
+    case "CONFIRMED":
+      return { pill: "bg-emerald-50 text-emerald-700 ring-emerald-200", dot: "bg-emerald-500" };
+    case "PROCESSING":
+      return { pill: "bg-blue-50 text-blue-700 ring-blue-200", dot: "bg-blue-500" };
+    case "COMPLETED":
+      return { pill: "bg-slate-100 text-slate-700 ring-slate-200", dot: "bg-slate-500" };
+    case "CANCELED":
+    case "CANCELLED":
+      return { pill: "bg-rose-50 text-rose-700 ring-rose-200", dot: "bg-rose-500" };
+    default:
+      return { pill: "bg-gray-50 text-gray-600 ring-gray-200", dot: "bg-gray-400" };
+  }
+}
+
 export default function GroupStaysDashboardPage() {
   const [summary, setSummary] = useState<SummaryData>({});
   const [loading, setLoading] = useState(true);
+  const awaitingDepositCount = (summary.recentBookings || []).filter((b) => String(b.status).toUpperCase() === "AWAITING_DEPOSIT").length;
 
   useEffect(() => {
     authify();
@@ -125,8 +173,7 @@ export default function GroupStaysDashboardPage() {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-purple-500 to-purple-600" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
           <div className="p-5">
             <div className="flex items-start gap-4">
               <div className="h-10 w-10 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0">
@@ -142,8 +189,7 @@ export default function GroupStaysDashboardPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-blue-400 to-blue-600" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
           <div className="p-5">
             <div className="flex items-start gap-4">
               <div className="h-10 w-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
@@ -159,8 +205,7 @@ export default function GroupStaysDashboardPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-600" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
           <div className="p-5">
             <div className="flex items-start gap-4">
               <div className="h-10 w-10 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
@@ -176,15 +221,14 @@ export default function GroupStaysDashboardPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
           <div className="p-5">
             <div className="flex items-start gap-4">
               <div className="h-10 w-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
                 <TrendingUp className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Passengers</div>
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Guests</div>
                 <div className="text-2xl font-bold text-gray-900 tabular-nums">
                   {loading ? <span className="inline-block h-7 w-16 bg-gray-200 rounded animate-pulse" /> : (summary.totalPassengers || 0).toLocaleString()}
                 </div>
@@ -201,9 +245,8 @@ export default function GroupStaysDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Link
           href="/admin/group-stays/bookings"
-          className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
+          className="group bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
         >
-          <div className="h-1 bg-gradient-to-r from-purple-500 to-purple-600" />
           <div className="p-5 flex items-center gap-4">
             <div className="h-10 w-10 rounded-lg bg-purple-50 border border-purple-100 flex items-center justify-center flex-shrink-0 group-hover:bg-purple-100 transition-colors">
               <Calendar className="h-5 w-5 text-purple-600" />
@@ -218,9 +261,8 @@ export default function GroupStaysDashboardPage() {
 
         <Link
           href="/admin/group-stays/requests"
-          className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
+          className="group bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
         >
-          <div className="h-1 bg-gradient-to-r from-blue-400 to-blue-600" />
           <div className="p-5 flex items-center gap-4">
             <div className="h-10 w-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
               <Clock className="h-5 w-5 text-blue-600" />
@@ -237,15 +279,14 @@ export default function GroupStaysDashboardPage() {
 
         <Link
           href="/admin/group-stays/passengers"
-          className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
+          className="group bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
         >
-          <div className="h-1 bg-gradient-to-r from-emerald-400 to-emerald-600" />
           <div className="p-5 flex items-center gap-4">
             <div className="h-10 w-10 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald-100 transition-colors">
               <Users className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Passengers</div>
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Guests</div>
               <div className="text-base font-bold text-gray-900 group-hover:text-emerald-700 transition-colors">Manage Roster</div>
             </div>
             <svg className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -254,15 +295,14 @@ export default function GroupStaysDashboardPage() {
 
         <Link
           href="/admin/group-stays/arrangements"
-          className="group bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
+          className="group bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 no-underline overflow-hidden"
         >
-          <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
           <div className="p-5 flex items-center gap-4">
             <div className="h-10 w-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0 group-hover:bg-amber-100 transition-colors">
               <Wrench className="h-5 w-5 text-amber-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Arrangements</div>
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Extra services</div>
               <div className="text-base font-bold text-gray-900 group-hover:text-amber-700 transition-colors">Services</div>
             </div>
             <svg className="h-4 w-4 text-gray-300 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -273,8 +313,7 @@ export default function GroupStaysDashboardPage() {
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Group Types Chart */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-purple-500 to-blue-500" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
           <div className="p-6">
             <div className="mb-4">
               <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
@@ -348,8 +387,7 @@ export default function GroupStaysDashboardPage() {
         </div>
 
         {/* Status Distribution Chart */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-blue-400 to-emerald-500" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 overflow-hidden">
           <div className="p-6">
             <div className="mb-4">
               <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
@@ -403,8 +441,7 @@ export default function GroupStaysDashboardPage() {
 
       {/* Arrangements Summary */}
       {summary.arrangements && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-500" />
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
           <div className="p-6">
             <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
               <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-amber-50 border border-amber-100"><Wrench className="h-4 w-4 text-amber-600" /></span>
@@ -443,59 +480,93 @@ export default function GroupStaysDashboardPage() {
 
       {/* Recent Bookings */}
       {summary.recentBookings && summary.recentBookings.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-purple-500 to-indigo-500" />
-          <div className="p-6">
-            <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-purple-50 border border-purple-100"><Calendar className="h-4 w-4 text-purple-600" /></span>
-              Recent Bookings
-            </h3>
+        <div className="bg-white rounded-xl border border-solid border-gray-200 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6 border-0 border-b border-solid border-gray-100">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="inline-flex items-center justify-center h-9 w-9 rounded-lg bg-purple-50 text-purple-600 flex-shrink-0">
+                <Calendar className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="m-0 text-sm font-bold text-gray-900">Recent bookings</h3>
+                <p className="m-0 mt-0.5 text-xs text-gray-400">
+                  Latest {summary.recentBookings.length} group {summary.recentBookings.length === 1 ? "request" : "requests"}
+                  {awaitingDepositCount > 0 ? ` · ${awaitingDepositCount} awaiting deposit` : ""}
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/admin/group-stays/bookings"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-purple-700 no-underline transition-colors hover:bg-purple-50 hover:no-underline"
+            >
+              View all
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Headcount</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destination</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+            <table className="w-full min-w-[760px] border-collapse">
+              <thead>
+                <tr className="bg-gray-50/70">
+                  {["Booking", "Group", "Destination", "Status", "Customer", "Created"].map((label, i) => (
+                    <th
+                      key={label}
+                      className={`px-5 sm:px-6 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400 ${i === 5 ? "text-right" : "text-left"}`}
+                    >
+                      {label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {summary.recentBookings.map((booking) => (
-                  <tr key={booking.id} className="hover:bg-gray-50 transition-colors duration-150">
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">#{booking.id}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 capitalize">{booking.groupType}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{booking.headcount}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{booking.toRegion || "N/A"}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">
-                      <span
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          booking.status === "PENDING"
-                            ? "bg-gray-100 text-gray-700"
-                            : booking.status === "CONFIRMED"
-                            ? "bg-blue-100 text-blue-700"
-                            : booking.status === "PROCESSING"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : booking.status === "COMPLETED"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {booking.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{booking.user?.name || booking.user?.email || "N/A"}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(booking.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
+              <tbody>
+                {summary.recentBookings.map((booking) => {
+                  const tone = groupStayStatusTone(booking.status);
+                  const customer = booking.user?.name || booking.user?.email || "Unknown customer";
+                  const created = new Date(booking.createdAt);
+                  return (
+                    <tr key={booking.id} className="group transition-colors hover:bg-purple-50/40">
+                      <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap border-0 border-t border-solid border-gray-100">
+                        <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 font-mono text-xs font-semibold text-gray-700 tabular-nums">
+                          GS-{String(booking.id).padStart(4, "0")}
+                        </span>
+                      </td>
+                      <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap border-0 border-t border-solid border-gray-100">
+                        <div className="text-sm font-semibold text-gray-900">{humanizeLabel(booking.groupType)}</div>
+                        <div className="mt-0.5 inline-flex items-center gap-1 text-xs text-gray-400">
+                          <Users className="h-3 w-3" />
+                          {booking.headcount} {booking.headcount === 1 ? "guest" : "guests"}
+                        </div>
+                      </td>
+                      <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap border-0 border-t border-solid border-gray-100">
+                        <span className="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                          <MapPin className="h-3.5 w-3.5 text-gray-300" />
+                          {booking.toRegion ? formatRegion(booking.toRegion) : <span className="text-gray-400">Not set</span>}
+                        </span>
+                      </td>
+                      <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap border-0 border-t border-solid border-gray-100">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${tone.pill}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+                          {humanizeLabel(booking.status)}
+                        </span>
+                      </td>
+                      <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap border-0 border-t border-solid border-gray-100">
+                        <div className="flex items-center gap-2.5">
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-purple-100 to-indigo-100 text-[11px] font-bold text-purple-700 flex-shrink-0">
+                            {customerInitials(customer)}
+                          </span>
+                          <span className="text-sm text-gray-700 truncate max-w-[12rem]" title={booking.user?.email || customer}>{customer}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 sm:px-6 py-2.5 whitespace-nowrap text-right border-0 border-t border-solid border-gray-100">
+                        <div className="text-sm text-gray-700 tabular-nums">
+                          {created.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-400">{relativeDays(created)}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-          </div>
           </div>
         </div>
       )}

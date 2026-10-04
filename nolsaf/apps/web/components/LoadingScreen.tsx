@@ -1,37 +1,75 @@
 "use client";
 
-import React from "react";
-import Image from "next/image";
+import { useEffect, useState, type CSSProperties } from "react";
+import BrandMark from "@/components/BrandMark";
+import { hasClientNavigated } from "@/components/RouteProgress";
 
-export default function LoadingScreen({ label = "Preparing your stay..." }: { label?: string }) {
+const delay = (ms: number) => ({ "--nls-load-delay": `${ms}ms` }) as CSSProperties;
+
+/**
+ * First load: branded splash where the mark draws itself.
+ * Page change: a quiet in-page state (the top RouteProgress bar carries the motion).
+ * Everything fades in after 300ms so fast loads never flash, and the slow-network
+ * hint is pure CSS so it still appears when JavaScript hasn't arrived yet.
+ */
+export default function LoadingScreen({ label = "Getting things ready…" }: { label?: string }) {
+  const [inline] = useState(hasClientNavigated);
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setOffline(!navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  const status = offline ? "You're offline. We'll continue when you're back online." : label;
+
+  if (inline) {
+    return (
+      <div role="status" aria-live="polite" className="flex min-h-[60vh] w-full items-center justify-center">
+        <div className="nls-load-appear flex flex-col items-center" style={delay(400)}>
+          <BrandMark size={36} className="nls-load-breathe" />
+          <p className="m-0 mt-3 text-xs font-medium text-slate-500">{status}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-[9999] overflow-hidden bg-[linear-gradient(135deg,#ecfdf5_0%,#f8fafc_45%,#eff6ff_100%)]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(2,102,94,0.14),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(2,180,245,0.12),transparent_28%)]" />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-white px-4">
+      <div role="status" aria-live="polite" className="relative flex flex-col items-center text-center">
+        <div className="nls-load-appear" style={delay(300)}>
+          <BrandMark size={64} draw />
+        </div>
 
-      <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
-        <div role="status" aria-live="polite" className="w-full max-w-md text-center">
-          <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-[28px] bg-white shadow-[0_20px_50px_rgba(2,102,94,0.16)] ring-1 ring-[#02665e]/10">
-            <Image
-              src="/assets/NoLS2025-04.png"
-              alt="NoLSAF"
-              width={76}
-              height={76}
-              className="h-[68px] w-[68px] object-contain"
-              priority
-            />
-          </div>
+        <p className="nls-load-appear m-0 mt-5 text-2xl font-bold tracking-tight text-slate-900" style={delay(1300)}>
+          NoLSAF
+        </p>
+        <p className="nls-load-appear m-0 mt-1 text-sm font-medium text-[#02665e]" style={delay(1500)}>
+          Quality Stay for Every Wallet
+        </p>
 
-          <div className="text-2xl font-bold tracking-tight text-slate-900">NoLSAF</div>
-          <div className="mt-1 text-sm font-medium text-[#02665e]">Quality Stay for Every Wallet</div>
-          <div className="mt-3 text-sm text-slate-600">{label}</div>
+        <div className="nls-load-appear mt-6" style={delay(1700)}>
+          <div className="nls-load-track" />
+        </div>
+        <p className="nls-load-appear m-0 mt-3 text-xs font-medium text-slate-500" style={delay(1700)}>
+          {status}
+        </p>
 
-          <div className="mt-5 flex items-center justify-center gap-2" aria-hidden>
-            <span className="h-2.5 w-2.5 animate-bounce rounded-full bg-[#02665e] [animation-delay:-0.2s]" />
-            <span className="h-2.5 w-2.5 animate-bounce rounded-full bg-[#02b4f5] [animation-delay:-0.1s]" />
-            <span className="h-2.5 w-2.5 animate-bounce rounded-full bg-emerald-400" />
-          </div>
-
-          <span className="sr-only">{label}</span>
+        <div className="nls-load-appear absolute left-1/2 top-full mt-4 flex w-72 -translate-x-1/2 flex-col items-center" style={delay(6000)}>
+          <p className="m-0 text-xs text-slate-500">Still loading. Your connection seems slow.</p>
+          {/* A plain link reloads the page even before JavaScript has loaded. */}
+          <a
+            href=""
+            className="mt-2 inline-flex min-h-[40px] items-center rounded-full border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:border-[#02665e] hover:text-[#02665e]"
+          >
+            Retry
+          </a>
         </div>
       </div>
     </div>

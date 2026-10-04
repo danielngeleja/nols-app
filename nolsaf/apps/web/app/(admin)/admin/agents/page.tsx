@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { Search, X, User, CheckCircle, XCircle, Clock, Eye, Filter, GraduationCap, MapPin, Award, Languages, Briefcase, UsersRound, ChevronDown, Calendar, DollarSign, Star, CheckCircle2, Mail, Phone, TrendingUp, Target, Trophy, Loader2, AlertCircle, RefreshCw, ExternalLink, FileX, FileText, FileCheck, Check, Undo2, ShieldOff, ShieldCheck, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, X, User, CheckCircle, XCircle, Clock, Eye, Filter, GraduationCap, MapPin, Award, Languages, Briefcase, UsersRound, ChevronDown, Star, CheckCircle2, Mail, Phone, TrendingUp, Target, Trophy, Loader2, AlertCircle, RefreshCw, ExternalLink, FileX, FileText, FileCheck, Check, Undo2, ShieldOff, ShieldCheck, AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 
@@ -129,24 +129,6 @@ type Agent = {
     timezone?: string | null;
     avatarUrl?: string | null;
   };
-  assignedPlanRequests?: Array<{
-    id: number;
-    role: string;
-    tripType: string;
-    status: string;
-    fullName: string | null;
-    email: string | null;
-    phone: string | null;
-    dateFrom: string | null;
-    dateTo: string | null;
-    groupSize: number | null;
-    budget: number | null;
-    destinations: string | null;
-    notes: string | null;
-    adminResponse: string | null;
-    createdAt: string;
-    updatedAt: string;
-  }>;
 };
 
 type AgentDocument = {
@@ -192,7 +174,6 @@ export default function AdminAgentsPage() {
     title: "",
   });
 
-  const [taskView, setTaskView] = useState<"IN_PROGRESS" | "COMPLETED">("IN_PROGRESS");
 
   // Filter states
   const [status, setStatus] = useState<string>("");
@@ -384,13 +365,6 @@ export default function AdminAgentsPage() {
   }
 
   useEffect(() => {
-    const tasks = viewingAgent?.assignedPlanRequests || [];
-    const completed = tasks.filter((t: any) => t?.status === "COMPLETED" || t?.status === "CLOSED");
-    const inProgress = tasks.filter((t: any) => !(t?.status === "COMPLETED" || t?.status === "CLOSED"));
-    setTaskView(inProgress.length > 0 ? "IN_PROGRESS" : completed.length > 0 ? "COMPLETED" : "IN_PROGRESS");
-  }, [viewingAgent?.id, viewingAgent?.assignedPlanRequests]);
-
-  useEffect(() => {
     if (!viewingAgent) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeAgentDetails();
@@ -481,7 +455,7 @@ export default function AdminAgentsPage() {
 
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 xl:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
+    <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
       {/* Header */}
       <div
         className="relative rounded-2xl overflow-hidden shadow-2xl"
@@ -1845,194 +1819,6 @@ export default function AdminAgentsPage() {
                     </div>
                   </div>
                 )}
-                <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
-                  {(() => {
-                    const allTasks = viewingAgent.assignedPlanRequests || [];
-                    const completedTasks = allTasks.filter((t: any) => t?.status === "COMPLETED" || t?.status === "CLOSED");
-                    const inProgressTasks = allTasks.filter((t: any) => !(t?.status === "COMPLETED" || t?.status === "CLOSED"));
-                    const visibleTasks = taskView === "COMPLETED" ? completedTasks : inProgressTasks;
-
-                    return (
-                      <>
-                        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                              <Briefcase className="h-4 w-4" />
-                            </div>
-                            <h3 className="text-sm font-bold text-slate-900 tracking-tight">Track Tasks</h3>
-                            {allTasks.length > 0 ? (
-                              <span className="px-2.5 py-0.5 bg-[#02665e]/10 text-[#02665e] text-[11px] font-bold rounded-full">
-                                {allTasks.length} {allTasks.length === 1 ? "task" : "tasks"}
-                              </span>
-                            ) : null}
-                          </div>
-
-                          {allTasks.length > 0 ? (
-                            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100 p-1">
-                              <button
-                                type="button"
-                                onClick={() => setTaskView("IN_PROGRESS")}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                  taskView === "IN_PROGRESS" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-                                }`}
-                                aria-pressed={taskView === "IN_PROGRESS"}
-                              >
-                                In progress
-                                <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700 font-bold">
-                                  {inProgressTasks.length}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setTaskView("COMPLETED")}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                                  taskView === "COMPLETED" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
-                                }`}
-                                aria-pressed={taskView === "COMPLETED"}
-                              >
-                                Completed
-                                <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-700 font-bold">
-                                  {completedTasks.length}
-                                </span>
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {visibleTasks.length > 0 ? (
-                          <div className="p-5 space-y-3">
-                            {visibleTasks.map((task: any) => {
-                        const assignedDate = new Date(task.createdAt);
-                        const completedDate = task.updatedAt ? new Date(task.updatedAt) : null;
-                        const isCompleted = task.status === 'COMPLETED' || task.status === 'CLOSED';
-                        
-                        return (
-                          <div key={task.id} className="rounded-xl border border-slate-200 bg-white p-4 hover:shadow-sm transition-shadow">
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <h4 className="text-sm font-semibold text-gray-900">{task.role || 'Task'}</h4>
-                                  <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                                    task.status === 'COMPLETED' || task.status === 'CLOSED' 
-                                      ? 'bg-green-100 text-green-700'
-                                      : task.status === 'IN_PROGRESS' || task.status === 'PENDING'
-                                      ? 'bg-yellow-100 text-yellow-700'
-                                      : 'bg-blue-100 text-blue-700'
-                                  }`}>
-                                    {task.status}
-                                  </span>
-                                </div>
-                                {task.tripType && (
-                                  <p className="text-xs text-gray-600 mb-1">Trip Type: {task.tripType}</p>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                              {/* Client Information */}
-                              <div className="space-y-2">
-                                <h5 className="text-xs font-semibold text-gray-700">Client Information</h5>
-                                {task.fullName && (
-                                  <p className="text-xs text-gray-600">Name: {task.fullName}</p>
-                                )}
-                                {task.email && (
-                                  <p className="text-xs text-gray-600 flex items-center gap-1">
-                                    <Mail className="h-3 w-3" />
-                                    {task.email}
-                                  </p>
-                                )}
-                                {task.phone && (
-                                  <p className="text-xs text-gray-600 flex items-center gap-1">
-                                    <Phone className="h-3 w-3" />
-                                    {task.phone}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Task Details */}
-                              <div className="space-y-2">
-                                <h5 className="text-xs font-semibold text-gray-700">Task Details</h5>
-                                {task.dateFrom && task.dateTo && (
-                                  <p className="text-xs text-gray-600 flex items-center gap-1">
-                                    <Calendar className="h-3 w-3" />
-                                    {new Date(task.dateFrom).toLocaleDateString()} - {new Date(task.dateTo).toLocaleDateString()}
-                                  </p>
-                                )}
-                                {task.groupSize && (
-                                  <p className="text-xs text-gray-600">Group Size: {task.groupSize} {task.groupSize === 1 ? 'person' : 'people'}</p>
-                                )}
-                                {task.budget && (
-                                  <p className="text-xs text-gray-600 flex items-center gap-1">
-                                    <DollarSign className="h-3 w-3" />
-                                    Budget: {typeof task.budget === 'number' ? `$${task.budget.toLocaleString()}` : task.budget}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Task Description */}
-                            {task.notes && (
-                              <div className="mb-3">
-                                <h5 className="text-xs font-semibold text-gray-700 mb-1">Task Description</h5>
-                                <p className="text-xs text-gray-600 bg-gray-50 rounded p-2 border border-gray-100">
-                                  {task.notes.length > 200 ? `${task.notes.substring(0, 200)}...` : task.notes}
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Admin Response / Recommendations */}
-                            {task.adminResponse && (
-                              <div className="mb-3">
-                                <h5 className="text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                  Admin Recommendations
-                                </h5>
-                                <p className="text-xs text-gray-600 bg-green-50 rounded p-2 border border-green-100">
-                                  {task.adminResponse.length > 200 ? `${task.adminResponse.substring(0, 200)}...` : task.adminResponse}
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Timeline */}
-                            <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                              <div className="flex items-center gap-4 text-xs text-gray-500">
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  <span>Assigned: {assignedDate.toLocaleDateString()}</span>
-                                </div>
-                                {completedDate && isCompleted && (
-                                  <div className="flex items-center gap-1">
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                    <span>Completed: {completedDate.toLocaleDateString()}</span>
-                                  </div>
-                                )}
-                              </div>
-                              {task.destinations && (
-                                <div className="flex items-center gap-1 text-xs text-gray-600">
-                                  <MapPin className="h-3 w-3" />
-                                  <span>{task.destinations}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                            })}
-                          </div>
-                        ) : allTasks.length > 0 ? (
-                          <div className="px-5 py-10 text-center text-slate-400">
-                            <Briefcase className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                            <p className="text-sm font-medium">{taskView === "COMPLETED" ? "No completed tasks yet" : "No in-progress tasks right now"}</p>
-                          </div>
-                        ) : (
-                          <div className="px-5 py-10 text-center text-slate-400">
-                            <Briefcase className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-                            <p className="text-sm font-medium">No tasks assigned yet</p>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
               </div>
               )}
             </div>

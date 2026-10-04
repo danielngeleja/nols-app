@@ -11,6 +11,8 @@ type ShiftHistoryRow = {
   openedAt: string;
   closedAt: string | null;
   expectedCash: number;
+  declaredCash: number | null;
+  variance: number | null;
   currency: string;
   closeNote: string | null;
   takenOverFrom: string | null;
@@ -27,8 +29,8 @@ type ShiftState = {
 
 const STEPS = [
   { icon: UserCheck, title: "Start under your name", text: "Open your shift, or confirm the drawer handed over to you. Your login is the signature." },
-  { icon: Banknote, title: "Sales record themselves", text: "Every order and payment you settle is stamped to your account. Nothing is counted or typed." },
-  { icon: ArrowLeftRight, title: "Close and hand over", text: "Review your figures, seal them, and the next attendee confirms the takeover on their account." },
+  { icon: Banknote, title: "NRMS calculates expected cash", text: "Every cash sale and payment you settle is stamped to your account and added to the expected drawer." },
+  { icon: ArrowLeftRight, title: "Count, close and hand over", text: "Count the physical drawer, explain any difference, then the next attendee confirms what they received." },
 ];
 
 function dayLabel(value: string) {
@@ -135,8 +137,8 @@ export default function NrmsShiftPage() {
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="m-0 text-[13px] font-bold text-neutral-900">{money(row.expectedCash)}</p>
-                        <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">cash sealed at close</p>
+                        <p className="m-0 text-[13px] font-bold text-neutral-900">{row.declaredCash == null ? "Count not recorded" : money(row.declaredCash)}</p>
+                        <p className={`mb-0 mt-0.5 text-[10px] ${row.variance ? "text-red-600" : "text-neutral-400"}`}>{row.variance == null ? `Expected ${money(row.expectedCash)}` : `Variance ${money(row.variance)}`}</p>
                       </div>
                     </div>
                   ))}

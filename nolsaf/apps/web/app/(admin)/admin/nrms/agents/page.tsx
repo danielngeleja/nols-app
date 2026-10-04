@@ -166,7 +166,7 @@ export default function NrmsAgencyVerificationPage() {
   };
 
   return (
-    <main id="nrms-agent-verification" className="mx-auto w-full max-w-[1500px] px-3 pb-28 pt-4 sm:px-5 sm:pt-5 lg:px-6 lg:pb-10">
+    <main id="nrms-agent-verification" className="w-full min-w-0 max-w-none px-3 pb-5 pt-4 sm:px-5 sm:pt-5 lg:px-6">
       <style>{`#nrms-agent-verification, #nrms-agent-verification * { box-sizing: border-box; }`}</style>
 
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -174,9 +174,9 @@ export default function NrmsAgencyVerificationPage() {
         <span className="hidden items-center gap-1.5 text-[11px] font-semibold text-neutral-400 sm:inline-flex"><ShieldCheck className="h-3.5 w-3.5" /> Central KYC control</span>
       </div>
 
-      <header className="relative overflow-hidden rounded-2xl border border-emerald-800 bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-800 p-5 text-white shadow-sm sm:p-7">
+      <header className="relative overflow-hidden rounded-2xl border border-slate-800 bg-[linear-gradient(120deg,#102b3a_0%,#123f49_65%,#075e54_100%)] p-4 text-white shadow-sm sm:p-5">
         <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-white/10 blur-2xl" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3.5 sm:items-center">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/10 ring-1 ring-white/20 sm:h-14 sm:w-14 sm:rounded-2xl"><ShieldCheck className="h-5 w-5 sm:h-6 sm:w-6" /></span>
             <div className="min-w-0"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-200">NRMS trust operations</p><h1 className="m-0 mt-1 text-xl font-extrabold tracking-tight sm:text-2xl">Agency verification</h1><p className="m-0 mt-1 max-w-2xl text-xs leading-5 text-emerald-100/80 sm:text-[13px]">Review identity evidence once, record a defensible decision, and reuse verification across approved hotels.</p></div>
@@ -190,8 +190,8 @@ export default function NrmsAgencyVerificationPage() {
 
       {(error || notice) && <div className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`} role={error ? "alert" : "status"}>{error ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}<span>{error || notice}</span></div>}
 
-      <section className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="inline-flex gap-1.5 rounded-xl bg-neutral-100 p-1">
+      <section className="mt-4 grid min-w-0 grid-cols-1 items-center gap-3 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_auto]">
+        <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
           {(Object.keys(STATUS) as VerificationStatus[]).map((item) => <button key={item} type="button" aria-pressed={status === item} onClick={() => setStatus(item)} className={`min-h-9 rounded-lg border px-3 text-[10px] font-bold transition ${status === item ? STATUS[item].active : "border-transparent bg-transparent text-neutral-500 hover:bg-white hover:text-neutral-800"}`}>{STATUS[item].shortLabel}</button>)}
         </div>
         <label className="relative min-w-0 flex-1"><span className="sr-only">Search agencies</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search agency, registration or TIN" className="min-h-11 w-full rounded-xl border border-neutral-200 bg-white py-2 pl-9 pr-3 text-xs outline-none transition placeholder:text-neutral-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" /></label>
@@ -205,8 +205,10 @@ export default function NrmsAgencyVerificationPage() {
           <div className="mx-auto flex min-h-[260px] max-w-lg flex-col items-center justify-center px-6 py-9 text-center"><span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><Users className="h-6 w-6" /></span><p className="m-0 mt-4 text-base font-extrabold text-neutral-900">No agencies found</p><p className="m-0 mt-1.5 text-xs leading-5 text-neutral-500">Try another status or clear your search.</p></div>
         ) : (
           <>
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[1000px] border-collapse text-left">
+            <div className="hidden w-full min-w-0 max-w-full overflow-x-auto md:block">
+              <table className="agency-register w-full min-w-[1100px] table-fixed border-collapse text-left">
+                <caption className="sr-only">Agency identity verification queue</caption>
+                <colgroup>{[25, 14, 10, 15, 8, 10, 10, 8].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
                 <thead>
                   <tr className="border-0 border-b border-solid border-neutral-200 bg-neutral-50">
                     <SortHeader label="Agency" field="name" activeField={sortField} dir={sortDir} onSort={toggleSort} />
@@ -272,14 +274,14 @@ export default function NrmsAgencyVerificationPage() {
       {mounted && detailOpen && selected && createPortal(
         <div
           id="nrms-agent-detail-modal"
-          className="box-border fixed inset-0 z-[90] flex items-center justify-center bg-neutral-950/55 p-3 backdrop-blur-sm sm:p-6"
+          className="box-border fixed inset-0 z-[90] flex items-stretch justify-end bg-neutral-950/55 p-0 backdrop-blur-sm sm:p-3"
           role="dialog"
           aria-modal="true"
           aria-labelledby="agency-detail-title"
           onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailOpen(false); }}
         >
           <style>{`#nrms-agent-detail-modal, #nrms-agent-detail-modal * { box-sizing: border-box; }`}</style>
-          <aside className="box-border relative flex h-[90vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-xl bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)] sm:border sm:border-white/20">
+          <aside className="box-border relative flex h-full w-full min-w-0 flex-col overflow-hidden bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)] sm:w-[95%] sm:rounded-xl sm:border sm:border-white/20">
             <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-0 border-b border-solid border-neutral-100 bg-[linear-gradient(135deg,#ffffff_0%,#f3faf7_62%,#ebf7f3_100%)] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
               <div className="flex min-w-0 flex-col items-center gap-3 text-center sm:flex-row sm:items-center sm:gap-4 sm:text-left">
                 <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-sm font-extrabold text-white shadow-sm ring-1 ring-inset ring-emerald-800/10">{initials(selected.tradingName || selected.legalName)}</span>

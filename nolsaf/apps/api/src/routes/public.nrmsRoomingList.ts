@@ -13,6 +13,7 @@ import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { sanitizeText } from "../lib/sanitize.js";
 import { limitPublicNrmsGuestCapability, limitPublicNrmsRoomingListSubmit } from "../middleware/rateLimit.js";
+import { serializeMasterFolioPaymentLink } from "../lib/nrmsMasterFolioPaymentLink.js";
 
 export const router = Router();
 
@@ -84,6 +85,15 @@ const listInclude = {
     include: {
       rooms: { include: { roomType: { select: { name: true } } }, orderBy: { id: "asc" as const } },
       property: { select: { title: true } },
+      masterFolio: {
+        include: {
+          paymentLinks: {
+            where: { status: { in: ["ACTIVE", "PROCESSING"] } },
+            orderBy: { createdAt: "desc" as const },
+            take: 1,
+          },
+        },
+      },
     },
   },
 };
@@ -118,6 +128,12 @@ function publicView(list: any) {
     // letting the agency retype it would only duplicate it.
     locked: row.reservationId != null || row.status === "ACCEPTED",
   }));
+  const candidate = block.masterFolio?.paymentLinks?.[0] ?? null;
+  const paymentLink = list.status === "CONFIRMED"
+    && candidate
+    && new Date(candidate.expiresAt).getTime() > Date.now()
+      ? serializeMasterFolioPaymentLink(candidate)
+      : null;
   return {
     status: list.status,
     expiresAt: list.expiresAt,
@@ -127,6 +143,7 @@ function publicView(list: any) {
     submitterName: list.submitterName,
     submitterEmail: list.submitterEmail,
     property: block.property?.title ?? "The property",
+    paymentLink,
     block: {
       name: block.name,
       reference: block.reference,

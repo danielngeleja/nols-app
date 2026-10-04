@@ -2,7 +2,22 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Eye, FileText, Filter, RefreshCw, Search, ShieldCheck, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  BedDouble,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Loader2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Users,
+  X,
+} from "lucide-react";
 import api from "@/lib/apiClient";
 
 type ServiceType = "PROPERTY" | "GROUP_STAY" | "TOUR";
@@ -44,6 +59,7 @@ type Payload = {
   };
   items: Row[];
 };
+type Health = "ALL" | "CONSISTENT" | "REVIEW_REQUIRED";
 
 const EMPTY: Payload = {
   observationMode: true,
@@ -56,31 +72,90 @@ const EMPTY: Payload = {
   items: [],
 };
 
-const serviceLabel: Record<ServiceType, string> = { PROPERTY: "Property", GROUP_STAY: "Group stay", TOUR: "Tour package" };
-const humanize = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
-const displayValue = (value: unknown) => {
+const SERVICES: Array<{ key: ServiceType; label: string; plural: string; hint: string; icon: typeof BedDouble; text: string; bar: string; soft: string; countKey: keyof Payload["summary"]["byService"] }> = [
+  { key: "PROPERTY", label: "Property", plural: "Property stays", hint: "Single-property bookings", icon: BedDouble, text: "text-sky-700", bar: "bg-sky-500", soft: "bg-sky-50/70", countKey: "property" },
+  { key: "GROUP_STAY", label: "Group stay", plural: "Group stays", hint: "Multi-room group bookings", icon: Users, text: "text-indigo-700", bar: "bg-indigo-500", soft: "bg-indigo-50/70", countKey: "groupStay" },
+  { key: "TOUR", label: "Tour package", plural: "Tours", hint: "Operator tour bookings", icon: Compass, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70", countKey: "tour" },
+];
+const serviceMeta = (s: ServiceType) => SERVICES.find((x) => x.key === s)!;
+
+const STEP_LABELS: Array<[keyof Lifecycle, string]> = [
+  ["bookingStage", "Booking"],
+  ["paymentStage", "Payment"],
+  ["receiptStage", "Receipt"],
+  ["responsibilityStage", "Responsibility"],
+  ["caseStage", "Case"],
+];
+
+const heroButton =
+  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
+
+const humanize = (value: string) => String(value || "").replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
+
+function displayValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "Not recorded";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) return new Date(value).toLocaleString();
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) return eat(value);
   return String(value);
-};
-
-function Stage({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="whitespace-normal text-xs font-bold leading-4 text-slate-800" title={humanize(value)}>{humanize(value)}</div>
-      <div className="mt-1 whitespace-normal text-[9px] font-semibold uppercase leading-3 tracking-[0.08em] text-slate-500">{label}</div>
-    </div>
-  );
 }
 
-function HealthBadge({ status }: { status: Lifecycle["consistency"]["status"] }) {
-  const healthy = status === "CONSISTENT";
+function eat(iso: string) {
+  return `${new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
+}
+
+function eatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+}
+
+/**
+ * How each stage reads at a glance. Values mirror the stage types in
+ * apps/api/src/lib/serviceLifecycle.ts; anything new falls back to "waiting".
+ */
+const STAGE_TONES: Record<string, "done" | "waiting" | "problem" | "idle"> = {
+  // booking
+  CONFIRMED: "done", IN_SERVICE: "done", COMPLETED: "done",
+  DRAFT: "waiting", AWAITING_REVIEW: "waiting", AWAITING_PAYMENT: "waiting",
+  CANCELLED: "problem", DECLINED: "problem", EXPIRED: "problem",
+  // payment
+  PAID: "done", REFUNDED: "done",
+  UNPAID: "waiting", PENDING: "waiting", PARTIALLY_PAID: "waiting", REFUND_PENDING: "waiting",
+  // receipt
+  AVAILABLE: "done", VOIDED: "problem", NOT_AVAILABLE: "idle",
+  // responsibility
+  ASSIGNED: "done", DELIVERED: "done", ACKNOWLEDGED: "done", NOT_ASSIGNED: "idle", NOT_TRACKED: "idle",
+  // case
+  NONE: "idle", NOT_LOADED: "idle", SUBMITTED: "waiting", REVIEWING: "waiting", APPROVED: "waiting", REJECTED: "problem", RESOLVED: "done",
+};
+
+function stageTone(value: string): "done" | "waiting" | "problem" | "idle" {
+  const v = String(value || "").toUpperCase();
+  return v ? STAGE_TONES[v] ?? "waiting" : "idle";
+}
+
+const TONE_DOT: Record<ReturnType<typeof stageTone>, string> = {
+  done: "bg-emerald-500",
+  waiting: "bg-amber-400",
+  problem: "bg-rose-500",
+  idle: "bg-neutral-300",
+};
+
+function LifecycleStrip({ lifecycle }: { lifecycle: Lifecycle }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${healthy ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
-      {healthy ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-      {healthy ? "Consistent" : "Review required"}
-    </span>
+    <ol className="m-0 grid list-none grid-cols-5 overflow-hidden rounded-lg p-0 ring-1 ring-inset ring-neutral-200">
+      {STEP_LABELS.map(([key, label], i) => {
+        const value = String(lifecycle[key] ?? "");
+        const tone = stageTone(value);
+        return (
+          <li key={key} className={`min-w-0 bg-white px-2.5 py-2 ${i ? "border-0 border-l border-solid border-neutral-200" : ""}`} title={`${label}: ${humanize(value) || "Not recorded"}`}>
+            <span className="flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
+              <span className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-400">{label}</span>
+            </span>
+            <span className={`mt-1 block truncate text-xs font-semibold ${tone === "idle" ? "text-neutral-400" : tone === "problem" ? "text-rose-700" : "text-neutral-800"}`}>{humanize(value) || "Not recorded"}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -88,13 +163,12 @@ export default function LifecycleHealthPage() {
   const [data, setData] = useState<Payload>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [service, setService] = useState("ALL");
-  const [health, setHealth] = useState("ALL");
+  const [service, setService] = useState<ServiceType | "ALL">("ALL");
+  const [health, setHealth] = useState<Health>("ALL");
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,88 +185,244 @@ export default function LifecycleHealthPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Search applies after a short pause, so typing does not fire a request per key.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (query.trim() === appliedQuery) return;
+      setPage(1);
+      setAppliedQuery(query.trim());
+    }, 350);
+    return () => window.clearTimeout(id);
+  }, [query, appliedQuery]);
+
   const visibleItems = useMemo(() => data.items.filter((item) => health === "ALL" || item.lifecycle.consistency.status === health), [data.items, health]);
-  const currentPageNote = health === "ALL" ? null : `Health filter applies to the ${data.items.length} records loaded on this page.`;
-  const summaryItems: Array<{ label: string; value: number; Icon: LucideIcon; color: string; bg: string }> = [
-    { label: "Records observed", value: data.total, Icon: Activity, color: "text-[#02665e]", bg: "bg-[#02665e]/15" },
-    { label: "Consistent on page", value: data.summary.consistentOnPage, Icon: CheckCircle2, color: "text-blue-700", bg: "bg-blue-100" },
-    { label: "Review required", value: data.summary.reviewRequiredOnPage, Icon: AlertTriangle, color: "text-amber-700", bg: "bg-amber-100" },
+  const observed = data.summary.observedOnPage || data.items.length;
+  const consistentShare = observed ? Math.round((data.summary.consistentOnPage / observed) * 100) : 0;
+  const byServiceTotal = data.summary.byService.property + data.summary.byService.groupStay + data.summary.byService.tour;
+
+  const facts = [
+    { label: "Bookings observed", value: loading && !data.total ? "..." : data.total.toLocaleString(), detail: service === "ALL" ? "one row per booking" : serviceMeta(service).plural, tone: "text-white" },
+    { label: "Consistent", value: loading && !observed ? "..." : `${consistentShare}%`, detail: `${data.summary.consistentOnPage} of ${observed} on this page agree`, tone: consistentShare === 100 ? "text-emerald-300" : "text-white" },
+    { label: "Review required", value: loading && !observed ? "..." : String(data.summary.reviewRequiredOnPage), detail: data.summary.reviewRequiredOnPage ? "records that contradict each other" : "no contradictions on this page", tone: data.summary.reviewRequiredOnPage ? "text-amber-300" : "text-white" },
+    { label: "Checked", value: data.generatedAt ? new Date(data.generatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) : "...", detail: data.generatedAt ? `${eatDate(data.generatedAt)}, EAT · read only` : "read only", tone: "text-white" },
   ];
 
-  function applySearch(event: React.FormEvent) {
-    event.preventDefault();
+  const pickService = (key: ServiceType) => {
+    setService((current) => (current === key ? "ALL" : key));
+    setHealth("ALL");
     setPage(1);
-    setAppliedQuery(query.trim());
-  }
+    setExpanded(null);
+  };
 
   return (
-    <div className="mx-auto max-w-7xl min-w-0 space-y-4 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
-      <section className="box-border min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/15 shadow-2xl" style={{ background: "linear-gradient(135deg, #0a1a19 0%, #0d2320 60%, #0a1f2e 100%)", boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)" }}>
-        <div className="min-w-0 p-4 sm:p-5 lg:p-6">
-          <div className="mb-4 flex min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-teal-200"><Activity className="h-4 w-4" /> Operations observation</div><h1 className="mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Lifecycle health</h1></div>
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1.5 text-[11px] font-bold text-white/75"><ShieldCheck className="h-3.5 w-3.5" /> Read only</span>
-          </div>
-          <form onSubmit={applySearch} className="min-w-0">
-            <label className="relative block min-w-0">
-              <span className="sr-only">Search lifecycle records</span><FileText className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-white/40" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search # / booking / traveller / service" className="box-border h-12 w-full min-w-0 max-w-full rounded-lg border border-white/15 bg-white/[0.07] pl-10 pr-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-teal-300/60 focus:ring-2 focus:ring-teal-300/20" />
-            </label>
-          </form>
-          <div className="mt-4 flex min-w-0 flex-wrap items-center gap-2">
-            {[["ALL", "All", data.total], ["PROPERTY", "Property", data.summary.byService.property], ["GROUP_STAY", "Group stays", data.summary.byService.groupStay], ["TOUR", "Tours", data.summary.byService.tour]].map(([key, label, count]) => {
-              const active = service === key;
-              return <button key={String(key)} type="button" onClick={() => { setService(String(key)); setHealth("ALL"); setPage(1); }} className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${active ? "border-white/40 bg-white/20 text-white" : "border-white/15 bg-white/[0.05] text-white/65 hover:bg-white/10"}`}><span>{label}</span><span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] text-white/75">{loading ? "…" : count}</span></button>;
-            })}
-            <button type="button" onClick={() => { setHealth(health === "REVIEW_REQUIRED" ? "ALL" : "REVIEW_REQUIRED"); setPage(1); }} className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${health === "REVIEW_REQUIRED" ? "border-amber-300/60 bg-amber-400/20 text-amber-100" : "border-amber-400/25 bg-amber-400/[0.08] text-amber-200/80 hover:bg-amber-400/15"}`}><span>Review required</span><span className="rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px]">{loading ? "…" : data.summary.reviewRequiredOnPage}</span></button>
-            <div className="ml-auto flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => void load()} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.07] text-white/75 hover:bg-white/15" title="Refresh lifecycle health" aria-label="Refresh lifecycle health"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
-              <button type="button" onClick={() => setShowFilters((value) => !value)} className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${showFilters ? "border-teal-300/60 bg-teal-400/20 text-teal-100" : "border-white/15 bg-white/[0.07] text-white/75 hover:bg-white/15"}`}><Filter className="h-4 w-4" /> Filters</button>
+    <div className="w-full min-w-0 space-y-5">
+      {/* Header */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Operations observation</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Lifecycle health</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Reads each booking&apos;s payment, receipt, responsibility and case records and flags any that disagree. Nothing here changes a booking.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/70"><ShieldCheck className="h-3.5 w-3.5" /> Read only</span>
+              <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              </button>
             </div>
           </div>
-          <p className="mt-4 text-[11px] text-white/40 sm:text-xs">One row per booking. Lifecycle health interprets existing booking, payment, receipt, responsibility, and case records.</p>
-          {showFilters ? <div className="mt-4 grid min-w-0 gap-3 border-t border-white/10 pt-4 sm:grid-cols-2"><select value={service} onChange={(event) => { setService(event.target.value); setPage(1); }} className="box-border h-10 w-full min-w-0 rounded-lg border border-white/15 bg-white/[0.07] px-3 text-sm text-white outline-none"><option className="bg-[#0d2320]" value="ALL">All services</option><option className="bg-[#0d2320]" value="PROPERTY">Property</option><option className="bg-[#0d2320]" value="GROUP_STAY">Group stays</option><option className="bg-[#0d2320]" value="TOUR">Tour packages</option></select><select value={health} onChange={(event) => setHealth(event.target.value)} className="box-border h-10 w-full min-w-0 rounded-lg border border-white/15 bg-white/[0.07] px-3 text-sm text-white outline-none"><option className="bg-[#0d2320]" value="ALL">All health states</option><option className="bg-[#0d2320]" value="CONSISTENT">Consistent</option><option className="bg-[#0d2320]" value="REVIEW_REQUIRED">Review required</option></select></div> : null}
+
+          <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
+            {facts.map((fact, index) => (
+              <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
+                <dd className={`m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums ${fact.tone}`}>{fact.value}</dd>
+                <dd className="m-0 mt-1 truncate text-xs text-white/50">{fact.detail}</dd>
+              </div>
+            ))}
+          </dl>
+          {observed > 0 && (
+            <div className="mt-4 flex h-1.5 w-full overflow-hidden rounded-full bg-white/10" title={`${consistentShare}% consistent on this page`}>
+              <span className="bg-emerald-400" style={{ width: `${(data.summary.consistentOnPage / observed) * 100}%` }} />
+              <span className="bg-amber-400" style={{ width: `${(data.summary.reviewRequiredOnPage / observed) * 100}%` }} />
+            </div>
+          )}
         </div>
       </section>
 
-      <section className="min-w-0 overflow-hidden rounded-xl border border-[#02665e]/20 bg-gradient-to-r from-[#02665e]/10 to-emerald-50 p-4 shadow-sm sm:p-5">
-        <div className="grid gap-4 sm:grid-cols-3 sm:divide-x sm:divide-[#02665e]/15">
-          {summaryItems.map(({ label, value, Icon, color, bg }) => <div key={label} className="flex min-w-0 items-center gap-3 sm:px-5 first:sm:pl-0 last:sm:pr-0"><div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${bg}`}><Icon className={`h-5 w-5 ${color}`} /></div><div className="min-w-0"><div className="truncate text-xs font-medium text-gray-600 sm:text-sm">{label}</div><div className={`mt-1 text-xl font-bold ${color}`}>{loading ? "…" : Number(value).toLocaleString()}</div></div></div>)}
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
+          <X className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError("")} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Services, doubling as the filter */}
+      <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {SERVICES.map((s) => {
+            const Icon = s.icon;
+            const n = data.summary.byService[s.countKey];
+            const share = byServiceTotal ? Math.round((n / byServiceTotal) * 100) : 0;
+            const selected = service === s.key;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => pickService(s.key)}
+                aria-pressed={selected}
+                className={`min-w-0 rounded-xl border border-solid p-3.5 text-left transition-all ${selected ? `border-neutral-900 ${s.soft}` : "border-transparent bg-neutral-50 ring-1 ring-inset ring-neutral-200 hover:bg-white"}`}
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${s.text}`}><Icon className="h-3.5 w-3.5" /> {s.plural}</span>
+                  <span className="text-[11px] tabular-nums text-neutral-400">{share}%</span>
+                </span>
+                <span className="mt-2 block text-2xl font-bold tabular-nums leading-none text-neutral-900">{loading && !byServiceTotal ? "..." : n.toLocaleString()}</span>
+                <span className="mt-1 block truncate text-[11px] text-neutral-500">{s.hint}</span>
+                <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-neutral-200/70">
+                  <span className={`block h-full rounded-full ${s.bar}`} style={{ width: `${n > 0 ? Math.max(share, 4) : 0}%` }} />
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
-      {currentPageNote ? <p className="px-1 text-xs text-slate-500">{currentPageNote}</p> : null}
 
-      {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{error}</div> : null}
-
-      <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex min-w-0 flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Service lifecycle records</h2>
-            <p className="mt-1 text-xs text-slate-500">Booking state and operational consistency across the selected services.</p>
+      {/* Records */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">{service === "ALL" ? "All bookings" : serviceMeta(service).plural}</h2>
+            <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? "Loading..." : `${visibleItems.length} shown${health !== "ALL" ? ` of ${data.items.length} on this page` : ""}${appliedQuery ? ` matching "${appliedQuery}"` : ""}`}</p>
           </div>
-          <div className="text-xs font-semibold text-slate-500">{loading ? "Loading…" : `${visibleItems.length} records shown`}</div>
+          <div className="inline-flex rounded-lg bg-neutral-100 p-0.5" role="group" aria-label="Health">
+            {([["ALL", "All"], ["REVIEW_REQUIRED", `Review required${data.summary.reviewRequiredOnPage ? ` (${data.summary.reviewRequiredOnPage})` : ""}`], ["CONSISTENT", "Consistent"]] as const).map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setHealth(key)} aria-pressed={health === key} className={`inline-flex h-8 items-center rounded-md border-0 px-2.5 text-xs font-semibold transition-colors ${health === key ? "bg-white text-neutral-900 shadow-sm ring-1 ring-neutral-300" : "bg-transparent text-neutral-500 hover:text-neutral-900"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="relative ml-auto w-full min-w-0 sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") { setPage(1); setAppliedQuery(query.trim()); } }}
+              placeholder="Booking code, traveller or service"
+              aria-label="Search lifecycle records"
+              className="box-border h-9 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white pl-9 pr-9 text-sm text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
-        {loading ? <div className="p-10 text-center text-sm text-slate-500">Loading lifecycle records…</div> : visibleItems.length === 0 ? (
-          <div className="p-10 text-center"><div className="text-sm font-bold text-slate-800">No lifecycle records match this view</div><div className="mt-1 text-xs text-slate-500">Change the service, health, or search filter.</div></div>
+        {health !== "ALL" && <p className="m-0 border-0 border-b border-solid border-neutral-200 bg-neutral-50 px-4 py-2 text-[11px] text-neutral-500 sm:px-5">The health filter applies to the {data.items.length} records loaded on this page.</p>}
+
+        {loading && data.items.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 py-14 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading lifecycle records</div>
+        ) : visibleItems.length === 0 ? (
+          <div className="flex items-center gap-3 px-4 py-5 sm:px-5">
+            <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${health === "REVIEW_REQUIRED" ? "bg-emerald-50 text-emerald-700" : "bg-[#0b2420] text-emerald-300"}`}>{health === "REVIEW_REQUIRED" ? <CheckCircle2 className="h-5 w-5" /> : <Activity className="h-5 w-5" />}</span>
+            <div className="min-w-0">
+              <p className="m-0 text-sm font-semibold text-neutral-900">{health === "REVIEW_REQUIRED" ? "Nothing needs review on this page" : "No lifecycle records match"}</p>
+              <p className="m-0 mt-0.5 text-xs text-neutral-500">{health === "REVIEW_REQUIRED" ? "Every booking's records agree with each other." : "Change the service, health or search."}</p>
+            </div>
+          </div>
         ) : (
-          <div className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain">
-            <table className="w-full min-w-[1120px] table-fixed text-xs">
-              <thead className="bg-slate-50 text-left font-bold uppercase tracking-[0.12em] text-slate-500">
-                <tr><th className="w-[13%] px-4 py-3">Record</th><th className="w-[18%] px-4 py-3">Booking</th><th className="w-[52%] px-4 py-3">Lifecycle</th><th className="w-[12%] px-4 py-3">Health</th><th className="w-[5%] px-4 py-3 text-center">Open</th></tr>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1120px] table-fixed border-collapse text-left text-sm">
+              <thead>
+                <tr className="text-[11px] text-neutral-400">
+                  <th className="w-[16%] px-4 py-2.5 font-semibold sm:px-5">Booking</th>
+                  <th className="w-[17%] px-3 py-2.5 font-semibold">Service and traveller</th>
+                  <th className="w-[47%] px-3 py-2.5 font-semibold">Lifecycle</th>
+                  <th className="w-[13%] px-3 py-2.5 font-semibold">Health</th>
+                  <th className="w-[7%] px-4 py-2.5 sm:px-5" />
+                </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {visibleItems.map((item) => {
                   const open = expanded === item.id;
+                  const meta = serviceMeta(item.serviceType);
+                  const Icon = meta.icon;
+                  const review = item.lifecycle.consistency.status === "REVIEW_REQUIRED";
                   return (
                     <Fragment key={item.id}>
-                      <tr className="align-top transition-colors hover:bg-sky-50">
-                        <td className="px-4 py-3"><div className="font-bold uppercase tracking-wide text-teal-700">{serviceLabel[item.serviceType]}</div><div className="mt-1 truncate font-mono font-semibold text-slate-800">{item.bookingCode}</div><div className="mt-1 whitespace-nowrap text-[11px] text-slate-500">{new Date(item.createdAt).toLocaleDateString()}</div></td>
-                        <td className="px-4 py-3"><div className="truncate font-semibold text-slate-900" title={item.title}>{item.title}</div><div className="mt-1 truncate text-slate-500" title={item.customer || ""}>{item.customer || "Traveller not recorded"}</div></td>
-                        <td className="px-4 py-3"><div className="grid grid-cols-5 gap-2 rounded-lg bg-slate-50 p-3"><Stage label="Booking" value={item.lifecycle.bookingStage} /><Stage label="Payment" value={item.lifecycle.paymentStage} /><Stage label="Receipt" value={item.lifecycle.receiptStage} /><Stage label="Responsibility" value={item.lifecycle.responsibilityStage} /><Stage label="Case" value={item.lifecycle.caseStage} /></div></td>
-                        <td className="px-4 py-3"><HealthBadge status={item.lifecycle.consistency.status} /></td>
-                        <td className="px-4 py-3 text-center"><button type="button" onClick={() => setExpanded(open ? null : item.id)} aria-expanded={open} aria-label={`Inspect ${item.bookingCode}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-teal-700 text-white hover:bg-teal-800"><Eye className="h-4 w-4" /></button></td>
+                      <tr onClick={() => setExpanded(open ? null : item.id)} className={`cursor-pointer border-0 border-t border-solid border-neutral-200 align-top transition-colors ${open ? "bg-neutral-50" : "hover:bg-neutral-50/80"}`}>
+                        <td className="px-4 py-3 sm:px-5">
+                          <div className="truncate font-mono text-[13px] font-semibold text-neutral-900">{item.bookingCode}</div>
+                          <div className="mt-0.5 text-[11px] text-neutral-400">{eatDate(item.createdAt)}</div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md ${meta.soft} ${meta.text}`}><Icon className="h-3.5 w-3.5" /></span>
+                            <span className="truncate font-semibold text-neutral-900" title={item.title}>{item.title}</span>
+                          </div>
+                          <div className="mt-0.5 truncate pl-[30px] text-xs text-neutral-400" title={item.customer || ""}>{item.customer || "Traveller not recorded"}</div>
+                        </td>
+                        <td className="px-3 py-3"><LifecycleStrip lifecycle={item.lifecycle} /></td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${review ? "bg-amber-50 text-amber-800 ring-amber-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200"}`}>
+                            {review ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                            {review ? "Review" : "Consistent"}
+                          </span>
+                          {review && <div className="mt-1 text-[11px] text-amber-800">{item.lifecycle.consistency.issues.length} {item.lifecycle.consistency.issues.length === 1 ? "issue" : "issues"}</div>}
+                          {!review && item.lifecycle.requiredAction && item.lifecycle.requiredAction !== "NONE" && <div className="mt-1 truncate text-[11px] text-neutral-500" title={item.lifecycle.requiredActionLabel}>{item.lifecycle.requiredActionLabel}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-right sm:px-5">
+                          <button type="button" onClick={(event) => { event.stopPropagation(); setExpanded(open ? null : item.id); }} aria-expanded={open} aria-label={`Inspect ${item.bookingCode}`} className="inline-grid h-8 w-8 place-items-center rounded-lg border border-solid border-neutral-300 bg-white text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900">
+                            <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+                          </button>
+                        </td>
                       </tr>
-                      {open ? <tr><td colSpan={5} className="bg-slate-50/80 px-4 py-4"><div className="grid gap-3 lg:grid-cols-[1fr_1.4fr_auto]"><div className="rounded-lg border border-slate-200 bg-white p-3"><div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Required action</div><div className="mt-2 text-sm font-bold text-slate-900">{item.lifecycle.requiredActionLabel}</div></div><div className="rounded-lg border border-slate-200 bg-white p-3"><div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Consistency explanation</div>{item.lifecycle.consistency.issues.length ? <ul className="mt-2 space-y-1">{item.lifecycle.consistency.issues.map((issue) => <li key={issue.code} className="flex gap-2 text-xs text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{issue.message}</li>)}</ul> : <p className="mt-2 text-xs text-emerald-800">No contradiction was detected in the observed fields.</p>}</div><Link href={item.detailHref} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-teal-700 bg-white px-4 text-xs font-bold text-teal-800 hover:bg-teal-50">Open workspace <ChevronRight className="h-4 w-4" /></Link></div><details className="mt-3 rounded-lg border border-slate-200 bg-white p-3"><summary className="flex cursor-pointer list-none items-center justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-slate-600">Observed source fields <ChevronDown className="h-4 w-4" /></summary><dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(item.source).map(([key, value]) => <div key={key} className="min-w-0 rounded-md bg-slate-50 p-2"><dt className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{humanize(key)}</dt><dd className="mt-1 break-words text-xs font-semibold text-slate-800">{displayValue(value)}</dd></div>)}</dl></details></td></tr> : null}
+                      {open && (
+                        <tr className="border-0 border-t border-solid border-neutral-200 bg-neutral-50">
+                          <td colSpan={5} className="px-4 py-4 sm:px-5">
+                            <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr_auto]">
+                              <div className="rounded-lg bg-white p-3 ring-1 ring-inset ring-neutral-200">
+                                <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Next step</p>
+                                <p className="m-0 mt-1.5 text-sm font-semibold text-neutral-900">{item.lifecycle.requiredActionLabel || "Nothing to do"}</p>
+                              </div>
+                              <div className={`rounded-lg p-3 ring-1 ring-inset ${review ? "bg-amber-50/60 ring-amber-200" : "bg-white ring-neutral-200"}`}>
+                                <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Why it is {review ? "flagged" : "consistent"}</p>
+                                {item.lifecycle.consistency.issues.length ? (
+                                  <ul className="m-0 mt-1.5 list-none space-y-1 p-0">
+                                    {item.lifecycle.consistency.issues.map((issue) => (
+                                      <li key={issue.code} className={`flex gap-2 text-xs ${issue.severity === "ERROR" ? "text-rose-800" : "text-amber-900"}`}>
+                                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {issue.message}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="m-0 mt-1.5 text-xs text-emerald-800">The booking, payment, receipt, responsibility and case records agree.</p>
+                                )}
+                              </div>
+                              <Link href={item.detailHref} className="inline-flex h-10 items-center justify-center gap-1.5 self-start rounded-lg border-0 bg-[#0b2420] px-4 text-xs font-semibold text-white no-underline hover:bg-[#12342f] hover:no-underline">
+                                Open booking <ChevronRight className="h-4 w-4" />
+                              </Link>
+                            </div>
+                            <details className="mt-3 rounded-lg bg-white ring-1 ring-inset ring-neutral-200">
+                              <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                                Observed source fields ({Object.keys(item.source).length}) <ChevronDown className="h-4 w-4" />
+                              </summary>
+                              <dl className="m-0 grid gap-px border-0 border-t border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-2 lg:grid-cols-4">
+                                {Object.entries(item.source).map(([key, value]) => (
+                                  <div key={key} className="min-w-0 bg-white px-3 py-2">
+                                    <dt className="truncate text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-400">{humanize(key)}</dt>
+                                    <dd className="m-0 mt-0.5 break-words text-xs font-semibold text-neutral-800">{displayValue(value)}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </details>
+                          </td>
+                        </tr>
+                      )}
                     </Fragment>
                   );
                 })}
@@ -200,15 +430,22 @@ export default function LifecycleHealthPage() {
             </table>
           </div>
         )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-t border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <span className="text-xs text-neutral-500">Page <span className="font-semibold tabular-nums text-neutral-900">{data.page}</span> of <span className="font-semibold tabular-nums text-neutral-900">{data.pageCount}</span> · {data.total.toLocaleString()} matching bookings</span>
+          <div className="flex items-center gap-2">
+            {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" />}
+            <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={loading || page <= 1} className="inline-flex h-8 items-center gap-1 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" /> Previous</button>
+            <button type="button" onClick={() => setPage((value) => Math.min(data.pageCount, value + 1))} disabled={loading || page >= data.pageCount} className="inline-flex h-8 items-center gap-1 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-40">Next <ChevronRight className="h-3.5 w-3.5" /></button>
+          </div>
+        </div>
       </section>
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs text-slate-600">Page <strong>{data.page}</strong> of <strong>{data.pageCount}</strong> · {data.total.toLocaleString()} matching records</div>
-        <div className="flex gap-2">
-          <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={loading || page <= 1} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /> Previous</button>
-          <button type="button" onClick={() => setPage((value) => Math.min(data.pageCount, value + 1))} disabled={loading || page >= data.pageCount} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40">Next <ChevronRight className="h-4 w-4" /></button>
-        </div>
-      </div>
+      <p className="m-0 flex items-center gap-3 text-[11px] text-neutral-500">
+        {([["done", "Settled"], ["waiting", "In progress"], ["problem", "Stopped"], ["idle", "Not started or not applicable"]] as const).map(([tone, label]) => (
+          <span key={tone} className="inline-flex items-center gap-1.5"><span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[tone]}`} /> {label}</span>
+        ))}
+      </p>
     </div>
   );
 }

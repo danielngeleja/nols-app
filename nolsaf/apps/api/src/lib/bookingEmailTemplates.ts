@@ -401,7 +401,7 @@ export function getOwnerNewBookingEmail(data: OwnerNewBookingEmailData): { subje
 
   const payoutBlock =
     data.netPayout != null && Number(data.netPayout) > 0
-      ? `${proHighlight("Your expected payout", fmtMoney(data.netPayout, currency), "This will be disbursed to your registered payment method after the guest's stay.", BRAND_TEAL)}${proDivider()}`
+      ? `${proHighlight("Your expected payout", fmtMoney(data.netPayout, currency), "This will be disbursed to your registered payment method after the guest checks in and the booking code is validated.", BRAND_TEAL)}${proDivider()}`
       : "";
 
   const body = `

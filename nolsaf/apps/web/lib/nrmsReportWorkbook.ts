@@ -66,6 +66,56 @@ export type WorkbookData = {
   expenses: { rows: Array<{ id: number; category: string; description: string; amount: Money; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null }> };
   profitLoss: Array<{ currency: string; totalRevenue: Money; totalExpenses: Money; netProfit: Money; expensesByCategory: Array<{ category: string; amount: Money }> }>;
   staffPerformance: Array<{ staffId: number; name: string; role: string; currency: string; orders: number; sales: Money; tips: Money }>;
+  /** Optional for the same reason as `commercial`: older cached responses lack them. */
+  receivablesAging?: Array<{ currency: string; rows: Array<{ kind: string; name: string; reference: string; dueSince: string | null; bucket: string; amount: Money }> }>;
+  foodAndBeverage?: null | {
+    byCurrency: Array<{ currency: string; revenue: Money; cogs: Money; grossProfit: Money; marginPercent: number | null; losses: Money; lossesByAccount: Array<{ name: string; amount: Money }>; afterLosses: Money }>;
+    stockValue: Money;
+    payables: { total: Money; rows: Array<{ supplier: string; invoiceNumber: string; invoiceDate: string; dueDate: string | null; bucket: string; amount: Money }> };
+  };
+  fiscal?: null | { mode: string; status: string; tin: string | null; vrn: string | null; inRange: { total: number; byStatus: Record<string, number>; confirmedGross: Money; confirmedTax: Money } | null; backlog: Record<string, number> };
+  /**
+   * The commercial half: how the property SOLD, where every block above
+   * describes how it RAN. Optional because a workbook may be built from a
+   * cached response written before this section existed, and a missing sheet
+   * is better than a thrown export.
+   */
+  commercial?: null | {
+    groups: {
+      currency: string; agreed: number; roomsAgreed: number; roomsPickedUp: number; roomsStillHeld: number;
+      value: Money; pickupRatePct: number | null; lapsedCutOffs: number;
+      outcome: { live: number; pickedUp: number; released: number; cancelled: number };
+      rows: Array<{
+        reference: string; name: string; agencyName: string | null; agreedBy: string; agreedOn: string;
+        checkIn: string; checkOut: string; cutOffAt: string; cutOffPassed: boolean; status: string; nights: number;
+        roomsAgreed: number; roomsPickedUp: number; roomsStillHeld: number; value: Money; currency: string;
+      }>;
+    };
+    inquiries: {
+      periodDays: number;
+      funnel: { visits: number; inquiries: number; responded: number; holds: number; confirmed: number };
+      averageFirstResponseMinutes: number | null;
+      sources: Array<{ source: string; visits: number; inquiries: number; responded: number; holds: number; confirmed: number }>;
+    };
+    agents: {
+      introducedInPeriod: number;
+      byStatus: Array<{ status: string; count: number }>;
+      rows: Array<{ agency: string; status: string; startedOn: string | null; bookingRequests: number }>;
+    };
+    production: {
+      people: Array<{
+        userId: number; name: string; roleLabel: string;
+        inbox: { assigned: number; repliesSent: number; answered: number; awaitingFirstReply: number; averageFirstResponseMinutes: number | null };
+        conversion: { reachedHold: number; confirmed: number; lost: number };
+        groups: { agreed: number; roomsAgreed: number; value: Money; currency: string };
+        agencies: { introduced: number; active: number };
+      }>;
+    };
+    staffAccess: {
+      total: number;
+      rows: Array<{ name: string; role: string; roleLabel: string; status: string; outlet: string | null; confirmedOn: string | null; joinedOn: string }>;
+    };
+  };
 };
 
 export type WorkbookFinance = {
@@ -75,7 +125,10 @@ export type WorkbookFinance = {
   ledger: { balanced: boolean; accounts: Array<{ accountCode: string; accountName: string; accountType: string; currency: string; debit: Money; credit: Money; balance: Money }> };
   tax: { total: Money; note: string; rows: Array<{ transactionNumber: string; occurredAt: string; description: string; currency: string; tax: Money }> };
   nbs: { month: string; reportingDays: number; bedsAvailable: number; bedNightsAvailable: number; bedNightsOccupied: number; domesticBedNights: number; internationalBedNights: number; roomNightsOccupied: number; bedOccupancyRate: number; missingNationalityBedNights: number };
+  nightAudits?: Array<{ reportNumber: string; status: string; startedAt: string; completedAt: string | null; businessDay?: { businessDate: string } }>;
 };
+
+const AGE_LABELS: Record<string, string> = { current: "Not yet due", d1_30: "1 to 30 days", d31_60: "31 to 60 days", d61_90: "61 to 90 days", d90plus: "Over 90 days" };
 
 export type WorkbookIdentity = {
   reportNumber: string;
@@ -1182,6 +1235,129 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
     ],
   });
 
+  /* ---- 11a. TRA fiscal receipts -------------------------------------- */
+  const fiscal = data.fiscal ?? null;
+  const fiscalOn = Boolean(fiscal && fiscal.mode !== "OFF");
+  addTableSheet(workbook, input, {
+    name: "Fiscal Receipts",
+    title: "TRA fiscal receipts",
+    subtitle: fiscalOn ? `Mode ${label(fiscal!.mode)} · ${label(fiscal!.status)}${fiscal!.tin ? ` · TIN ${fiscal!.tin}` : ""}${fiscal!.vrn ? ` · VRN ${fiscal!.vrn}` : ""}` : "TRA fiscal receipting is switched off for this property",
+    rows: fiscalOn
+      ? [
+        ...["CONFIRMED", "PENDING", "SENDING", "FAILED", "DEAD_LETTER", "BURNED"].map((status) => ({ item: `Receipts in period: ${label(status)}`, count: fiscal!.inRange?.byStatus[status] ?? 0, amount: null as number | null })),
+        { item: "Confirmed gross amount", count: null as number | null, amount: fiscal!.inRange?.confirmedGross ?? 0 },
+        { item: "Confirmed tax amount", count: null as number | null, amount: fiscal!.inRange?.confirmedTax ?? 0 },
+        { item: "Not yet at TRA (all dates)", count: Object.values(fiscal!.backlog).reduce((sum, value) => sum + value, 0), amount: null as number | null },
+      ]
+      : [],
+    emptyNote: "Not required below the VAT threshold.",
+    columns: [
+      { header: "Measure", group: "identity", value: (row) => row.item, width: 36 },
+      { header: "Count", group: "volume", value: (row) => row.count, format: INTEGER_FORMAT },
+      { header: `Amount (${currency})`, group: "revenue", value: (row) => row.amount, format: CURRENCY_FORMAT },
+    ],
+  });
+
+  /* ---- 11b. Night Audit --------------------------------------------- */
+  addTableSheet(workbook, input, {
+    name: "Night Audit",
+    title: "Night Audit runs",
+    subtitle: `Business-date closes in this period · ledger ${finance.ledger.balanced ? "balanced" : "NOT balanced"}`,
+    rows: finance.nightAudits ?? [],
+    emptyNote: "No Night Audit run was recorded in this period.",
+    columns: [
+      { header: "Business date", group: "identity", value: (row) => asDate(row.businessDay?.businessDate ?? null), format: DATE_FORMAT, width: 16 },
+      { header: "Report number", group: "identity", value: (row) => row.reportNumber, width: 28 },
+      { header: "Status", group: "control", value: (row) => label(row.status) },
+      { header: `Started (${EAT_LABEL})`, group: "timing", value: (row) => asDate(row.startedAt), format: DATETIME_FORMAT, width: 18 },
+      { header: `Completed (${EAT_LABEL})`, group: "timing", value: (row) => asDate(row.completedAt), format: DATETIME_FORMAT, width: 18 },
+    ],
+  });
+
+  /* ---- 11c. NBS statistics ------------------------------------------ */
+  const nbs = finance.nbs;
+  addTableSheet(workbook, input, {
+    name: "NBS Statistics",
+    title: "NBS monthly accommodation statistics",
+    subtitle: `Reporting month ${nbs.month} · aggregate figures, no guest-identifying details`,
+    rows: [
+      { item: "Physical beds", value: nbs.bedsAvailable },
+      { item: "Reporting days", value: nbs.reportingDays },
+      { item: "Bed-nights available", value: nbs.bedNightsAvailable },
+      { item: "Bed-nights occupied", value: nbs.bedNightsOccupied },
+      { item: "Domestic bed-nights", value: nbs.domesticBedNights },
+      { item: "International bed-nights", value: nbs.internationalBedNights },
+      { item: "Room-nights occupied", value: nbs.roomNightsOccupied },
+      { item: "Bed occupancy rate %", value: Number(nbs.bedOccupancyRate.toFixed(1)) },
+      { item: "Bed-nights missing nationality", value: nbs.missingNationalityBedNights },
+    ],
+    emptyNote: "No NBS figures for this month.",
+    columns: [
+      { header: "Indicator", group: "identity", value: (row) => row.item, width: 34 },
+      { header: "Value", group: "volume", value: (row) => row.value, format: "#,##0.0##" },
+    ],
+  });
+
+  /* ---- 11d. F&B cost and stock -------------------------------------- */
+  const fnb = data.foodAndBeverage ?? null;
+  const fnbRow = fnb?.byCurrency.find((row) => row.currency === currency) ?? null;
+  addTableSheet(workbook, input, {
+    name: "FB Cost and Stock",
+    title: "Food and beverage cost and stock",
+    subtitle: "Cost of goods sold and losses post at Night Audit; stock on hand is valued at average cost",
+    rows: fnb
+      ? [
+        { item: "F&B revenue", amount: fnbRow?.revenue ?? 0 },
+        { item: "Cost of goods sold", amount: fnbRow?.cogs ?? 0 },
+        { item: "Gross profit", amount: fnbRow?.grossProfit ?? 0 },
+        { item: "Gross margin %", amount: fnbRow?.marginPercent ?? null },
+        ...(fnbRow?.lossesByAccount ?? []).map((loss) => ({ item: `Loss: ${loss.name}`, amount: loss.amount as number | null })),
+        { item: "Result after losses", amount: fnbRow?.afterLosses ?? 0 },
+        { item: "Stock on hand (average cost)", amount: fnb.stockValue },
+        { item: "Owed to suppliers", amount: fnb.payables.total },
+      ]
+      : [],
+    emptyNote: "The stock section was unavailable when this workbook was generated.",
+    columns: [
+      { header: "Measure", group: "identity", value: (row) => row.item, width: 36 },
+      { header: `Amount (${currency})`, group: "revenue", value: (row) => row.amount, format: CURRENCY_FORMAT },
+    ],
+  });
+
+  /* ---- 11e. Receivables aging --------------------------------------- */
+  addTableSheet(workbook, input, {
+    name: "Receivables Aging",
+    title: "Receivables aging",
+    subtitle: "Unpaid guest and agency balances, aged from checkout",
+    rows: data.receivablesAging?.find((row) => row.currency === currency)?.rows ?? [],
+    emptyNote: "No open guest or agency balances.",
+    columns: [
+      { header: "Owed by", group: "identity", value: (row) => row.name, width: 30 },
+      { header: "Type", group: "identity", value: (row) => (row.kind === "GUEST" ? "Guest" : "Agency") },
+      { header: "Reference", group: "identity", value: (row) => row.reference, width: 20 },
+      { header: "Due since", group: "timing", value: (row) => asDate(row.dueSince), format: DATE_FORMAT, width: 14 },
+      { header: "Age", group: "timing", value: (row) => AGE_LABELS[row.bucket] ?? row.bucket, width: 16 },
+      { header: `Amount (${currency})`, group: "revenue", value: (row) => row.amount, format: CURRENCY_FORMAT, total: true },
+    ],
+  });
+
+  /* ---- 11f. Supplier payables --------------------------------------- */
+  addTableSheet(workbook, input, {
+    name: "Supplier Payables",
+    title: "Supplier payables",
+    subtitle: "Unpaid supplier invoices, oldest settled first, aged from due date",
+    rows: fnb?.payables.rows ?? [],
+    emptyNote: "Nothing is owed to suppliers.",
+    columns: [
+      { header: "Supplier", group: "identity", value: (row) => row.supplier, width: 28 },
+      { header: "Invoice", group: "identity", value: (row) => row.invoiceNumber, width: 18 },
+      { header: "Invoice date", group: "timing", value: (row) => asDate(row.invoiceDate), format: DATE_FORMAT, width: 14 },
+      { header: "Due date", group: "timing", value: (row) => asDate(row.dueDate), format: DATE_FORMAT, width: 14 },
+      { header: "Age", group: "timing", value: (row) => AGE_LABELS[row.bucket] ?? row.bucket, width: 16 },
+      { header: `Open amount (${currency})`, group: "deduction", value: (row) => row.amount, format: CURRENCY_FORMAT, total: true },
+    ],
+  });
+
   /* ---- 12. Audit trail ---------------------------------------------- */
   addTableSheet(workbook, input, {
     name: "Audit Trail",
@@ -1200,7 +1376,84 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
     ],
   });
 
-  /* ---- 13. Definitions ---------------------------------------------- */
+  /* ---- 13. Commercial: how the property sold ------------------------ */
+  //
+  // Three sheets rather than one. A group block, a person's production and a
+  // staff access list are different objects with different keys, and stacking
+  // them on one tab would give a reader three headers to skip past before
+  // reaching the rows they came for.
+  //
+  // They are omitted entirely when the response carries no commercial block,
+  // because an empty sheet claiming "no group business" would be a statement
+  // this workbook cannot actually make.
+  const commercial = data.commercial;
+  if (commercial) {
+    addTableSheet(workbook, input, {
+      name: "Group Business",
+      title: "Group blocks agreed",
+      subtitle: `Counted by agreement date. ${commercial.groups.agreed} agreed, ${commercial.groups.roomsAgreed} rooms, ${commercial.groups.pickupRatePct == null ? "no pickup rate" : `${commercial.groups.pickupRatePct}% picked up`}`,
+      rows: commercial.groups.rows,
+      emptyNote: "No group blocks were agreed in this period.",
+      columns: [
+        { header: "Reference", group: "identity", value: (row) => row.reference, width: 20 },
+        { header: "Group", group: "identity", value: (row) => row.name, width: 28 },
+        { header: "Agency or company", group: "identity", value: (row) => row.agencyName || "Not recorded", width: 26 },
+        { header: "Agreed by", group: "control", value: (row) => row.agreedBy, width: 22 },
+        { header: "Agreed on", group: "timing", value: (row) => asDate(row.agreedOn), format: DATE_FORMAT, width: 14 },
+        { header: "Arrival", group: "timing", value: (row) => asDate(row.checkIn), format: DATE_FORMAT, width: 14 },
+        { header: "Departure", group: "timing", value: (row) => asDate(row.checkOut), format: DATE_FORMAT, width: 14 },
+        { header: "Cut-off", group: "timing", value: (row) => asDate(row.cutOffAt), format: DATE_FORMAT, width: 14 },
+        { header: "Nights", group: "volume", value: (row) => row.nights },
+        { header: "Rooms agreed", group: "volume", value: (row) => row.roomsAgreed },
+        { header: "Rooms named", group: "volume", value: (row) => row.roomsPickedUp },
+        { header: "Rooms still held", group: "volume", value: (row) => row.roomsStillHeld },
+        { header: "Block value", group: "money", value: (row) => Number(row.value), format: CURRENCY_FORMAT, width: 16 },
+        { header: "Currency", group: "money", value: (row) => row.currency },
+        { header: "Status", group: "control", value: (row) => label(row.status), width: 18 },
+      ],
+    });
+
+    addTableSheet(workbook, input, {
+      name: "Sales Production",
+      title: "Production by person",
+      subtitle: `Sales roster over the report period. Inbox average first reply ${commercial.inquiries.averageFirstResponseMinutes == null ? "not available" : `${commercial.inquiries.averageFirstResponseMinutes} minutes`}`,
+      rows: commercial.production.people,
+      emptyNote: "No one on the sales roster recorded activity in this period.",
+      columns: [
+        { header: "Person", group: "identity", value: (row) => row.name, width: 26 },
+        { header: "Role", group: "identity", value: (row) => row.roleLabel || "Staff", width: 18 },
+        { header: "Inquiries assigned", group: "volume", value: (row) => row.inbox.assigned },
+        { header: "Replies sent", group: "volume", value: (row) => row.inbox.repliesSent },
+        { header: "Answered", group: "volume", value: (row) => row.inbox.answered },
+        { header: "Awaiting first reply", group: "control", value: (row) => row.inbox.awaitingFirstReply },
+        { header: "Average first reply (min)", group: "control", value: (row) => row.inbox.averageFirstResponseMinutes ?? "", width: 20 },
+        { header: "Reached a hold", group: "volume", value: (row) => row.conversion.reachedHold },
+        { header: "Confirmed", group: "volume", value: (row) => row.conversion.confirmed },
+        { header: "Blocks agreed", group: "volume", value: (row) => row.groups.agreed },
+        { header: "Rooms agreed", group: "volume", value: (row) => row.groups.roomsAgreed },
+        { header: "Block value", group: "money", value: (row) => Number(row.groups.value), format: CURRENCY_FORMAT, width: 16 },
+        { header: "Agencies introduced", group: "volume", value: (row) => row.agencies.introduced },
+      ],
+    });
+
+    addTableSheet(workbook, input, {
+      name: "Access and Roles",
+      title: "Who holds access to this property",
+      subtitle: `${commercial.staffAccess.total} assignments on record, every status included`,
+      rows: commercial.staffAccess.rows,
+      emptyNote: "No staff have been assigned to this property.",
+      columns: [
+        { header: "Person", group: "identity", value: (row) => row.name, width: 26 },
+        { header: "Role", group: "identity", value: (row) => row.roleLabel, width: 20 },
+        { header: "Outlet", group: "identity", value: (row) => row.outlet || "Whole property", width: 20 },
+        { header: "Status", group: "control", value: (row) => label(row.status), width: 16 },
+        { header: "Assigned on", group: "timing", value: (row) => asDate(row.joinedOn), format: DATE_FORMAT, width: 14 },
+        { header: "Accepted on", group: "timing", value: (row) => (row.confirmedOn ? asDate(row.confirmedOn) : "Not accepted"), format: DATE_FORMAT, width: 16 },
+      ],
+    });
+  }
+
+  /* ---- 14. Definitions ---------------------------------------------- */
   addTableSheet(workbook, input, {
     name: "Definitions",
     title: "Definitions and calculation basis",
@@ -1220,6 +1473,11 @@ export async function buildReportWorkbook(input: WorkbookInput, charts: ChartIma
       ["Net profit", "Total operating revenue - total operating expenses", "NRMS", "Partial P&amp;L: stock cost and depreciation are not tracked yet."],
       ["Operating expenses", "Sum of active (non-voided) expenses recorded for the period", "NRMS", "Recorded on the Expenses tab of Financial Control; posts to the ledger at Night Audit close."],
       ["Staff sales", "Sum of order totals settled by that team member", "NRMS", "Bar, restaurant and outlet-supervisor roles only; front desk and housekeeping have no comparable sales figure."],
+      ["Group block", "Rooms held for a party before any guest is named", "NRMS", "Counted by agreement date, not arrival date: it measures selling, not staying."],
+      ["Rooms named", "Block rooms picked up as real reservations", "NRMS", "The share of rooms agreed that a group actually used."],
+      ["Cut-off", "The date unnamed block rooms return to sale", "NRMS", "A lapsed cut-off is a live block past that date with rooms still held."],
+      ["Reached a hold", "Assigned inquiries that became a reservation", "NRMS", "Credited to whoever worked the conversation, not to whoever pressed the button."],
+      ["Sales roster", "Owner, managers and sales executives", "NRMS", "Front desk and outlet staff are excluded: a walk-in was not sold by anybody."],
       ["Timestamps", "Stored in UTC, presented as UTC+3", "East Africa Time", "EAT observes no daylight saving, so the offset is constant all year."],
     ] as Array<[string, string, string, string]>,
     columns: [

@@ -18,6 +18,8 @@ export default function ModalFrame({
   elevated = false,
   closeOnEscape = true,
   compact = false,
+  compactFooter = false,
+  small = false,
 }: {
   title: string;
   subtitle?: string;
@@ -30,6 +32,8 @@ export default function ModalFrame({
   elevated?: boolean;
   closeOnEscape?: boolean;
   compact?: boolean;
+  compactFooter?: boolean;
+  small?: boolean;
 }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -54,7 +58,7 @@ export default function ModalFrame({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`relative flex w-full min-w-0 flex-col rounded-2xl border border-white/70 bg-white shadow-2xl ${compact ? "max-w-2xl overflow-hidden" : `max-h-[calc(100dvh-1.5rem)] overflow-hidden sm:max-h-[calc(100dvh-3rem)] ${extraWide ? "max-w-[980px]" : wide ? "max-w-2xl" : "max-w-md"}`}`}
+        className={`relative flex max-h-[calc(100dvh-1.5rem)] w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[calc(100dvh-3rem)] ${compact ? (small ? "max-w-sm" : "max-w-2xl") : extraWide ? "max-w-[980px]" : wide ? "max-w-2xl" : small ? "max-w-sm" : "max-w-md"}`}
       >
         <div className={`flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 ${compact ? "px-4 py-2.5" : "px-5 py-4 sm:px-6"}`}>
           {compact ? (
@@ -77,8 +81,8 @@ export default function ModalFrame({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className={compact ? "overflow-visible p-3" : "min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6"}>{children}</div>
-        {footer && <div className="shrink-0 border-t border-neutral-100 bg-white px-5 py-4 sm:px-6">{footer}</div>}
+        <div className={compact ? "min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4" : "min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6"}>{children}</div>
+        {footer && <div className={`shrink-0 border-t border-neutral-100 bg-white ${compactFooter ? "px-4 py-2.5 sm:px-5" : "px-5 py-4 sm:px-6"}`}>{footer}</div>}
       </div>
     </div>,
     document.body,

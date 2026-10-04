@@ -1,17 +1,74 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import {
   Calendar, Download, CheckCircle, XCircle, Eye,
   ArrowRight, BookOpen, MapPin, Clock, CreditCard,
-  Hash, BedDouble, DoorOpen, Printer, X, FileText,
+  Hash, BedDouble, DoorOpen, ChevronLeft, ChevronRight, ChevronDown,
+  Search, SlidersHorizontal, X, ArrowUpDown,
 } from "lucide-react";
 import Link from "next/link";
+import DatePicker from "@/components/ui/DatePicker";
 
 const api = apiClient;
+const PAGE_SIZE = 10;
+
+/**
+ * Tabs in the order a booking lives: unpaid, then paid and ahead, then stayed.
+ * "Completed" (paid, checked out) and "Expired" (never paid, window closed)
+ * used to share one "Past" tab; they mean different things, so they are apart.
+ */
+type BookingTab = "all" | "draft" | "active" | "completed" | "expired";
+const BOOKING_TABS: Array<{ key: BookingTab; label: string; meaning: string; empty: string }> = [
+  { key: "all", label: "All", meaning: "Every booking on your account.", empty: "When you book a stay, it will appear here." },
+  { key: "draft", label: "Awaiting payment", meaning: "Reserved but not paid yet. Pay before the timer runs out to keep the room.", empty: "Nothing is waiting for payment." },
+  { key: "active", label: "Upcoming", meaning: "Paid stays that have not ended yet, including one you are staying at now.", empty: "You have no upcoming stays right now." },
+  { key: "completed", label: "Completed", meaning: "Paid stays whose check-out date has passed.", empty: "Stays move here after check-out." },
+  { key: "expired", label: "Expired", meaning: "Bookings that were not paid in time. No money was taken; book again to stay.", empty: "No expired bookings." },
+];
+
+const BOOKING_SORTS = [
+  { key: "checkin-late", label: "Check-in, latest" },
+  { key: "checkin-soon", label: "Check-in, soonest" },
+  { key: "booked-new", label: "Newest booking" },
+  { key: "amount-high", label: "Highest amount" },
+  { key: "amount-low", label: "Lowest amount" },
+] as const;
+type BookingSort = (typeof BOOKING_SORTS)[number]["key"];
+
+const NIGHT_OPTIONS = [
+  { key: "any", label: "Any", min: 0, max: Infinity },
+  { key: "short", label: "1-2", min: 1, max: 2 },
+  { key: "mid", label: "3-6", min: 3, max: 6 },
+  { key: "long", label: "7+", min: 7, max: Infinity },
+] as const;
+type NightsKey = (typeof NIGHT_OPTIONS)[number]["key"];
+
+/** "2026-09-12" reads as "12 Sep 2026". */
+function shortDay(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** "DAR-ES-SALAAM" and "dar es salaam" both read as "Dar Es Salaam". */
+function tidy(value?: string | null): string {
+  return String(value || "").replace(/[-_]+/g, " ").trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function FilterChip({ label, onClear }: { label: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pl-2.5 pr-1 text-[11.5px] font-semibold text-slate-700">
+      {label}
+      <button type="button" aria-label={`Remove ${label}`} onClick={onClear} className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-slate-500 hover:bg-slate-200">
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
 
 type Booking = {
   id: number;
+  bookingReference: string;
   property: {
     id: number;
     title: string;
@@ -70,37 +127,20 @@ function canRequestCancellation(b: Booking): boolean {
   return now < checkIn;
 }
 
-function BookingCardSkeleton() {
-  return (
-    <div className="relative overflow-hidden rounded-3xl bg-white border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)]">
-      <div className="absolute left-0 inset-y-0 w-[3px] rounded-l-3xl bg-slate-200 animate-pulse" />
-      <div className="pl-6 pr-5 pt-5 pb-5 sm:pl-7 sm:pr-6 sm:pt-6 sm:pb-6 space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3.5 flex-1">
-            <div className="w-11 h-11 rounded-2xl bg-slate-200 animate-pulse flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-52 bg-slate-200 rounded animate-pulse" />
-              <div className="h-3 w-36 bg-slate-200 rounded animate-pulse" />
-            </div>
-          </div>
-          <div className="h-6 w-20 bg-slate-200 rounded-full animate-pulse" />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {[1,2,3,4].map(i => <div key={i} className="h-7 w-28 bg-slate-100 rounded-xl animate-pulse" />)}
-        </div>
-        <div className="flex gap-2 justify-end">
-          <div className="h-9 w-24 bg-slate-100 rounded-xl animate-pulse" />
-          <div className="h-9 w-9 bg-slate-100 rounded-xl animate-pulse" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function MyBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "active" | "expired" | "draft">("all");
+  const [filter, setFilter] = useState<BookingTab>("all");
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sortBy, setSortBy] = useState<BookingSort>("checkin-late");
+  const [showFilters, setShowFilters] = useState(false);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [checkInFrom, setCheckInFrom] = useState("");
+  const [checkInTo, setCheckInTo] = useState("");
+  const [region, setRegion] = useState("");
+  const [propertyType, setPropertyType] = useState("");
+  const [nightsFilter, setNightsFilter] = useState<NightsKey>("any");
   const [entered, setEntered] = useState(false);
   const [nowTick, setNowTick] = useState(Date.now());
 
@@ -122,12 +162,19 @@ export default function MyBookingsPage() {
   const loadBookings = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/api/customer/bookings?pageSize=50");
       // The API already returns exactly what belongs here: unpaid drafts (NEW with an
       // unpaid invoice) + confirmed stays (CONFIRMED/CHECKED_IN/CHECKED_OUT with a code).
       // Keep them all so the count matches the dashboard, and so expired (checked-out)
       // stays still appear under the Expired tab. Cancelled bookings are excluded by the API.
-      const items: Booking[] = response.data.items || [];
+      // The API serves at most 50 per page, so walk the pages: tabs and counts need the whole set.
+      const items: Booking[] = [];
+      for (let page = 1; page <= 20; page += 1) {
+        const response = await api.get(`/api/customer/bookings?pageSize=50&page=${page}`);
+        const batch: Booking[] = response.data.items || [];
+        items.push(...batch);
+        const total = Number(response.data.total || 0);
+        if (batch.length < 50 || (total > 0 && items.length >= total)) break;
+      }
       const visible = items.filter((b) => isDraftBooking(b) || Boolean(b?.isPaid) || Boolean(b?.bookingCode));
       setBookings(visible);
     } catch (err: any) {
@@ -159,23 +206,81 @@ export default function MyBookingsPage() {
   };
   const isActive = (b: Booking) => !isExpired(b);
 
-  // Payable drafts, expired drafts, and confirmed paid stays.
-  const drafts = bookings.filter((booking) => isDraftBooking(booking) && !isExpiredDraftBooking(booking));
-  const expiredDrafts = bookings.filter(isExpiredDraftBooking);
+  // Confirmed paid stays (for the "next stay" line in the header)
   const paidStays = bookings.filter((b) => !isDraftBooking(b));
 
-  const filteredBookings = bookings.filter((booking) => {
-    if (filter === "draft") return isDraftBooking(booking) && !isExpiredDraftBooking(booking);
-    if (isExpiredDraftBooking(booking)) return filter === "all" || filter === "expired";
-    if (isDraftBooking(booking)) return filter === "all";
-    if (filter === "active") return isActive(booking);
-    if (filter === "expired") return isExpired(booking);
-    return true; // "all"
-  });
+  // One home per booking, so the tab counts always add up to All
+  const tabOf = (b: Booking): Exclude<BookingTab, "all"> => {
+    if (isExpiredDraftBooking(b)) return "expired";
+    if (isDraftBooking(b)) return "draft";
+    return isExpired(b) ? "completed" : "active";
+  };
+  const filteredBookings = filter === "all" ? bookings : bookings.filter((b) => tabOf(b) === filter);
 
-  const activeCount = paidStays.filter(isActive).length;
-  const expiredCount = paidStays.filter(isExpired).length + expiredDrafts.length;
-  const draftCount = drafts.length;
+  // Choices come from the customer's own bookings, so every option returns something
+  const regionOptions = Array.from(new Set(bookings.map((b) => tidy(b.property.regionName)).filter(Boolean))).sort();
+  const typeOptions = Array.from(new Set(bookings.map((b) => tidy(b.property.type)).filter(Boolean))).sort();
+  const filterCount = (checkInFrom ? 1 : 0) + (region ? 1 : 0) + (propertyType ? 1 : 0) + (nightsFilter !== "any" ? 1 : 0);
+  const clearFinders = () => {
+    setQuery("");
+    setCheckInFrom("");
+    setCheckInTo("");
+    setRegion("");
+    setPropertyType("");
+    setNightsFilter("any");
+    setPage(1);
+  };
+  const queryWords = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const fromMs = checkInFrom ? new Date(`${checkInFrom}T00:00:00`).getTime() : null;
+  const toMs = checkInTo ? new Date(`${checkInTo}T23:59:59`).getTime() : null;
+  const nightsRange = NIGHT_OPTIONS.find((o) => o.key === nightsFilter) || NIGHT_OPTIONS[0];
+  const timeOf = (v?: string | null) => (v ? new Date(v).getTime() || 0 : 0);
+  const shownBookings = filteredBookings
+    .filter((b) => {
+      if (queryWords.length) {
+        const bag = [b.property.title, b.property.type, b.property.regionName, b.property.district, b.property.city, b.bookingCode, b.bookingReference, b.roomType]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!queryWords.every((w) => bag.includes(w))) return false;
+      }
+      const ci = timeOf(b.checkIn);
+      if (fromMs != null && ci < fromMs) return false;
+      if (toMs != null && ci > toMs) return false;
+      if (region && tidy(b.property.regionName) !== region) return false;
+      if (propertyType && tidy(b.property.type) !== propertyType) return false;
+      if (nightsFilter !== "any") {
+        const n = Math.round((timeOf(b.checkOut) - ci) / 86400000);
+        if (n < nightsRange.min || n > nightsRange.max) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "checkin-soon") return timeOf(a.checkIn) - timeOf(b.checkIn);
+      if (sortBy === "booked-new") return timeOf(b.createdAt) - timeOf(a.createdAt);
+      if (sortBy === "amount-high") return Number(b.totalAmount || 0) - Number(a.totalAmount || 0);
+      if (sortBy === "amount-low") return Number(a.totalAmount || 0) - Number(b.totalAmount || 0);
+      return timeOf(b.checkIn) - timeOf(a.checkIn);
+    });
+
+  // Page the list on screen; a new tab or filter starts on page 1
+  const pageCount = Math.max(1, Math.ceil(shownBookings.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pagedBookings = shownBookings.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const goToPage = (next: number) => {
+    setPage(Math.min(pageCount, Math.max(1, next)));
+    window.requestAnimationFrame(() => document.getElementById("bookings-list")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+
+  const tabCounts = bookings.reduce<Record<BookingTab, number>>(
+    (acc, b) => {
+      acc[tabOf(b)] += 1;
+      acc.all += 1;
+      return acc;
+    },
+    { all: 0, draft: 0, active: 0, completed: 0, expired: 0 },
+  );
+  const currentTab = BOOKING_TABS.find((t) => t.key === filter) || BOOKING_TABS[0];
 
   // Time-left helper for draft payment windows.
   const draftTimeLeft = (b: Booking): string | null => {
@@ -206,169 +311,415 @@ export default function MyBookingsPage() {
     return Math.round(diff / 86400000);
   };
 
-  // ── Receipt modal ──────────────────────────────────────────────────────────
-  // Fetch the server-generated receipt HTML (proxied + cookie-authed) and render it
-  // via the iframe's `srcdoc`. srcdoc iframes inherit the parent origin, so the styled
-  // markup renders fully AND we can read contentDocument for print/PDF. The template
-  // HTML-escapes all guest/property fields at the source, so no client sanitizing is
-  // needed and the styling is preserved.
-  const [receiptBookingId, setReceiptBookingId] = useState<number | null>(null);
-  const [receiptHtml, setReceiptHtml] = useState<string>("");
-  const [receiptLoading, setReceiptLoading] = useState(false);
-  const [receiptError, setReceiptError] = useState(false);
-  const receiptIframeRef = useRef<HTMLIFrameElement | null>(null);
+  const daysUntil = (dateString: string) => {
+    const d = new Date(dateString);
+    d.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.round((d.getTime() - today.getTime()) / 86400000);
+  };
 
-  const openReceipt = useCallback(async (bookingId: number) => {
-    setReceiptBookingId(bookingId);
-    setReceiptHtml("");
-    setReceiptError(false);
-    setReceiptLoading(true);
-    try {
-      const r = await fetch(`/api/customer/bookings/${bookingId}/receipt.html`, {
-        credentials: "include",
-        cache: "no-store",
-        headers: { Accept: "text/html" },
-      });
-      const html = await r.text();
-      if (!r.ok || !/class=["']sheet["']/.test(html)) {
-        throw new Error(`Receipt not available (${r.status})`);
-      }
-      setReceiptHtml(html);
-    } catch {
-      setReceiptError(true);
-    } finally {
-      setReceiptLoading(false);
-    }
-  }, []);
+  // The soonest upcoming paid stay, for the header
+  const nextStay = paidStays
+    .filter((b) => daysUntil(b.checkOut) >= 0)
+    .sort((a, b) => new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime())[0];
+  const nextStayLabel = (() => {
+    if (!nextStay) return null;
+    const d = daysUntil(nextStay.checkIn);
+    if (d <= 0) return `${nextStay.property.title} · staying now`;
+    if (d === 1) return `${nextStay.property.title} · tomorrow`;
+    return `${nextStay.property.title} · in ${d} days`;
+  })();
 
-  useEffect(() => {
-    const requestedReceiptId = Number(new URLSearchParams(window.location.search).get("receiptBookingId"));
-    if (Number.isFinite(requestedReceiptId) && requestedReceiptId > 0) {
-      openReceipt(requestedReceiptId);
-    }
-  }, [openReceipt]);
+  const tabs = BOOKING_TABS.map((t) => ({ ...t, count: tabCounts[t.key] }));
 
-  const closeReceipt = useCallback(() => {
-    setReceiptBookingId(null);
-    setReceiptHtml("");
-    setReceiptLoading(false);
-    setReceiptError(false);
-  }, []);
-
-  const printReceipt = useCallback(() => {
-    receiptIframeRef.current?.contentWindow?.focus();
-    receiptIframeRef.current?.contentWindow?.print();
-  }, []);
+  const CalendarTile = ({ date, muted }: { date: string; muted?: boolean }) => {
+    const d = new Date(date);
+    return (
+      <div
+        className={[
+          "flex h-16 w-14 flex-shrink-0 flex-col items-center justify-center overflow-hidden rounded-xl border border-solid text-center",
+          muted ? "border-slate-200 bg-slate-50" : "border-[#02665e]/25 bg-white",
+        ].join(" ")}
+      >
+        <span className={["w-full py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-white", muted ? "bg-slate-400" : "bg-[#02665e]"].join(" ")}>
+          {d.toLocaleDateString("en-US", { month: "short" })}
+        </span>
+        <span className={["flex-1 pt-1 text-[22px] font-extrabold leading-none tabular-nums", muted ? "text-slate-500" : "text-slate-900"].join(" ")}>
+          {d.getDate()}
+        </span>
+      </div>
+    );
+  };
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-5xl space-y-6">
-        <div className="relative overflow-hidden rounded-2xl h-36" style={{ background: "linear-gradient(135deg,#0e2a7a 0%,#0a5c82 42%,#02665e 100%)" }}>
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-white/15 animate-pulse" />
-            <div className="h-5 w-36 bg-white/15 rounded animate-pulse" />
-            <div className="h-3 w-52 bg-white/10 rounded animate-pulse" />
+      <div className="w-full space-y-4" aria-busy="true">
+        <span role="status" className="sr-only">Loading bookings</span>
+        <div className="rounded-2xl bg-[#0a1110] px-5 py-5 sm:px-6">
+          <div className="h-3 w-24 rounded bg-white/10" />
+          <div className="mt-3 h-7 w-48 rounded-lg bg-white/15" />
+          <div className="mt-2 h-3 w-64 rounded bg-white/10" />
+          <div className="mt-5 flex gap-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-9 w-24 rounded-lg bg-white/10" />
+            ))}
           </div>
         </div>
-        <div className="flex justify-center gap-2">
-          {[1,2,3].map(i => <div key={i} className="h-9 w-24 rounded-xl bg-slate-100 animate-pulse" />)}
-        </div>
-        <div className="space-y-4">
-          <BookingCardSkeleton />
-          <BookingCardSkeleton />
-          <BookingCardSkeleton />
-        </div>
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-4 rounded-2xl border border-solid border-slate-200 bg-white p-4">
+            <div className="h-16 w-14 rounded-xl bg-slate-100" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 w-52 rounded bg-slate-100" />
+              <div className="h-3 w-40 rounded bg-slate-100" />
+              <div className="h-3 w-64 rounded bg-slate-100" />
+            </div>
+            <div className="hidden w-40 space-y-2 sm:block">
+              <div className="ml-auto h-5 w-28 rounded bg-slate-100" />
+              <div className="ml-auto h-9 w-32 rounded-lg bg-slate-100" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
-    <div className={["mx-auto w-full max-w-5xl space-y-6 transition-all duration-300 ease-out", entered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"].join(" ")}>
-
-      {/* ── Premium Header ── */}
-      <div className="relative overflow-hidden rounded-2xl shadow-lg" style={{ background: "linear-gradient(135deg,#0e2a7a 0%,#0a5c82 42%,#02665e 100%)" }}>
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 900 120" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-          <circle cx="820" cy="10" r="120" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none"/>
-          <polyline points="0,90 160,72 320,80 480,52 640,62 800,36 900,48" stroke="white" strokeOpacity="0.10" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-          <polygon points="0,90 160,72 320,80 480,52 640,62 800,36 900,48 900,120 0,120" fill="white" fillOpacity="0.03"/>
-        </svg>
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent"/>
-        <div className="relative flex flex-col items-center text-center px-8 py-8">
-          <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-lg">
-            <BookOpen className="h-7 w-7 text-white" />
-          </div>
-          <div className="flex items-center gap-3 flex-wrap justify-center">
-            <h1 className="text-2xl font-black text-white tracking-tight">My Bookings</h1>
-            {bookings.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 bg-white/15 border border-white/25 text-white text-[10px] font-bold uppercase tracking-widest rounded-full px-3 py-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"/>
-                {bookings.length} {bookings.length === 1 ? "booking" : "bookings"}
-              </span>
-            )}
-          </div>
-          <p className="text-teal-300/80 text-sm mt-1 font-medium">View and manage all your confirmed stays</p>
-        </div>
-      </div>
-
-      {/* ── Filter tabs + Cancellation link ── */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-          {([
-            { key: "all" as const, label: "All", count: bookings.length },
-            { key: "active" as const, label: "Active", count: activeCount },
-            { key: "expired" as const, label: "Past", count: expiredCount },
-            { key: "draft" as const, label: "Draft", count: draftCount },
-          ]).map((t) => {
-            const active = filter === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setFilter(t.key)}
-                className={["inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold whitespace-nowrap transition-all duration-200 active:scale-[0.97]", active ? "shadow-sm text-white" : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"].join(" ")}
-                style={active ? { background: "linear-gradient(135deg,#0e2a7a,#02665e)" } : {}}
+    <div className={["w-full space-y-4 transition-all duration-300 ease-out", entered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"].join(" ")}>
+      {/* ── Header band ── */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#0a1110] text-white shadow-[0_18px_40px_-26px_rgba(0,0,0,0.8)]" style={{ isolation: "isolate" }}>
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 -z-10 h-72 w-72 rounded-full" style={{ background: "radial-gradient(closest-side, rgba(2,102,94,0.6), rgba(2,102,94,0))" }} />
+        <div className="px-5 pb-4 pt-5 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-[#5ec8bb]">
+                <BookOpen className="h-3.5 w-3.5" aria-hidden />
+                Your stays
+              </div>
+              <h1 className="m-0 mt-1.5 text-[26px] font-bold leading-tight text-white">
+                My bookings
+                {bookings.length > 0 ? <span className="ml-2 align-middle text-[14px] font-semibold text-white/50">{bookings.length}</span> : null}
+              </h1>
+              <p className="m-0 mt-1 text-[13.5px] text-white/60">
+                {nextStayLabel ? (
+                  <>
+                    Next stay: <span className="font-semibold text-white">{nextStayLabel}</span>
+                  </>
+                ) : (
+                  "Every stay you have booked, paid or awaiting payment."
+                )}
+              </p>
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <Link
+                href="/account/cancellations"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/20 bg-white/5 px-3.5 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-white/10"
               >
-                <span>{t.label}</span>
-                <span className={["inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-black", active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600"].join(" ")}>{t.count}</span>
-              </button>
-            );
-          })}
+                <XCircle className="h-4 w-4" aria-hidden />
+                Manage cancellations
+              </Link>
+              <Link
+                href="/public/properties"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#02665e] px-3.5 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#03786f]"
+              >
+                Browse stays
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
+            </div>
+          </div>
+
+          {/* Filters as a segmented control */}
+          <div role="tablist" aria-label="Filter bookings" className="mt-5 flex w-full gap-1 overflow-x-auto rounded-xl border border-solid border-white/10 bg-white/[0.04] p-1 [scrollbar-width:none] sm:w-fit sm:max-w-full">
+            {tabs.map((t) => {
+              const on = filter === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => {
+                    setFilter(t.key);
+                    setPage(1);
+                  }}
+                  style={{ fontFamily: "inherit" }}
+                  className={[
+                    "inline-flex flex-shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border-0 px-3.5 py-2 text-[13.5px] font-semibold transition-colors",
+                    on ? "bg-white text-slate-900" : "bg-transparent text-white/70 hover:bg-white/[0.06] hover:text-white",
+                  ].join(" ")}
+                >
+                  {t.label}
+                  <span className={["inline-flex min-w-[22px] items-center justify-center rounded-full px-1.5 py-px text-[11.5px] font-bold tabular-nums", on ? "bg-[#02665e] text-white" : "bg-white/10 text-white/80"].join(" ")}>
+                    {t.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="m-0 mt-2.5 text-[12.5px] text-white/55">{currentTab.meaning}</p>
         </div>
-        <Link
-          href="/account/cancellations"
-          className="no-underline inline-flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-2 text-[12px] font-bold text-red-600 hover:bg-red-100 hover:border-red-200 transition-colors"
-        >
-          <XCircle className="h-3.5 w-3.5" />
-          Manage Cancellations
-        </Link>
       </div>
+
+      {/* ── Find: search, filters and sort ── */}
+      {bookings.length > 0 ? (
+        <section aria-label="Find a booking" className="rounded-2xl border border-solid border-slate-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full border border-solid border-slate-300 bg-white px-4 text-slate-400 transition-[border-color,box-shadow] hover:border-slate-400 focus-within:border-[#02665e] focus-within:text-[#02665e] focus-within:shadow-[0_0_0_3px_rgba(2,102,94,0.14)]">
+              <Search className="h-4 w-4 flex-shrink-0" aria-hidden />
+              <span className="sr-only">Search bookings</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search property, place or booking code"
+                className="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13.5px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-0"
+              />
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="relative block min-w-0 flex-1 sm:w-52 sm:flex-none">
+                <span className="sr-only">Sort bookings</span>
+                <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                <select
+                  aria-label="Sort bookings"
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value as BookingSort);
+                    setPage(1);
+                  }}
+                  className="h-10 w-full cursor-pointer appearance-none bg-none rounded-full border border-solid border-slate-300 bg-white pl-9 pr-9 text-[13px] font-semibold text-slate-800 transition-colors hover:border-slate-400 focus:border-[#02665e] focus:outline-none"
+                >
+                  {BOOKING_SORTS.map((o) => (
+                    <option key={o.key} value={o.key}>{o.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+              </span>
+              <button
+                type="button"
+                aria-expanded={showFilters}
+                aria-controls="booking-filters"
+                onClick={() => setShowFilters((v) => !v)}
+                className={`inline-flex h-10 flex-shrink-0 cursor-pointer items-center gap-2 rounded-full border border-solid px-3.5 text-[13px] font-semibold transition-colors sm:px-4 ${
+                  showFilters || filterCount > 0
+                    ? "border-[#02665e] bg-[#02665e]/[0.06] text-[#02665e]"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden />
+                <span className="hidden sm:inline">Filters</span>
+                {filterCount > 0 ? (
+                  <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#02665e] px-1.5 text-[11px] font-bold text-white">{filterCount}</span>
+                ) : null}
+              </button>
+            </div>
+          </div>
+
+          {showFilters ? (
+            <div id="booking-filters" className="mt-3 grid gap-x-4 gap-y-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200 sm:grid-cols-2 sm:p-4 lg:grid-cols-4">
+              {/* Every filter: a label on one line, then one 40px control */}
+              <div className="relative min-w-0">
+                <div className="text-[11.5px] font-bold text-slate-600">Check-in dates</div>
+                <button
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded={datePickerOpen}
+                  onClick={() => setDatePickerOpen((v) => !v)}
+                  className={`mt-1.5 flex h-10 w-full cursor-pointer items-center gap-2 rounded-xl border border-solid bg-white px-3 text-left text-[13px] font-semibold transition-colors ${
+                    checkInFrom || datePickerOpen ? "border-[#02665e] text-slate-900" : "border-slate-300 text-slate-500 hover:border-slate-400"
+                  }`}
+                >
+                  <Calendar className={`h-4 w-4 flex-shrink-0 ${checkInFrom ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">
+                    {checkInFrom ? `${shortDay(checkInFrom)} to ${checkInTo ? shortDay(checkInTo) : "any"}` : "Any dates"}
+                  </span>
+                  {checkInFrom ? (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Clear dates"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCheckInFrom("");
+                        setCheckInTo("");
+                        setPage(1);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setCheckInFrom("");
+                          setCheckInTo("");
+                          setPage(1);
+                        }
+                      }}
+                      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </span>
+                  ) : null}
+                </button>
+                {datePickerOpen ? (
+                  <div className="absolute left-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)]">
+                    <DatePicker
+                      selected={checkInFrom ? (checkInTo ? [checkInFrom, checkInTo] : checkInFrom) : undefined}
+                      allowRange
+                      allowPast
+                      resetRangeAnchor
+                      onSelectAction={(value) => {
+                        if (Array.isArray(value)) {
+                          setCheckInFrom(value[0] || "");
+                          setCheckInTo(value[value.length - 1] || "");
+                          setDatePickerOpen(false);
+                        } else {
+                          setCheckInFrom(value);
+                          setCheckInTo("");
+                        }
+                        setPage(1);
+                      }}
+                      onCloseAction={() => setDatePickerOpen(false)}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <label className="block min-w-0">
+                <span className="block text-[11.5px] font-bold text-slate-600">Region</span>
+                <span className="relative mt-1.5 block">
+                  <select
+                    value={region}
+                    onChange={(e) => {
+                      setRegion(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-10 w-full cursor-pointer appearance-none bg-none rounded-xl border border-solid border-slate-300 bg-white pl-3 pr-9 text-[13px] font-semibold text-slate-800 transition-colors hover:border-slate-400 focus:border-[#02665e] focus:outline-none"
+                  >
+                    <option value="">All regions</option>
+                    {regionOptions.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                </span>
+              </label>
+
+              <label className="block min-w-0">
+                <span className="block text-[11.5px] font-bold text-slate-600">Property type</span>
+                <span className="relative mt-1.5 block">
+                  <select
+                    value={propertyType}
+                    onChange={(e) => {
+                      setPropertyType(e.target.value);
+                      setPage(1);
+                    }}
+                    className="h-10 w-full cursor-pointer appearance-none bg-none rounded-xl border border-solid border-slate-300 bg-white pl-3 pr-9 text-[13px] font-semibold text-slate-800 transition-colors hover:border-slate-400 focus:border-[#02665e] focus:outline-none"
+                  >
+                    <option value="">All types</option>
+                    {typeOptions.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+                </span>
+              </label>
+
+              <div className="min-w-0">
+                <div className="text-[11.5px] font-bold text-slate-600">Nights</div>
+                <div role="radiogroup" aria-label="Nights" className="mt-1.5 flex h-10 rounded-xl bg-white p-1 ring-1 ring-slate-300">
+                  {NIGHT_OPTIONS.map((o) => (
+                    <button
+                      key={o.key}
+                      type="button"
+                      role="radio"
+                      aria-checked={nightsFilter === o.key}
+                      onClick={() => {
+                        setNightsFilter(o.key);
+                        setPage(1);
+                      }}
+                      className={`h-full min-w-0 flex-1 cursor-pointer whitespace-nowrap rounded-lg border-0 px-1 text-[12.5px] font-semibold transition-colors ${
+                        nightsFilter === o.key ? "bg-[#02665e] text-white shadow-sm" : "bg-transparent text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {query || filterCount > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-0 border-t border-solid border-slate-100 pt-3">
+              <span className="text-[12.5px] text-slate-500">
+                <strong className="font-bold tabular-nums text-slate-900">{shownBookings.length}</strong> of {filteredBookings.length} match
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {checkInFrom ? (
+                  <FilterChip label={`${shortDay(checkInFrom)} to ${checkInTo ? shortDay(checkInTo) : "any"}`} onClear={() => { setCheckInFrom(""); setCheckInTo(""); setPage(1); }} />
+                ) : null}
+                {region ? <FilterChip label={region} onClear={() => { setRegion(""); setPage(1); }} /> : null}
+                {propertyType ? <FilterChip label={propertyType} onClear={() => { setPropertyType(""); setPage(1); }} /> : null}
+                {nightsFilter !== "any" ? (
+                  <FilterChip label={NIGHT_OPTIONS.find((o) => o.key === nightsFilter)?.label + " nights"} onClear={() => { setNightsFilter("any"); setPage(1); }} />
+                ) : null}
+                <button type="button" onClick={clearFinders} className="cursor-pointer border-0 bg-transparent p-0 text-[12.5px] font-semibold text-[#02665e] hover:underline">
+                  Clear all
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* ── Nothing matches the search or filters ── */}
+      {filteredBookings.length > 0 && shownBookings.length === 0 ? (
+        <div className="flex flex-col items-center rounded-2xl border border-solid border-slate-200 bg-white px-6 py-10 text-center">
+          <Search className="h-6 w-6 text-slate-300" aria-hidden />
+          <div className="mt-3 text-[15px] font-bold text-slate-900">
+            {query.trim() ? <>Nothing matches &ldquo;{query.trim()}&rdquo;</> : "No bookings match these filters"}
+          </div>
+          <div className="mt-1 text-[13px] text-slate-500">Try another word, widen the dates or clear the filters.</div>
+          <button type="button" onClick={clearFinders} className="mt-4 inline-flex h-9 cursor-pointer items-center rounded-full border border-solid border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-800 hover:border-[#02665e] hover:text-[#02665e]">
+            Clear all
+          </button>
+        </div>
+      ) : null}
 
       {/* ── Empty state ── */}
       {filteredBookings.length === 0 ? (
-        <div className="rounded-3xl border border-slate-100 bg-white p-12 text-center shadow-sm">
-          <div className="mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: "linear-gradient(135deg,#0e2a7a,#02665e)" }}>
-            <BookOpen className="h-8 w-8 text-white" />
+        <div className="flex flex-col items-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
+          <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#02665e]/10 text-[#02665e]">
+            <BookOpen className="h-6 w-6" aria-hidden />
+          </span>
+          <div className="mt-3 text-[16px] font-bold text-slate-900">No bookings here yet</div>
+          <div className="mt-1 max-w-xs text-sm text-slate-500">
+            {currentTab.empty}
           </div>
-          <div className="text-lg font-black text-slate-900">No bookings found</div>
-          <div className="mt-1.5 text-sm text-slate-500 max-w-xs mx-auto">
-            {filter === "active" ? "You have no active bookings right now." : filter === "expired" ? "No past or expired bookings yet." : filter === "draft" ? "No unpaid drafts. Bookings awaiting payment appear here." : "When you book a stay, it will appear here."}
-          </div>
-          {filter === "all" && (
-            <div className="mt-6 flex justify-center">
-              <Link href="/public/properties" className="group no-underline inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-bold text-white shadow-sm hover:shadow-md active:scale-[0.99] transition-all" style={{ background: "linear-gradient(135deg,#0e2a7a,#02665e)" }}>
-                Browse Properties
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </div>
-          )}
+          {filter === "all" ? (
+            <Link
+              href="/public/properties"
+              className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#02665e] px-4 text-sm font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
+            >
+              Browse stays
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          ) : null}
         </div>
       ) : (
-        <div className="space-y-4">
-          {filteredBookings.map((booking) => {
+        <div id="bookings-list" className={`scroll-mt-24 space-y-3 ${shownBookings.length === 0 ? "hidden" : ""}`}>
+          {pagedBookings.map((booking) => {
             const nightCount = nights(booking.checkIn, booking.checkOut);
-            const location = [booking.property.regionName, booking.property.city, booking.property.district].filter(Boolean).join(" · ");
+            const location = [booking.property.district, booking.property.city, booking.property.regionName].filter(Boolean).join(", ");
+            const facts = [
+              `${formatDate(booking.checkIn)} to ${formatDate(booking.checkOut)}`,
+              nightCount > 0 ? `${nightCount} ${nightCount === 1 ? "night" : "nights"}` : "",
+              booking.roomType || "",
+              booking.rooms ? `${booking.rooms} ${booking.rooms === 1 ? "room" : "rooms"}` : "",
+            ].filter(Boolean);
 
-            // ── Draft (unpaid) card ──
+            // ── Awaiting payment ──
             if (isDraftBooking(booking)) {
               const expired = String(booking.draftExpiryStatus || "").toUpperCase() === "EXPIRED";
               const timeLeft = draftTimeLeft(booking);
@@ -377,232 +728,159 @@ export default function MyBookingsPage() {
               const payHref = canPay
                 ? `/public/booking/payment?invoiceId=${encodeURIComponent(String(booking.invoiceId))}&accessToken=${encodeURIComponent(String(booking.invoiceAccessToken))}`
                 : null;
-              const reselectHref = booking.property.slug
-                ? `/public/properties/${encodeURIComponent(booking.property.slug)}`
-                : "/public/properties";
+              const reselectHref = booking.property.slug ? `/public/properties/${encodeURIComponent(booking.property.slug)}` : "/public/properties";
+              const blocked = expired || unavailable;
               return (
                 <div
                   key={booking.id}
-                  className={["relative overflow-hidden rounded-3xl bg-white border shadow-[0_2px_16px_rgba(0,0,0,0.05)] transition-all duration-300", expired || unavailable ? "border-rose-100 opacity-95" : "border-amber-100 hover:shadow-[0_8px_32px_rgba(245,158,11,0.12)] hover:-translate-y-0.5"].join(" ")}
+                  className={[
+                    "rounded-2xl border border-solid bg-white p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5",
+                    blocked ? "border-rose-200" : "border-amber-300",
+                  ].join(" ")}
                 >
-                  <div className="absolute left-0 inset-y-0 w-[3px] rounded-l-3xl" style={{ background: expired || unavailable ? "linear-gradient(180deg,#fb7185,#e11d48)" : "linear-gradient(180deg,#f59e0b 0%,#d97706 100%)" }} />
-                  <div className="pl-6 pr-5 pt-5 pb-5 sm:pl-7 sm:pr-6 sm:pt-6 sm:pb-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3.5 min-w-0">
-                        <div className="mt-0.5 flex-shrink-0 w-11 h-11 rounded-2xl shadow-md flex items-center justify-center" style={{ background: expired ? "linear-gradient(135deg,#94a3b8,#64748b)" : "linear-gradient(135deg,#f59e0b 0%,#d97706 100%)" }}>
-                          <FileText className="h-5 w-5 text-white" />
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="text-[16px] sm:text-[17px] font-extrabold text-slate-900 tracking-tight leading-tight line-clamp-1">{booking.property.title}</h3>
-                          {location && (
-                            <div className="mt-[3px] flex items-center gap-1.5 text-[12px] text-slate-500 font-medium">
-                              <MapPin className="h-3 w-3 flex-shrink-0 text-amber-500" />
-                              <span className="line-clamp-1">{location}</span>
-                            </div>
-                          )}
-                          {booking.invoice?.invoiceNumber && (
-                            <div className="mt-[3px] flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
-                              <Hash className="h-2.5 w-2.5 flex-shrink-0" />
-                              {booking.invoice.invoiceNumber}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className={["flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold shadow-sm", expired || unavailable ? "bg-rose-50 border-rose-100 text-rose-600" : "bg-amber-50 border-amber-100 text-amber-700"].join(" ")}>
-                        {expired || unavailable ? <XCircle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                        {expired ? "Expired" : unavailable ? "Unavailable" : "Draft"}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-teal-50 border border-teal-100 px-3 py-1.5 text-[11px] font-semibold text-teal-800">
-                        <Calendar className="h-3 w-3 text-teal-500 flex-shrink-0" />
-                        {formatDate(booking.checkIn)} → {formatDate(booking.checkOut)}
-                      </span>
-                      {nightCount > 0 && (
-                        <span className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-1.5 text-[11px] font-semibold text-indigo-800">
-                          <Clock className="h-3 w-3 text-indigo-400 flex-shrink-0" />
-                          {nightCount} {nightCount === 1 ? "night" : "nights"}
-                        </span>
-                      )}
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 border border-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800">
-                        <CreditCard className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                        {formatAmount(booking.totalAmount)} TZS
-                      </span>
-                      {!expired && timeLeft && (
-                        <span className="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-100 px-3 py-1.5 text-[11px] font-semibold text-rose-700">
-                          <Clock className="h-3 w-3 text-rose-400 flex-shrink-0" />
-                          Pay within {timeLeft}
-                        </span>
-                      )}
-                      {unavailable && (
-                        <span className="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 border border-rose-100 px-3 py-1.5 text-[11px] font-semibold text-rose-700">
-                          <XCircle className="h-3 w-3 text-rose-400 flex-shrink-0" />
-                          {booking.draftAvailability?.reason === "BLOCKED" ? "Room blocked" : "Room booked"}
-                        </span>
-                      )}
-                    </div>
-
-                    {unavailable && (
-                      <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <div className="text-[12px] font-black text-rose-700">Selected room is no longer available</div>
-                            <div className="mt-1 text-[12px] font-medium text-rose-600">
-                              {booking.draftAvailability?.message || "Please select another room or choose a different property."}
-                            </div>
-                          </div>
-                          <Link
-                            href={reselectHref}
-                            className="no-underline inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-[12px] font-bold text-rose-700 border border-rose-100 hover:bg-rose-100 transition-colors"
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 items-start gap-4">
+                      <CalendarTile date={booking.checkIn} muted={blocked || undefined} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <h3 className="m-0 truncate text-[16px] font-bold text-slate-900">{booking.property.title}</h3>
+                          <span
+                            className={[
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-bold",
+                              blocked ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800",
+                            ].join(" ")}
                           >
-                            Select another room
-                            <ArrowRight className="h-3.5 w-3.5" />
-                          </Link>
+                            {blocked ? <XCircle className="h-3.5 w-3.5" aria-hidden /> : <Clock className="h-3.5 w-3.5" aria-hidden />}
+                            {expired ? "Payment window closed" : unavailable ? "Room no longer available" : "Awaiting payment"}
+                          </span>
                         </div>
+                        {location ? (
+                          <div className="mt-0.5 flex items-center gap-1 text-[12.5px] text-slate-500">
+                            <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+                            <span className="truncate">{location}</span>
+                          </div>
+                        ) : null}
+                        <div className="mt-1.5 text-[13px] text-slate-700">{facts.join(" · ")}</div>
+                        {booking.invoice?.invoiceNumber ? (
+                          <div className="mt-1 font-mono text-[11.5px] text-slate-400">Invoice {booking.invoice.invoiceNumber}</div>
+                        ) : null}
                       </div>
-                    )}
-
-                    <div className="mt-4 flex items-center justify-between gap-2 flex-wrap">
-                      <p className="text-[12px] text-slate-500 font-medium">
-                        {expired
-                          ? "This payment window has closed. Please make a new booking."
-                          : unavailable
-                            ? "Payment is disabled because live availability changed after this draft was created."
-                          : "Complete payment to confirm this booking and receive your check-in code."}
-                      </p>
-                      {payHref && (
+                    </div>
+                    <div className="flex flex-shrink-0 items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 pt-3 sm:w-52 sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">
+                      <div className="text-right">
+                        <div className="text-[18px] font-extrabold tabular-nums text-slate-900">
+                          {formatAmount(booking.totalAmount)} <span className="text-[12px] font-semibold text-slate-500">TZS</span>
+                        </div>
+                        {!expired && timeLeft ? (
+                          <div className="text-[12px] font-semibold text-amber-700">Pay within {timeLeft}</div>
+                        ) : null}
+                      </div>
+                      {payHref ? (
                         <Link
                           href={payHref}
-                          className="no-underline inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-[12px] font-bold text-white shadow-sm transition-all hover:shadow-md hover:opacity-90"
-                          style={{ background: "linear-gradient(135deg,#f59e0b,#d97706)" }}
+                          className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#02665e] px-4 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
                         >
-                          <CreditCard className="h-3.5 w-3.5" />
-                          Complete Payment
+                          <CreditCard className="h-4 w-4" aria-hidden />
+                          Complete payment
                         </Link>
-                      )}
-                      {expired && (
+                      ) : (
                         <Link
                           href={reselectHref}
-                          className="no-underline inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-2 text-[12px] font-bold text-teal-800 transition-colors hover:bg-teal-100"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-4 text-[13px] font-semibold text-slate-800 no-underline transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
                         >
-                          <ArrowRight className="h-3.5 w-3.5" />
-                          Book again
+                          {unavailable ? "Select another room" : "Book again"}
+                          <ArrowRight className="h-4 w-4" aria-hidden />
                         </Link>
                       )}
                     </div>
                   </div>
+                  <p className="m-0 mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
+                    {expired
+                      ? "This payment window has closed. Please make a new booking."
+                      : unavailable
+                        ? booking.draftAvailability?.message || "Payment is disabled because live availability changed after this draft was created."
+                        : "Complete payment to confirm this booking and receive your check-in code."}
+                  </p>
                 </div>
               );
             }
 
-            // ── Paid stay card ──
+            // ── Paid stay ──
             const active = isActive(booking);
+            const inDays = daysUntil(booking.checkIn);
+            const staying = active && inDays <= 0;
+            const statusLabel = !active ? "Past stay" : staying ? "Staying now" : inDays === 1 ? "Tomorrow" : `In ${inDays} days`;
             return (
               <div
                 key={booking.id}
-                className="relative overflow-hidden rounded-3xl bg-white border border-slate-100 shadow-[0_2px_16px_rgba(0,0,0,0.05)] transition-all duration-300 hover:shadow-[0_8px_32px_rgba(2,102,94,0.10)] hover:-translate-y-0.5"
+                className="rounded-2xl border border-solid border-slate-200 bg-white p-4 shadow-sm transition-all hover:border-[#02665e]/30 hover:shadow-md sm:p-5"
               >
-                {/* Left accent bar */}
-                <div className="absolute left-0 inset-y-0 w-[3px] rounded-l-3xl" style={{ background: active ? "linear-gradient(180deg,#0e2a7a 0%,#02665e 100%)" : "linear-gradient(180deg,#cbd5e1,#94a3b8)" }} />
-                <div className="pointer-events-none absolute -right-16 -top-12 h-40 w-40 rounded-full blur-3xl" style={{ background: active ? "rgba(2,102,94,0.05)" : "rgba(148,163,184,0.06)" }} />
-
-                <div className="pl-6 pr-5 pt-5 pb-5 sm:pl-7 sm:pr-6 sm:pt-6 sm:pb-6">
-                  {/* ── Top row ── */}
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3.5 min-w-0">
-                      <div className="mt-0.5 flex-shrink-0 w-11 h-11 rounded-2xl shadow-md flex items-center justify-center" style={{ background: active ? "linear-gradient(135deg,#0e2a7a 0%,#02665e 100%)" : "linear-gradient(135deg,#94a3b8,#64748b)" }}>
-                        <BookOpen className="h-5 w-5 text-white" />
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-1 items-start gap-4">
+                    <CalendarTile date={booking.checkIn} muted={!active || undefined} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <h3 className="m-0 truncate text-[16px] font-bold text-slate-900">{booking.property.title}</h3>
+                        <span
+                          className={[
+                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-bold",
+                            !active ? "bg-slate-100 text-slate-600" : staying ? "bg-[#02665e] text-white" : "bg-[#02665e]/10 text-[#02665e]",
+                          ].join(" ")}
+                        >
+                          {active ? <CheckCircle className="h-3.5 w-3.5" aria-hidden /> : <Clock className="h-3.5 w-3.5" aria-hidden />}
+                          {statusLabel}
+                        </span>
                       </div>
-                      <div className="min-w-0">
-                        <h3 className="text-[16px] sm:text-[17px] font-extrabold text-slate-900 tracking-tight leading-tight line-clamp-1">{booking.property.title}</h3>
-                        {location && (
-                          <div className="mt-[3px] flex items-center gap-1.5 text-[12px] text-slate-500 font-medium">
-                            <MapPin className="h-3 w-3 flex-shrink-0 text-teal-500" />
-                            <span className="line-clamp-1">{location}</span>
-                          </div>
-                        )}
-                        {booking.bookingCode && (
-                          <div className="mt-[3px] flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
-                            <Hash className="h-2.5 w-2.5 flex-shrink-0" />
-                            {booking.bookingCode}
-                          </div>
-                        )}
+                      {location ? (
+                        <div className="mt-0.5 flex items-center gap-1 text-[12.5px] text-slate-500">
+                          <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+                          <span className="truncate">{location}</span>
+                        </div>
+                      ) : null}
+                      <div className="mt-1.5 text-[13px] text-slate-700">{facts.join(" · ")}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11.5px] text-slate-400">
+                        {booking.bookingCode ? <span>Code {booking.bookingCode}</span> : null}
+                        {booking.invoice?.receiptNumber ? <span>Receipt {booking.invoice.receiptNumber}</span> : null}
                       </div>
-                    </div>
-                    {/* Status pill */}
-                    <div className={["flex-shrink-0 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold shadow-sm", active ? "bg-teal-50 border-teal-100 text-teal-700" : "bg-slate-50 border-slate-200 text-slate-500"].join(" ")}>
-                      <span className={["h-1.5 w-1.5 rounded-full", active ? "bg-teal-500" : "bg-slate-400"].join(" ")} />
-                      {active ? <CheckCircle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-                      {active ? "Active" : "Past"}
                     </div>
                   </div>
 
-                  {/* ── Info chips ── */}
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-teal-50 border border-teal-100 px-3 py-1.5 text-[11px] font-semibold text-teal-800">
-                      <Calendar className="h-3 w-3 text-teal-500 flex-shrink-0" />
-                      {formatDate(booking.checkIn)} → {formatDate(booking.checkOut)}
-                    </span>
-                    {nightCount > 0 && (
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-1.5 text-[11px] font-semibold text-indigo-800">
-                        <Clock className="h-3 w-3 text-indigo-400 flex-shrink-0" />
-                        {nightCount} {nightCount === 1 ? "night" : "nights"}
-                      </span>
-                    )}
-                    {booking.roomType && (
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-violet-50 border border-violet-100 px-3 py-1.5 text-[11px] font-semibold text-violet-800">
-                        <BedDouble className="h-3 w-3 text-violet-400 flex-shrink-0" />
-                        {booking.roomType}
-                      </span>
-                    )}
-                    {booking.rooms && (
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-sky-50 border border-sky-100 px-3 py-1.5 text-[11px] font-semibold text-sky-800">
-                        <DoorOpen className="h-3 w-3 text-sky-400 flex-shrink-0" />
-                        {booking.rooms} {booking.rooms === 1 ? "room" : "rooms"}
-                      </span>
-                    )}
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 border border-amber-100 px-3 py-1.5 text-[11px] font-semibold text-amber-800">
-                      <CreditCard className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                      {formatAmount(booking.totalAmount)} TZS
-                    </span>
-                    {booking.invoice?.receiptNumber && (
-                      <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-50 border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
-                        <Hash className="h-3 w-3 text-slate-400 flex-shrink-0" />
-                        Receipt: {booking.invoice.receiptNumber}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* ── Actions ── */}
-                  <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
-                    {canRequestCancellation(booking) && (
+                  <div className="flex flex-shrink-0 items-center justify-between gap-3 border-0 border-t border-solid border-slate-100 pt-3 sm:w-56 sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">
+                    <div className="text-right">
+                      <div className="text-[18px] font-extrabold tabular-nums text-slate-900">
+                        {formatAmount(booking.totalAmount)} <span className="text-[12px] font-semibold text-slate-500">TZS</span>
+                      </div>
+                      <div className="text-[11.5px] text-slate-500">Paid</div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {canRequestCancellation(booking) ? (
+                        <Link
+                          href={`/account/cancellations?code=${encodeURIComponent(booking.bookingCode!)}`}
+                          title="Request cancellation"
+                          aria-label="Request cancellation"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-500 no-underline transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                        >
+                          <XCircle className="h-4 w-4" aria-hidden />
+                        </Link>
+                      ) : null}
+                      {booking.bookingCode ? (
+                        <Link
+                          href={`/account/bookings/${encodeURIComponent(booking.bookingReference)}/receipt`}
+                          title="Receipt"
+                          aria-label="Open receipt"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-600 no-underline transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+                        >
+                          <Download className="h-4 w-4" aria-hidden />
+                        </Link>
+                      ) : null}
                       <Link
-                        href={`/account/cancellations?code=${encodeURIComponent(booking.bookingCode!)}`}
-                        className="no-underline inline-flex items-center gap-1.5 rounded-xl border border-red-100 bg-red-50 hover:bg-red-100 px-3 py-1.5 text-[11px] font-bold text-red-600 transition-colors"
+                        href={`/account/bookings/${encodeURIComponent(booking.bookingReference)}`}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#02665e] px-3.5 text-[13px] font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
                       >
-                        <XCircle className="h-3.5 w-3.5" />
-                        Cancel
+                        <Eye className="h-4 w-4" aria-hidden />
+                        View details
                       </Link>
-                    )}
-                    {booking.bookingCode && (
-                      <button
-                        type="button"
-                        onClick={() => openReceipt(booking.id)}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-600 transition-colors"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Receipt
-                      </button>
-                    )}
-                    <Link
-                      href={`/account/bookings/${booking.id}`}
-                      className="no-underline inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[11px] font-bold text-white shadow-sm transition-all hover:shadow-md hover:opacity-90"
-                      style={{ background: "linear-gradient(135deg,#0a5c82,#02665e)" }}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      View Details
-                    </Link>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -611,85 +889,60 @@ export default function MyBookingsPage() {
         </div>
       )}
 
-      {/* ── Receipt modal ── */}
-      {receiptBookingId !== null && (
-        <div
-          className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"
-          onClick={closeReceipt}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Booking receipt"
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden ring-1 ring-black/5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div
-              className="flex items-center justify-between px-5 py-3.5 bg-white border-b border-slate-100 shrink-0"
-              style={{ borderTop: "3px solid #02665e" }}
+      {/* ── Pagination ── */}
+      {shownBookings.length > PAGE_SIZE ? (
+        <nav aria-label="Bookings pages" className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-solid border-slate-200 bg-white px-4 py-3 sm:flex-row">
+          <span className="text-[12.5px] text-slate-500">
+            Showing{" "}
+            <strong className="font-bold tabular-nums text-slate-900">
+              {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, shownBookings.length)}
+            </strong>{" "}
+            of <span className="tabular-nums">{shownBookings.length}</span> bookings
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              aria-label="Previous page"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex items-center justify-center w-9 h-9 rounded-xl shrink-0" style={{ background: "rgba(2,102,94,0.08)" }}>
-                  <FileText className="h-4 w-4" style={{ color: "#02665e" }} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 leading-tight">Booking Receipt</p>
-                  <p className="text-[11px] text-slate-400 leading-tight">NoLSAF · Proof of reservation</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={printReceipt}
-                  disabled={receiptLoading || receiptError}
-                  title="Print receipt"
-                  className="h-9 w-9 flex items-center justify-center rounded-lg text-white shadow-sm transition hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "#02665e" }}
-                >
-                  <Printer className="h-4 w-4" />
-                </button>
-                <div className="w-px h-5 bg-slate-200 mx-0.5" />
-                <button
-                  type="button"
-                  onClick={closeReceipt}
-                  title="Close"
-                  className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition shrink-0"
-                  aria-label="Close receipt"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Body — the iframe renders the fully-styled server receipt via srcdoc */}
-            <div className="relative flex-1 min-h-0 bg-white">
-              {receiptLoading && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white">
-                  <div className="w-8 h-8 border-2 border-slate-200 rounded-full animate-spin" style={{ borderTopColor: "#02665e" }} />
-                  <p className="text-sm text-slate-500">Loading receipt…</p>
-                </div>
-              )}
-              {receiptError ? (
-                <div className="flex flex-col items-center justify-center h-64 gap-2 text-center px-6">
-                  <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center">
-                    <X className="h-5 w-5 text-red-400" />
-                  </div>
-                  <p className="text-sm font-semibold text-red-500">Receipt unavailable</p>
-                  <p className="text-xs text-slate-400">Please try again or contact support.</p>
-                </div>
-              ) : receiptHtml ? (
-                <iframe
-                  ref={receiptIframeRef}
-                  title="Booking receipt"
-                  srcDoc={receiptHtml}
-                  className="w-full h-[72vh] border-0 block bg-white"
-                />
-              ) : null}
-            </div>
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </button>
+            {Array.from({ length: pageCount }, (_, i) => i + 1)
+              // First, last, and the pages around the current one; gaps become "..."
+              .filter((n) => n === 1 || n === pageCount || Math.abs(n - currentPage) <= 1)
+              .map((n, i, list) => (
+                <span key={n} className="flex items-center gap-1">
+                  {i > 0 && n - list[i - 1] > 1 ? <span className="px-1 text-[13px] text-slate-400">...</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => goToPage(n)}
+                    aria-current={n === currentPage ? "page" : undefined}
+                    className={[
+                      "inline-flex h-9 min-w-[36px] cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] font-semibold tabular-nums transition-colors",
+                      n === currentPage
+                        ? "border-0 bg-[#02665e] text-white"
+                        : "border border-solid border-slate-200 bg-white text-slate-700 hover:border-[#02665e]/40 hover:text-[#02665e]",
+                    ].join(" ")}
+                  >
+                    {n}
+                  </button>
+                </span>
+              ))}
+            <button
+              type="button"
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === pageCount}
+              aria-label="Next page"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
           </div>
-        </div>
-      )}
+        </nav>
+      ) : null}
+
     </div>
   );
 }

@@ -52,7 +52,9 @@ function buildContentSecurityPolicy(nonce: string): string {
     "media-src 'self' blob: data: https:",
     `connect-src ${connectSrc.join(" ")}`,
     "frame-ancestors 'self'",
-    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    // blob: lets a page show a PDF it generated in memory (e.g. the travel
+    // itinerary viewer); only this origin's nonce-checked scripts can mint one.
+    "frame-src 'self' blob: https://js.stripe.com https://hooks.stripe.com",
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",
@@ -83,6 +85,9 @@ export function middleware(req: NextRequest) {
   requestHeaders.set("x-nonce", nonce);
   const url = req.nextUrl.clone();
   const path = url.pathname;
+  const isSignedTourDocument =
+    /^\/account\/tour-packages\/[^/]+\/(voucher|receipt)$/.test(path) &&
+    Boolean(url.searchParams.get("document_token"));
 
   // ─── MAINTENANCE MODE ───────────────────────────────────────────────────────
   // Edge runtime reads process.env at request time (not build time in Next.js 15+).
@@ -100,13 +105,16 @@ export function middleware(req: NextRequest) {
   }
   // ────────────────────────────────────────────────────────────────────────────
 
-  // Check for both cookie names for compatibility
-  const token = req.cookies.get("token")?.value || req.cookies.get("nolsaf_token")?.value || "";
-  // Prefer the token role for page routing. Keep the legacy role cookie only as
-  // a fallback for sessions issued before role was included in the JWT.
-  const tokenRole = decodeRoleFromToken(token);
-  const cookieRole = req.cookies.get("role")?.value || "";
-  const role = tokenRole || cookieRole;
+  // Match API authentication and CSRF cookie precedence exactly. During an
+  // account switch a legacy cookie can still describe a different account.
+  const token = req.cookies.get("nolsaf_token")?.value
+    || req.cookies.get("__Host-nolsaf_token")?.value
+    || req.cookies.get("token")?.value
+    || req.cookies.get("__Host-token")?.value
+    || "";
+  // This decoded claim is a navigation hint only; APIs verify the signature,
+  // live session and database role. A writable role cookie is never a fallback.
+  const role = decodeRoleFromToken(token);
 
   // Preserve the existing signed-in /login behavior before normalizing legacy
   // login aliases. Unauthenticated aliases are redirected at the HTTP layer so
@@ -130,7 +138,9 @@ export function middleware(req: NextRequest) {
     path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/book/") ||
     path.startsWith("/nrms/guest/payment/") ||
-    path.startsWith("/nrms/guest/review/");
+    path.startsWith("/nrms/guest/review/") ||
+    // A supplier opening a purchase order link has no NoLSAF account.
+    path.startsWith("/nrms/supplier-order/");
 
   if (path.startsWith("/admin")) {
     if (role !== "ADMIN") {
@@ -225,7 +235,7 @@ export function middleware(req: NextRequest) {
     // own portal instead of seeing a broken state.
     const isAgentPortalRoute = path === "/account/agent" || path.startsWith("/account/agent/");
 
-    if (!isAccountAuthRoute) {
+    if (!isAccountAuthRoute && !isSignedTourDocument) {
       if (!token) {
         url.pathname = "/account/login";
         return NextResponse.redirect(url);
@@ -245,7 +255,9 @@ export function middleware(req: NextRequest) {
   const isCapabilityPage =
     path === "/nrms/agent/activate" ||
     path.startsWith("/nrms/guest/payment/") ||
-    path.startsWith("/nrms/guest/review/");
+    path.startsWith("/nrms/guest/review/") ||
+    path.startsWith("/nrms/supplier-order/") ||
+    isSignedTourDocument;
   response.headers.set(
     "Referrer-Policy",
     isCapabilityPage ? "no-referrer" : "strict-origin-when-cross-origin",

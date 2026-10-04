@@ -19,7 +19,7 @@ export async function computeNrmsIntegritySignals(now = new Date()) {
       db.reservationCharge.findMany({ where: { reservation: { propertyId, checkedOutAt: { not: null } }, voidedAt: { gte: observedFrom, lt: observedTo } }, select: { id: true, voidedAt: true, reservation: { select: { checkedOutAt: true } } } }),
       db.nrmsNightAuditRun.findFirst({ where: { propertyId, status: "CLOSED" }, orderBy: { completedAt: "desc" }, select: { completedAt: true } }),
       db.nrmsCashierShift.findMany({ where: { propertyId, closedAt: { gte: observedFrom, lt: observedTo }, variance: { not: null } }, select: { id: true, userId: true, variance: true } }),
-      db.reservationEvent.findMany({ where: { reservation: { propertyId }, type: "CHECKED_IN", createdAt: { gte: observedFrom, lt: observedTo } }, select: { id: true, data: true } }),
+      db.reservationEvent.findMany({ where: { reservation: { propertyId }, type: { in: ["CHECKED_IN", "POST_CHECKOUT_ROOM_ACTIVITY"] }, createdAt: { gte: observedFrom, lt: observedTo } }, select: { id: true, type: true, reservationId: true, data: true } }),
       db.nrmsPublicMetric.findMany({ where: { propertyId, metricDate: { gte: observedFrom, lt: observedTo } } }),
     ]);
 
@@ -60,8 +60,16 @@ export async function computeNrmsIntegritySignals(now = new Date()) {
     for (const [userId, rows] of shiftsByUser) {
       if (rows.length >= 3) signals.push({ propertyId, kind: `CASH_VARIANCE_STAFF_${userId}`, severity: "HIGH", metricValue: rows.length, details: { userId, shiftIds: rows.map((s: any) => s.id) } });
     }
-    const readinessOverrides = reservationEvents.filter((event: any) => event.data && typeof event.data === "object" && event.data.overrideRoomReadiness === true).length;
+    const readinessOverrides = reservationEvents.filter((event: any) => event.type === "CHECKED_IN" && event.data && typeof event.data === "object" && event.data.overrideRoomReadiness === true).length;
     if (readinessOverrides >= 3) signals.push({ propertyId, kind: "READINESS_OVERRIDES", metricValue: readinessOverrides, details: { count: readinessOverrides } });
+    const postCheckoutActivity = reservationEvents.filter((event: any) => event.type === "POST_CHECKOUT_ROOM_ACTIVITY");
+    if (postCheckoutActivity.length > 0) signals.push({
+      propertyId,
+      kind: "POST_CHECKOUT_ROOM_ACTIVITY",
+      severity: "HIGH",
+      metricValue: postCheckoutActivity.length,
+      details: { count: postCheckoutActivity.length, reservationIds: [...new Set(postCheckoutActivity.map((event: any) => event.reservationId))], eventIds: postCheckoutActivity.map((event: any) => event.id) },
+    });
     const rateLimits = metrics.filter((m: any) => String(m.kind).startsWith("QR_RATE_LIMIT")).reduce((sum: number, m: any) => sum + Number(m.count), 0);
     if (rateLimits >= 10) signals.push({ propertyId, kind: "QR_RATE_LIMIT_REJECTIONS", metricValue: rateLimits, details: { count: rateLimits } });
     const rotations = metrics.filter((m: any) => m.kind === "QR_ROTATION").reduce((sum: number, m: any) => sum + Number(m.count), 0);

@@ -18,7 +18,6 @@ import {
   Banknote,
   Star,
   Users,
-  CalendarRange,
 } from "lucide-react";
 
 import LayoutFrame from "@/components/LayoutFrame";
@@ -295,11 +294,11 @@ export default function HelpPaymentsPage() {
             <Banknote className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-amber-800 space-y-1">
               <p><strong>When is my payment taken?</strong> Payment is collected in full at the time your booking is confirmed and processed by our payment partner. On some cards, a temporary hold may show on your statement. This is released automatically once the transaction settles, usually within 1–3 business days.</p>
-              <p className="mt-1"><strong>NoLSAF is fully cashless for standard bookings.</strong> All regular bookings require full digital payment at checkout. No pay-later, no ad-hoc cash. <em>Exception:</em> Group Stay and Plan with Us bookings operate on a deposit model. A non-refundable deposit is paid digitally at booking, and the outstanding balance may be settled digitally or in cash at arrival. See the section below for details.</p>
+              <p className="mt-1"><strong>NoLSAF is fully cashless for standard bookings.</strong> All regular bookings require full digital payment at checkout. No pay-later, no ad-hoc cash. <em>Exception:</em> Group Stay bookings operate on a deposit model. A non-refundable deposit is paid digitally at booking, and the outstanding balance may be settled digitally or in cash at arrival. See the section below for details.</p>
             </div>
           </div>
 
-          {/* Special booking types — Group Stay & Plan with Us */}
+          {/* Special booking type: Group Stay */}
           <section className="mt-12">
             {/* Dark header strip */}
             <div className="relative overflow-hidden rounded-2xl bg-[#02665e] p-6 sm:p-8 mb-6 text-white"
@@ -312,17 +311,17 @@ export default function HelpPaymentsPage() {
                 </div>
                 <div>
                   <div className="inline-flex items-center gap-2 rounded-full bg-white/15 border border-white/30 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white mb-2">
-                    Exceptional payment flows
+                    Exceptional payment flow
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-black tracking-tight">Group Stay &amp; Plan with Us</h2>
+                  <h2 className="text-xl sm:text-2xl font-black tracking-tight">Group Stay</h2>
                   <p className="mt-1.5 text-sm text-white/80 max-w-xl leading-relaxed">
-                    These two booking types follow a two-stage payment model: a non-refundable deposit secures your slot, and the remaining balance is settled before or at arrival. All deposits are processed digitally through NoLSAF&rsquo;s certified payment partners.
+                    This booking type follows a two-stage payment model: a non-refundable deposit secures your slot, and the remaining balance is settled before or at arrival. All deposits are processed digitally through NoLSAF&rsquo;s certified payment partners.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-5">
+            <div className="grid gap-5">
               {/* Group Stay card */}
               <div className="group relative overflow-hidden bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-violet-300 hover:-translate-y-1 transition-all duration-300">
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 to-purple-400 scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left rounded-t-2xl" />
@@ -361,46 +360,6 @@ export default function HelpPaymentsPage() {
                 <div className="border-t border-slate-100 px-6 py-3 bg-violet-50/50 flex items-center gap-2">
                   <Info className="h-3.5 w-3.5 text-violet-500 flex-shrink-0" />
                   <p className="text-[11px] text-violet-700">All group deposits go through NoLSAF&rsquo;s certified digital payment partners.</p>
-                </div>
-              </div>
-
-              {/* Plan with Us card */}
-              <div className="group relative overflow-hidden bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-[#02665e]/30 hover:-translate-y-1 transition-all duration-300">
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#02665e] to-[#02b4f5] scale-x-0 group-hover:scale-x-100 transition-transform duration-300 origin-left rounded-t-2xl" />
-                <div className="p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="h-10 w-10 rounded-xl bg-teal-50 flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      <CalendarRange className="h-5 w-5 text-[#02665e]" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-gray-900 text-base">Plan with Us</h3>
-                      <p className="text-xs text-[#02665e] font-medium">Custom itineraries · Extended stays · Multi-leg trips</p>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-600 leading-relaxed mb-4">
-                    &ldquo;Plan with Us&rdquo; is for travellers who need a tailored arrangement. Custom-routed transport, accommodation packages, or multi-leg journeys. A NoLSAF coordinator builds and manages the plan for you.
-                  </p>
-                  <ul className="space-y-3">
-                    {[
-                      { label: "Deposit to confirm your plan", detail: "Pay a non-refundable deposit digitally to lock your arrangement and trigger coordinator assignment." },
-                      { label: "24-hour balance window", detail: "After the deposit, you have 24 hours to settle the remaining balance. Missing this window may result in automatic cancellation and forfeiture of the deposit." },
-                      { label: "Balance payment options", detail: "The remaining balance can be paid digitally via any supported method, or settled in cash upon arrival at your booked destination." },
-                      { label: "No reallocation within window", detail: "Your booked accommodation is fully secured within the 24-hour balance window. It won't be offered to other users during that period." },
-                      { label: "Custom terms confirmed at booking", detail: "Pricing, inclusions, and cancellation terms are set at the time of arrangement and form part of your binding booking agreement." },
-                    ].map(({ label, detail }) => (
-                      <li key={label} className="flex items-start gap-2.5">
-                        <CheckCircle2 className="h-4 w-4 text-[#02665e] flex-shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-xs font-bold text-gray-800">{label} — </span>
-                          <span className="text-xs text-gray-500">{detail}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="border-t border-slate-100 px-6 py-3 bg-teal-50/50 flex items-center gap-2">
-                  <Info className="h-3.5 w-3.5 text-[#02665e] flex-shrink-0" />
-                  <p className="text-[11px] text-[#024d47]">Plan with Us bookings are coordinator-managed. Email <a href="mailto:info@nolsaf.com" className="underline font-semibold hover:text-[#02665e]">info@nolsaf.com</a> to start.</p>
                 </div>
               </div>
             </div>

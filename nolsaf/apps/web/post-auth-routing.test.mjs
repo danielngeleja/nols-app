@@ -42,7 +42,7 @@ test("rejects protected portal targets for the wrong account role", () => {
   assert.equal(isPostAuthTargetAllowed("/owner", "OWNER"), true);
   assert.equal(isPostAuthTargetAllowed("/driver/earnings", "DRIVER"), true);
   assert.equal(isPostAuthTargetAllowed("/admin/home", "ADMIN"), true);
-  assert.equal(isPostAuthTargetAllowed("/account/agent/assignments", "AGENT"), true);
+  assert.equal(isPostAuthTargetAllowed("/account/agent/bookings", "AGENT"), true);
   assert.equal(isPostAuthTargetAllowed("/agent-portal/bookings", "NRMS_AGENT"), true);
 });
 
@@ -83,7 +83,7 @@ test("exhaustive role, role-hint, and destination matrix", () => {
     ["/driver", new Set(["DRIVER", "ADMIN"])],
     ["/driver/earnings/history", new Set(["DRIVER", "ADMIN"])],
     ["/account/agent", new Set(["AGENT", "ADMIN"])],
-    ["/account/agent/assignments/9", new Set(["AGENT", "ADMIN"])],
+    ["/account/agent/bookings?stage=new", new Set(["AGENT", "ADMIN"])],
     ["/agent-portal", new Set(["AGENT", "NRMS_AGENT", "ADMIN"])],
     ["/agent-portal/bookings", new Set(["AGENT", "NRMS_AGENT", "ADMIN"])],
     ["/owner/nrms?propertyId=17", new Set(["ADMIN", "OWNER", "DRIVER", "AGENT", "NRMS_AGENT", "USER", "CUSTOMER"])],

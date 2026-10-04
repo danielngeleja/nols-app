@@ -1,121 +1,183 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, CheckCircle2, CreditCard, MapPin, Printer } from "lucide-react";
-import JsBarcode from "jsbarcode";
-import apiClient from "@/lib/apiClient";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { ArrowLeft, Download, FileText, Printer } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 
-type Receipt = {
-  bookingId: number;
-  receiptNumber: string;
-  guestName: string;
-  guestEmail: string | null;
-  propertyName: string;
-  destination: string;
-  checkIn: string;
-  checkOut: string;
-  bookingTotal: number;
-  depositPaid: number;
-  remainingBalance: number;
-  currency: string;
-  paymentMethod: string;
-  paymentRef: string | null;
-  paidAt: string;
-};
-
-const money = (currency: string, amount: number) => `${currency} ${Math.round(amount).toLocaleString("en-US")}`;
-const date = (value: string, withTime = false) => new Date(value).toLocaleString("en-GB", withTime
-  ? { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }
-  : { day: "2-digit", month: "short", year: "numeric" });
-
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return <div className="flex items-start justify-between gap-4 py-1.5 text-xs"><span className="text-slate-500">{label}</span><span className={`max-w-[65%] break-words text-right font-semibold text-slate-800 ${mono ? "font-mono" : ""}`}>{value}</span></div>;
-}
-
+/**
+ * Group stay deposit receipt viewer. The receipt itself is the shared customer
+ * receipt template rendered by the API (the same one behind the stay and tour
+ * receipts), shown in the same document viewer as /account/tour-packages/[id]/receipt.
+ */
 export default function GroupStayReceiptPage() {
-  const params = useParams();
-  const router = useRouter();
-  const id = Number(params?.id);
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [barcodeDataUrl, setBarcodeDataUrl] = useState<string | null>(null);
+  const routeParams = useParams<{ id?: string | string[] }>();
+  const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
+  const reference = String(idParam || "");
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [receiptHtml, setReceiptHtml] = useState<string>("");
+  const viewerFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const viewerStageRef = useRef<HTMLDivElement | null>(null);
+
+  const backHref = "/account/group-stays";
+  // The same receipt as a vector PDF (shared A5 template), for saving or sharing
+  const pdfHref = `/api/customer/group-stays/${encodeURIComponent(reference)}/deposit-receipt`;
+
+  const fitReceipt = useCallback(() => {
+    const frame = viewerFrameRef.current;
+    const stage = viewerStageRef.current;
+    const doc = frame?.contentDocument;
+    const sheet = doc?.querySelector(".sheet") as HTMLElement | null;
+    if (!frame || !stage || !doc?.body || !sheet) return;
+
+    sheet.style.position = "absolute";
+    sheet.style.left = "0";
+    sheet.style.top = "0";
+    sheet.style.margin = "0";
+    sheet.style.transform = "scale(1)";
+    sheet.style.transformOrigin = "top left";
+
+    const width = sheet.offsetWidth;
+    const height = sheet.offsetHeight;
+    if (!width || !height) return;
+
+    const availableWidth = Math.max(280, stage.clientWidth - 32);
+    const scale = Math.min(availableWidth / width, 1.12);
+    const renderedWidth = Math.ceil(width * scale);
+    const renderedHeight = Math.ceil(height * scale);
+
+    doc.documentElement.style.width = `${width}px`;
+    doc.documentElement.style.height = `${height}px`;
+    doc.documentElement.style.overflow = "hidden";
+    Object.assign(doc.body.style, { width: `${width}px`, height: `${height}px`, margin: "0", padding: "0", overflow: "hidden", background: "#ffffff" });
+
+    sheet.style.transform = `scale(${scale})`;
+    frame.style.width = `${renderedWidth}px`;
+    frame.style.height = `${renderedHeight}px`;
+  }, []);
 
   useEffect(() => {
-    if (!Number.isFinite(id)) return setError("Invalid booking.");
-    apiClient.get(`/api/customer/group-stays/${id}/deposit-receipt-data`)
-      .then((res) => setReceipt(res.data.receipt))
-      .catch((err) => setError(err?.response?.data?.message || "Receipt could not be loaded."));
-  }, [id]);
+    const stage = viewerStageRef.current;
+    const observer = stage ? new ResizeObserver(fitReceipt) : null;
+    if (stage) observer?.observe(stage);
+    window.addEventListener("resize", fitReceipt);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fitReceipt);
+    };
+  }, [fitReceipt]);
 
-  useEffect(() => {
-    if (!receipt) return setBarcodeDataUrl(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
     try {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      JsBarcode(svg, receipt.receiptNumber, {
-        format: "CODE128",
-        displayValue: false,
-        margin: 0,
-        width: 1.35,
-        height: 42,
-        background: "#ffffff",
-        lineColor: "#123a37",
-      });
-      const serialized = new XMLSerializer().serializeToString(svg);
-      const encoded = window.btoa(unescape(encodeURIComponent(serialized)));
-      setBarcodeDataUrl(`data:image/svg+xml;base64,${encoded}`);
-    } catch {
-      setBarcodeDataUrl(null);
+      const r = await fetch(`/api/customer/group-stays/${encodeURIComponent(reference)}/deposit-receipt.html`, { credentials: "include", cache: "no-store" });
+      if (r.status === 409) throw new Error("Your receipt will be available once the deposit is confirmed.");
+      if (!r.ok) throw new Error(`We could not load this receipt (${r.status}).`);
+      setReceiptHtml(await r.text());
+    } catch (e: any) {
+      setErr(e?.message || "We could not load this receipt.");
+      setReceiptHtml("");
+    } finally {
+      setLoading(false);
     }
-  }, [receipt]);
+  }, [reference]);
 
-  if (!receipt && !error) return <main className="flex min-h-screen items-center justify-center bg-slate-50"><div className="text-center"><LogoSpinner size="md" ariaLabel="Loading receipt" /><p className="mt-3 text-sm text-slate-500">Loading receipt...</p></div></main>;
+  const printReceipt = useCallback(() => {
+    viewerFrameRef.current?.contentWindow?.focus();
+    viewerFrameRef.current?.contentWindow?.print();
+  }, []);
+
+  useEffect(() => {
+    if (!reference) {
+      setErr("Invalid group stay reference");
+      setLoading(false);
+      return;
+    }
+    void load();
+  }, [reference, load]);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="text-center">
+          <LogoSpinner size="md" className="mx-auto mb-3" ariaLabel="Loading receipt" />
+          <div className="text-sm text-gray-600">Loading receipt…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (err || !receiptHtml) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-8">
+        <div className="rounded-2xl border border-solid border-gray-200 bg-white p-6">
+          <div className="text-sm font-medium text-slate-700">{err || "Receipt not available"}</div>
+          <div className="mt-4">
+            <Link href={backHref} className="text-[#02665e] underline hover:text-[#014e47]">
+              Back to my group stays
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 pb-12 pt-24 print:bg-white print:p-0">
-      <div className="mx-auto max-w-[470px]">
-        <div className="mb-4 flex items-center justify-between gap-3 print:hidden">
-          <button onClick={() => router.back()} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900"><ArrowLeft className="h-4 w-4" />Back</button>
-          {receipt && <button onClick={() => window.print()} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50" title="Print receipt"><Printer className="h-4 w-4" /></button>}
+    <div className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-[#eef2f1]">
+      <header className="flex h-16 flex-shrink-0 items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 bg-white px-3 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            href={backHref}
+            className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 no-underline transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]"
+            title="Back to my group stays"
+            aria-label="Back to my group stays"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+          </Link>
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
+            <FileText className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 truncate text-[15px] font-bold text-slate-900 sm:text-[16px]">Deposit receipt</h1>
+            <p className="m-0 truncate text-[11.5px] text-slate-500">NoLSAF proof of payment</p>
+          </div>
         </div>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={printReceipt}
+            title="Print receipt"
+            aria-label="Print receipt"
+            className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+          >
+            <Printer className="h-4 w-4" aria-hidden />
+          </button>
+          <a
+            href={pdfHref}
+            download
+            title="Download PDF"
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#02665e] px-3.5 text-sm font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
+          >
+            <Download className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">Download PDF</span>
+          </a>
+        </div>
+      </header>
 
-        {error || !receipt ? <div className="rounded-2xl border border-rose-200 bg-white p-6 text-center text-sm text-rose-700">{error}</div> : (
-          <article className="overflow-hidden rounded-[28px] border border-emerald-100 bg-white shadow-[0_18px_55px_rgba(15,23,42,0.10)] print:rounded-none print:border-0 print:shadow-none">
-            <header className="bg-[#f3fbf9] px-6 py-6">
-              <div className="flex items-start justify-between gap-4">
-                <div><div className="text-xs font-black uppercase tracking-[0.18em] text-[#02665e]">NoLSAF</div><h1 className="mt-2 text-[28px] font-black tracking-tight text-[#123a37]">Payment Receipt</h1><p className="mt-1 text-xs text-slate-500">Group stay deposit</p></div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" />Paid</span>
-              </div>
-              <div className="mt-5 rounded-2xl bg-[#02665e] p-5 text-white">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/65">Deposit paid</div>
-                <div className="mt-1 text-3xl font-black tracking-tight">{money(receipt.currency, receipt.depositPaid)}</div>
-                <div className="mt-2 text-xs text-white/70">Paid {date(receipt.paidAt, true)}</div>
-              </div>
-            </header>
-
-            <div className="space-y-5 p-6">
-              <section><div className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Payment summary</div><div className="grid grid-cols-2 gap-2"><div className="rounded-xl bg-slate-50 p-3"><div className="text-[10px] uppercase text-slate-400">Booking total</div><div className="mt-1 text-sm font-extrabold text-slate-800">{money(receipt.currency, receipt.bookingTotal)}</div></div><div className="rounded-xl bg-amber-50 p-3"><div className="text-[10px] uppercase text-amber-600">Stay balance</div><div className="mt-1 text-sm font-extrabold text-amber-800">{money(receipt.currency, receipt.remainingBalance)}</div></div></div></section>
-
-              <section className="rounded-2xl border border-slate-100 p-4"><div className="mb-2 flex items-center gap-2 text-xs font-bold text-[#02665e]"><CreditCard className="h-4 w-4" />Payment details</div><DetailRow label="Receipt number" value={receipt.receiptNumber} mono /><DetailRow label="Method" value={receipt.paymentMethod.replace(/_/g, " ")} /><DetailRow label="Transaction reference" value={receipt.paymentRef || "—"} mono /></section>
-
-              <section className="rounded-2xl border border-slate-100 p-4"><div className="mb-2 flex items-center gap-2 text-xs font-bold text-[#02665e]"><MapPin className="h-4 w-4" />Accommodation</div><DetailRow label="Property" value={receipt.propertyName} /><DetailRow label="Location" value={receipt.destination || "—"} /><div className="my-2 h-px bg-slate-100" /><div className="mb-1 flex items-center gap-2 text-xs font-bold text-[#02665e]"><CalendarDays className="h-4 w-4" />Stay dates</div><DetailRow label="Check-in" value={date(receipt.checkIn)} /><DetailRow label="Check-out" value={date(receipt.checkOut)} /></section>
-
-              <section className="rounded-2xl bg-slate-50 p-4"><DetailRow label="Guest" value={receipt.guestName} />{receipt.guestEmail && <DetailRow label="Email" value={receipt.guestEmail} />}<DetailRow label="Booking reference" value={`#${receipt.bookingId}`} /></section>
-
-              {barcodeDataUrl && (
-                <section className="border-t border-dashed border-slate-200 pt-5 text-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={barcodeDataUrl} alt={`Barcode for ${receipt.receiptNumber}`} className="mx-auto h-[42px] max-w-full" />
-                  <div className="mt-2 font-mono text-[10px] font-bold tracking-[0.08em] text-[#123a37]">{receipt.receiptNumber}</div>
-                  <div className="mt-1 text-[9px] uppercase tracking-[0.14em] text-slate-400">Receipt reference barcode</div>
-                </section>
-              )}
-              <p className="text-center text-[10px] leading-4 text-slate-400">This receipt confirms the deposit payment. The remaining balance is payable according to your booking arrangement.</p>
-            </div>
-          </article>
-        )}
-      </div>
-    </main>
+      <main className="relative min-h-0 flex-1 overflow-auto bg-[#dfe5e4]">
+        <div ref={viewerStageRef} className="flex min-h-full w-full items-start justify-center px-3 py-5 sm:px-6 sm:py-7">
+          <iframe
+            ref={viewerFrameRef}
+            title="Group stay deposit receipt"
+            srcDoc={receiptHtml}
+            onLoad={fitReceipt}
+            className="block shrink-0 border-0 bg-white shadow-[0_12px_35px_rgba(15,46,43,0.16)]"
+          />
+        </div>
+      </main>
+    </div>
   );
 }

@@ -5,10 +5,11 @@ import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import PublicHeader from "@/components/PublicHeader";
 import PublicFooter from "@/components/PublicFooter";
-import AgentFooter from "@/components/AgentFooter";
 import LayoutFrame from "@/components/LayoutFrame";
 import FloatingChatWidget from "@/components/FloatingChatWidget";
-import AgentPortalHeader from "@/components/AgentPortalHeader";
+import AgentAccountSidebar from "@/components/AgentAccountSidebar";
+import AgentWorkspaceHeader from "@/components/AgentWorkspaceHeader";
+import AgentOperationalFooter from "@/components/AgentOperationalFooter";
 import MobileAgentNav from "@/components/MobileAgentNav";
 
 const LegalModal = dynamic(() => import("@/components/LegalModal"), { ssr: false });
@@ -30,11 +31,37 @@ export default function CustomerAccountLayout({ children }: { children: ReactNod
     return <div className="min-h-screen bg-neutral-50">{children}</div>;
   }
 
+  // The agent workspace is a fixed-height shell, like NRMS: the rail, header and
+  // footer are flex siblings that never move, and only <main> scrolls. It cannot
+  // use position:sticky inside the marketing layout because globals.css sets
+  // `html, body { overflow-x: hidden }`, which makes the body a scroll container
+  // and disables sticky for every descendant.
+  if (isAgentPortalRoute) {
+    return (
+      <div className="flex h-dvh min-h-[36rem] w-full overflow-hidden bg-neutral-50">
+        <div className="hidden shrink-0 py-3 pl-3 lg:block">
+          <AgentAccountSidebar />
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 sm:px-4">
+          <AgentWorkspaceHeader />
+          <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20 md:pb-2">
+            {children}
+          </main>
+          <AgentOperationalFooter />
+        </div>
+
+        <LegalModal />
+        <MobileAgentNav />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50">
-      {isAgentPortalRoute ? <AgentPortalHeader /> : <PublicHeader />}
+      <PublicHeader />
 
-      <div className="flex-1 w-full overflow-x-hidden">
+      <div className="w-full flex-1 overflow-x-hidden">
         <div className="public-container relative">
           <LayoutFrame
             heightVariant="sm"
@@ -47,21 +74,17 @@ export default function CustomerAccountLayout({ children }: { children: ReactNod
           />
 
           {/* Main content */}
-          <div className={isAgentPortalRoute ? "pt-6 pb-20 md:pb-6" : "pt-6 pb-6"}>
-            <main className="w-full max-w-full overflow-x-hidden">
-              {children}
-            </main>
+          <div className="pt-6 pb-6">
+            <main className="w-full max-w-full overflow-x-hidden">{children}</main>
           </div>
         </div>
       </div>
 
       <div className="relative z-20">
-        {isAgentPortalRoute ? <AgentFooter withRail /> : <PublicFooter withRail />}
+        <PublicFooter withRail />
       </div>
 
-      {isAgentPortalRoute ? <LegalModal /> : null}
-      {isAgentPortalRoute && <MobileAgentNav />}
-      {!isAgentPortalRoute && <FloatingChatWidget position="bottom-right" mobileBottomOffset={56} />}
+      <FloatingChatWidget position="bottom-right" mobileBottomOffset={56} />
     </div>
   );
 }

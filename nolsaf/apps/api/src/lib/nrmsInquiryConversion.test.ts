@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildInquiryAcknowledgement } from "./nrmsInquiryAcknowledgement.js";
 import { createInquiryRoomHold } from "./nrmsInquiryConversion.js";
 
@@ -10,7 +10,7 @@ function conversionDb(capacity = 2) {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     roomType: {
-      findFirst: vi.fn().mockResolvedValue({ id: 12, baseRate: 100_000, currency: "TZS" }),
+      findFirst: vi.fn().mockResolvedValue({ id: 12, baseRate: 100_000, staffRateFloor: 80_000, currency: "TZS" }),
       findMany: vi.fn().mockResolvedValue([{ id: 12, name: "Deluxe", _count: { units: capacity } }]),
     },
     nrmsRatePlan: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -34,6 +34,7 @@ const input = {
   propertyId: 7,
   ownerId: 2,
   actorId: 19,
+  actorRole: "FRONT_DESK",
   actorName: "Reception A",
   inquiryId: 41,
   version: 3,
@@ -48,6 +49,16 @@ const input = {
 };
 
 describe("reception inquiry journey", () => {
+  // The fixture stay (12 to 14 Sep 2026) must stay in the future for the
+  // conversion to accept it, so pin only the clock, not the timers.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T08:00:00.000Z"));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   it("acknowledges the request and atomically creates a staff-attributed hold", async () => {
     const { db, tx } = conversionDb();
     const acknowledgement = buildInquiryAcknowledgement({ propertyTitle: "Sheraton Hotel", guestName: input.guestName, checkIn: input.checkIn, checkOut: input.checkOut, channels: { whatsapp: true } });
@@ -66,5 +77,23 @@ describe("reception inquiry journey", () => {
     expect(result).toMatchObject({ ok: false, code: "NO_AVAILABILITY" });
     expect(tx.reservation.create).not.toHaveBeenCalled();
     expect(tx.nrmsGuestInquiry.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("applies an allowed negotiated rate only to the created reservation", async () => {
+    const { db, tx } = conversionDb();
+    const result = await createInquiryRoomHold({ ...input, actorRole: "SALES_EXECUTIVE", negotiatedNightlyRate: 90_000 }, db);
+
+    expect(result).toMatchObject({ ok: true, roomRate: 90_000, totalAmount: 180_000 });
+    expect(tx.reservation.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ roomRate: 90_000, totalAmount: 180_000 }),
+    }));
+  });
+
+  it("blocks staff from negotiating below the owner's room-rate limit", async () => {
+    const { db, tx } = conversionDb();
+    const result = await createInquiryRoomHold({ ...input, actorRole: "SALES_EXECUTIVE", negotiatedNightlyRate: 70_000 }, db);
+
+    expect(result).toMatchObject({ ok: false, code: "RATE_BELOW_STAFF_FLOOR" });
+    expect(tx.reservation.create).not.toHaveBeenCalled();
   });
 });

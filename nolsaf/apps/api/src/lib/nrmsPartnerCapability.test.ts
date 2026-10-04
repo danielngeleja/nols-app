@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { bridgeApprovedOperatorToAccommodation, evaluateAccommodationPortalAccess } from "./nrmsPartnerCapability.js";
+import { ACCOMMODATION_BRIDGE_TX_OPTIONS, bridgeApprovedOperatorToAccommodation, evaluateAccommodationPortalAccess } from "./nrmsPartnerCapability.js";
+
+describe("accommodation capability transaction", () => {
+  it("allows bounded headroom beyond Prisma's five-second default", () => {
+    expect(ACCOMMODATION_BRIDGE_TX_OPTIONS).toEqual({ maxWait: 5_000, timeout: 15_000 });
+  });
+});
 
 describe("evaluateAccommodationPortalAccess", () => {
   it("preserves established NRMS agent access without depending on backfill ordering", () => {

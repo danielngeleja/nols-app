@@ -31,7 +31,13 @@ const finance = vi.hoisted(() => {
     subscriptionGroupBy,
     transportAggregate,
     prisma: {
-      invoice: { aggregate: vi.fn(async () => emptyAggregate) },
+      invoice: { aggregate: vi.fn(async () => emptyAggregate), findMany: vi.fn(async () => []) },
+      disbursement: { findMany: vi.fn(async () => []) },
+      salesCommission: { groupBy: vi.fn(async () => []) },
+      referralEarning: { groupBy: vi.fn(async () => []) },
+      tourFinancialTransaction: { groupBy: vi.fn(async () => []) },
+      platformExpense: { groupBy: vi.fn(async () => []) },
+      systemSetting: { findUnique: vi.fn(async () => null) },
       tourBooking: { groupBy: vi.fn(async () => []) },
       transportPayout: { aggregate: transportAggregate },
       groupBooking: { aggregate: vi.fn(async () => emptyAggregate) },
@@ -48,6 +54,12 @@ vi.mock("../middleware/auth.js", () => ({
   requireRole: () => (_req: any, _res: any, next: any) => next(),
 }));
 
+const grant = vi.hoisted(() => ({ granted: true }));
+vi.mock("../middleware/financeGrant.js", () => ({
+  requireAdminFinanceGrant: (_req: any, res: any, next: any) =>
+    grant.granted ? next() : res.status(403).json({ error: "OTP required", require2fa: true }),
+}));
+
 vi.mock("../lib/fx.js", () => ({
   BASE_CURRENCY: "TZS",
   getFxRates: vi.fn(async () => ({ tzsPerUnit: {} })),
@@ -62,8 +74,19 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  grant.granted = true;
   finance.state.transportScenario = false;
   finance.transportAggregate.mockClear();
+});
+
+describe("admin finance overview access", () => {
+  it("refuses to return revenue without a finance OTP grant", async () => {
+    grant.granted = false;
+    const response = await request(app).get("/api/admin/finance/overview").expect(403);
+    expect(response.body).toMatchObject({ require2fa: true });
+    expect(response.body.totals).toBeUndefined();
+    expect(finance.prisma.invoice.aggregate).not.toHaveBeenCalledWith(expect.anything());
+  });
 });
 
 describe("admin finance overview subscriptions", () => {

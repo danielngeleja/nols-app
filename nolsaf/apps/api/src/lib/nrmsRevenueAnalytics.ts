@@ -12,6 +12,18 @@ function sumMoney(rows: MoneyRow[] | null | undefined): number {
 export type AnalyticsSettlementStatus = "FULL" | "PARTIAL" | "UNPAID";
 
 /**
+ * Master folios belong either to a group block or to an agent booking request.
+ * createdAt is a defensive fallback for legacy rows that have neither parent.
+ */
+export function resolveAnalyticsMasterFolioStayDate(input: {
+  block?: { checkIn: Date } | null;
+  agentBookingRequest?: { checkIn: Date } | null;
+  createdAt: Date;
+}): Date {
+  return input.block?.checkIn ?? input.agentBookingRequest?.checkIn ?? input.createdAt;
+}
+
+/**
  * A routed amount clears the guest folio without becoming cash. Keeping those
  * concepts separate prevents agency liability from being reported as both a
  * guest debt and a master-folio debt.

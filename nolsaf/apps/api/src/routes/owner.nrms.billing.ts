@@ -15,6 +15,9 @@ import {
 } from "../lib/azampay.helpers.js";
 import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerce.helpers.js";
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
+import { createNrmsCoralReferenceFields } from "../lib/nrmsCoral.js";
+import { markNrmsPaymentFailed, NRMS_STATEMENT_TRANSACTION_OPTIONS } from "../lib/nrmsBilling.js";
+import { generateNrmsBillingReceiptPdf, type NrmsBillingReceiptData } from "../lib/pdfDocuments.js";
 import crypto from "crypto";
 
 export const router = Router();
@@ -74,7 +77,7 @@ async function markNrmsTokenProcessing(row: any, method: string, checkoutSession
   ]);
 }
 
-async function recordNrmsInitiation(input: { row: any; eventId: string; channel: string; provider: string; phone?: string; checkoutUrl?: string }) {
+async function recordNrmsInitiation(input: { row: any; eventId: string; channel: string; provider: string; paymentRef?: string; phone?: string; checkoutUrl?: string; required?: boolean }) {
   try {
     await (prisma as any).paymentEvent.upsert({
       where: { eventId: input.eventId },
@@ -88,11 +91,56 @@ async function recordNrmsInitiation(input: { row: any; eventId: string; channel:
         paymentChannel: input.channel,
         phone: input.phone,
         checkoutUrl: input.checkoutUrl,
-        payload: { nrmsToken: input.row.token, statementId: input.row.statementId, paymentRef: input.row.token },
+        payload: { nrmsToken: input.row.token, statementId: input.row.statementId, paymentRef: input.paymentRef ?? input.row.token },
       },
     });
   } catch (error: any) {
     console.warn("[NRMS payment] Could not record initiation event:", error?.message ?? error);
+    if (input.required) throw error;
+  }
+}
+
+async function prepareNrmsCardAttempt(row: any, paymentRef: string) {
+  await prisma.$transaction([
+    (prisma as any).paymentEvent.upsert({
+      where: { eventId: `${paymentRef}-INIT` },
+      update: {
+        status: "PENDING",
+        checkoutUrl: null,
+        payload: { nrmsToken: row.token, statementId: row.statementId, paymentRef },
+      },
+      create: {
+        provider: "CORALCOMMERCE",
+        eventId: `${paymentRef}-INIT`,
+        amount: Number(row.amount),
+        currency: row.currency,
+        status: "PENDING",
+        paymentChannel: "CARD",
+        payload: { nrmsToken: row.token, statementId: row.statementId, paymentRef },
+      },
+    }),
+    (prisma as any).nrmsServicePaymentToken.update({
+      where: { id: row.id },
+      data: { method: "CARD", status: "PROCESSING", checkoutSessionId: paymentRef },
+    }),
+    (prisma as any).ownerPaygAccount.update({
+      where: { id: row.statement.accountId },
+      data: { status: "PAYMENT_PENDING" },
+    }),
+  ]);
+}
+
+async function failNrmsCardAttempt(row: any, paymentRef: string, rawStatus?: string) {
+  try {
+    await prisma.$transaction(async (tx: any) => {
+      await tx.paymentEvent.updateMany({
+        where: { eventId: `${paymentRef}-INIT`, status: "PENDING" },
+        data: { status: "FAILED", rawStatus: rawStatus || undefined },
+      });
+      await markNrmsPaymentFailed(tx, row.token);
+    });
+  } catch (error: any) {
+    console.warn("[NRMS/Card] Could not persist failed initiation:", error?.message ?? error);
   }
 }
 
@@ -104,13 +152,47 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     where: { propertyId: active.property.id }, include: {
       policy: true,
       events: { orderBy: [{ serviceDate: "desc" }, { id: "desc" }], take: 500, include: { reservation: { select: { source: true, guestProfile: { select: { fullName: true } } } }, allocation: { include: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } } } },
-      statements: { orderBy: { id: "desc" }, include: { tokens: { orderBy: { id: "desc" } }, _count: { select: { items: true } } } },
+      statements: { orderBy: { id: "desc" }, include: { tokens: { orderBy: { id: "desc" }, include: { payment: { select: { id: true, provider: true, providerRef: true, status: true, verifiedAt: true, amount: true, currency: true } } } }, _count: { select: { items: true } } } },
     },
   });
   res.json({ account });
 }) as RequestHandler);
 
 const methodSchema = z.object({ method: z.enum(["MOBILE_MONEY", "CARD", "BANK"]) });
+async function loadVerifiedReceipt(req: AuthedRequest, res: Response): Promise<NrmsBillingReceiptData | null> {
+  const row = await (prisma as any).nrmsServicePaymentToken.findFirst({
+    where: { token: req.params.token, statement: { account: { ownerId: req.user!.id } } },
+    include: { payment: true, statement: { include: { account: { include: { property: { select: { title: true } } } } } } },
+  });
+  if (!row) { res.status(404).json({ error: "Payment not found" }); return null; }
+  if (row.status !== "PAID" || row.statement.status !== "PAID" || !row.payment || !["VERIFIED", "MANUALLY_VERIFIED", "SUCCESS", "PAID"].includes(row.payment.status)) {
+    res.status(409).json({ error: "A verified receipt is not available for this payment" });
+    return null;
+  }
+  const manual = row.payment.status === 'MANUALLY_VERIFIED' || row.payment.provider === 'ADMIN_MANUAL';
+  return { reference:`NRMS-RCPT-${row.payment.id}`, settlementReference:`NRMS-${row.statementId}-${String(row.token).replace(/[^a-z0-9]/gi,'').slice(-4).toUpperCase().padStart(4,'0')}`, statementId:row.statementId, propertyTitle:row.statement.account.property.title, amount:Number(row.payment.amount), currency:row.payment.currency, method:row.method, manual, paidAt:manual?null:row.statement.paidAt, verifiedAt:row.payment.verifiedAt, providerReference:row.payment.providerRef };
+}
+
+router.get("/tokens/:token/receipt.pdf", (async (req: AuthedRequest, res: Response) => {
+  const receipt = await loadVerifiedReceipt(req, res);
+  if (!receipt) return;
+  try {
+    const pdf = await generateNrmsBillingReceiptPdf(receipt);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${receipt.reference}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(pdf);
+  } catch (error) {
+    console.error("[NRMS/Billing] receipt PDF failed", error);
+    res.status(500).json({ error: "The receipt PDF could not be generated" });
+  }
+}) as RequestHandler);
+router.get("/tokens/:token/receipt",(async (req: AuthedRequest, res: Response) => {
+  const receipt = await loadVerifiedReceipt(req, res);
+  if (!receipt) return;
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ receipt });
+}) as RequestHandler);
 router.post("/tokens/:token/declare", (async (req: AuthedRequest, res: Response) => {
   const parsed = methodSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Select a supported payment method" });
@@ -148,7 +230,6 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         include: {
           account: {
             include: {
-              owner: { select: { name: true, fullName: true, email: true, phone: true } },
               property: { select: { id: true, title: true } },
             },
           },
@@ -266,28 +347,34 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
     const config = requiredNrmsCoralConfig();
     if (!config) return res.status(503).json({ error: "Card payments are not configured" });
     const postbackParams = { kind: "nrms", propertyId: String(row.statement.account.propertyId) };
-    const paymentRef = row.token;
-    const owner = row.statement.account.owner;
-    const description = `NRMS statement #${row.statementId} · ${row.statement.account.property.title}`.slice(0, 100);
+    const coralReference = createNrmsCoralReferenceFields(row.token);
+    const paymentRef = coralReference.paymentRef;
+    // These fields are only displayed by Coral. Keep them in the same simple
+    // ASCII form as the working tour and group-stay hosted checkouts.
+    const description = `NoLSAF NRMS usage charges - Statement #${row.statementId}`;
+    const coralCurrency = String(row.currency || "").trim().toUpperCase();
+    if (coralCurrency !== "TZS" && coralCurrency !== "USD") {
+      return res.status(409).json({ error: "This statement currency is not supported for card payments" });
+    }
     const coralPayload = {
       Transaction: {
         Version: "3.16",
         Username: config.username,
         Password: config.password,
         Destination: "ucfurl",
-        Submission: { Number: 1, Stamp: paymentRef.slice(0, 40) },
-        Identifier: paymentRef,
+        Submission: coralReference.Submission,
+        Identifier: coralReference.Identifier,
         Alias: config.alias,
-        Currency: row.currency,
+        Currency: coralCurrency,
         Order: {
           Products: [{ ID: 1, Code: "NRMS", Description: description, Price: amount, Quantity: 1, VAT: 0, SubTotal: amount }],
           Delivery: { Auto: true },
           ProductTotal: amount,
         },
         UCF: {
-          CustomerFullName: String(owner.fullName || owner.name || "NoLSAF Owner").slice(0, 100),
-          CustomerEmail: String(owner.email || "").slice(0, 255),
-          CustomerMobile: String(owner.phone || "").slice(0, 40),
+          CustomerFullName: "NoLSAF Owner",
+          CustomerEmail: "",
+          CustomerMobile: "",
           CallbackUrl: config.callbackUrl,
           CallbackFormat: "json",
           CallbackMethod: "post",
@@ -299,15 +386,76 @@ router.post("/tokens/:token/initiate", nrmsPaymentLimiter, (async (req: AuthedRe
         },
       },
     };
-    const providerResponse = await coralPostJson64(coralPayload);
-    if (!providerResponse.ok) return res.status(502).json({ error: "Card checkout could not be initiated" });
-    const providerData = parseCoralInitiateResponse(providerResponse.body);
-    if (providerData.code !== "000" || !providerData.redirectUrl) return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
-    await recordNrmsInitiation({ row, eventId: `${paymentRef}-INIT`, channel: "CARD", provider: "CORALCOMMERCE", checkoutUrl: providerData.redirectUrl.slice(0, 2048) });
-    await markNrmsTokenProcessing(row, "CARD");
-    const result = { status: "PENDING", transactionId: paymentRef, paymentRef, checkoutUrl: providerData.redirectUrl };
-    if (idemKey) await idemSet(idemKey, result);
-    return res.json({ ok: true, ...result });
+    // Complete all required persistence before asking Coral to create its
+    // short-lived hosted session. Once Coral returns the URL, nothing on the
+    // database path is allowed to delay delivery of that URL to the browser.
+    const cardStartedAt = performance.now();
+    await prepareNrmsCardAttempt(row, paymentRef);
+    const coralStartedAt = performance.now();
+    let providerResponse;
+    try {
+      providerResponse = await coralPostJson64(coralPayload);
+    } catch (error) {
+      await failNrmsCardAttempt(row, paymentRef, "REQUEST_FAILED");
+      throw error;
+    }
+    const coralCompletedAt = performance.now();
+    if (!providerResponse.ok) {
+      await failNrmsCardAttempt(row, paymentRef, `HTTP_${providerResponse.status}`);
+      return res.status(502).json({ error: "Card checkout could not be initiated" });
+    }
+    let providerData;
+    try {
+      providerData = parseCoralInitiateResponse(providerResponse.body);
+    } catch (error) {
+      await failNrmsCardAttempt(row, paymentRef, "INVALID_RESPONSE");
+      throw error;
+    }
+    if (providerData.code !== "000" || !providerData.redirectUrl) {
+      await failNrmsCardAttempt(row, paymentRef, providerData.code || "REJECTED");
+      return res.status(502).json({ error: providerData.message || "Card checkout was rejected" });
+    }
+    // Log only URL structure: the query values are one-use session credentials.
+    let hostedUrlShape: Record<string, unknown> = { validUrl: false };
+    try {
+      const hostedUrl = new URL(providerData.redirectUrl);
+      hostedUrlShape = {
+        validUrl: true,
+        host: hostedUrl.host,
+        path: hostedUrl.pathname,
+        hasKey: hostedUrl.searchParams.has("key"),
+        hasUcfctrl: hostedUrl.searchParams.has("ucfctrl"),
+        length: providerData.redirectUrl.length,
+      };
+    } catch { /* Keep the provider response intact for diagnosis. */ }
+    const result = { status: "PENDING", transactionId: paymentRef, paymentRef: row.token, checkoutUrl: providerData.redirectUrl };
+    res.json({ ok: true, ...result });
+    const responseSentAt = performance.now();
+    console.info("[NRMS/Card] Coral checkout timing", JSON.stringify({
+      requestId: (req as any).requestId || null,
+      statementId: row.statementId,
+      preparationMs: Math.round((coralStartedAt - cardStartedAt) * 100) / 100,
+      coralMs: Math.round((coralCompletedAt - coralStartedAt) * 100) / 100,
+      responseAfterCoralMs: Math.round((responseSentAt - coralCompletedAt) * 100) / 100,
+      code: providerData.code,
+      hostedUrlShape,
+    }));
+
+    // These are audit/cache enrichments only. The authoritative token and
+    // callback mapping were committed before Coral was called, so neither may
+    // hold the hosted checkout response open.
+    void recordNrmsInitiation({
+      row,
+      eventId: `${paymentRef}-INIT`,
+      channel: "CARD",
+      provider: "CORALCOMMERCE",
+      paymentRef,
+      checkoutUrl: providerData.redirectUrl.slice(0, 2048),
+    });
+    if (idemKey) void idemSet(idemKey, result).catch((error: any) => {
+      console.warn("[NRMS/Card] Could not cache initiation response:", error?.message ?? error);
+    });
+    return;
   } catch (error: any) {
     console.error("[NRMS payment] initiation failed:", error?.message ?? error);
     return res.status(503).json({ error: "Payment service is temporarily unavailable" });
@@ -359,7 +507,7 @@ router.post("/:propertyId/token", (async (req: AuthedRequest, res: Response) => 
     const statement = await tx.nrmsBillingStatement.create({ data: { accountId: active.account.id, amount, currency } });
     await tx.nrmsBillingStatementItem.createMany({ data: events.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
     return tx.nrmsServicePaymentToken.create({ data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency, expiresAt: new Date(Date.now() + 7 * 86400000) } });
-  });
+  }, NRMS_STATEMENT_TRANSACTION_OPTIONS);
   if (!token) return res.status(409).json({ error: "No unbilled usage is available" });
   res.status(201).json({ token });
 }) as RequestHandler);

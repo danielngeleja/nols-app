@@ -18,6 +18,521 @@
   max-width: none;
 }
 
+/* Shared admin page dimensions, mirroring .owner-workspace (globals.css) and
+   the NRMS shell. Preflight is disabled in this app, so without this a `w-full`
+   card with padding and a border renders wider than the content area and its
+   right edge is clipped by the workspace surface. Applied once on the admin
+   layout's content wrapper so individual pages never need their own fix. */
+.admin-workspace,
+.admin-workspace *,
+.admin-workspace *::before,
+.admin-workspace *::after {
+  box-sizing: border-box;
+}
+
+/* Keep padding and borders inside Payments' fluid grid tracks. This project
+   does not apply a universal border-box reset to every form control. */
+.payments-workspace,
+.payments-workspace *,
+.payments-workspace *::before,
+.payments-workspace *::after {
+  box-sizing: border-box;
+}
+
+.payments-workspace > *,
+.payments-workspace .grid > * {
+  min-width: 0;
+}
+
+/* Four fluid tracks on laptops; labels may wrap rather than creating a fifth
+   row or forcing horizontal overflow when the admin sidebar is expanded. */
+.payments-summary > * {
+  padding: 10px;
+}
+
+.payments-summary > * > .flex {
+  gap: 8px;
+}
+
+.payments-summary svg {
+  flex-shrink: 0;
+}
+
+.payments-summary > * > .mt-4 {
+  margin-top: 6px;
+}
+
+.payments-summary > * > .grid > button {
+  padding: 7px 9px;
+}
+
+.payments-summary > * > span.mt-1 {
+  margin-top: 2px;
+}
+
+.payments-summary > * > .flex > span {
+  text-align: right;
+  line-height: 1.35;
+}
+
+#nrms-reconciliation .reconciliation-panel {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+#nrms-reconciliation .reconciliation-panel > div:first-child {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+#nrms-reconciliation h2 + p {
+  white-space: normal;
+  color: #64748b;
+}
+
+/* With preflight disabled, border-width alone does not draw a border. */
+#nrms-reconciliation [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-reconciliation .reconciliation-metrics > div {
+  background: #f8fafc;
+  border-color: #dce6eb;
+  padding: 14px 16px;
+}
+
+#nrms-reconciliation .reconciliation-panel h2 {
+  white-space: normal;
+}
+
+#nrms-reconciliation .statement-register > thead > tr > th,
+#nrms-reconciliation .statement-register > tbody > tr > td:not([colspan]) {
+  vertical-align: middle;
+  border-right: 1px solid #edf1f5;
+  border-bottom: 1px solid #edf1f5;
+  overflow-wrap: anywhere;
+}
+
+#nrms-reconciliation .statement-register > thead > tr > th:last-child,
+#nrms-reconciliation .statement-register > tbody > tr > td:last-child {
+  border-right: none;
+}
+
+#nrms-partnership-portfolio [class~="border"],
+#nrms-partnership-detail-modal [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-partnership-portfolio .partnership-workspace-header h1 {
+  color: #fff;
+}
+
+#nrms-partnership-portfolio .partnership-workspace-header p,
+#nrms-partnership-portfolio .partnership-workspace-header a,
+#nrms-partnership-portfolio .partnership-workspace-header > div > span {
+  color: #cce9e1;
+}
+
+#nrms-partnership-portfolio .partnership-workspace-header > div:last-child {
+  flex-wrap: wrap;
+}
+
+#nrms-partnership-portfolio .partnership-workspace-header > div:last-child > div,
+#nrms-partnership-portfolio .partnership-metrics > div,
+#nrms-partnership-portfolio .partnership-filters > * {
+  min-width: 0;
+}
+
+#nrms-partnership-portfolio .partnership-filters > label {
+  width: 100%;
+}
+
+#nrms-partnership-portfolio .partnership-metrics > div {
+  padding: 12px 16px;
+}
+
+#nrms-partnership-portfolio .text-neutral-400,
+#nrms-partnership-detail-modal .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-partnership-portfolio .partnership-register th,
+#nrms-partnership-portfolio .partnership-register td {
+  vertical-align: middle;
+  border-right: 1px solid #edf1f5;
+  overflow-wrap: anywhere;
+}
+
+#nrms-partnership-portfolio .partnership-register th:last-child,
+#nrms-partnership-portfolio .partnership-register td:last-child {
+  border-right: none;
+}
+
+#nrms-partnership-detail-modal .grid > * {
+  min-width: 0;
+}
+
+#nrms-agent-verification [class~="border"],
+#nrms-agent-detail-modal [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-agent-verification .text-neutral-400,
+#nrms-agent-detail-modal .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-agent-verification .agency-register th,
+#nrms-agent-verification .agency-register td {
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  border-right: 1px solid #edf1f5;
+}
+
+#nrms-agent-verification .agency-register th:last-child,
+#nrms-agent-verification .agency-register td:last-child {
+  border-right: none;
+}
+
+#nrms-agent-verification .grid > *,
+#nrms-agent-detail-modal .grid > * {
+  min-width: 0;
+}
+
+#nrms-billing-board,
+#nrms-billing-board * {
+  box-sizing: border-box;
+}
+
+#nrms-billing-board [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-billing-board .grid > * {
+  min-width: 0;
+}
+
+#nrms-billing-board .billing-board-header h1 {
+  color: #fff;
+}
+
+#nrms-billing-board .billing-board-header p {
+  color: #cce9e1;
+}
+
+#nrms-billing-board .billing-board-metrics > div {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+#nrms-billing-board .billing-board-metrics > div > span {
+  width: 36px;
+  height: 36px;
+}
+
+#nrms-billing-board .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-billing-board h2 + p {
+  white-space: normal;
+}
+
+#nrms-billing-board .billing-account-register th,
+#nrms-billing-board .billing-account-register td:not([colspan]) {
+  vertical-align: middle;
+  border-right: 1px solid #edf1f5;
+}
+
+#nrms-billing-board .billing-account-register th:last-child,
+#nrms-billing-board .billing-account-register td:last-child {
+  border-right: none;
+}
+
+#nrms-property-detail [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-property-detail .grid > * {
+  min-width: 0;
+}
+
+#nrms-property-detail .property-oversight-header h1 {
+  color: #fff;
+}
+
+#nrms-property-detail .property-oversight-header p.text-emerald-700,
+#nrms-property-detail .property-oversight-header p.text-neutral-500,
+#nrms-property-detail .property-oversight-header p.text-neutral-500 svg {
+  color: #cce9e1;
+}
+
+#nrms-property-detail .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-property-detail .enforcement-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+#nrms-property-detail .enforcement-group h3 {
+  margin: 0;
+  font-size: 13px;
+  color: #18332f;
+}
+
+#nrms-property-detail .enforcement-group > p {
+  margin: 4px 0 12px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+#nrms-property-detail .enforcement-group button {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  margin-top: 8px;
+  white-space: normal;
+}
+
+#nrms-property-detail h2 + p {
+  white-space: normal;
+}
+
+#nrms-property-detail table th,
+#nrms-property-detail table td {
+  vertical-align: middle;
+}
+
+#nrms-property-detail .cashier-shift-register th,
+#nrms-property-detail .cashier-shift-register td:not([colspan]),
+#nrms-property-detail .night-audit-register th,
+#nrms-property-detail .night-audit-register td:not([colspan]),
+#nrms-property-detail .outlet-register th,
+#nrms-property-detail .outlet-register td:not([colspan]) {
+  border-right: 1px solid #edf1f5;
+  border-bottom: 1px solid #edf1f5;
+  overflow-wrap: anywhere;
+}
+
+#nrms-property-detail .cashier-shift-register th:last-child,
+#nrms-property-detail .cashier-shift-register td:last-child,
+#nrms-property-detail .night-audit-register th:last-child,
+#nrms-property-detail .night-audit-register td:last-child,
+#nrms-property-detail .outlet-register th:last-child,
+#nrms-property-detail .outlet-register td:last-child {
+  border-right: none;
+}
+
+#nrms-property-detail .qr-zone-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+#nrms-property-detail .property-closeout-grid > section {
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+#nrms-property-detail .property-closeout-grid > section > div:first-child {
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 14px 16px;
+}
+
+#nrms-property-detail .property-closeout-grid > section > div:first-child > .pointer-events-none {
+  display: none;
+}
+
+#nrms-property-detail .qr-zone-group[open] > summary {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+#nrms-property-detail .qr-zone-group[open] > summary .qr-zone-chevron {
+  transform: rotate(180deg);
+}
+
+#nrms-directory [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-directory .grid > * {
+  min-width: 0;
+}
+
+#nrms-directory .directory-workspace-header h1 {
+  color: #fff;
+}
+
+#nrms-directory .directory-workspace-header p {
+  color: #cce9e1;
+}
+
+#nrms-directory .directory-workspace-header nav {
+  border-top-style: solid;
+}
+
+#nrms-directory .directory-workspace-header nav a {
+  background: #ffffff12;
+  border-color: #ffffff26;
+  color: #e0f4ee;
+  font-weight: 600;
+  font-size: 11px;
+  box-shadow: none;
+}
+
+#nrms-directory .directory-workspace-header nav a:hover {
+  background: #ffffff24;
+}
+
+#nrms-directory .directory-workspace-header nav a svg {
+  flex-shrink: 0;
+}
+
+#nrms-directory .directory-metrics > div {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+#nrms-directory .directory-metrics > div > span {
+  width: 36px;
+  height: 36px;
+}
+
+#nrms-directory .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-directory h2 + p {
+  white-space: normal;
+}
+
+#nrms-directory .directory-register th,
+#nrms-directory .directory-register td:not([colspan]) {
+  vertical-align: middle;
+  border-right: 1px solid #edf1f5;
+  overflow-wrap: anywhere;
+}
+
+#nrms-directory .directory-register th:last-child,
+#nrms-directory .directory-register td:last-child {
+  border-right: none;
+}
+
+#nrms-directory .directory-properties-register th:nth-child(6) {
+  background: linear-gradient(135deg, #dbeafe, #eff6ff);
+  box-shadow: inset 0 3px 0 #3b82f6;
+  color: #173d68;
+}
+
+#nrms-directory .directory-properties-register th:nth-child(7) {
+  background: linear-gradient(135deg, #ede9fe, #f5f3ff);
+  box-shadow: inset 0 3px 0 #8b5cf6;
+  color: #493071;
+}
+
+#nrms-directory .directory-properties-register th:nth-child(8) {
+  background: linear-gradient(135deg, #ffedd5, #fff7ed);
+  box-shadow: inset 0 3px 0 #f59e0b;
+  color: #713b17;
+}
+
+#nrms-directory .directory-properties-register th:nth-child(9) {
+  background: linear-gradient(135deg, #d1fae5, #ecfdf5);
+  box-shadow: inset 0 3px 0 #10b981;
+  color: #164e3b;
+}
+
+#channel-control [class~="border"] {
+  border-style: solid;
+}
+
+#channel-control .grid > * {
+  min-width: 0;
+}
+
+#channel-control .channel-workspace-header h1 {
+  color: #fff;
+}
+
+#channel-control .channel-workspace-header p {
+  color: #cce9e1;
+}
+
+#channel-control .channel-summary > div {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+#channel-control .channel-summary > div > span {
+  width: 36px;
+  height: 36px;
+}
+
+#channel-control .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-pricing [class~="border"] {
+  border-style: solid;
+}
+
+#nrms-pricing .grid > * {
+  min-width: 0;
+}
+
+#nrms-pricing .pricing-workspace-header h1 {
+  color: #fff;
+}
+
+#nrms-pricing .pricing-workspace-header p {
+  color: #cce9e1;
+}
+
+#nrms-pricing .pricing-summary > div {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+#nrms-pricing .pricing-summary > div > span {
+  width: 36px;
+  height: 36px;
+}
+
+#nrms-pricing .text-neutral-400 {
+  color: #64748b;
+}
+
+#nrms-pricing h2 + p {
+  white-space: normal;
+}
+
+#nrms-pricing .pricing-editor > div > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 16px;
+}
+
+#nrms-pricing .pricing-editor > aside {
+  background: #f0f8f6;
+  box-shadow: none;
+}
+
+/* Inline legacy modal labels used low-opacity white; keep them readable on
+   the dark payment surface, including reference captions and contact details. */
+.payment-detail-modal p[style*="rgba(255,255,255,0.3"],
+.payment-detail-modal p[style*="rgba(255,255,255,0.4"],
+.payment-detail-modal span[style*="rgba(255,255,255,0.4"] {
+  color: #bdd6d0 !important;
+}
+
 .admin-workspace-surface,
 .admin-drawer-surface {
   border: 1px solid var(--admin-border);

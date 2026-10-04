@@ -3,6 +3,8 @@
 import React, { useState } from "react"
 import Image from "next/image"
 import { AlertCircle, CheckCircle, Key, Smartphone } from "lucide-react"
+import BackupCodesPanel from "@/components/security/BackupCodesPanel"
+import RegenerateBackupCodes from "@/components/security/RegenerateBackupCodes"
 
 export type TotpSettingsSectionProps = {
   enabled: boolean
@@ -11,6 +13,8 @@ export type TotpSettingsSectionProps = {
   disableUrl: string
   onStatusChangeAction?: () => void
   embedded?: boolean
+  /** Where "Generate new backup codes" posts. Hidden when not provided. */
+  regenerateCodesUrl?: string
 }
 
 type SetupData = {
@@ -26,12 +30,15 @@ export default function TotpSettingsSection({
   disableUrl,
   onStatusChangeAction,
   embedded = false,
+  regenerateCodesUrl,
 }: TotpSettingsSectionProps) {
   const [setup, setSetup] = useState<SetupData | null>(null)
   const [code, setCode] = useState("")
   const [showDisableInput, setShowDisableInput] = useState(false)
   const [disableCode, setDisableCode] = useState("")
   const [loading, setLoading] = useState(false)
+  /** Plain backup codes, returned once when the authenticator is turned on. */
+  const [backupCodes, setBackupCodes] = useState<string[]>([])
 
   const toast = (detail: any) => {
     try {
@@ -80,9 +87,8 @@ export default function TotpSettingsSection({
       }
 
       const responseData = body?.data ?? body
-      const backupCodes = responseData?.backupCodes || []
-      // eslint-disable-next-line no-console
-      console.info("Backup codes:", backupCodes)
+      // Shown on screen once; never logged. The API keeps only hashes.
+      setBackupCodes(Array.isArray(responseData?.backupCodes) ? responseData.backupCodes : [])
 
       toast({
         type: "success",
@@ -195,6 +201,18 @@ export default function TotpSettingsSection({
           </span>
         </div>
       </div>
+
+      {backupCodes.length > 0 && (
+        <div className="mt-4">
+          <BackupCodesPanel codes={backupCodes} onDone={() => setBackupCodes([])} />
+        </div>
+      )}
+
+      {enabled && regenerateCodesUrl && !showDisableInput && backupCodes.length === 0 && (
+        <div className="mt-4">
+          <RegenerateBackupCodes url={regenerateCodesUrl} />
+        </div>
+      )}
 
       <div className="mt-4">
         {!enabled ? (

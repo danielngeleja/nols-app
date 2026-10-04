@@ -38,6 +38,8 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
   const [closing, setClosing] = useState(false);
   const [summary, setSummary] = useState<HandoverSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [closeExpectedCash, setCloseExpectedCash] = useState<number | null>(null);
+  const [declaredCash, setDeclaredCash] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,10 +47,11 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
   // Opening the close panel first fetches the classified review, so the attendee
   // sees every figure the manager will see before anything is sealed.
   const beginClose = async () => {
-    setClosing(true); setError(null); setSummary(null); setSummaryLoading(true);
+    setClosing(true); setError(null); setSummary(null); setCloseExpectedCash(null); setDeclaredCash(""); setSummaryLoading(true);
     try {
-      const res = await apiClient.get<{ summary: HandoverSummary }>(`/api/nrms/operations/property/${propertyId}/shifts/current/summary`);
+      const res = await apiClient.get<{ expectedCash: number; summary: HandoverSummary }>(`/api/nrms/operations/property/${propertyId}/shifts/current/summary`);
       setSummary(res.data.summary);
+      setCloseExpectedCash(Number(res.data.expectedCash));
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not load your shift review"); }
     finally { setSummaryLoading(false); }
   };
@@ -61,8 +64,8 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
 
   const time = (value: string) => new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-  // No amounts are ever typed. A fresh shift starts at zero; a takeover inherits
-  // the outgoing attendee's system figure, sealed by this attendee's own account.
+  // Opening carries no user-entered amount. A fresh shift starts at zero; a
+  // takeover inherits the outgoing attendee's physically counted drawer.
   const openShift = async (handoverFromShiftId?: number) => {
     setBusy(true); setError(null);
     try {
@@ -74,11 +77,16 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
 
   const closeShift = async () => {
     if (!shift) return;
+    const counted = declaredCash.trim() === "" ? null : Number(declaredCash);
+    if (counted == null || !Number.isFinite(counted) || counted < 0) { setError("Enter the physical cash counted in the drawer."); return; }
+    const expected = closeExpectedCash ?? shift.expectedCash;
+    const variance = Number((counted - expected).toFixed(2));
+    if (variance !== 0 && !note.trim()) { setError("Explain the cash overage or shortage before closing."); return; }
     if (summary && summary.unpaid.count > 0 && !note.trim()) { setError("Note what is outstanding before closing."); return; }
     setBusy(true); setError(null);
     try {
-      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/${shift.id}/close`, { closeNote: note.trim() || null });
-      setClosing(false); setNote("");
+      await apiClient.post(`/api/nrms/operations/property/${propertyId}/shifts/${shift.id}/close`, { declaredCash: counted, closeNote: note.trim() || null });
+      setClosing(false); setDeclaredCash(""); setCloseExpectedCash(null); setNote("");
       await onChanged();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not close the shift"); }
     finally { setBusy(false); }
@@ -93,7 +101,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white"><ArrowLeftRight className="h-5 w-5" /></span>
               <div>
                 <p className="m-0 text-[13px] font-bold text-amber-950">Drawer handover awaiting confirmation</p>
-                <p className="mb-0 mt-0.5 text-[11px] text-amber-800/90">{handover.attendeeName} closed at {time(handover.closedAt)} with {money(handover.amount)} recorded in the system.</p>
+                <p className="mb-0 mt-0.5 text-[11px] text-amber-800/90">{handover.attendeeName} closed at {time(handover.closedAt)} after physically counting {money(handover.amount)}.</p>
                 <p className="mb-0 mt-0.5 text-[11px] text-amber-800/90">Confirming records, under your account, that you received this drawer at this amount.</p>
                 {error && <p className="mb-0 mt-1 text-[11px] text-red-600">{error}</p>}
               </div>
@@ -114,7 +122,7 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-200 text-neutral-500"><Clock className="h-5 w-5" /></span>
           <div>
             <p className="m-0 text-[13px] font-bold text-neutral-800">No shift open</p>
-            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Start your shift to record sales under your name. Every sale is tracked by the system, so there is nothing to count or type." : "Shifts are held by bar and restaurant staff at their assigned outlet."}</p>
+            <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">{canManageShift ? "Start your shift to record sales under your name. NRMS tracks the expected drawer; you count the physical cash once at close." : "Shifts are held by bar and restaurant staff at their assigned outlet."}</p>
             {error && <p className="mb-0 mt-1 text-[11px] text-red-600">{error}</p>}
           </div>
         </div>
@@ -143,9 +151,9 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
 
         <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="m-0 text-[11px] text-neutral-500">Cash drawer to hand over</p>
+            <p className="m-0 text-[11px] text-neutral-500">Expected cash in drawer</p>
             <p className="mb-0 mt-1 break-words text-[30px] font-bold leading-none tracking-tight text-neutral-950">{money(shift.expectedCash)}</p>
-            <p className="mb-0 mt-1.5 text-[10px] text-neutral-400">Physical cash only, counted by the system. Mobile money, card and room folio settle to their own records, not the drawer.</p>
+            <p className="mb-0 mt-1.5 text-[10px] text-neutral-400">Based on recorded cash activity. Count the physical drawer at close; mobile money, card and room folio remain separate.</p>
           </div>
           {canManageShift && !closing && (
             <button type="button" onClick={() => void beginClose()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900">
@@ -197,13 +205,25 @@ export default function ShiftPanel({ shift, handover, canManageShift, propertyId
           )}
 
           <div className="p-5 pt-4">
-            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={summary && summary.unpaid.count > 0 ? "Note what is outstanding, e.g. table 4 will pay by mobile money" : "Add a note for the next attendee or manager (optional)"} className="box-border h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm outline-none focus:border-emerald-600" />
+            <div className="grid gap-3 rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label className="block min-w-0 text-[12px] font-bold text-neutral-800">Physical cash counted
+                <span className="mt-1.5 flex h-11 max-w-sm items-center overflow-hidden rounded-lg bg-white ring-1 ring-neutral-300 focus-within:ring-2 focus-within:ring-emerald-600">
+                  <span className="px-3 text-xs font-bold text-neutral-500">{shift.currency}</span>
+                  <input value={declaredCash} onChange={(event) => setDeclaredCash(event.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="0" className="box-border h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-right text-base font-bold tabular-nums text-neutral-950 outline-none" />
+                </span>
+              </label>
+              <dl className="m-0 grid grid-cols-2 gap-x-6 text-right text-xs">
+                <div><dt className="text-neutral-400">Expected</dt><dd className="m-0 mt-1 font-bold tabular-nums text-neutral-800">{money(closeExpectedCash ?? shift.expectedCash)}</dd></div>
+                <div><dt className="text-neutral-400">Variance</dt><dd className={`m-0 mt-1 font-bold tabular-nums ${declaredCash.trim() !== "" && Number(declaredCash) !== (closeExpectedCash ?? shift.expectedCash) ? "text-red-600" : "text-emerald-700"}`}>{declaredCash.trim() === "" ? "Pending" : money(Number(declaredCash) - (closeExpectedCash ?? shift.expectedCash))}</dd></div>
+              </dl>
+            </div>
+            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={summary && summary.unpaid.count > 0 ? "Required: note what is outstanding" : declaredCash.trim() !== "" && Number(declaredCash) !== (closeExpectedCash ?? shift.expectedCash) ? "Required: explain the cash difference" : "Optional handover note"} className="box-border mt-3 h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm outline-none focus:border-emerald-600" />
             {error && <p className="mb-0 mt-2 text-[11px] text-red-600">{error}</p>}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
               <p className="m-0 flex items-center gap-1.5 text-[10px] text-neutral-400"><Lock className="h-3.5 w-3.5" />Sealed under your name at close</p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => { setClosing(false); setError(null); }} className="min-h-10 rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-600 hover:bg-neutral-50">Cancel</button>
-                <button type="button" disabled={busy || summaryLoading} onClick={() => void closeShift()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-5 text-xs font-bold text-white hover:bg-emerald-900 disabled:opacity-50">
+                <button type="button" disabled={busy || summaryLoading || declaredCash.trim() === "" || !Number.isFinite(Number(declaredCash)) || ((Number(declaredCash) !== (closeExpectedCash ?? shift.expectedCash) || Boolean(summary?.unpaid.count)) && !note.trim())} onClick={() => void closeShift()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-800 px-5 text-xs font-bold text-white hover:bg-emerald-900 disabled:opacity-50">
                   {busy && <Loader2 className="h-4 w-4 animate-spin" />}Submit and close<ArrowRight className="h-4 w-4" />
                 </button>
               </div>

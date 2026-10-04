@@ -254,7 +254,6 @@ export default function OnboardRole() {
   const nonDriverHighlights = role === 'owner'
     ? ['Professional property identity', 'Faster approval workflow', 'Secure account controls']
     : ['Trusted guest identity', 'Faster booking checkout', 'Secure account controls'];
-  const nonDriverCompletion = Math.round((stepIndex / nonDriverSteps.length) * 100);
 
   const getSavedDriverDoc = (type: string) => getLatestDriverDoc(uploadedDriverDocs, type);
   const hasDriverDocument = (type: string, file: File | null) => Boolean(file || getSavedDriverDoc(type)?.url);
@@ -893,8 +892,8 @@ export default function OnboardRole() {
   }
 
   return (
-    <main className={`min-h-screen flex items-center justify-center py-6 px-4 ${role === 'driver' ? 'bg-[#04080f]' : 'bg-[radial-gradient(ellipse_at_60%_0%,_rgba(2,102,94,0.08),_transparent_55%),linear-gradient(180deg,_#f0faf9_0%,_#f8fafc_40%,_#ffffff_100%)]'}`}>
-      <div className={`${role !== 'driver' ? 'max-w-6xl' : 'max-w-4xl'} w-full ${role === 'driver' ? 'bg-white rounded-2xl overflow-hidden ring-1 ring-amber-400/15 shadow-[0_32px_80px_rgba(0,0,0,0.65)]' : 'overflow-hidden rounded-[32px] border border-white/70 bg-white/95 shadow-[0_32px_120px_-24px_rgba(2,102,94,0.24),0_16px_40px_-20px_rgba(15,23,42,0.16)] backdrop-blur'}`}>
+    <main className={`min-h-screen flex items-center justify-center py-6 px-4 ${role === 'driver' ? 'bg-[#04080f]' : 'bg-slate-50'}`}>
+      <div className={`${role !== 'driver' ? 'max-w-6xl' : 'max-w-4xl'} w-full ${role === 'driver' ? 'bg-white rounded-2xl overflow-hidden ring-1 ring-amber-400/15 shadow-[0_32px_80px_rgba(0,0,0,0.65)]' : 'overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm [:where(&)_:where(h1,h2,h3,p,ul,ol)]:m-0'}`}>
         {/* Header */}
         {role === 'driver' ? (
           <div className="relative bg-gradient-to-br from-[#0a1628] via-[#0d1f3c] to-[#071424] border-b border-white/[0.07] overflow-hidden">
@@ -987,100 +986,60 @@ export default function OnboardRole() {
             </div>
           </div>
         ) : (
-          <div className="relative overflow-hidden bg-[linear-gradient(145deg,#025c55_0%,#02665e_42%,#014d46_100%)] px-5 py-6 text-white sm:px-8 sm:py-8 lg:px-10 lg:py-9">
-            <div className="pointer-events-none absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "22px 22px" }} />
-            <div className="pointer-events-none absolute -top-20 right-[-36px] h-56 w-56 rounded-full bg-white/10 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-16 left-[-18px] h-44 w-44 rounded-full bg-[#6ee7b7]/12 blur-3xl" />
-
-            <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_320px] lg:items-end">
-              <div className="min-w-0">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 backdrop-blur-sm">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#6ee7b7]" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/82">
-                    {role === 'owner' ? 'Property owner onboarding' : 'Traveller onboarding'}
-                  </span>
+          <div className="bg-[#012a26] px-5 py-6 text-white sm:px-8 lg:px-10">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-solid border-white/15 bg-white/10">
+                  {role === 'owner' ? <Building2 className="h-5 w-5 text-white" /> : <UserCircle2 className="h-5 w-5 text-white" />}
                 </div>
-
-                <div className="mt-5 flex items-start gap-4">
-                  <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-[22px] border border-white/15 bg-white/12 shadow-[0_14px_36px_rgba(0,0,0,0.18)] backdrop-blur-sm">
-                    {role === 'owner' ? <Building2 className="h-7 w-7 text-white" /> : <UserCircle2 className="h-7 w-7 text-white" />}
-                  </div>
-                  <div className="min-w-0">
-                    <h1 className="text-[1.9rem] font-black tracking-tight text-white sm:text-[2.4rem] lg:text-[2.7rem]">{title}</h1>
-                    <p className="mt-2 max-w-2xl text-sm leading-6 text-white/76 sm:text-[15px] sm:leading-7">{help}</p>
-                  </div>
-                </div>
-
-                <div className="mt-6 flex flex-wrap gap-2.5">
-                  {nonDriverHighlights.map((item) => (
-                    <div key={item} className="inline-flex items-center gap-2 rounded-full border border-white/14 bg-white/[0.08] px-3 py-2 text-xs font-medium text-white/88 backdrop-blur-sm">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-[#6ee7b7]" />
-                      <span>{item}</span>
-                    </div>
-                  ))}
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9fd8cc]">
+                    {role === 'owner' ? 'Property owner account' : 'Traveller account'}
+                  </p>
+                  <h1 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-[1.75rem]">{title}</h1>
+                  <p className="mt-1 text-sm text-white/70">{help}</p>
                 </div>
               </div>
 
-              <div className="rounded-[26px] border border-white/12 bg-white/[0.10] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.18)] backdrop-blur-md sm:p-5">
-                <div className="flex items-end justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/58">Profile setup</p>
-                    <p className="mt-2 text-3xl font-black text-white">{String(nonDriverCompletion).padStart(2, '0')}%</p>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/10 px-3 py-2 text-right">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/50">Current</p>
-                    <p className="mt-1 text-sm font-semibold text-white">{nonDriverSteps[Math.max(0, stepIndex - 1)]?.detail}</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-[linear-gradient(90deg,#6ee7b7_0%,#ffffff_100%)] transition-all duration-500" style={{ width: `${nonDriverCompletion}%` }} />
-                </div>
-
-                <div className="mt-5 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-1">
-                  {nonDriverSteps.map((step) => {
-                    const isActive = stepIndex === step.num;
-                    const isCompleted = stepIndex > step.num;
-                    return (
+              {/* One linear stepper: where you are, what is next. */}
+              <ol className="m-0 flex list-none items-center gap-3 p-0" aria-label="Setup steps">
+                {nonDriverSteps.map((step, index) => {
+                  const isActive = stepIndex === step.num;
+                  const isCompleted = stepIndex > step.num;
+                  return (
+                    <li key={step.num} className="flex items-center gap-3">
+                      {index > 0 && <span aria-hidden className={`h-px w-8 sm:w-12 ${stepIndex >= step.num ? 'bg-white/80' : 'bg-white/25'}`} />}
                       <button
-                        key={step.num}
                         type="button"
                         onClick={() => setStepIndex(step.num)}
                         aria-current={isActive ? 'step' : undefined}
-                        className={`flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition-all duration-200 ${
-                          isActive
-                            ? 'border-white/70 bg-white text-[#02665e] shadow-[0_12px_30px_rgba(0,0,0,0.14)]'
-                            : isCompleted
-                            ? 'border-[#6ee7b7]/40 bg-[#6ee7b7]/12 text-white hover:border-[#6ee7b7]/60'
-                            : 'border-white/12 bg-black/10 text-white/78 hover:border-white/20 hover:bg-white/[0.08]'
-                        }`}
+                        className="flex cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0 text-left text-white"
                       >
-                        <span className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border text-sm font-black ${
-                          isActive
-                            ? 'border-[#02665e]/12 bg-[#02665e]/8 text-[#02665e]'
-                            : isCompleted
-                            ? 'border-[#6ee7b7]/30 bg-[#6ee7b7]/14 text-[#6ee7b7]'
-                            : 'border-white/12 bg-white/5 text-white/60'
-                        }`}>
-                          {isCompleted ? <CheckCircle2 className="h-4 w-4" /> : step.num}
+                        <span
+                          className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                            isActive
+                              ? 'bg-white text-[#02665e]'
+                              : isCompleted
+                                ? 'bg-[#6ee7b7] text-[#012a26]'
+                                : 'border border-solid border-white/30 text-white/70'
+                          }`}
+                        >
+                          {isCompleted ? <Check className="h-4 w-4" strokeWidth={3} /> : step.num}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span className={`block text-[10px] font-semibold uppercase tracking-[0.22em] ${isActive ? 'text-[#02665e]/65' : isCompleted ? 'text-[#6ee7b7]' : 'text-white/45'}`}>
-                            Step {step.num}
-                          </span>
-                          <span className={`mt-1 block text-sm font-semibold ${isActive ? 'text-slate-900' : 'text-white'}`}>{step.label}</span>
-                          <span className={`mt-0.5 block text-xs ${isActive ? 'text-slate-500' : 'text-white/60'}`}>{step.detail}</span>
+                        <span className="min-w-0">
+                          <span className={`block text-sm font-semibold ${isActive || isCompleted ? 'text-white' : 'text-white/70'}`}>{step.label}</span>
+                          <span className="block text-[11px] text-white/55">{step.detail}</span>
                         </span>
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
+                    </li>
+                  );
+                })}
+              </ol>
             </div>
           </div>
         )}
 
-        <div className={role !== 'driver' ? 'bg-[linear-gradient(180deg,#ffffff_0%,#fbfefd_100%)] px-4 py-5 sm:px-6 sm:py-6 lg:px-10 lg:py-8' : 'p-6 bg-gradient-to-b from-slate-50/80 to-white'}>
+        <div className={role !== 'driver' ? 'bg-slate-50/60 px-4 py-5 sm:px-6 sm:py-6 lg:px-10 lg:py-8' : 'p-6 bg-gradient-to-b from-slate-50/80 to-white'}>
           {error && !(error === 'Please provide both name and email' && role === 'driver' && stepIndex !== 5) && (
             <div className={`mb-4 ${role !== 'driver' ? 'p-2.5' : 'p-3'} bg-red-50 border-l-4 border-red-500 rounded-r-lg flex items-start gap-2`}>
               <AlertCircle className={`${role !== 'driver' ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-red-500 flex-shrink-0 mt-0.5`} />
@@ -1121,28 +1080,26 @@ export default function OnboardRole() {
 
           {/* Content area */}
           {role !== 'driver' ? (
-            <form onSubmit={submitProfile} className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_290px] lg:items-start">
-              <div className="min-w-0 rounded-[26px] border border-slate-200/75 bg-white p-4 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.28)] ring-1 ring-slate-900/5 sm:p-6 lg:p-7">
+            <form onSubmit={submitProfile} className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
+              <div className="box-border min-w-0 rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6">
               {/* Step contents for traveller/owner */}
               {stepIndex === 1 && (
                 <div className={`transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
                   {/* Section header */}
-                  <div className="mb-6 rounded-[24px] border border-slate-200/70 bg-[linear-gradient(180deg,#ffffff_0%,#f7faf9_100%)] px-4 py-4 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)] sm:px-5">
-                    <div className="flex items-start gap-3.5">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-[#02665e]/15 to-[#6ee7b7]/10 ring-1 ring-[#02665e]/10">
-                      <User className="h-4.5 w-4.5 text-[#02665e]" />
+                  <div className="mb-5 flex items-center gap-3 border-0 border-b border-solid border-slate-100 pb-4">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08]">
+                      <User className="h-4 w-4 text-[#02665e]" />
                     </div>
-                    <div className="min-w-0 pt-0.5">
-                      <h3 className="text-lg font-bold text-slate-900">Personal details</h3>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">Set up the identity details people will see when they interact with your profile.</p>
-                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold text-slate-900">Personal details</h3>
+                      <p className="mt-0.5 text-[13px] text-slate-500">The name and contacts used on your bookings and messages.</p>
                     </div>
                   </div>
 
-                  <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-2 lg:gap-5">
+                  <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
                     {/* Full name */}
-                    <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm transform transition hover:-translate-y-0.5 hover:shadow-lg">
-                      <label htmlFor="onboard-name" className="block text-sm font-medium text-slate-700">
+                    <div className="min-w-0 md:col-span-2 md:max-w-[calc(50%-10px)]">
+                      <label htmlFor="onboard-name" className="block text-[13px] font-medium text-slate-700">
                         Full name <span className="text-red-500">*</span>
                       </label>
                       <input
@@ -1150,8 +1107,8 @@ export default function OnboardRole() {
                         ref={nameRef}
                         value={name}
                         onChange={e => setName(e.target.value)}
-                        onBlur={() => { setTouched(prev => ({ ...prev, name: true })); setFieldErrors(prev => ({ ...prev, name: validateField('name') })); }}
-                        className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
+                        onBlur={() => { if (!name.trim()) return; setTouched(prev => ({ ...prev, name: true })); setFieldErrors(prev => ({ ...prev, name: validateField('name') })); }}
+                        className={`mt-1.5 box-border h-10 w-full rounded-lg border border-solid bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
                           touched.name && fieldErrors.name
                             ? 'border-red-300'
                             : 'border-slate-200 hover:border-slate-300 focus:border-[#02665e]'
@@ -1165,10 +1122,11 @@ export default function OnboardRole() {
                       )}
                     </div>
 
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:col-span-2 md:mt-1">Contact</p>
                     {/* Email */}
-                    <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm">
+                    <div className="min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <label htmlFor="onboard-email" className="block text-sm font-medium text-slate-700">
+                        <label htmlFor="onboard-email" className="block text-[13px] font-medium text-slate-700">
                           Email address <span className="text-red-500">*</span>
                         </label>
                         {accountEmailLocked && (
@@ -1190,10 +1148,10 @@ export default function OnboardRole() {
                             setError(null);
                           }
                         }}
-                        onBlur={() => { setTouched(prev => ({ ...prev, email: true })); setFieldErrors(prev => ({ ...prev, email: validateField('email') })); }}
+                        onBlur={() => { if (!email.trim()) return; setTouched(prev => ({ ...prev, email: true })); setFieldErrors(prev => ({ ...prev, email: validateField('email') })); }}
                         readOnly={accountEmailLocked}
                         aria-readonly={accountEmailLocked}
-                        className={`mt-1 w-full rounded-md px-3 py-2 border text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none transition-colors ${
+                        className={`mt-1.5 box-border h-10 w-full rounded-lg border border-solid px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none transition-colors ${
                           touched.email && fieldErrors.email
                             ? 'border-red-300 bg-white focus:ring-2 focus:ring-red-100'
                             : accountEmailLocked
@@ -1215,9 +1173,9 @@ export default function OnboardRole() {
                     </div>
 
                     {/* Phone is collected during registration even when email receives the OTP. */}
-                    <div className="rounded-lg border border-slate-100 bg-white p-4 shadow-sm">
+                    <div className="min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <label htmlFor="onboard-phone" className="block text-sm font-medium text-slate-700">
+                        <label htmlFor="onboard-phone" className="block text-[13px] font-medium text-slate-700">
                           Phone number <span className="text-red-500">*</span>
                         </label>
                         {accountPhoneLocked && (
@@ -1240,13 +1198,14 @@ export default function OnboardRole() {
                           }
                         }}
                         onBlur={() => {
+                          if (!accountPhone.trim()) return;
                           setTouched(prev => ({ ...prev, accountPhone: true }));
                           setFieldErrors(prev => ({ ...prev, accountPhone: validateField('accountPhone') }));
                         }}
                         readOnly={accountPhoneLocked}
                         aria-readonly={accountPhoneLocked}
                         placeholder="+255 712 345 678"
-                        className={`mt-1 w-full rounded-md border px-3 py-2 text-sm text-slate-700 outline-none ${
+                        className={`mt-1.5 box-border h-10 w-full rounded-lg border border-solid px-3 text-sm text-slate-700 outline-none ${
                           touched.accountPhone && fieldErrors.accountPhone
                             ? 'border-red-300 bg-white focus:border-red-500 focus:ring-2 focus:ring-red-100'
                             : accountPhoneLocked
@@ -1273,8 +1232,9 @@ export default function OnboardRole() {
 
                     {needsPasswordSetup && (
                       <>
-                        <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm transform transition hover:-translate-y-0.5 hover:shadow-lg">
-                          <label htmlFor="onboard-password" className="block text-sm font-medium text-slate-700">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 md:col-span-2 md:mt-1">Sign-in</p>
+                        <div className="min-w-0">
+                          <label htmlFor="onboard-password" className="block text-[13px] font-medium text-slate-700">
                             Password <span className="text-red-500">*</span>
                           </label>
                           {passwordPolicyStatus !== 'ready' && (
@@ -1291,8 +1251,8 @@ export default function OnboardRole() {
                             onChange={e => setPassword(e.target.value)}
                             maxLength={passwordPolicy.maxLength}
                             disabled={!passwordPolicyReady}
-                            onBlur={() => { setTouched(prev => ({ ...prev, password: true })); setFieldErrors(prev => ({ ...prev, password: validateField('password') })); }}
-                            className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
+                            onBlur={() => { if (!password) return; setTouched(prev => ({ ...prev, password: true })); setFieldErrors(prev => ({ ...prev, password: validateField('password') })); }}
+                            className={`mt-1.5 box-border h-10 w-full rounded-lg border border-solid bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors ${
                               touched.password && fieldErrors.password
                                 ? 'border-red-300'
                                 : 'border-slate-200 hover:border-slate-300 focus:border-[#02665e]'
@@ -1342,8 +1302,8 @@ export default function OnboardRole() {
                           })()}
                         </div>
 
-                        <div className="rounded-lg bg-white p-4 border border-slate-100 shadow-sm transform transition hover:-translate-y-0.5 hover:shadow-lg">
-                          <label htmlFor="onboard-confirm-password" className="block text-sm font-medium text-slate-700">
+                        <div className="min-w-0">
+                          <label htmlFor="onboard-confirm-password" className="block text-[13px] font-medium text-slate-700">
                             Confirm password <span className="text-red-500">*</span>
                           </label>
                           <input
@@ -1354,8 +1314,8 @@ export default function OnboardRole() {
                             onChange={e => setConfirmPassword(e.target.value)}
                             maxLength={passwordPolicy.maxLength}
                             disabled={!passwordPolicyReady}
-                            onBlur={() => { setTouched(prev => ({ ...prev, confirmPassword: true })); setFieldErrors(prev => ({ ...prev, confirmPassword: validateField('confirmPassword') })); }}
-                            className={`mt-1 w-full rounded-md px-3 py-2 border bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
+                            onBlur={() => { if (!confirmPassword) return; setTouched(prev => ({ ...prev, confirmPassword: true })); setFieldErrors(prev => ({ ...prev, confirmPassword: validateField('confirmPassword') })); }}
+                            className={`mt-1.5 box-border h-10 w-full rounded-lg border border-solid bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors ${
                               touched.confirmPassword && fieldErrors.confirmPassword
                                 ? 'border-red-300 focus:ring-red-100'
                                 : confirmPassword && confirmPassword === password
@@ -1384,41 +1344,27 @@ export default function OnboardRole() {
                     )}
                   </div>
 
-                  {/* Trust strip */}
-                  <div className="mt-5 flex flex-col items-start gap-3 rounded-[22px] border border-[#02665e]/10 bg-[linear-gradient(180deg,#f7fcfb_0%,#f9fbfb_100%)] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-center sm:gap-4">
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                      <Shield className="h-3.5 w-3.5 text-[#02665e]" />
-                      Secure &amp; encrypted
-                    </div>
-                    <div className="hidden h-3 w-px bg-slate-200 sm:block" />
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                      <Lock className="h-3.5 w-3.5 text-[#02665e]" />
-                      Private by default
-                    </div>
-                  </div>
                 </div>
               )}
 
               {stepIndex === 2 && (
                 <div className={`transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}`}>
                   {/* Section header */}
-                  <div className="mb-6 rounded-[24px] border border-slate-200/70 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbfa_100%)] px-4 py-4 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.22)] sm:px-5">
-                    <div className="flex items-start gap-3.5">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 ring-1 ring-emerald-200/60">
-                      <CheckCircle2 className="h-4.5 w-4.5 text-[#02665e]" />
+                  <div className="mb-5 flex items-center gap-3 border-0 border-b border-solid border-slate-100 pb-4">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08]">
+                      <CheckCircle2 className="h-4 w-4 text-[#02665e]" />
                     </div>
-                    <div className="min-w-0 pt-0.5">
-                      <h3 className="text-lg font-bold text-slate-900">Review your details</h3>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">Check the essentials before your profile goes live and becomes ready to use.</p>
-                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold text-slate-900">Review your details</h3>
+                      <p className="mt-0.5 text-[13px] text-slate-500">Check everything once. You can still go back and change it.</p>
                     </div>
                   </div>
 
                   <div className="mx-auto max-w-2xl space-y-3">
                     {/* Name card */}
-                    <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-3 rounded-xl border border-solid border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#02665e]/8 ring-1 ring-[#02665e]/10">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08]">
                           <User className="h-3.5 w-3.5 text-[#02665e]" />
                         </div>
                         <div className="min-w-0">
@@ -1426,15 +1372,15 @@ export default function OnboardRole() {
                           <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{name || <span className="italic text-slate-400">Not provided</span>}</p>
                         </div>
                       </div>
-                      <button type="button" onClick={() => setStepIndex(1)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-[#02665e] transition-all hover:border-[#02665e]/30 hover:bg-[#02665e]/5 sm:w-auto">
+                      <button type="button" onClick={() => setStepIndex(1)} className="w-full cursor-pointer rounded-lg border border-solid border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#02665e] transition-colors hover:border-[#02665e]/30 hover:bg-[#02665e]/5 sm:w-auto">
                         Edit
                       </button>
                     </div>
 
                     {/* Email card */}
-                    <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-3 rounded-xl border border-solid border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#02665e]/8 ring-1 ring-[#02665e]/10">
+                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08]">
                           <Mail className="h-3.5 w-3.5 text-[#02665e]" />
                         </div>
                         <div className="min-w-0">
@@ -1442,15 +1388,15 @@ export default function OnboardRole() {
                           <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{email || <span className="italic text-slate-400">Not provided</span>}</p>
                         </div>
                       </div>
-                      <button type="button" onClick={() => setStepIndex(1)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-[#02665e] transition-all hover:border-[#02665e]/30 hover:bg-[#02665e]/5 sm:w-auto">
+                      <button type="button" onClick={() => setStepIndex(1)} className="w-full cursor-pointer rounded-lg border border-solid border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#02665e] transition-colors hover:border-[#02665e]/30 hover:bg-[#02665e]/5 sm:w-auto">
                         Edit
                       </button>
                     </div>
 
                     {needsPasswordSetup && (
-                      <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-col gap-3 rounded-xl border border-solid border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#02665e]/8 ring-1 ring-[#02665e]/10">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.08]">
                             <Lock className="h-3.5 w-3.5 text-[#02665e]" />
                           </div>
                           <div>
@@ -1458,14 +1404,14 @@ export default function OnboardRole() {
                             <p className="mt-0.5 text-sm font-semibold text-slate-900">{password ? '••••••••' : <span className="italic text-slate-400">Not set</span>}</p>
                           </div>
                         </div>
-                        <button type="button" onClick={() => setStepIndex(1)} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-[#02665e] transition-all hover:border-[#02665e]/30 hover:bg-[#02665e]/5 sm:w-auto">
+                        <button type="button" onClick={() => setStepIndex(1)} className="w-full cursor-pointer rounded-lg border border-solid border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#02665e] transition-colors hover:border-[#02665e]/30 hover:bg-[#02665e]/5 sm:w-auto">
                           Edit
                         </button>
                       </div>
                     )}
 
                     {/* Ready banner */}
-                    <div className="mt-2 flex items-start gap-3 rounded-2xl border border-[#02665e]/15 bg-gradient-to-r from-[#02665e]/5 to-transparent px-4 py-3.5">
+                    <div className="mt-2 flex items-start gap-3 rounded-xl border border-solid border-[#02665e]/15 bg-[#02665e]/[0.04] px-4 py-3">
                       <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-[#02665e]" />
                       <p className="text-xs font-medium text-slate-700">Everything looks good. Hit <span className="font-bold text-[#02665e]">Save &amp; continue</span> to finish setting up your profile.</p>
                     </div>
@@ -1473,13 +1419,13 @@ export default function OnboardRole() {
                 </div>
               )}
 
-              <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-6 flex flex-col gap-3 border-0 border-t border-solid border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   {stepIndex > 1 && (
                     <button
                       type="button"
                       onClick={() => setStepIndex(i => Math.max(1, i-1))}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97] sm:w-auto"
+                      className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 sm:w-auto"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                       Back
@@ -1498,10 +1444,11 @@ export default function OnboardRole() {
                     <button
                       type="button"
                       onClick={handleNext}
-                      disabled={!isStepValid() || checkingAccountPhone}
-                      className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold transition-all active:scale-[0.97] sm:w-auto ${
-                        isStepValid() && !checkingAccountPhone
-                          ? 'bg-[#02665e] text-white shadow-[0_4px_20px_rgba(2,102,94,0.35)] hover:bg-[#014e47] hover:shadow-[0_6px_24px_rgba(2,102,94,0.45)]'
+                      // Always pressable: handleNext shows what is missing and focuses it.
+                      disabled={checkingAccountPhone}
+                      className={`flex w-full items-center justify-center gap-2 rounded-lg border-0 px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto ${
+                        !checkingAccountPhone
+                          ? 'cursor-pointer bg-[#02665e] text-white hover:bg-[#014e47]'
                           : 'cursor-not-allowed bg-slate-100 text-slate-400'
                       }`}
                     >
@@ -1521,10 +1468,10 @@ export default function OnboardRole() {
                     <button
                       type="submit"
                       disabled={loading || !isStepValid()}
-                      className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-sm font-bold transition-all active:scale-[0.97] sm:w-auto ${
+                      className={`flex w-full items-center justify-center gap-2 rounded-lg border-0 px-6 py-2.5 text-sm font-semibold transition-colors sm:w-auto ${
                         loading || !isStepValid()
                           ? 'cursor-not-allowed bg-slate-100 text-slate-400'
-                          : 'bg-[#02665e] text-white shadow-[0_4px_20px_rgba(2,102,94,0.35)] hover:bg-[#014e47] hover:shadow-[0_6px_24px_rgba(2,102,94,0.45)]'
+                          : 'cursor-pointer bg-[#02665e] text-white hover:bg-[#014e47]'
                       }`}
                     >
                       {loading ? (
@@ -1544,45 +1491,20 @@ export default function OnboardRole() {
               </div>
               </div>
 
-              <aside className="hidden space-y-4 lg:block">
-                <div className="rounded-[26px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f7faf9_100%)] p-5 shadow-[0_12px_36px_-26px_rgba(15,23,42,0.3)] ring-1 ring-slate-900/5">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#02665e]/8 text-[#02665e]">
-                      <Shield className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-900">Why this matters</p>
-                      <p className="text-xs text-slate-500">A polished profile improves trust and access.</p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 space-y-3">
+              <aside className="hidden lg:block">
+                <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+                  <p className="text-sm font-semibold text-slate-900">What a complete profile gives you</p>
+                  <ul className="m-0 mt-4 list-none space-y-3 p-0">
                     {nonDriverHighlights.map((item) => (
-                      <div key={item} className="flex items-start gap-2.5 rounded-2xl border border-slate-100 bg-white px-3.5 py-3">
+                      <li key={item} className="flex items-start gap-2.5 text-[13px] text-slate-600">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#02665e]" />
-                        <p className="text-sm text-slate-600">{item}</p>
-                      </div>
+                        <span>{item}</span>
+                      </li>
                     ))}
-                  </div>
-                </div>
-
-                <div className="rounded-[24px] border border-slate-200/80 bg-[#0f172a] p-5 text-white shadow-[0_18px_46px_-28px_rgba(15,23,42,0.5)]">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/50">Step {stepIndex} of {nonDriverSteps.length}</p>
-                  <p className="mt-3 text-xl font-bold">{nonDriverSteps[Math.max(0, stepIndex - 1)]?.detail}</p>
-                  <p className="mt-2 text-sm leading-6 text-white/70">
-                    {stepIndex === 1
-                      ? 'Use accurate account details so future bookings, messages, and approvals match your identity.'
-                      : 'Review carefully before finishing. You can still go back and adjust anything that looks wrong.'}
-                  </p>
-
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <div className="flex items-center justify-between text-xs text-white/60">
-                      <span>Progress</span>
-                      <span>{nonDriverCompletion}%</span>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-                      <div className="h-full rounded-full bg-[linear-gradient(90deg,#6ee7b7_0%,#34d399_100%)] transition-all duration-500" style={{ width: `${nonDriverCompletion}%` }} />
-                    </div>
+                  </ul>
+                  <div className="mt-5 flex items-center gap-2 border-0 border-t border-solid border-slate-100 pt-4 text-[12px] text-slate-500">
+                    <Lock className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" />
+                    Private by default. Only shown on your own bookings.
                   </div>
                 </div>
               </aside>

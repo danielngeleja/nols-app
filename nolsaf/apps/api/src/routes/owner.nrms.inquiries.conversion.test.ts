@@ -17,7 +17,7 @@ vi.mock("@nolsaf/prisma", () => ({ typedPrisma: mocks.prisma, prisma: mocks.pris
 vi.mock("../middleware/auth.js", () => ({
   requireAuth: (req: any, _res: any, next: any) => { req.user = { id: 19, role: "FRONT_DESK", name: "Reception A", email: "desk@example.com" }; next(); },
 }));
-vi.mock("../lib/nrmsPropertyAccess.js", () => ({ loadNrmsPropertyAccess: mocks.loadAccess }));
+vi.mock("../lib/nrmsPropertyAccess.js", () => ({ requireNrmsPropertyCapability: mocks.loadAccess }));
 vi.mock("../lib/nrmsInquiryConversion.js", () => ({ createInquiryRoomHold: mocks.createHold }));
 vi.mock("../lib/nrms.js", () => ({ NRMS_BILLING_BLOCKING_STATUSES: ["PAYMENT_REQUIRED", "PAYMENT_PENDING", "CLOSED"], nrmsBillingBlockPayload: vi.fn() }));
 
@@ -26,7 +26,13 @@ import { router } from "./owner.nrms.inquiries.js";
 describe("reception-safe inquiry conversion route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadAccess.mockResolvedValue({ role: "FRONT_DESK", actorId: 19, ownerId: 2, property: { id: 7, ownerId: 2, title: "Hotel" } });
+    mocks.loadAccess.mockResolvedValue({
+      role: "FRONT_DESK",
+      actorId: 19,
+      ownerId: 2,
+      property: { id: 7, ownerId: 2, title: "Hotel" },
+      effectiveAccess: { capabilities: ["sales.inquiry.read", "sales.inquiry.manage", "reservation.create"] },
+    });
     mocks.prisma.nrmsGuestInquiry.findFirst.mockResolvedValue({ id: 41, propertyId: 7, ownerId: 2, reference: "INQ-7-TEST", status: "OPEN", version: 3, messages: [] });
     mocks.prisma.nrmsGuestInquiry.update.mockResolvedValue({ id: 41, version: 4 });
     mocks.prisma.nrmsGuestInquiry.updateMany.mockResolvedValue({ count: 1 });
@@ -49,7 +55,8 @@ describe("reception-safe inquiry conversion route", () => {
 
     expect(response.body.hold).toMatchObject({ ok: true, reservationId: 501, status: "HELD" });
     expect(mocks.prisma.nrmsGuestMessage.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ inquiryId: 41, direction: "OUTBOUND", body: "We have a Deluxe room available for your dates." }) }));
-    expect(mocks.loadAccess).toHaveBeenCalledWith(expect.anything(), expect.anything(), 7, ["OWNER", "MANAGER", "FRONT_DESK"]);
+    expect(mocks.loadAccess).toHaveBeenCalledWith(expect.anything(), expect.anything(), 7, "sales.inquiry.manage");
+    expect(mocks.loadAccess).toHaveBeenCalledWith(expect.anything(), expect.anything(), 7, "sales.inquiry.convert");
     expect(mocks.createHold).toHaveBeenCalledWith(expect.objectContaining({ propertyId: 7, ownerId: 2, actorId: 19, inquiryId: 41, version: 3 }));
   });
 
@@ -62,5 +69,32 @@ describe("reception-safe inquiry conversion route", () => {
       .expect(409);
     expect(response.body.code).toBe("VERSION_CONFLICT");
     expect(mocks.prisma.nrmsGuestMessage.create).not.toHaveBeenCalled();
+  });
+
+  it("lets Sales Executive work the inquiry and create a server-priced room hold", async () => {
+    const salesAccess = {
+      role: "SALES_EXECUTIVE",
+      actorId: 19,
+      ownerId: 2,
+      property: { id: 7, ownerId: 2, title: "Hotel" },
+      effectiveAccess: { capabilities: ["sales.inquiry.read", "sales.inquiry.manage", "sales.inquiry.convert"] },
+    };
+    mocks.loadAccess.mockImplementation(async (_req: unknown, res: any, _propertyId: number, capability: string) => {
+      return salesAccess;
+    });
+    const app = express(); app.use(express.json()); app.use("/api/owner/nrms/inquiries", router);
+
+    await request(app)
+      .post("/api/owner/nrms/inquiries/property/7/41/messages")
+      .send({ version: 3, body: "I will prepare your quotation.", direction: "OUTBOUND", deliveryMode: "RECORD" })
+      .expect(201);
+    const response = await request(app)
+      .post("/api/owner/nrms/inquiries/property/7/41/hold")
+      .send({ version: 3, guestName: "Amina Hassan", guestPhone: "+255700000001", checkIn: "2026-09-12", checkOut: "2026-09-14", roomTypeId: 12, adults: 2, children: 0 })
+      .expect(201);
+
+    expect(response.body.hold).toMatchObject({ ok: true, reservationId: 501, status: "HELD" });
+    expect(mocks.loadAccess).toHaveBeenCalledWith(expect.anything(), expect.anything(), 7, "sales.inquiry.convert");
+    expect(mocks.createHold).toHaveBeenCalledWith(expect.objectContaining({ propertyId: 7, actorId: 19, actorRole: "SALES_EXECUTIVE", inquiryId: 41 }));
   });
 });

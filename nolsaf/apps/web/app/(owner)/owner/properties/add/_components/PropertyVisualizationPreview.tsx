@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
-import { Building2, MapPin, ChevronUp, ChevronDown, BedDouble, Home, Layers, Grid3x3 } from "lucide-react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { Building2, ChevronUp, ChevronDown, ChevronRight, BedDouble, Home, Layers, Grid3x3, MousePointerClick } from "lucide-react";
+import { floorUseLabel, type FloorUses } from "./floorUses";
 
 interface Room {
   roomType: string;
@@ -16,12 +17,20 @@ interface PropertyVisualizationPreviewProps {
   buildingType: string;
   totalFloors: number | "";
   rooms: Room[];
+  /** What floors hold besides rooms: { [floor]: ["restaurant", ...] } */
+  floorUses?: FloorUses;
   onFloorSelect?: (floor: number) => void;
   onRoomTypeClick?: (args: { roomType: string; floor: number; view: "structure" | "plan" }) => void;
   /** Visual style for the top header area */
   headerVariant?: "compact" | "hero";
   /** Whether to render the internal header (useful when embedded under another section header) */
   showHeader?: boolean;
+  /** When embedded as a page section: one compact header row holding title, totals and a badge */
+  sectionTitle?: string;
+  sectionEyebrow?: string;
+  sectionBadge?: React.ReactNode;
+  /** "dark" restyles the same layout for the listing builder's dark cards */
+  tone?: "light" | "dark";
 }
 
 function getOrdinal(n: number): string {
@@ -35,14 +44,17 @@ function getFloorName(floorNum: number): string {
   return `${floorNum}${getOrdinal(floorNum)}`;
 }
 
-function stableThemeIndex(input: string, mod = 8): number {
-  // Simple deterministic hash (fast, stable across renders)
-  let h = 0;
-  for (let i = 0; i < input.length; i++) {
-    h = (h * 31 + input.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h) % mod;
-}
+/** Calm, distinct tones for room types; a type keeps its tone on every floor. */
+const ROOM_TYPE_TONES = [
+  { tile: "bg-teal-50 text-teal-700", bar: "bg-teal-500", view: "bg-teal-50 text-teal-700 group-hover:bg-teal-600", ring: "hover:border-teal-300" },
+  { tile: "bg-indigo-50 text-indigo-600", bar: "bg-indigo-500", view: "bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600", ring: "hover:border-indigo-300" },
+  { tile: "bg-amber-50 text-amber-700", bar: "bg-amber-500", view: "bg-amber-50 text-amber-800 group-hover:bg-amber-600", ring: "hover:border-amber-300" },
+  { tile: "bg-rose-50 text-rose-600", bar: "bg-rose-500", view: "bg-rose-50 text-rose-700 group-hover:bg-rose-600", ring: "hover:border-rose-300" },
+  { tile: "bg-sky-50 text-sky-700", bar: "bg-sky-500", view: "bg-sky-50 text-sky-700 group-hover:bg-sky-600", ring: "hover:border-sky-300" },
+  { tile: "bg-violet-50 text-violet-600", bar: "bg-violet-500", view: "bg-violet-50 text-violet-700 group-hover:bg-violet-600", ring: "hover:border-violet-300" },
+  { tile: "bg-lime-50 text-lime-700", bar: "bg-lime-600", view: "bg-lime-50 text-lime-800 group-hover:bg-lime-700", ring: "hover:border-lime-300" },
+  { tile: "bg-orange-50 text-orange-700", bar: "bg-orange-500", view: "bg-orange-50 text-orange-700 group-hover:bg-orange-600", ring: "hover:border-orange-300" },
+] as const;
 
 // Distribute rooms across floors based on building type and floor distribution
 function distributeRoomsToFloors(
@@ -108,20 +120,22 @@ export function PropertyVisualizationPreview({
   buildingType,
   totalFloors,
   rooms,
+  floorUses,
   onFloorSelect,
   onRoomTypeClick,
   headerVariant = "compact",
   showHeader = true,
+  sectionTitle,
+  sectionEyebrow,
+  sectionBadge,
+  tone = "light",
 }: PropertyVisualizationPreviewProps) {
-  const ROOMTYPE_THEME_COUNT = 12;
   const numFloors = typeof totalFloors === "number" && totalFloors > 0 ? totalFloors : 0;
   const [currentFloor, setCurrentFloor] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [viewMode, setViewMode] = useState<"plan" | "structure">("structure");
 
   const roomsByFloor = useMemo(() => {
     if (numFloors === 0 || rooms.length === 0) {
-      return { 0: rooms.map((r) => ({ ...r, floor: 0 })) };
+      return { 0: rooms.map((r) => ({ ...r, floor: 0 })) } as Record<number, Room[]>;
     }
     return distributeRoomsToFloors(rooms, numFloors, buildingType);
   }, [rooms, numFloors, buildingType]);
@@ -133,481 +147,462 @@ export function PropertyVisualizationPreview({
       .sort((a, b) => a - b);
   }, [roomsByFloor]);
 
-  const currentRooms = useMemo(() => roomsByFloor[currentFloor] || [], [roomsByFloor, currentFloor]);
+  // Land on the first floor that actually has rooms
+  useEffect(() => {
+    if (availableFloors.length && !availableFloors.includes(currentFloor)) setCurrentFloor(availableFloors[0]);
+  }, [availableFloors, currentFloor]);
 
-  const roomTypeThemeMap = useMemo(() => {
-    const uniq = new Set<string>();
-    for (const r of rooms || []) {
-      const raw = String((r as any)?.roomType || "Room").trim();
-      const normalized = (raw || "Room").toLowerCase();
-      uniq.add(normalized);
+  const floorStats = useMemo(() => {
+    const map = new Map<number, { rooms: number; types: { roomType: string; roomsCount: number }[] }>();
+    for (const floor of availableFloors) {
+      const byType = new Map<string, number>();
+      for (const r of roomsByFloor[floor] || []) {
+        const name = String(r.roomType || "Room").trim() || "Room";
+        byType.set(name, (byType.get(name) || 0) + (Number(r.roomsCount) || 0));
+      }
+      const types = Array.from(byType, ([roomType, roomsCount]) => ({ roomType, roomsCount })).sort((a, b) => b.roomsCount - a.roomsCount);
+      map.set(floor, { rooms: types.reduce((s, t) => s + t.roomsCount, 0), types });
     }
-
-    // Deterministic ordering, then assign unique palette indices sequentially.
-    const ordered = Array.from(uniq).sort((a, b) => {
-      const ha = stableThemeIndex(a, 1_000_000);
-      const hb = stableThemeIndex(b, 1_000_000);
-      if (ha !== hb) return ha - hb;
-      return a.localeCompare(b);
-    });
-
-    const map = new Map<string, number>();
-    ordered.forEach((key, idx) => {
-      map.set(key, idx % ROOMTYPE_THEME_COUNT);
-    });
     return map;
-  }, [rooms, ROOMTYPE_THEME_COUNT]);
+  }, [availableFloors, roomsByFloor]);
 
-  const getRoomThemeClass = useCallback(
-    (roomType: string) => {
-      const key = String(roomType || "Room").trim().toLowerCase();
-      const idx = roomTypeThemeMap.get(key) ?? stableThemeIndex(key, ROOMTYPE_THEME_COUNT);
-      return `property-viz-roomtype-theme-${idx}`;
-    },
-    [roomTypeThemeMap, ROOMTYPE_THEME_COUNT]
-  );
+  const totalRooms = useMemo(() => Array.from(floorStats.values()).reduce((s, f) => s + f.rooms, 0), [floorStats]);
+  // Tone per room type, assigned alphabetically across the whole property so it is stable between floors
+  const toneFor = useMemo(() => {
+    const names = Array.from(new Set(rooms.map((r) => String(r.roomType || "Room").trim().toLowerCase()))).sort();
+    const map = new Map(names.map((n, i) => [n, ROOM_TYPE_TONES[i % ROOM_TYPE_TONES.length]]));
+    return (name: string) => map.get(String(name || "Room").trim().toLowerCase()) || ROOM_TYPE_TONES[0];
+  }, [rooms]);
+  const totalTypes = useMemo(() => new Set(rooms.map((r) => String(r.roomType || "Room").trim().toLowerCase())).size, [rooms]);
+  const maxFloorRooms = useMemo(() => Math.max(1, ...Array.from(floorStats.values()).map((f) => f.rooms)), [floorStats]);
 
-  const planRoomTypes = useMemo(() => {
-    const map = new Map<string, { roomType: string; roomsCount: number }>();
-    for (const r of currentRooms) {
-      const name = String(r.roomType || "Room").trim() || "Room";
-      const prev = map.get(name);
-      if (prev) prev.roomsCount += Number(r.roomsCount) || 0;
-      else map.set(name, { roomType: name, roomsCount: Number(r.roomsCount) || 0 });
-    }
-    return Array.from(map.values()).sort((a, b) => b.roomsCount - a.roomsCount);
-  }, [currentRooms]);
-
-  const handleFloorChange = useCallback((floor: number) => {
-    if (floor === currentFloor) return;
-    setIsTransitioning(true);
-    setTimeout(() => {
+  const selectFloor = useCallback(
+    (floor: number) => {
+      if (floor === currentFloor) return;
       setCurrentFloor(floor);
       onFloorSelect?.(floor);
-      setTimeout(() => setIsTransitioning(false), 50);
-    }, 200);
-  }, [currentFloor, onFloorSelect]);
+    },
+    [currentFloor, onFloorSelect]
+  );
 
-  // Keyboard navigation for floors
+  const stepFloor = useCallback(
+    (dir: 1 | -1) => {
+      const idx = availableFloors.indexOf(currentFloor);
+      const next = availableFloors[idx + dir];
+      if (next !== undefined) selectFloor(next);
+    },
+    [availableFloors, currentFloor, selectFloor]
+  );
+
+  // Large screens: the floor card rests at the middle of the column, and a drawn
+  // connector runs from the selected floor to the card, so the link is explicit.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<number, HTMLElement>());
+  const [panelPos, setPanelPos] = useState<{
+    top: number;
+    height: number;
+    sx: number;
+    sy: number;
+    ex: number;
+    ey: number;
+  } | null>(null);
+
+  const placePanel = useCallback(() => {
+    const grid = gridRef.current;
+    const panel = panelRef.current;
+    const row = rowRefs.current.get(currentFloor);
+    if (!grid || !panel || !row || !window.matchMedia("(min-width: 1024px)").matches) {
+      setPanelPos(null);
+      return;
+    }
+    const g = grid.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const h = panel.offsetHeight;
+    const top = Math.max(0, (g.height - h) / 2);
+    const sx = r.right - g.left;
+    const sy = r.top - g.top + r.height / 2;
+    const ex = panel.parentElement ? panel.parentElement.getBoundingClientRect().left - g.left : sx + 24;
+    // Land on the card's edge at the floor's height when possible, else the nearest safe point.
+    const ey = Math.min(Math.max(sy, top + 34), top + h - 34);
+    setPanelPos((prev) =>
+      prev && prev.top === top && prev.height === h && prev.sx === sx && prev.sy === sy && prev.ex === ex && prev.ey === ey
+        ? prev
+        : { top, height: h, sx, sy, ex, ey }
+    );
+  }, [currentFloor]);
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (viewMode !== "structure" && viewMode !== "plan") return;
-      
-      if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-        e.preventDefault();
-        const currentIndex = availableFloors.indexOf(currentFloor);
-        if (currentIndex > 0) {
-          handleFloorChange(availableFloors[currentIndex - 1]);
-        }
-      } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-        e.preventDefault();
-        const currentIndex = availableFloors.indexOf(currentFloor);
-        if (currentIndex < availableFloors.length - 1) {
-          handleFloorChange(availableFloors[currentIndex + 1]);
-        }
-      } else if (e.key === "Home") {
-        e.preventDefault();
-        if (availableFloors.length > 0) {
-          handleFloorChange(availableFloors[0]);
-        }
-      } else if (e.key === "End") {
-        e.preventDefault();
-        if (availableFloors.length > 0) {
-          handleFloorChange(availableFloors[availableFloors.length - 1]);
-        }
-      }
+    placePanel();
+    const grid = gridRef.current;
+    const panel = panelRef.current;
+    if (!grid) return;
+    const ro = new ResizeObserver(() => placePanel());
+    ro.observe(grid);
+    if (panel) ro.observe(panel);
+    window.addEventListener("resize", placePanel);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", placePanel);
     };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentFloor, availableFloors, viewMode, handleFloorChange]);
-
-  // Reset transition state when rooms change
-  useEffect(() => {
-    setIsTransitioning(false);
-  }, [currentRooms.length]);
+  }, [placePanel, rooms]);
 
   if (rooms.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-        <BedDouble className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        <p className="text-gray-600 font-medium">No rooms configured yet</p>
-        <p className="text-sm text-gray-500 mt-1">Add room types to see the floor plan visualization</p>
+      <div className="box-border rounded-xl border border-solid border-slate-200 bg-white p-8 text-center">
+        <BedDouble className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+        <p className="m-0 font-medium text-slate-600">No rooms configured yet</p>
+        <p className="m-0 mt-1 text-sm text-slate-500">Add room types to see the building layout</p>
       </div>
     );
   }
 
+  const current = floorStats.get(currentFloor) || { rooms: 0, types: [] };
+  // Draw every declared storey so the building is true to its height; floors
+  // without rooms show as quiet, non-clickable rows.
+  const highestFloor = Math.max(numFloors - 1, ...availableFloors);
+  const usesOf = (f: number) => (floorUses?.[f] || []).map(floorUseLabel);
+  const allFloors = highestFloor <= 60 ? Array.from({ length: highestFloor + 1 }, (_, i) => i) : availableFloors;
+  // Top floor first; a run of empty floors folds into one quiet row ("5–8") so it never dominates.
+  const floorsTopDown = (() => {
+    const out: Array<{ kind: "floor"; floor: number } | { kind: "use"; floor: number } | { kind: "empty"; from: number; to: number }> = [];
+    for (const floor of [...allFloors].reverse()) {
+      if (floorStats.has(floor)) {
+        out.push({ kind: "floor", floor });
+        continue;
+      }
+      // A floor without rooms that the owner described stands on its own row
+      if (usesOf(floor).length) {
+        out.push({ kind: "use", floor });
+        continue;
+      }
+      const last = out[out.length - 1];
+      if (last && last.kind === "empty" && last.from === floor + 1) last.from = floor;
+      else out.push({ kind: "empty", from: floor, to: floor });
+    }
+    return out;
+  })();
+  const clickableTypes = Boolean(onRoomTypeClick);
+  const idx = availableFloors.indexOf(currentFloor);
+  const floorLabel = (f: number) => (f === 0 ? "Ground floor" : `${getFloorName(f)} floor`);
+
   return (
-    <div className="rounded-2xl border-2 border-gray-200 bg-white overflow-hidden shadow-2xl shadow-gray-200/50 transform transition-all duration-500 hover:shadow-3xl">
-      {/* Header (compact by default; keep hero variant for special pages) */}
-      {showHeader ? (headerVariant === "hero" ? (
-        <div className="relative bg-gradient-to-br from-[#02665e] via-[#014e47] to-[#013a35] p-6 sm:p-8 text-white overflow-hidden">
-          {/* Background Pattern */}
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute inset-0 property-viz-pattern-bg" />
+    <div className={`${showHeader ? "box-border overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white" : ""}${tone === "dark" ? " pvp-dark" : ""}`}>
+      {showHeader ? (
+        <div
+          className={`flex items-center justify-between gap-4 px-5 py-4 ${headerVariant === "hero" ? "text-white" : "border-0 border-b border-solid border-slate-100"}`}
+          style={headerVariant === "hero" ? { background: "linear-gradient(135deg, #013d38 0%, #02665e 60%, #037a70 100%)" } : undefined}
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={`flex h-10 w-10 flex-none items-center justify-center rounded-xl ${headerVariant === "hero" ? "bg-white/15" : "bg-[#02665e]/10 text-[#02665e]"}`}>
+              <Home className="h-5 w-5" />
+            </span>
+            <h3 className={`m-0 truncate text-lg font-bold ${headerVariant === "hero" ? "" : "text-slate-900"}`}>{title || "Property"}</h3>
+          </div>
+        </div>
+      ) : null}
+
+      <div className={showHeader ? "p-4 sm:p-5" : ""}>
+        {/* Section header: title on the left, live totals and source badge on the right */}
+        {(() => {
+          const totals = (
+            <div className="inline-flex max-w-full flex-wrap items-center overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
+              {[
+                { value: availableFloors.length, label: availableFloors.length === 1 ? "floor" : "floors", Icon: Layers },
+                { value: totalRooms, label: totalRooms === 1 ? "room" : "rooms", Icon: BedDouble },
+                { value: totalTypes, label: totalTypes === 1 ? "room type" : "room types", Icon: Grid3x3 },
+              ].map(({ value, label, Icon }, i) => (
+                <span
+                  key={label}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12.5px] text-slate-600 ${i > 0 ? "border-0 border-l border-solid border-slate-200" : ""}`}
+                >
+                  <Icon className="h-3.5 w-3.5 text-[#02665e]" aria-hidden />
+                  <span className="font-bold tabular-nums text-slate-900">{value}</span>
+                  {label}
+                </span>
+              ))}
+            </div>
+          );
+          if (!sectionTitle) return <div className="mb-4">{totals}</div>;
+          return (
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                  <Building2 className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  {sectionEyebrow && (
+                    <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#02665e]">{sectionEyebrow}</p>
+                  )}
+                  <h2 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{sectionTitle}</h2>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {totals}
+                {sectionBadge}
+              </div>
+            </div>
+          );
+        })()}
+
+        <div ref={gridRef} className="relative grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-stretch lg:gap-10">
+          {/* Connector: selected floor → floor card */}
+          {panelPos && (
+            <svg aria-hidden className="pointer-events-none absolute inset-0 z-10 hidden h-full w-full overflow-visible lg:block">
+              {(() => {
+                const { sx, sy, ex, ey } = panelPos;
+                const mid = sx + Math.max(16, (ex - sx) * 0.55);
+                const d = `M ${sx + 6} ${sy} L ${mid - 8} ${sy} Q ${mid} ${sy} ${mid} ${sy + Math.sign(ey - sy) * Math.min(8, Math.abs(ey - sy))} L ${mid} ${ey - Math.sign(ey - sy) * Math.min(8, Math.abs(ey - sy))} Q ${mid} ${ey} ${mid + 8} ${ey} L ${ex - 2} ${ey}`;
+                return (
+                  <g className="motion-safe:transition-all motion-safe:duration-300">
+                    <path d={d} fill="none" stroke="#02665e" strokeOpacity="0.18" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d={d} fill="none" stroke="#02665e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 4" className="nols-connector-flow" />
+                    <circle cx={sx + 6} cy={sy} r="5" fill="#ffffff" stroke="#02665e" strokeWidth="2" />
+                    <circle cx={sx + 6} cy={sy} r="2" fill="#02665e" />
+                    <circle cx={ex - 2} cy={ey} r="4" fill="#02665e" />
+                  </g>
+                );
+              })()}
+            </svg>
+          )}
+          {/* Elevation: the building drawn as stacked floors, top floor first */}
+          <div
+            role="listbox"
+            aria-label="Floors"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                stepFloor(1);
+              } else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                stepFloor(-1);
+              }
+            }}
+            className="box-border rounded-xl border border-solid border-slate-200 bg-gradient-to-b from-sky-50/80 via-white to-slate-50 px-3 pt-3 outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 sm:px-5"
+          >
+            {/* How to use it, said once and plainly */}
+            {availableFloors.length > 1 && (
+              <p className="m-0 mb-3 flex items-center justify-center gap-1.5 text-[12px] font-medium text-[#02665e]">
+                <MousePointerClick className="h-3.5 w-3.5" aria-hidden />
+                Select a floor to see its rooms
+              </p>
+            )}
+            <div className="mx-auto max-w-[480px]">
+              {/* Roof */}
+              <div className="mx-6 h-2 rounded-t-md bg-slate-300" aria-hidden />
+              <div
+                className={`box-border rounded-t-sm border-2 border-b-0 border-solid border-slate-300 bg-white p-1.5 ${
+                  floorsTopDown.length > 24 ? "max-h-[640px] overflow-y-auto" : ""
+                }`}
+              >
+                {/* Column labels so the numbers read as room counts */}
+                <div aria-hidden className="grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2 border-0 border-b border-solid border-slate-100 px-1.5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                  <span className="text-center">Floor</span>
+                  <span />
+                  <span className="whitespace-nowrap pr-1 text-right">No. of rooms</span>
+                </div>
+                <ul className="m-0 mt-1 grid list-none gap-1 p-0">
+                  {floorsTopDown.map((item) => {
+                    if (item.kind === "use") {
+                      return (
+                        <li key={`use-${item.floor}`}>
+                          <div className="box-border grid h-8 grid-cols-[40px_minmax(0,1fr)] items-center gap-2 rounded-md border border-solid border-slate-200 bg-slate-50 px-1.5">
+                            <span className="text-center font-mono text-[11.5px] font-bold text-slate-500">
+                              {item.floor === 0 ? "G" : item.floor}
+                            </span>
+                            <span className="truncate text-[12px] font-semibold text-slate-600">{usesOf(item.floor).join(", ")}</span>
+                          </div>
+                        </li>
+                      );
+                    }
+                    if (item.kind === "empty") {
+                      const name = (f: number) => (f === 0 ? "G" : String(f));
+                      return (
+                        <li key={`empty-${item.from}`} aria-hidden>
+                          <div className="box-border grid h-7 grid-cols-[40px_minmax(0,1fr)_64px] items-center gap-2 rounded-md border border-dashed border-slate-200 bg-slate-50/60 px-1.5">
+                            <span className="text-center font-mono text-[11px] text-slate-400">
+                              {item.from === item.to ? name(item.from) : `${name(item.from)}–${name(item.to)}`}
+                            </span>
+                            <span className="block h-px bg-slate-200" />
+                            <span className="pr-1 text-right text-[11px] tabular-nums text-slate-400">0 rooms</span>
+                          </div>
+                        </li>
+                      );
+                    }
+                    const floor = item.floor;
+                    const stats = floorStats.get(floor)!;
+                    const on = floor === currentFloor;
+                    const pct = Math.max(6, Math.round((stats.rooms / maxFloorRooms) * 100));
+                    return (
+                      <li
+                        key={floor}
+                        ref={(el) => {
+                          if (el) rowRefs.current.set(floor, el);
+                          else rowRefs.current.delete(floor);
+                        }}
+                      >
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={on}
+                          onClick={() => selectFloor(floor)}
+                          aria-label={`${floorLabel(floor)}, ${stats.rooms} rooms, ${stats.types.length} room types`}
+                          className={`group relative box-border grid h-9 w-full cursor-pointer grid-cols-[40px_minmax(0,1fr)_64px] items-center gap-2 rounded-md border border-solid px-1.5 text-left transition-all ${
+                            on
+                              ? "border-[#02665e] bg-[#02665e] shadow-[0_6px_16px_-8px_rgba(2,102,94,0.7)]"
+                              : "border-transparent bg-transparent hover:border-[#02665e]/25 hover:bg-[#02665e]/[0.04]"
+                          }`}
+                        >
+                          <span className={`text-center font-mono text-[12px] font-bold ${on ? "text-white" : "text-slate-500 group-hover:text-[#02665e]"}`}>
+                            {floor === 0 ? "G" : floor}
+                          </span>
+                          <span className={`relative block h-2.5 overflow-hidden rounded-full ${on ? "bg-white/20" : "bg-slate-100"}`}>
+                            <span
+                              className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-300 ${on ? "bg-emerald-300" : "bg-[#02665e]/55 group-hover:bg-[#02665e]"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </span>
+                          <span className={`flex items-center justify-end gap-1 text-[12.5px] font-bold tabular-nums ${on ? "text-white" : "text-slate-700"}`}>
+                            {stats.rooms}
+                            <ChevronRight
+                              className={`h-3.5 w-3.5 transition-all ${on ? "text-white" : "text-slate-300 group-hover:translate-x-0.5 group-hover:text-[#02665e]"}`}
+                              aria-hidden
+                            />
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              {/* Ground and street */}
+              <div className="-mx-3 h-1.5 rounded-sm bg-slate-400 sm:-mx-5" aria-hidden />
+              <div
+                className="-mx-3 h-3 sm:-mx-5"
+                aria-hidden
+                style={{ backgroundImage: "repeating-linear-gradient(90deg, #cbd5e1 0 14px, transparent 14px 26px)", backgroundSize: "100% 2px", backgroundRepeat: "no-repeat", backgroundPosition: "0 60%" }}
+              />
+              {/* Key */}
+              <div className="flex items-center justify-center gap-4 pb-3 pt-1 text-[11px] text-slate-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-5 rounded-full bg-[#02665e]/55" aria-hidden /> Rooms on floor
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-5 rounded-full bg-[#02665e]" aria-hidden /> Selected
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="relative flex items-center justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
-                  <Home className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-2xl font-bold mb-1 truncate drop-shadow-lg">{title || "Property"}</h3>
-                  <p className="text-sm text-white/90 flex items-center gap-1.5">
-                    <Layers className="w-3.5 h-3.5" />
-                    Interactive Floor Plan Preview
+          {/* Selected floor: rests at the middle of the column, linked by the connector */}
+          <div className="relative" style={panelPos ? { minHeight: panelPos.height } : undefined}>
+          <div
+            ref={panelRef}
+            className="box-border flex w-full flex-col rounded-xl border-2 border-solid border-[#02665e] bg-white shadow-[0_18px_40px_-22px_rgba(2,40,36,0.45)] lg:absolute lg:inset-x-0"
+            style={panelPos ? { top: panelPos.top } : undefined}
+          >
+            <div
+              className="flex items-center justify-between gap-3 rounded-t-[10px] px-4 py-3.5 text-white"
+              style={{ background: "linear-gradient(135deg, #013d38 0%, #02665e 70%, #037a70 100%)" }}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 flex-none flex-col items-center justify-center rounded-lg bg-white/15 leading-none ring-1 ring-inset ring-white/20">
+                  <span className="font-mono text-[15px] font-bold">{currentFloor === 0 ? "G" : currentFloor}</span>
+                </span>
+                <div className="min-w-0">
+                  <p className="m-0 truncate text-[16px] font-bold leading-tight">{floorLabel(currentFloor)}</p>
+                  <p className="m-0 mt-0.5 flex items-center gap-2 text-[12px] text-white/75">
+                    <span className="truncate">
+                      {current.rooms} {current.rooms === 1 ? "room" : "rooms"} · {current.types.length} {current.types.length === 1 ? "type" : "types"}
+                      {usesOf(currentFloor).length ? ` · ${usesOf(currentFloor).join(", ")}` : ""}
+                    </span>
+                    {totalRooms > 0 && (
+                      <span className="flex-none rounded bg-white/15 px-1.5 py-px text-[11px] font-semibold text-white">
+                        {Math.round((current.rooms / totalRooms) * 100)}% of rooms
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-md rounded-xl flex-shrink-0 border border-white/30 shadow-lg">
-              <Building2 className="w-5 h-5" />
-              <span className="text-sm font-bold">
-                {availableFloors.length} {availableFloors.length === 1 ? "Floor" : "Floors"}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="relative px-6 sm:px-8 py-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-emerald-50/60">
-          {/* subtle texture without heavy color */}
-          <div className="absolute inset-0 opacity-[0.06] pointer-events-none">
-            <div className="absolute inset-0 property-viz-pattern-bg" />
-          </div>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-xl bg-white/70 border border-slate-200 flex items-center justify-center shadow-sm">
-                <Home className="w-5 h-5 text-[#02665e]" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-lg sm:text-xl font-bold text-slate-900 truncate">{title || "Property"}</h3>
-              </div>
-            </div>
-
-            <div className="shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/70 border border-slate-200 text-slate-700 shadow-sm">
-              <Building2 className="w-4 h-4 text-slate-600" />
-              <span className="text-xs sm:text-sm font-semibold">
-                {availableFloors.length} {availableFloors.length === 1 ? "Floor" : "Floors"}
-              </span>
-            </div>
-          </div>
-        </div>
-      )) : null}
-
-      {/* Enhanced Floor Selector with Smooth Transitions */}
-      {availableFloors.length > 1 && viewMode === "plan" && (
-        <div className="px-6 sm:px-8 pt-5 pb-5 bg-white border-b border-gray-200">
-          <div className="property-viz-floor-tabs">
-            <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide">
-            {availableFloors.map((floor) => {
-              const isActive = currentFloor === floor;
-              return (
-                <button
-                  key={floor}
-                  onClick={() => handleFloorChange(floor)}
-                  className={[
-                    "relative whitespace-nowrap flex-shrink-0",
-                    "property-viz-floor-tab",
-                    isActive ? "property-viz-floor-tab-active" : "",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 focus-visible:ring-offset-2 focus-visible:ring-offset-white",
-                  ].join(" ")}
-                  aria-label={`View ${getFloorName(floor)} floor`}
-                  aria-current={isActive ? "true" : "false"}
-                >
-                  {getFloorName(floor)} Floor
-                </button>
-              );
-            })}
-          </div>
-          </div>
-        </div>
-      )}
-
-      {/* Building Structure View */}
-      {viewMode === "structure" && (
-        <div className="p-4 sm:p-6">
-          {/* Instruction */}
-          <p className="text-xs text-slate-400 text-center mb-4">
-            Select a floor below to see room types and room counts for that floor.
-          </p>
-
-          {/* Floor Cards — full-width flex row, wraps on small screens */}
-          <div className="flex flex-wrap gap-3 mb-5">
-            {availableFloors.map((floor, floorIdx) => {
-              const isActive = currentFloor === floor;
-              const floorRooms = roomsByFloor[floor] || [];
-              const roomCount = floorRooms.reduce((sum, room) => sum + (room.roomsCount || 0), 0);
-              const roomTypesCount = floorRooms.length;
-              const themeClass = `property-viz-theme-${floorIdx % 8}`;
-
-              return (
-                <button
-                  key={floor}
-                  onClick={() => handleFloorChange(floor)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      handleFloorChange(floor);
-                    }
-                  }}
-                  className={`relative flex-1 min-w-[160px] rounded-2xl border-2 transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#02665e]/40 ${
-                    isActive
-                      ? "bg-[#02665e] border-[#02665e] shadow-lg shadow-[#02665e]/20 scale-[1.02]"
-                      : `property-viz-floor-button-compact ${themeClass} border-slate-200 hover:border-[#02665e]/40 hover:shadow-md hover:scale-[1.01]`
-                  }`}
-                  aria-label={`${getFloorName(floor)} floor, ${roomCount} rooms, ${roomTypesCount} room types`}
-                  aria-pressed={isActive}
-                  tabIndex={0}
-                >
-                  <div className="p-4 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {/* Accent bar */}
-                      <div className={`w-1 h-10 rounded-full flex-shrink-0 ${isActive ? "bg-white/40" : "property-viz-floor-accent"}`} />
-                      <div className="flex-1 min-w-0 text-left">
-                        <div className={`font-bold text-sm leading-tight ${isActive ? "text-white" : "property-viz-floor-label"}`}>
-                          {getFloorName(floor)} Floor
-                        </div>
-                        <div className={`text-xs mt-1 ${isActive ? "text-white/70" : "text-slate-400"}`}>
-                          {roomTypesCount} {roomTypesCount === 1 ? "type" : "types"}
-                        </div>
-                      </div>
-                    </div>
-                    <div className={`px-2.5 py-1 rounded-lg text-xs font-bold flex-shrink-0 ${
-                      isActive ? "bg-white/20 text-white" : "property-viz-floor-badge-compact"
-                    }`}>
-                      {roomCount} {roomCount === 1 ? "room" : "rooms"}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Selected Floor Details */}
-          <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
-            {/* Panel header with teal top stripe */}
-            <div className="h-1 w-full bg-gradient-to-r from-[#02665e] via-[#02b4a0] to-[#02665e]" />
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-[#02665e]/10 flex items-center justify-center">
-                  <Building2 className="w-3.5 h-3.5 text-[#02665e]" aria-hidden />
+              {availableFloors.length > 1 && (
+                <div className="flex flex-none items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => stepFloor(-1)}
+                    disabled={idx <= 0}
+                    aria-label="Floor below"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => stepFloor(1)}
+                    disabled={idx >= availableFloors.length - 1}
+                    aria-label="Floor above"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border-0 bg-white/15 text-white transition-colors hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </button>
                 </div>
-                <h5 className="text-sm font-bold text-slate-800">
-                  {getFloorName(currentFloor)} Floor Details
-                </h5>
-              </div>
-              <button
-                onClick={() => setViewMode("plan")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setViewMode("plan");
-                  }
-                }}
-                className="px-3 py-1.5 bg-[#02665e] text-white rounded-lg text-xs font-semibold hover:bg-[#014e47] transition-colors flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2"
-                aria-label="View detailed floor plan"
-              >
-                <Grid3x3 className="w-3.5 h-3.5" />
-                View Plan
-              </button>
+              )}
             </div>
 
-            {/* Room type cards */}
-            {currentRooms.length > 0 ? (
-              <div className="p-3 grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {currentRooms.map((room, idx) => {
-                  const themeClass = getRoomThemeClass(room.roomType);
-                  return (
-                    <button
-                      key={`${room.roomType}-${idx}`}
-                      type="button"
-                      onClick={() => onRoomTypeClick?.({ roomType: room.roomType, floor: currentFloor, view: "structure" })}
-                      className={[
-                        "group relative p-3.5 rounded-xl border transition-all duration-200",
-                        "property-viz-roomtype-card",
-                        themeClass,
-                        "hover:shadow-md hover:-translate-y-0.5",
-                        onRoomTypeClick ? "cursor-pointer" : "cursor-default",
-                        "focus:outline-none focus:ring-2 focus:ring-[#02665e]/30 focus:ring-offset-1",
-                      ].join(" ")}
-                      aria-label={onRoomTypeClick ? `Open details for ${room.roomType}` : undefined}
-                    >
-                      {/* Top accent */}
-                      <div className="absolute top-0 left-3 right-3 h-0.5 rounded-b-full property-viz-roomtype-accent" aria-hidden />
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-1 h-9 rounded-full property-viz-roomtype-accent flex-shrink-0" aria-hidden />
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 property-viz-roomtype-icon">
-                          <BedDouble className="w-4 h-4" aria-hidden />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="font-bold text-sm text-slate-900 truncate leading-tight">{room.roomType}</div>
-                          <div className="text-xs text-slate-500 mt-0.5">
-                            <span className="font-semibold text-slate-700">{room.roomsCount}</span> {room.roomsCount === 1 ? "room" : "rooms"}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
+            {current.types.length > 0 ? (
+              <div className="p-3">
+                <p className="m-0 mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Room types on this floor</p>
+                <ul className="m-0 grid list-none gap-2 p-0">
+                  {current.types.map((t) => {
+                    const share = current.rooms > 0 ? Math.round((t.roomsCount / current.rooms) * 100) : 0;
+                    const tone = toneFor(t.roomType);
+                    return (
+                      <li key={t.roomType}>
+                        <button
+                          type="button"
+                          disabled={!clickableTypes}
+                          onClick={() => onRoomTypeClick?.({ roomType: t.roomType, floor: currentFloor, view: "structure" })}
+                          className={`group box-border flex w-full items-center gap-3 rounded-lg border border-solid border-slate-200 bg-white px-3 py-2.5 text-left transition-all enabled:cursor-pointer enabled:hover:shadow-[0_6px_16px_-10px_rgba(15,23,42,0.35)] disabled:cursor-default ${tone.ring}`}
+                        >
+                          <span className={`flex h-9 w-9 flex-none items-center justify-center rounded-lg ${tone.tile}`}>
+                            <BedDouble className="h-4 w-4" aria-hidden />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[14px] font-semibold text-slate-900">{t.roomType}</span>
+                            <span className="mt-1 flex items-center gap-2">
+                              <span className="block h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
+                                <span className={`block h-full rounded-full ${tone.bar}`} style={{ width: `${share}%` }} />
+                              </span>
+                              <span className="flex-none text-[12px] tabular-nums text-slate-600">
+                                <span className="font-bold text-slate-900">{t.roomsCount}</span> {t.roomsCount === 1 ? "room" : "rooms"}
+                              </span>
+                            </span>
+                          </span>
+                          {clickableTypes && (
+                            <span className={`inline-flex h-7 flex-none items-center gap-0.5 rounded-md px-2 text-[12px] font-semibold transition-colors group-hover:text-white ${tone.view}`}>
+                              View
+                              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {clickableTypes && (
+                  <p className="m-0 mt-2.5 px-1 text-[11.5px] text-slate-500">Open a room type to see its details.</p>
+                )}
               </div>
             ) : (
-              <div className="text-center py-8 text-slate-400">
-                <BedDouble className="w-9 h-9 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">No rooms on this floor</p>
+              <div className="py-8 text-center text-slate-400">
+                <BedDouble className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                <p className="m-0 text-sm">No rooms on this floor</p>
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Immersive Floor Plan Content */}
-      {viewMode === "plan" && (
-      <div className="relative p-6 sm:p-8 bg-gradient-to-b from-white via-gray-50/30 to-white min-h-[400px]">
-        {/* Floor Title with Animation */}
-        <div className="text-center mb-8">
-          <div className={`transition-all duration-500 ${isTransitioning ? "opacity-0 scale-95" : "opacity-100 scale-100"}`}>
-            <h4 className="text-2xl font-bold text-gray-900 mb-2 flex items-center justify-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
-                <Layers className="w-4 h-4 text-[#02665e]" />
-              </div>
-              {getFloorName(currentFloor)} Floor
-            </h4>
-            <p className="text-sm text-gray-600 font-medium">
-              {planRoomTypes.length} {planRoomTypes.length === 1 ? "room type" : "room types"} on this floor
-            </p>
           </div>
         </div>
-
-        {/* Room Type Tiles (modern + compact, grouped by room type) */}
-        {planRoomTypes.length > 0 ? (
-          <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 transition-all duration-500 ${isTransitioning ? "opacity-0 translate-y-2" : "opacity-100 translate-y-0"}`}>
-            {/* Performance: Limit visible room types, show message if truncated */}
-            {planRoomTypes.slice(0, 50).map((room) => {
-              const themeClass = getRoomThemeClass(room.roomType);
-              return (
-                <button
-                  key={`${room.roomType}-${currentFloor}`}
-                  type="button"
-                  onClick={() => onRoomTypeClick?.({ roomType: room.roomType, floor: currentFloor, view: "plan" })}
-                  className={[
-                    "group text-left rounded-2xl border p-5",
-                    "property-viz-roomtype-card property-viz-roomtype-plan-card",
-                    themeClass,
-                    "transition-all duration-300",
-                    "hover:shadow-md hover:-translate-y-0.5",
-                    "focus:outline-none focus:ring-2 focus:ring-offset-2",
-                  ].join(" ")}
-                  aria-label={`${room.roomType}, ${room.roomsCount} ${room.roomsCount === 1 ? "room" : "rooms"} on ${getFloorName(currentFloor)} floor`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 property-viz-roomtype-icon">
-                        <BedDouble className="w-5 h-5" aria-hidden />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-base font-semibold text-slate-900 truncate">{room.roomType}</div>
-                        <div className="mt-1 inline-flex items-center gap-1.5 text-xs text-slate-600">
-                          <MapPin className="w-3.5 h-3.5 text-slate-500" aria-hidden />
-                          <span className="truncate">{getFloorName(currentFloor)} Floor</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <span className="shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold property-viz-roomtype-pill">
-                      {room.roomsCount} {room.roomsCount === 1 ? "room" : "rooms"}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 h-1 rounded-full property-viz-roomtype-accent opacity-80" aria-hidden />
-                </button>
-              );
-            })}
-            {/* Performance message for large properties */}
-            {planRoomTypes.length > 50 && (
-              <div className="col-span-full p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
-                <p className="font-semibold">Showing first 50 of {planRoomTypes.length} room types</p>
-                <p className="text-xs mt-1">For better performance, large properties display a subset of rooms.</p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className={`text-center py-16 transition-all duration-500 ${isTransitioning ? "opacity-0" : "opacity-100"}`}>
-            <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-              <BedDouble className="w-10 h-10 text-gray-400" />
-            </div>
-            <p className="text-gray-600 font-medium text-lg">No rooms on this floor</p>
-            <p className="text-sm text-gray-500 mt-1">Switch to another floor to view rooms</p>
-          </div>
-        )}
-
-        {/* Enhanced Navigation with Smooth Transitions */}
-        {availableFloors.length > 1 && (
-          <div className="flex items-center justify-between mt-10 pt-8 border-t-2 border-gray-200">
-            <button
-              onClick={() => {
-                const prevIndex = availableFloors.indexOf(currentFloor);
-                if (prevIndex > 0) {
-                  handleFloorChange(availableFloors[prevIndex - 1]);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  const prevIndex = availableFloors.indexOf(currentFloor);
-                  if (prevIndex > 0) {
-                    handleFloorChange(availableFloors[prevIndex - 1]);
-                  }
-                }
-              }}
-              disabled={availableFloors.indexOf(currentFloor) === 0}
-              className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 text-gray-700 hover:from-[#02665e] hover:to-[#014e47] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300 shadow-md hover:shadow-lg hover:scale-110 border-2 border-gray-200 hover:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2"
-              aria-label="Navigate to previous floor"
-              aria-disabled={availableFloors.indexOf(currentFloor) === 0}
-              title="Previous floor (Arrow Up/Left or Enter)"
-            >
-              <ChevronDown className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 px-5 py-3 bg-gradient-to-br from-gray-50 to-white rounded-xl border-2 border-gray-200 shadow-md">
-              <div className="w-8 h-8 rounded-lg bg-[#02665e]/10 flex items-center justify-center">
-                <Layers className="w-4 h-4 text-[#02665e]" />
-              </div>
-              <div className="text-sm font-bold text-gray-700">
-                Floor <span className="text-[#02665e]">{availableFloors.indexOf(currentFloor) + 1}</span> of <span className="text-gray-500">{availableFloors.length}</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => {
-                const nextIndex = availableFloors.indexOf(currentFloor);
-                if (nextIndex < availableFloors.length - 1) {
-                  handleFloorChange(availableFloors[nextIndex + 1]);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  const nextIndex = availableFloors.indexOf(currentFloor);
-                  if (nextIndex < availableFloors.length - 1) {
-                    handleFloorChange(availableFloors[nextIndex + 1]);
-                  }
-                }
-              }}
-              disabled={availableFloors.indexOf(currentFloor) === availableFloors.length - 1}
-              className="flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-gray-100 to-gray-50 text-gray-700 hover:from-[#02665e] hover:to-[#014e47] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300 shadow-md hover:shadow-lg hover:scale-110 border-2 border-gray-200 hover:border-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2"
-              aria-label="Navigate to next floor"
-              aria-disabled={availableFloors.indexOf(currentFloor) === availableFloors.length - 1}
-              title="Next floor (Arrow Down/Right or Enter)"
-            >
-              <ChevronUp className="w-5 h-5" />
-            </button>
-          </div>
-        )}
       </div>
-      )}
     </div>
   );
 }
-

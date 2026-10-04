@@ -9,7 +9,7 @@ import { signPublicInvoiceAccessToken, verifyPublicInvoiceAccessToken } from "..
 import { computeDraftBookingAvailability, unavailableDraftPaymentResponse } from "../lib/draftBookingAvailability.js";
 import { buildPropertySlug } from "../lib/publicPropertyDto.js";
 import { generateBookingCodeForBooking } from "../lib/bookingCodeService.js";
-import { confirmNoLsafBooking, NoLsafInventoryConflictError } from "../lib/nolsafMarketplaceNrms.js";
+import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS, NoLsafInventoryConflictError } from "../lib/nolsafMarketplaceNrms.js";
 
 async function getEffectiveCommissionPercent(params: {
   propertyServices: unknown;
@@ -660,6 +660,7 @@ router.get("/:id", publicInvoiceReadLimiter, async (req: Request, res: Response)
             property: {
               select: {
                 id: true,
+                nrmsBookingKey: true,
                 title: true,
                 photos: true,
                 type: true,
@@ -689,7 +690,7 @@ router.get("/:id", publicInvoiceReadLimiter, async (req: Request, res: Response)
     if (invoice.status === "PAID" && !bookingCode && invoice.booking.status !== "CANCELED") {
       if (invoice.booking.status === "NEW") {
         try {
-          await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, invoice.booking.id));
+          await prisma.$transaction((tx: any) => confirmNoLsafBooking(tx, invoice.booking.id), MARKETPLACE_CONNECT_TX_OPTIONS);
         } catch (error) {
           if (error instanceof NoLsafInventoryConflictError) {
             return res.status(409).json({
@@ -795,7 +796,7 @@ router.get("/:id", publicInvoiceReadLimiter, async (req: Request, res: Response)
         id: invoice.booking.property.id,
         title: invoice.booking.property.title,
         type: invoice.booking.property.type,
-        slug: buildPropertySlug(String(invoice.booking.property.title || ""), Number(invoice.booking.property.id)),
+        slug: buildPropertySlug(String(invoice.booking.property.title || ""), invoice.booking.property.nrmsBookingKey),
         primaryImage: Array.isArray(invoice.booking.property.photos) && invoice.booking.property.photos.length > 0
           ? invoice.booking.property.photos[0]
           : null,

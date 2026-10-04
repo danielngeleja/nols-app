@@ -9,8 +9,9 @@ import QRCode from "qrcode";
 import { generateNrmsAgentVoucherPdf, type AgentVoucherData } from "./pdfDocuments.js";
 import { sendMail } from "./mailer.js";
 import { proEmail, proDivider, BRAND_TEAL, TEXT_MAIN, TEXT_MUTED } from "./emailBase.js";
+import { agentAccountReference } from "./customerBookingReference.js";
 
-const agentRef = (id: number) => `AGT-${String(id).padStart(6, "0")}`;
+const agentRef = agentAccountReference;
 
 /**
  * Voucher numbering: AGV-01001-7K3Q.

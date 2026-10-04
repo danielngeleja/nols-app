@@ -4,6 +4,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Bell, Truck, Search, AlertCircle, Info, AlertTriangle, Plus, X, Shield, FileWarning, Calendar, Car, Bike, CarTaxiFront, Target, RefreshCw, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminQueryId } from "@/lib/adminRecordRefs";
 import { useSearchParams } from "next/navigation";
 
 const api = apiClient;
@@ -59,6 +60,7 @@ const getReminderIcon = (type: string) => {
 
 export default function AdminDriversRemindersPage() {
   const searchParams = useSearchParams();
+  const queryDriverId = useAdminQueryId("driver", searchParams?.get("driverId"), "driverId");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<number | null>(null);
   const [reminderData, setReminderData] = useState<ReminderData | null>(null);
@@ -100,8 +102,7 @@ export default function AdminDriversRemindersPage() {
   }, []);
 
   useEffect(() => {
-    const raw = searchParams?.get("driverId") || "";
-    const id = Number(raw);
+    const id = queryDriverId ?? 0;
     if (!Number.isFinite(id) || id <= 0) return;
     if (!drivers.length) return;
     if (selectedDriver === id) return;
@@ -109,7 +110,7 @@ export default function AdminDriversRemindersPage() {
     if (!exists) return;
     loadDriverReminders(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, drivers]);
+  }, [queryDriverId, drivers]);
 
   async function loadExpiringDocuments() {
     try {

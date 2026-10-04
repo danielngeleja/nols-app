@@ -16,6 +16,7 @@ interface Room {
 interface PropertyVisualizationProps {
   property: {
     id: number;
+    slug: string;
     title: string;
     buildingType?: string | null;
     roomsSpec?: any;
@@ -116,7 +117,7 @@ export default function PropertyVisualization({ property, onRoomSelect }: Proper
       onRoomSelect(room.code, room.floor);
     } else {
       // Default: navigate to booking
-      router.push(`/public/booking/confirm?property=${property.id}&roomCode=${room.code}&floor=${room.floor}`);
+      router.push(`/public/booking/confirm?property=${encodeURIComponent(property.slug)}&roomCode=${room.code}&floor=${room.floor}`);
     }
   };
   

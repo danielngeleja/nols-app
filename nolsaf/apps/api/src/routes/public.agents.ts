@@ -3,7 +3,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Routes:
  *   GET  /api/public/agents            list active operator profiles (paginated)
- *   GET  /api/public/agents/:id        get a single operator profile by agent id
+ *   GET  /api/public/agents/:publicKey get a single operator profile by opaque key
  *
  * No authentication required — public-facing tour operator marketplace.
  * ─────────────────────────────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ const FALLBACK_TOURISM_CATEGORIES = [
 ];
 
 const TRIP_CONFIDENCE_WINDOW_DAYS = 365;
+const OPERATOR_PUBLIC_KEY = /^[a-z0-9]{20,40}$/;
 
 function approvedProfile(value: unknown): any | null {
   if (!value || typeof value !== "object") return null;
@@ -325,6 +326,7 @@ router.get(
           },
           select: {
             id: true,
+            publicKey: true,
             operatorProfile: true,
             level: true,
             totalCompletedTrips: true,
@@ -345,6 +347,7 @@ router.get(
       const visibleAgents = agents
         .map((a) => ({
           id: a.id,
+          publicKey: a.publicKey,
           level: a.level,
           totalCompletedTrips: a.totalCompletedTrips,
           verification: buildPublicOperatorVerification(a),
@@ -403,21 +406,20 @@ router.get(
   }),
 );
 
-// ─── GET /api/public/agents/:id ─────
-// Returns a single operator profile by agent id.
+// ─── GET /api/public/agents/:publicKey ─────
+// Returns a single operator profile by stable opaque key.
 router.get(
-  "/:id",
+  "/:publicKey",
   asyncHandler(async (req, res) => {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      return res.status(400).json({ error: "Invalid agent id" });
-    }
+    const publicKey = String(req.params.publicKey || "").trim().toLowerCase();
+    if (!OPERATOR_PUBLIC_KEY.test(publicKey)) return res.status(404).json({ error: "Operator profile not found" });
 
-    const payload = await withCache(publicCacheKey("agent-detail", { id }), async () => {
+    const payload = await withCache(publicCacheKey("agent-detail", { publicKey }), async () => {
       const agent = await prisma.agent.findFirst({
-        where: { id, status: "ACTIVE" },
+        where: { publicKey, status: "ACTIVE" },
         select: {
           id: true,
+          publicKey: true,
           operatorProfile: true,
           level: true,
           totalCompletedTrips: true,
@@ -430,6 +432,7 @@ router.get(
       const tripConfidenceByAgent = await buildTripConfidenceByAgent([agent.id]);
       return {
         id: agent.id,
+        publicKey: agent.publicKey,
         level: agent.level,
         totalCompletedTrips: agent.totalCompletedTrips,
         verification: buildPublicOperatorVerification(agent),

@@ -103,7 +103,7 @@ export async function verifyCsrfToken(sessionId: string, token: string): Promise
  *     authenticated session. A new JWT is issued on every login, so each
  *     session automatically gets a fresh CSRF binding.
  *  2. IP + User-Agent fallback — weaker, but acceptable for unauthenticated
- *     state-changing endpoints (e.g. public plan-request submissions).
+ *     state-changing endpoints.
  */
 function getSessionId(req: Request): string {
   const cookieHeader = req.headers.cookie || "";
@@ -190,6 +190,7 @@ const PRE_AUTH_PATHS = new Set([
   "/api/auth/send-otp",
   "/api/auth/verify-otp",
   "/api/auth/login-password",
+  "/api/auth/mfa/verify",
   "/api/auth/login-otp",
   "/api/auth/forgot-password",
   "/api/auth/reset-password",

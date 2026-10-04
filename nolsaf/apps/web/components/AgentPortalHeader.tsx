@@ -12,7 +12,6 @@ import {
   BadgeCheck,
   CalendarDays,
   ChevronRight,
-  ClipboardList,
   FileText,
   MessagesSquare,
   LayoutDashboard,
@@ -266,17 +265,6 @@ export default function AgentPortalHeader() {
                     >
                       <LayoutDashboard className="h-4 w-4 text-white/60 group-hover:text-brand transition-colors" aria-hidden />
                       <span className="flex-1">Dashboard</span>
-                      <ChevronRight className="h-3.5 w-3.5 text-white/40 group-hover:text-brand transition-colors" aria-hidden />
-                    </Link>
-
-                    <Link
-                      role="menuitem"
-                      href="/account/agent/assignments"
-                      onClick={() => setProfileMenuOpen(false)}
-                      className={menuItemClass}
-                    >
-                      <ClipboardList className="h-4 w-4 text-white/60 group-hover:text-brand transition-colors" aria-hidden />
-                      <span className="flex-1">Assignments</span>
                       <ChevronRight className="h-3.5 w-3.5 text-white/40 group-hover:text-brand transition-colors" aria-hidden />
                     </Link>
 

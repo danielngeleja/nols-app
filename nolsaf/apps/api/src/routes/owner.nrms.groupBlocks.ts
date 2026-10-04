@@ -17,13 +17,14 @@ import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { typedPrisma as prisma } from "@nolsaf/prisma";
 import { requireAuth, type AuthedRequest } from "../middleware/auth.js";
-import { loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { NRMS_BILLING_BLOCKING_STATUSES, nrmsBillingBlockPayload } from "../lib/nrms.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { encrypt } from "../lib/crypto.js";
 import { generateNrmsRandomCode } from "../lib/pdfDocuments.js";
 import { getRoomTypesAvailability, lockPropertyInventory } from "../lib/nrmsAvailability.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { qualifyGroupBlock, STANDARD_GROUP_MIN_ROOMS } from "../lib/nrmsGroupPolicy.js";
+import { checkStaffRateFloor } from "../lib/nrmsRateFloor.js";
 import { assertNrmsBusinessDayWritable, NRMS_BUSINESS_DAY_LOCKED } from "../lib/nrmsShifts.js";
 import {
   BLOCK_LIVE_STATUSES,
@@ -39,6 +40,7 @@ import {
   buildMasterPaymentReceiptNumber,
   buildMasterRefundNumber,
   ensureMasterFolioForBlock,
+  getMasterFolioPayableBalance,
   getMasterFolioTotals,
   refreshMasterFolioStatus,
 } from "../lib/nrmsMasterFolio.js";
@@ -51,6 +53,7 @@ import {
   serializeProForma,
 } from "../lib/nrmsProForma.js";
 import { emailMasterStatement, renderMasterStatementPdf } from "../lib/nrmsMasterStatement.js";
+import { issueMasterFolioPaymentLink, serializeMasterFolioPaymentLink } from "../lib/nrmsMasterFolioPaymentLink.js";
 
 export const router = Router();
 
@@ -196,7 +199,11 @@ function formatBlock(block: any) {
           refunded: Number(refunded.toFixed(2)),
           paid: Number(paid.toFixed(2)),
           balance: Number((billed - paid).toFixed(2)),
-          credit: Number(Math.max(0, paid - billed).toFixed(2)),
+          // An advance against the Pro Forma is not a credit: money only becomes
+          // refundable once it exceeds what the agency owes, which is the larger
+          // of billed charges and the current Pro Forma (the same ceiling that
+          // paymentDue uses below).
+          credit: Number(Math.max(0, paid - Math.max(billed, quoted)).toFixed(2)),
           quoted: Number(quoted.toFixed(2)),
           paymentDue: Number(Math.max(0, Math.max(billed, quoted) - paid).toFixed(2)),
           settledAt: block.masterFolio.settledAt,
@@ -267,6 +274,14 @@ function formatBlock(block: any) {
     roomsPickedUp,
     blockValue,
     masterFolio,
+    roomingList: block.roomingList
+      ? {
+          status: block.roomingList.status,
+          submittedAt: block.roomingList.submittedAt ?? null,
+          submitterName: block.roomingList.submitterName ?? null,
+          rowCount: block.roomingList._count?.rows ?? null,
+        }
+      : null,
     chargeRegister: chargeRegister.rows,
     rooms: rooms.map((room: any) => ({
       id: room.id,
@@ -295,6 +310,10 @@ const blockInclude = {
       refunds: { orderBy: { createdAt: "asc" as const } },
       proFormas: { orderBy: { revision: "desc" as const } },
     },
+  },
+  // Just enough for the desk to see which block the Groups badge is about.
+  roomingList: {
+    select: { status: true, submittedAt: true, submitterName: true, _count: { select: { rows: true } } },
   },
 };
 
@@ -357,25 +376,71 @@ const proFormaRecordInclude = {
   },
 };
 
-async function loadOwnedBlock(res: Response, ownerId: number, blockId: number) {
-  if (!Number.isInteger(blockId) || blockId <= 0) {
-    res.status(400).json({ error: "Invalid group block id" });
-    return null;
-  }
-  const block = await prisma.nrmsGroupBlock.findFirst({ where: { id: blockId, ownerId }, include: blockInclude });
-  if (!block) {
-    res.status(404).json({ error: "Group block not found" });
-    return null;
-  }
-  const active = await loadOwnedActiveNrmsProperty(res, ownerId, block.propertyId);
-  if (!active) return null;
-  return block;
-}
-
 type GroupDocumentAccess = NrmsPropertyAccess;
 
 async function loadGroupDocumentAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
   return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK"]);
+}
+
+/**
+ * Reading the block list, which is not the same permission as operating on a
+ * block's master folio.
+ *
+ * A sales executive sells group business and needs to see the blocks, but the
+ * document guard above also gates master folio payments, payment voids, refunds
+ * and refund voids. Widening that one shared list would have handed a sales
+ * role refund powers it holds no finance capability for, so the read is split
+ * out rather than the money operations opened up.
+ */
+async function loadGroupListAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"]);
+}
+
+/**
+ * Shaping the block itself: agreeing it, amending it before pickup, releasing
+ * the rooms it never used, cancelling one that produced nothing.
+ *
+ * This is the sales executive's actual job. Until now every one of those calls
+ * ran through loadOwnedActiveNrmsProperty, so a role holding sales.group.manage
+ * could open the block list and change nothing on it.
+ *
+ * Front desk is deliberately absent. They pick guests up from a block, which is
+ * a reservation action guarded separately by loadGroupDocumentAccess; they do
+ * not agree the commercial terms of one.
+ */
+async function loadGroupManageAccess(req: AuthedRequest, res: Response, propertyId: number): Promise<GroupDocumentAccess | null> {
+  return loadNrmsPropertyAccess(req, res, propertyId, ["OWNER", "MANAGER", "SALES_EXECUTIVE"]);
+}
+
+/**
+ * The small group exception is an authority, not a data entry field.
+ *
+ * qualifyGroupBlock lets a party below the standard minimum through when the
+ * creator writes a reason, which is an owner's decision to contract under their
+ * own policy. If a sales executive could type that sentence themselves, the
+ * minimum would not be a policy at all, so the exception stays with the hotel's
+ * own authority and sales agrees standard groups.
+ */
+const SMALL_GROUP_APPROVAL_ROLES: readonly string[] = ["OWNER", "MANAGER"];
+
+/**
+ * A block the caller may shape, resolved through their role on the property
+ * rather than through owning it. This replaced the last owner-only loader in
+ * the file, so every remaining handler is either role aware or guarded by
+ * loadGroupDocumentAccess.
+ */
+async function loadManageableBlock(req: AuthedRequest, res: Response, blockId: number) {
+  if (!Number.isInteger(blockId) || blockId <= 0) {
+    res.status(400).json({ error: "Invalid group block id" });
+    return null;
+  }
+  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockInclude });
+  if (!block) {
+    res.status(404).json({ error: "Group block not found" });
+    return null;
+  }
+  const access = await loadGroupManageAccess(req, res, block.propertyId);
+  return access ? { block, access } : null;
 }
 
 async function loadDocumentAccessibleBlock(req: AuthedRequest, res: Response, blockId: number) {
@@ -390,6 +455,26 @@ async function loadDocumentAccessibleBlock(req: AuthedRequest, res: Response, bl
   }
   const access = await loadGroupDocumentAccess(req, res, block.propertyId);
   return access ? { block, access } : null;
+}
+
+async function loadReadableBlock(req: AuthedRequest, res: Response, blockId: number) {
+  if (!Number.isInteger(blockId) || blockId <= 0) {
+    res.status(400).json({ error: "Invalid group block id" });
+    return null;
+  }
+  const scope = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, select: { propertyId: true } });
+  if (!scope) {
+    res.status(404).json({ error: "Group block not found" });
+    return null;
+  }
+  const access = await loadGroupListAccess(req, res, scope.propertyId);
+  if (!access) return null;
+  const block = await prisma.nrmsGroupBlock.findUnique({ where: { id: blockId }, include: blockDetailInclude });
+  if (!block) {
+    res.status(404).json({ error: "Group block not found" });
+    return null;
+  }
+  return { block, access };
 }
 
 async function loadAccessibleProForma(req: AuthedRequest, res: Response, blockId: number, proFormaId: number) {
@@ -430,7 +515,7 @@ function readDates(input: { checkIn: string; checkOut: string; cutOffAt: string 
 /** GET /property/:propertyId/blocks */
 router.get("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Response) => {
   try {
-    const access = await loadGroupDocumentAccess(req, res, Number(req.params.propertyId));
+    const access = await loadGroupListAccess(req, res, Number(req.params.propertyId));
     if (!access) return;
     const blocks = await prisma.nrmsGroupBlock.findMany({
       where: { propertyId: access.property.id, ownerId: access.property.ownerId },
@@ -456,10 +541,19 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
   try {
     const parsed = createBlockSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Invalid group block", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const propertyId = active.property.id as number;
+    const access = await loadGroupManageAccess(req, res, Number(req.params.propertyId));
+    if (!access) return;
+    if ((NRMS_BILLING_BLOCKING_STATUSES as readonly string[]).includes(String(access.account.status ?? "").toUpperCase())) {
+      return res.status(402).json(await nrmsBillingBlockPayload(access.account, "GROUP_BLOCK"));
+    }
+    // The property's owner, who the row belongs to, and the person doing the
+    // work, who it is credited to. They were the same value while only owners
+    // could reach this handler; conflating them now would file a sales
+    // executive's block under the owner's name and lose the attribution any
+    // production report depends on.
+    const ownerId = access.property.ownerId;
+    const actorId = access.actorId;
+    const propertyId = access.property.id;
     const data = parsed.data;
     const agreedRooms = data.rooms.reduce((sum, room) => sum + room.quantity, 0);
     const qualification = qualifyGroupBlock(agreedRooms, data.smallGroupApprovalReason);
@@ -471,8 +565,27 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
         standardMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
       });
     }
+    if (qualification.classification === "APPROVED_SMALL" && !SMALL_GROUP_APPROVAL_ROLES.includes(access.role)) {
+      return res.status(403).json({
+        error: `Standard groups start at ${STANDARD_GROUP_MIN_ROOMS} rooms. A smaller contracted party has to be approved by the owner or a manager.`,
+        code: "SMALL_GROUP_APPROVAL_NOT_PERMITTED",
+        agreedRooms,
+        standardMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
+      });
+    }
     if (billingUsesMasterFolio(data.billingMode) && !String(data.agencyName || "").trim()) {
       return res.status(400).json({ error: "Agency or company name is required for agency billing", code: "AGENCY_NAME_REQUIRED" });
+    }
+    // The rate typed here becomes the guest's rate on pickup, so a staff member
+    // agreeing a block is exercising discount authority. The owner is not
+    // floored; everyone else is.
+    const floorCheck = await checkStaffRateFloor({
+      role: access.role,
+      propertyId,
+      lines: data.rooms.map((room) => ({ roomTypeId: room.roomTypeId, nightlyRate: room.nightlyRate ?? 0 })),
+    });
+    if (!floorCheck.ok) {
+      return res.status(403).json({ error: floorCheck.message, code: "RATE_BELOW_STAFF_FLOOR", violations: floorCheck.violations });
     }
 
     const dates = readDates({ checkIn: data.checkIn, checkOut: data.checkOut, cutOffAt: data.cutOffAt });
@@ -511,14 +624,14 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
           checkOut: dates.checkOut,
           cutOffAt: dates.cutOffAt,
           status: "HELD",
-          currency: active.property.currency ?? "TZS",
+          currency: access.property.currency ?? "TZS",
           billingMode: data.billingMode,
           groupMinimumRooms: STANDARD_GROUP_MIN_ROOMS,
           agreedRoomsAtCreation: agreedRooms,
           smallGroupApprovedAt: qualification.classification === "APPROVED_SMALL" ? new Date() : null,
           smallGroupApprovalReason: qualification.approvalReason ? sanitizeText(qualification.approvalReason) : null,
           notes: data.notes ? sanitizeText(data.notes) : null,
-          createdById: ownerId,
+          createdById: actorId,
         },
       });
       await tx.nrmsGroupBlockRoom.createMany({
@@ -556,9 +669,15 @@ router.post("/property/:propertyId/blocks", (async (req: AuthedRequest, res: Res
 /** GET /blocks/:blockId */
 router.get("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    const accessible = await loadReadableBlock(req, res, Number(req.params.blockId));
     if (!accessible) return;
-    res.json({ block: formatBlock(accessible.block), accessRole: accessible.access.role });
+    const block = formatBlock(accessible.block);
+    res.json({
+      block: accessible.access.role === "SALES_EXECUTIVE"
+        ? { ...block, masterFolio: null, chargeRegister: [] }
+        : block,
+      accessRole: accessible.access.role,
+    });
   } catch (err) {
     console.error("[owner.nrms.groupBlocks] detail failed", err);
     res.status(500).json({ error: "Failed to load the group block" });
@@ -793,9 +912,9 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
   try {
     const parsed = editBlockSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ error: "Invalid update", details: parsed.error.flatten() });
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const manageable = await loadManageableBlock(req, res, Number(req.params.blockId));
+    if (!manageable) return;
+    const { block } = manageable;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: `A ${block.status.toLowerCase().replace(/_/g, " ")} block cannot be edited`, code: "INVALID_STATUS" });
     }
@@ -827,6 +946,18 @@ router.patch("/blocks/:blockId", (async (req: AuthedRequest, res: Response) => {
       const existingIds = new Set(block.rooms.map((room: any) => room.id));
       if (data.rooms!.length !== existingIds.size || data.rooms!.some((room) => !existingIds.has(room.id))) {
         return res.status(400).json({ error: "Every current room line must be included in the amendment", code: "BLOCK_ROOM_LINES_MISMATCH" });
+      }
+      // Amending a rate is the same authority as agreeing one, so it meets the
+      // same floor. The amendment carries line ids rather than room type ids,
+      // so the type comes from the line already on the block.
+      const roomTypeByLineId = new Map<number, number>(block.rooms.map((room: any) => [room.id, room.roomTypeId]));
+      const floorCheck = await checkStaffRateFloor({
+        role: manageable.access.role,
+        propertyId: block.propertyId,
+        lines: data.rooms!.map((room) => ({ roomTypeId: roomTypeByLineId.get(room.id)!, nightlyRate: room.nightlyRate })),
+      });
+      if (!floorCheck.ok) {
+        return res.status(403).json({ error: floorCheck.message, code: "RATE_BELOW_STAFF_FLOOR", violations: floorCheck.violations });
       }
     }
     if (data.billingMode !== undefined && data.billingMode !== block.billingMode && pickedUp > 0) {
@@ -942,6 +1073,11 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
       await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, ownerId: block.ownerId, blockId: block.id } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
+      const onlinePaymentInFlight = await tx.nrmsMasterFolioPaymentLink.findFirst({
+        where: { masterFolioId: folio.id, status: "PROCESSING", expiresAt: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (onlinePaymentInFlight) throw new Error("NRMS_MASTER_PAYMENT_IN_FLIGHT");
       const duplicate = await tx.nrmsMasterFolioPayment.findUnique({
         where: { masterFolioId_idempotencyKey: { masterFolioId: folio.id, idempotencyKey: data.idempotencyKey } },
       });
@@ -954,20 +1090,7 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
         if (!samePayment) throw new Error("NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT");
         return { idempotent: true };
       }
-      const totals = await getMasterFolioTotals(tx, folio.id);
-      const latestProForma = await tx.nrmsMasterFolioProForma.findFirst({
-        where: { masterFolioId: folio.id, status: { in: ["DRAFT", "SENT"] } },
-        orderBy: { revision: "desc" },
-        select: { quotedTotal: true },
-      });
-      const hasActualLedgerHistory = await tx.nrmsMasterFolioItem.count({ where: { masterFolioId: folio.id } });
-      // Before pickup, the ledger can legitimately have no room items yet.
-      // The current Pro Forma is the approved ceiling for an advance payment;
-      // after pickup, actual routed charges remain authoritative if higher.
-      const payableTotal = hasActualLedgerHistory > 0
-        ? totals.billed
-        : Math.max(totals.billed, Number(latestProForma?.quotedTotal ?? 0));
-      const payableBalance = Number((payableTotal - totals.paid).toFixed(2));
+      const { payableBalance } = await getMasterFolioPayableBalance(tx, folio.id);
       if (payableBalance <= 0.005) throw new Error("NRMS_MASTER_PAYMENT_COMPLETE");
       if (data.amount > payableBalance + 0.005) throw new Error(`NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:${payableBalance}`);
       const payment = await tx.nrmsMasterFolioPayment.create({
@@ -992,6 +1115,12 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
         currency: folio.currency,
         grossAmount: data.amount,
       });
+      // Manual collection remains fully supported. It invalidates any older
+      // online link because that link froze the balance before this payment.
+      await tx.nrmsMasterFolioPaymentLink.updateMany({
+        where: { masterFolioId: folio.id, status: { in: ["ACTIVE", "PROCESSING"] } },
+        data: { status: "STALE", revokedAt: new Date() },
+      });
       await refreshMasterFolioStatus(tx, folio.id);
       return { idempotent: false };
     }, EXTENDED_TX_OPTIONS);
@@ -1000,6 +1129,7 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
   } catch (err) {
     if (rejectLockedBusinessDay(res, err)) return;
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") return res.status(409).json({ error: "The agency master folio is already settled", code: "PAYMENT_COMPLETE" });
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IN_FLIGHT") return res.status(409).json({ error: "An AzamPay payment is awaiting confirmation. Reconcile it before recording another payment.", code: "PAYMENT_IN_FLIGHT" });
     if (err instanceof Error && err.message.startsWith("NRMS_MASTER_PAYMENT_EXCEEDS_BALANCE:")) {
       const balance = Number(err.message.split(":")[1] ?? 0);
       return res.status(400).json({ error: `Payment cannot exceed the agency balance of ${balance.toLocaleString()}`, code: "PAYMENT_EXCEEDS_BALANCE", balance });
@@ -1008,6 +1138,35 @@ router.post("/blocks/:blockId/master-folio/payments", (async (req: AuthedRequest
     if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IDEMPOTENCY_CONFLICT") return res.status(409).json({ error: "This agency payment request key was already used for different payment details", code: "IDEMPOTENCY_CONFLICT" });
     console.error("[owner.nrms.groupBlocks] master payment failed", err);
     res.status(500).json({ error: "Failed to record the agency payment" });
+  }
+}) as RequestHandler);
+
+/** Issue a fresh three-hour online checkout without changing manual collection. */
+router.post("/blocks/:blockId/master-folio/payment-link", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const accessible = await loadDocumentAccessibleBlock(req, res, Number(req.params.blockId));
+    if (!accessible) return;
+    const { block } = accessible;
+    if (!billingUsesMasterFolio(block.billingMode) || !block.masterFolio) {
+      return res.status(409).json({ error: "This block does not have an agency master folio", code: "MASTER_FOLIO_MISSING" });
+    }
+    const masterFolioId = block.masterFolio.id;
+    const link = await prisma.$transaction((tx: any) =>
+      issueMasterFolioPaymentLink(tx, masterFolioId, req.user!.id),
+    );
+    res.status(201).json({ paymentLink: serializeMasterFolioPaymentLink(link) });
+  } catch (err) {
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_COMPLETE") {
+      return res.status(409).json({ error: "The agency master folio is already settled", code: "PAYMENT_COMPLETE" });
+    }
+    if (err instanceof Error && err.message === "NRMS_MASTER_PAYMENT_IN_FLIGHT") {
+      return res.status(409).json({ error: "An AzamPay payment is already awaiting confirmation", code: "PAYMENT_IN_FLIGHT" });
+    }
+    if (err instanceof Error && err.message === "NRMS_MASTER_FOLIO_MISSING") {
+      return res.status(409).json({ error: "The agency master folio is missing", code: "MASTER_FOLIO_MISSING" });
+    }
+    console.error("[owner.nrms.groupBlocks] payment link failed", err);
+    res.status(500).json({ error: "Failed to generate the secure payment link" });
   }
 }) as RequestHandler);
 
@@ -1063,8 +1222,11 @@ router.post("/blocks/:blockId/master-folio/refunds", (async (req: AuthedRequest,
       await assertNrmsBusinessDayWritable(tx, block.propertyId);
       const folio = await tx.nrmsMasterFolio.findFirst({ where: { id: masterFolioId, propertyId: block.propertyId, ownerId: block.ownerId } });
       if (!folio) throw new Error("NRMS_MASTER_FOLIO_MISSING");
-      const totals = await getMasterFolioTotals(tx, folio.id);
-      const availableCredit = Math.max(0, Number((-totals.balance).toFixed(2)));
+      // Only money beyond what the agency owes is refundable. An advance paid
+      // against a live Pro Forma is not credit; once that Pro Forma is replaced
+      // or the block cancelled, the ceiling drops and the advance becomes credit.
+      const { payableBalance } = await getMasterFolioPayableBalance(tx, folio.id);
+      const availableCredit = Math.max(0, Number((-payableBalance).toFixed(2)));
       if (availableCredit <= 0.005) throw new Error("NRMS_MASTER_REFUND_NO_CREDIT");
       if (parsed.data.amount > availableCredit + 0.005) throw new Error(`NRMS_MASTER_REFUND_EXCEEDS_CREDIT:${availableCredit}`);
       await tx.nrmsMasterFolioRefund.create({
@@ -1190,9 +1352,13 @@ router.post("/blocks/:blockId/pickup", (async (req: AuthedRequest, res: Response
  */
 router.post("/blocks/:blockId/release", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const manageable = await loadManageableBlock(req, res, Number(req.params.blockId));
+    if (!manageable) return;
+    const { block } = manageable;
+    // The block's own owner, not the caller. A sales executive releasing rooms
+    // is not the owner of anything, and keying this update to req.user would
+    // silently match no row and report a phantom conflict.
+    const ownerId = block.ownerId;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is no longer holding any rooms", code: "INVALID_STATUS" });
     }
@@ -1221,9 +1387,10 @@ router.post("/blocks/:blockId/release", (async (req: AuthedRequest, res: Respons
  */
 router.post("/blocks/:blockId/cancel", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const block = await loadOwnedBlock(res, ownerId, Number(req.params.blockId));
-    if (!block) return;
+    const manageable = await loadManageableBlock(req, res, Number(req.params.blockId));
+    if (!manageable) return;
+    const { block } = manageable;
+    const ownerId = block.ownerId;
     if (!LIVE_STATUSES.includes(block.status)) {
       return res.status(409).json({ error: "This block is already closed", code: "INVALID_STATUS" });
     }

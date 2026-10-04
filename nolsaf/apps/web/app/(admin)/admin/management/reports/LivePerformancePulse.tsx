@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Building2, CalendarCheck, RefreshCw, TrendingUp, Wallet } from "lucide-react";
+import { Activity, AlertTriangle, Building2, CalendarCheck, Gauge, RefreshCw, TrendingUp, Trophy, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { NoLSAFCardHeader, NoLSAFSummaryCard } from "@/components/admin/reports/NoLSAFReportsFrame";
 
 type SeriesResponse = { labels: string[]; data: number[] };
 type OverviewResponse = {
@@ -19,24 +20,9 @@ type SummaryResponse = {
   pendingApprovals?: number;
   bookings?: number;
 };
-type Point = { label: string; value: number; x: number; y: number };
+type Day = { label: string; value: number };
 
-function smoothPath(pts: Array<{ x: number; y: number }>) {
-  if (pts.length < 2) return "";
-  let d = `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(0, i - 1)]!;
-    const p1 = pts[i]!;
-    const p2 = pts[i + 1]!;
-    const p3 = pts[Math.min(pts.length - 1, i + 2)]!;
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)},${cp2x.toFixed(2)} ${cp2y.toFixed(2)},${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
-  }
-  return d;
-}
+const DAYS = 30;
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -55,10 +41,11 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value);
 }
 
-function formatShortDate(label: string) {
-  const date = new Date(label);
+/** Series labels are calendar days ("2026-09-14"); read them as UTC so the day never shifts. */
+function dayLabel(label: string, withYear = false) {
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(label) ? `${label}T00:00:00Z` : label);
   if (Number.isNaN(date.getTime())) return label;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(withYear ? { year: "numeric" } : {}), timeZone: "UTC" });
 }
 
 export default function LivePerformancePulse() {
@@ -68,11 +55,12 @@ export default function LivePerformancePulse() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hover, setHover] = useState<number | null>(null);
 
   const range = useMemo(() => {
     const to = new Date();
     const from = new Date();
-    from.setDate(to.getDate() - 29);
+    from.setDate(to.getDate() - (DAYS - 1));
     return { from: isoDate(from), to: isoDate(to) };
   }, []);
 
@@ -109,170 +97,238 @@ export default function LivePerformancePulse() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const chart = useMemo(() => {
-    const labels = series.labels.slice(-30);
-    const values = series.data.slice(-30);
-    const items = labels.map((label, index) => ({ label, value: toNumber(values[index]) }));
-    const W = 900;
-    const H = 260;
-    const padL = 52;
-    const padR = 24;
-    const padT = 24;
-    const padB = 44;
-    const max = Math.max(1, ...items.map((item) => item.value));
-    const toX = (i: number) => padL + (i / Math.max(1, items.length - 1)) * (W - padL - padR);
-    const toY = (v: number) => H - padB - (v / max) * (H - padT - padB);
-    const points: Point[] = items.map((item, i) => ({ ...item, x: toX(i), y: toY(item.value) }));
-    const linePath = smoothPath(points);
-    const latest = points[points.length - 1] ?? null;
-    const areaPath = latest && points[0] ? `${linePath} L ${latest.x.toFixed(2)} ${(H - padB).toFixed(2)} L ${points[0].x.toFixed(2)} ${(H - padB).toFixed(2)} Z` : "";
-    const yGrid = [0.25, 0.5, 0.75, 1].map((p) => Math.round(max * p));
-    return { W, H, padL, padR, padB, points, latest, linePath, areaPath, yGrid, toY };
+  const stats = useMemo(() => {
+    const days: Day[] = series.labels.slice(-DAYS).map((label, index) => ({ label, value: toNumber(series.data.slice(-DAYS)[index]) }));
+    const total = days.reduce((sum, day) => sum + day.value, 0);
+    const active = days.filter((day) => day.value > 0);
+    const best = active.reduce<Day | null>((top, day) => (!top || day.value > top.value ? day : top), null);
+    const max = Math.max(0, ...days.map((day) => day.value));
+    const latest = days[days.length - 1]?.value ?? 0;
+    const previous = days[days.length - 2]?.value ?? 0;
+    return {
+      days,
+      total,
+      max,
+      best,
+      activeDays: active.length,
+      average: days.length ? total / days.length : 0,
+      change: previous > 0 ? ((latest - previous) / previous) * 100 : null,
+    };
   }, [series]);
 
-  const totalRevenue = series.data.reduce((sum, value) => sum + toNumber(value), 0);
-  const latestRevenue = chart.latest?.value ?? 0;
-  const previousRevenue = chart.points.length > 1 ? chart.points[chart.points.length - 2]!.value : 0;
-  const revenueChange = previousRevenue > 0 ? ((latestRevenue - previousRevenue) / previousRevenue) * 100 : 0;
+  const tourCurrency = overview?.companyRevenueTourCurrency || "USD";
   const lastUpdated = overview?.lastUpdated ? new Date(overview.lastUpdated) : null;
+  const hasRevenue = stats.total > 0;
+  const focus = hover !== null ? stats.days[hover] : null;
+  const firstDay = stats.days[0]?.label;
+  const lastDay = stats.days[stats.days.length - 1]?.label;
 
   return (
-    <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-neutral-100 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="text-sm font-bold text-neutral-950">Revenue and operations pulse</div>
-          <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">
-            Company revenue trend, booking movement, pending approvals, and active sessions.
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex h-8 items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2.5 text-[10px] font-bold text-emerald-700">
-            <TrendingUp className="h-3.5 w-3.5" aria-hidden />
-            {previousRevenue > 0 ? `${revenueChange >= 0 ? "+" : ""}${revenueChange.toFixed(1)}% vs yesterday` : "Live data"}
-          </div>
-          <button
-            type="button"
-            onClick={() => load(true)}
-            disabled={refreshing}
-            className="inline-flex h-8 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 text-[10px] font-bold text-neutral-700 transition-colors hover:border-emerald-200 hover:bg-emerald-50 disabled:opacity-60"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-col">
-        <div className="order-2 min-w-0 px-3 py-3 sm:px-4">
-          {error ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-              {error}
-            </div>
-          ) : null}
-
-          <svg viewBox={`0 0 ${chart.W} ${chart.H}`} className="block h-auto w-full max-w-full" style={{ height: 205 }} role="img" aria-label="Live company revenue trend">
-            <defs>
-              <linearGradient id="live-revenue-line" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#0284c7" />
-                <stop offset="55%" stopColor="#02665e" />
-                <stop offset="100%" stopColor="#059669" />
-              </linearGradient>
-              <linearGradient id="live-revenue-area" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="rgba(2,102,94,0.20)" />
-                <stop offset="85%" stopColor="rgba(2,102,94,0.03)" />
-                <stop offset="100%" stopColor="rgba(2,102,94,0)" />
-              </linearGradient>
-            </defs>
-
-            {chart.yGrid.map((v, index) => {
-              const y = chart.toY(v);
-              return (
-                <g key={`y-grid-${index}-${v}`}>
-                  <line x1={chart.padL} x2={chart.W - chart.padR} y1={y} y2={y} stroke="rgba(100,116,139,0.16)" strokeDasharray="5 10" />
-                  <text x={chart.padL - 10} y={y + 4} textAnchor="end" fill="rgba(100,116,139,0.70)" fontSize="11" fontFamily="ui-sans-serif,system-ui,sans-serif">
-                    {formatMoney(v)}
-                  </text>
-                </g>
-              );
-            })}
-
-            {chart.points.map((pt, index) => {
-              const show = index === 0 || index === chart.points.length - 1 || index % 5 === 0;
-              if (!show) return null;
-              return (
-                <text key={pt.label} x={pt.x} y={chart.H - 12} textAnchor="middle" fill="rgba(100,116,139,0.72)" fontSize="11" fontFamily="ui-sans-serif,system-ui,sans-serif">
-                  {formatShortDate(pt.label)}
-                </text>
-              );
-            })}
-
-            {chart.areaPath ? <path d={chart.areaPath} fill="url(#live-revenue-area)" /> : null}
-            {chart.linePath ? <path d={chart.linePath} fill="none" stroke="url(#live-revenue-line)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /> : null}
-
-            {chart.points.map((pt, i) => {
-              const isLatest = i === chart.points.length - 1;
-              return (
-                <circle
-                  key={`${pt.label}-${i}`}
-                  cx={pt.x}
-                  cy={pt.y}
-                  r={isLatest ? 5 : 3}
-                  fill={isLatest ? "#02665e" : "#ffffff"}
-                  stroke={isLatest ? "#99f6e4" : "rgba(2,102,94,0.35)"}
-                  strokeWidth="2"
-                />
-              );
-            })}
-          </svg>
-
-          <div className="flex flex-wrap items-center gap-4 border-t border-neutral-100 px-1 pt-3 text-[10px] text-neutral-500">
-            <span>{range.from} to {range.to}</span>
-            <span>Total revenue: <strong className="font-bold text-slate-800">{formatMoney(totalRevenue)} TZS</strong></span>
-            {lastUpdated ? <span>Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span> : null}
-          </div>
-        </div>
-
-        <div className="order-1 grid grid-cols-2 border-b border-neutral-200 bg-neutral-50/70 sm:grid-cols-3 xl:grid-cols-5">
-          <PulseKpi icon={Wallet} label="Company revenue (TZS)" value={`${formatMoney(toNumber(overview?.companyRevenue))} TZS`} helper="Property + transport commission" />
-          <PulseKpi icon={TrendingUp} label={`Tour commission (${overview?.companyRevenueTourCurrency || "USD"})`} value={`${overview?.companyRevenueTourCurrency || "USD"} ${formatMoney(toNumber(overview?.companyRevenueTour))}`} helper="USD. Reported separately, never summed with TZS" />
-          <PulseKpi icon={CalendarCheck} label="Bookings 24h" value={formatNumber(toNumber(summary?.bookings))} helper="Real booking movement" />
-          <PulseKpi icon={Building2} label="Pending approvals" value={formatNumber(toNumber(summary?.pendingApprovals))} helper="Owner/property workload" />
-          <PulseKpi icon={Activity} label="Active sessions" value={formatNumber(toNumber(summary?.activeSessions))} helper="Last active window" />
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="border-t border-neutral-200 bg-white px-4 py-2.5 text-[10px] font-medium text-neutral-500">
-          Loading live performance data...
+    <div className="box-border w-full min-w-0 max-w-full space-y-4">
+      {error ? (
+        <div className="flex items-start gap-2.5 rounded-xl border border-solid border-amber-200 bg-amber-50 p-3.5 text-sm font-medium text-amber-800" role="alert">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{error}</span>
         </div>
       ) : null}
-    </section>
+
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+        <NoLSAFSummaryCard icon={Wallet} label="Company revenue" value={loading ? "..." : `TZS ${formatMoney(toNumber(overview?.companyRevenue))}`} detail="Property and transport commission" tone="emerald" />
+        <NoLSAFSummaryCard icon={TrendingUp} label={`Tour commission (${tourCurrency})`} value={loading ? "..." : `${tourCurrency} ${formatMoney(toNumber(overview?.companyRevenueTour))}`} detail="Own currency, never summed with TZS" tone="blue" />
+        <NoLSAFSummaryCard icon={CalendarCheck} label="Bookings 24h" value={loading ? "..." : formatNumber(toNumber(summary?.bookings))} detail="Real booking movement" tone="violet" />
+        <NoLSAFSummaryCard icon={Building2} label="Pending approvals" value={loading ? "..." : formatNumber(toNumber(summary?.pendingApprovals))} detail="Owner and property workload" tone={toNumber(summary?.pendingApprovals) > 0 ? "amber" : "slate"} />
+        <NoLSAFSummaryCard icon={Activity} label="Active sessions" value={loading ? "..." : formatNumber(toNumber(summary?.activeSessions))} detail="Last active window" tone="slate" />
+      </div>
+
+      <section className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+        <NoLSAFCardHeader
+          icon={TrendingUp}
+          title="Revenue and operations pulse"
+          subtitle="Daily company revenue (TZS) over the last 30 days. Refreshes every minute."
+          right={
+            <>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-solid border-emerald-100 bg-white px-2.5 py-1 text-[10px] font-bold text-emerald-700 shadow-sm">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                </span>
+                {stats.change !== null ? `${stats.change >= 0 ? "+" : ""}${stats.change.toFixed(1)}% vs yesterday` : "Live"}
+              </span>
+              <button
+                type="button"
+                onClick={() => load(true)}
+                disabled={refreshing}
+                className="box-border inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-bold text-neutral-600 transition hover:border-neutral-300 hover:text-emerald-700 disabled:opacity-60"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
+                Refresh
+              </button>
+            </>
+          }
+        />
+
+        <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_290px]">
+          {/* Daily bars */}
+          <div className="min-w-0 border-0 border-solid border-neutral-100 p-4 sm:p-5 lg:border-r">
+            {loading ? (
+              <div className="flex h-56 items-end gap-[3px]" aria-hidden>
+                {Array.from({ length: DAYS }, (_, i) => (
+                  <span key={i} className="flex-1 animate-pulse rounded-t bg-neutral-100" style={{ height: `${25 + ((i * 37) % 60)}%` }} />
+                ))}
+              </div>
+            ) : !hasRevenue ? (
+              <div className="flex h-56 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 bg-neutral-50/60 px-5 text-center">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-solid border-neutral-200 bg-white text-neutral-300">
+                  <TrendingUp className="h-5 w-5" aria-hidden />
+                </span>
+                <p className="m-0 mt-3 text-sm font-bold text-neutral-700">No company revenue in the last 30 days</p>
+                <p className="mb-0 mt-1 max-w-sm text-xs leading-5 text-neutral-400">Bars appear here as soon as property or transport commission is recorded. Tour commission is tracked separately in {tourCurrency}.</p>
+              </div>
+            ) : (
+              <>
+                <div className="mb-3 flex min-h-[38px] items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{focus ? dayLabel(focus.label, true) : "Last 30 days"}</p>
+                    <p className="m-0 mt-0.5 text-xl font-black tabular-nums tracking-tight text-neutral-950">TZS {formatNumber(Math.round(focus ? focus.value : stats.total))}</p>
+                  </div>
+                  <p className="m-0 text-[11px] text-neutral-400">Peak TZS {formatMoney(stats.max)}</p>
+                </div>
+
+                <div className="relative h-48" onMouseLeave={() => setHover(null)}>
+                  {[0.5, 1].map((line) => (
+                    <span key={line} className="pointer-events-none absolute inset-x-0 border-0 border-t border-dashed border-neutral-200" style={{ bottom: `${line * 100}%` }} aria-hidden />
+                  ))}
+                  <div className="relative flex h-full items-end gap-[3px]" role="img" aria-label={`Daily revenue bars, total TZS ${formatNumber(Math.round(stats.total))}`}>
+                    {stats.days.map((day, index) => {
+                      const share = stats.max > 0 ? day.value / stats.max : 0;
+                      const isLatest = index === stats.days.length - 1;
+                      const isFocus = hover === index;
+                      return (
+                        <button
+                          key={day.label}
+                          type="button"
+                          onMouseEnter={() => setHover(index)}
+                          onFocus={() => setHover(index)}
+                          onBlur={() => setHover(null)}
+                          title={`${dayLabel(day.label, true)}: TZS ${formatNumber(Math.round(day.value))}`}
+                          className="flex h-full min-w-0 flex-1 cursor-default items-end border-0 bg-transparent p-0 focus:outline-none"
+                        >
+                          <span
+                            className={`block w-full rounded-t-[4px] transition-all ${
+                              day.value <= 0
+                                ? "bg-neutral-200"
+                                : isFocus
+                                  ? "bg-[#073c35]"
+                                  : isLatest
+                                    ? "bg-gradient-to-t from-emerald-600 to-emerald-400"
+                                    : "bg-gradient-to-t from-emerald-500/80 to-emerald-300/80"
+                            }`}
+                            style={{ height: day.value <= 0 ? "3px" : `${Math.max(4, share * 100)}%` }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-2 flex justify-between text-[10.5px] text-neutral-400">
+                  {stats.days
+                    .filter((_, index) => index % 5 === 0 || index === stats.days.length - 1)
+                    .map((day) => (
+                      <span key={day.label}>{dayLabel(day.label)}</span>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* What the month says */}
+          <dl className="m-0 grid min-w-0 grid-cols-1 gap-2 border-0 border-t border-solid border-neutral-100 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-1 lg:content-start lg:border-t-0">
+            <PulseStat
+              icon={Wallet}
+              tone="emerald"
+              label="30-day total"
+              value={loading ? "..." : `TZS ${formatMoney(stats.total)}`}
+              detail="Property and transport commission"
+            />
+            <PulseStat
+              icon={Gauge}
+              tone="blue"
+              label="Daily average"
+              value={loading ? "..." : `TZS ${formatMoney(stats.average)}`}
+              detail={`Across all ${stats.days.length || DAYS} days`}
+            />
+            <PulseStat
+              icon={Trophy}
+              tone={stats.best ? "amber" : "slate"}
+              label="Best day"
+              value={loading ? "..." : stats.best ? `TZS ${formatMoney(stats.best.value)}` : "None yet"}
+              detail={stats.best ? dayLabel(stats.best.label, true) : "No revenue recorded"}
+            />
+            <PulseStat
+              icon={CalendarCheck}
+              tone="violet"
+              label="Days with revenue"
+              value={loading ? "..." : `${stats.activeDays} of ${stats.days.length || DAYS}`}
+              detail={stats.activeDays ? `${Math.round((stats.activeDays / (stats.days.length || DAYS)) * 100)}% of the period` : "Nothing recorded yet"}
+              progress={loading ? undefined : stats.activeDays / (stats.days.length || DAYS)}
+            />
+          </dl>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-4 py-2.5 text-[11.5px] text-neutral-500 sm:px-5">
+          <span>{firstDay && lastDay ? `${dayLabel(firstDay)} to ${dayLabel(lastDay, true)}` : "Last 30 days"}</span>
+          <span>Tour commission is reported separately in {tourCurrency}</span>
+          {lastUpdated ? <span>Updated {lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT</span> : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
-function PulseKpi({
+const STAT_TONES = {
+  emerald: { icon: "from-emerald-500 to-emerald-700", bar: "bg-emerald-500" },
+  blue: { icon: "from-blue-500 to-blue-700", bar: "bg-blue-500" },
+  amber: { icon: "from-amber-400 to-amber-600", bar: "bg-amber-500" },
+  violet: { icon: "from-violet-500 to-violet-700", bar: "bg-violet-500" },
+  slate: { icon: "from-neutral-300 to-neutral-500", bar: "bg-neutral-400" },
+} as const;
+
+/** One month figure as an NRMS mini tile: gradient icon, label, value, detail, optional coverage bar. */
+function PulseStat({
   icon: Icon,
+  tone,
   label,
   value,
-  helper,
+  detail,
+  progress,
 }: {
   icon: typeof Wallet;
+  tone: keyof typeof STAT_TONES;
   label: string;
   value: string;
-  helper: string;
+  detail: string;
+  progress?: number;
 }) {
+  const t = STAT_TONES[tone];
   return (
-    <div className="min-w-0 border-r border-b border-neutral-200 px-3 py-3 last:border-r-0 xl:border-b-0">
-      <div className="flex items-start gap-2.5">
-        <div className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-white text-emerald-700 ring-1 ring-neutral-200">
-          <Icon className="h-3.5 w-3.5" aria-hidden />
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-[8px] font-bold uppercase tracking-[0.1em] text-neutral-400">{label}</div>
-          <div className="mt-1 truncate text-sm font-bold tabular-nums text-neutral-950">{value}</div>
-          <div className="mt-0.5 line-clamp-2 text-[9px] leading-3.5 text-neutral-500">{helper}</div>
-        </div>
+    <div className="box-border flex min-w-0 items-center gap-3 rounded-xl bg-white p-3 ring-1 ring-inset ring-neutral-200/70 transition hover:ring-neutral-300">
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm ${t.icon}`}>
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <dt className="truncate text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{label}</dt>
+        <dd className="m-0 mt-0.5 truncate text-base font-black tabular-nums tracking-tight text-neutral-950">{value}</dd>
+        {typeof progress === "number" ? (
+          <dd className="m-0 mt-1.5">
+            <span className="block h-1.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden>
+              <span className={`block h-1.5 rounded-full ${t.bar}`} style={{ width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` }} />
+            </span>
+            <span className="mt-1 block truncate text-[11px] text-neutral-400">{detail}</span>
+          </dd>
+        ) : (
+          <dd className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{detail}</dd>
+        )}
       </div>
     </div>
   );

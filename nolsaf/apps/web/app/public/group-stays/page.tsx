@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 
 export default function GroupStaysPage() {
   return (
-    <main className="min-h-screen bg-gray-50 pt-20">
+    <main className="min-h-screen bg-[#f3f7f6] pt-20">
       <div className="public-container">
         <GroupStaysCard />
       </div>

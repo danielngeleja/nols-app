@@ -9,8 +9,10 @@
 // here.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import apiClient from "@/lib/apiClient";
-import { ArrowLeft, BadgeCheck, Ban, Building2, Calendar, CheckCircle2, ChevronDown, Clock, Eye, FileText, Globe, Handshake, Loader2, Mail, MapPin, Phone, Plus, Search, ShieldAlert, ShieldCheck, Tag, User, UserPlus, Wallet, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Ban, Building2, Calendar, CheckCircle2, ChevronDown, Clock, Eye, MoreHorizontal, FileText, Globe, Handshake, Loader2, Mail, MapPin, PauseCircle, Phone, Plus, Search, ShieldAlert, ShieldCheck, Tag, User, UserPlus, Wallet, X, XCircle } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
+import NrmsBillingBlockModal, { type NrmsBillingBlock } from "../_components/NrmsBillingBlockModal";
+import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
 
 type Agency = { id: number; reference?: string; legalName: string; tradingName: string | null; verificationStatus: string; status: string; contactEmail?: string | null; activationPending?: boolean };
 type AgencyDetail = Agency & {
@@ -24,8 +26,11 @@ type AgentLink = {
   decidedAt: string | null; decisionReason: string | null; suspensionAuthority?: "HOTEL" | "ADMIN" | null; agency: Agency | null;
   rateAccess: Array<{ ratePlanId: number; roomTypeId: number | null }>;
 };
-type Match = { id: number; legalName: string; tradingName: string | null; registrationNo: string | null; tin: string | null; verificationStatus: string; status: string; matchedOn: string[] };
-
+type Match = {
+  id: number; reference?: string; legalName: string; tradingName: string | null;
+  nationality: string | null; countryCode: string | null; verificationStatus: string; status: string;
+  documentCount: number; verifiedAt: string | null; activationPending?: boolean; matchedOn: string[];
+};
 const LINK_STATUS: Record<string, { cls: string; label: string }> = {
   INVITED: { cls: "bg-amber-50 text-amber-700", label: "Invited" },
   REQUESTED: { cls: "bg-cyan-50 text-cyan-700", label: "Partnership requested" },
@@ -53,22 +58,24 @@ function initials(name?: string | null): string {
   return (words[0]![0]! + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
-/**
- * Card skin per status. A rail down the left edge lets an owner read the state
- * of a whole list at a glance without parsing each pill, and the avatar picks
- * up the same colour so identity and state agree.
- */
-const CARD_SKIN: Record<string, { rail: string; head: string; avatar: string }> = {
-  ACTIVE: { rail: "bg-emerald-500", head: "bg-emerald-50/40", avatar: "bg-emerald-100 text-emerald-700" },
-  INVITED: { rail: "bg-amber-400", head: "bg-amber-50/40", avatar: "bg-amber-100 text-amber-700" },
-  REQUESTED: { rail: "bg-cyan-500", head: "bg-cyan-50/40", avatar: "bg-cyan-100 text-cyan-700" },
-  AGENT_ACCEPTED: { rail: "bg-blue-500", head: "bg-blue-50/40", avatar: "bg-blue-100 text-blue-700" },
-  SUSPENDED: { rail: "bg-orange-400", head: "bg-orange-50/40", avatar: "bg-orange-100 text-orange-700" },
-  REJECTED: { rail: "bg-neutral-300", head: "bg-neutral-50", avatar: "bg-neutral-100 text-neutral-500" },
-  TERMINATED: { rail: "bg-red-400", head: "bg-red-50/40", avatar: "bg-red-100 text-red-700" },
+function formatShortDate(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** Avatar colour per status, so identity and state read together without a coloured rail. */
+const CARD_SKIN: Record<string, { avatar: string }> = {
+  ACTIVE: { avatar: "bg-emerald-100 text-emerald-700" },
+  INVITED: { avatar: "bg-amber-100 text-amber-700" },
+  REQUESTED: { avatar: "bg-cyan-100 text-cyan-700" },
+  AGENT_ACCEPTED: { avatar: "bg-blue-100 text-blue-700" },
+  SUSPENDED: { avatar: "bg-orange-100 text-orange-700" },
+  REJECTED: { avatar: "bg-neutral-100 text-neutral-500" },
+  TERMINATED: { avatar: "bg-red-100 text-red-700" },
 };
 function cardSkin(status: string) {
-  return CARD_SKIN[status] ?? { rail: "bg-neutral-300", head: "bg-neutral-50", avatar: "bg-neutral-100 text-neutral-500" };
+  return CARD_SKIN[status] ?? { avatar: "bg-neutral-100 text-neutral-500" };
 }
 
 /**
@@ -76,9 +83,11 @@ function cardSkin(status: string) {
  * columns stretched across the full card width, which left most of the row
  * empty and gave the terms no weight of their own.
  */
-function MetaTile({ icon: Icon, label, value, tone = "normal", onClick }: {
+function MetaTile({ icon: Icon, label, value, tone = "normal", onClick, cell = false }: {
   icon: typeof Wallet; label: string; value: ReactNode;
   tone?: "normal" | "warn"; onClick?: () => void;
+  /** Borderless cell for the divided terms strip on the agent card. */
+  cell?: boolean;
 }) {
   const body = (
     <>
@@ -88,9 +97,11 @@ function MetaTile({ icon: Icon, label, value, tone = "normal", onClick }: {
       <span className={`mt-1 block truncate text-[13px] font-bold ${tone === "warn" ? "text-amber-600" : "text-neutral-800"}`}>{value}</span>
     </>
   );
-  const skin = `block min-w-0 rounded-lg px-2.5 py-2 text-left ${tone === "warn" ? "bg-amber-50/70 ring-1 ring-amber-200" : "bg-neutral-50 ring-1 ring-neutral-100"}`;
+  const skin = cell
+    ? `block min-w-0 px-3 py-2.5 text-left ${tone === "warn" ? "bg-amber-50" : "bg-white"}`
+    : `block min-w-0 rounded-lg px-2.5 py-2 text-left ${tone === "warn" ? "bg-amber-50/70 ring-1 ring-amber-200" : "bg-neutral-50 ring-1 ring-neutral-100"}`;
   return onClick
-    ? <button type="button" onClick={onClick} className={`${skin} w-full appearance-none border-0 transition hover:ring-emerald-300`}>{body}</button>
+    ? <button type="button" onClick={onClick} className={`${skin} w-full appearance-none border-0 transition ${cell ? "hover:bg-emerald-50" : "hover:ring-emerald-300"}`}>{body}</button>
     : <div className={skin}>{body}</div>;
 }
 
@@ -107,6 +118,11 @@ export default function NrmsAgentsPage() {
   const [termsFor, setTermsFor] = useState<AgentLink | null>(null);
   const [rateFor, setRateFor] = useState<AgentLink | null>(null);
   const [detailFor, setDetailFor] = useState<number | null>(null);
+  const [menuFor, setMenuFor] = useState<number | null>(null);
+  const [billingBlock, setBillingBlock] = useState<NrmsBillingBlock | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [view, setView] = useState<"cards" | "list">("cards");
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -129,7 +145,17 @@ export default function NrmsAgentsPage() {
   const pendingCount = useMemo(() => links.filter((l) => ["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(l.status)).length, [links]);
   const capReached = seatsUsed >= maxAgents && maxAgents > 0;
   const seatsLeft = Math.max(0, maxAgents - seatsUsed);
-
+  const agentStage = (status: string) => ["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(status) ? "PENDING" : ["REJECTED", "TERMINATED"].includes(status) ? "ENDED" : status;
+  const visibleLinks = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return links.filter((link) => (!statusFilter || agentStage(link.status) === statusFilter) && (!term || [link.agency?.legalName, link.agency?.tradingName, link.agency?.reference, link.agency?.contactEmail].some((value) => String(value || "").toLowerCase().includes(term))));
+  }, [links, query, statusFilter]);
+  const agentStages = [
+    { key: "PENDING", label: "Onboarding", hint: "Invitation or approval pending", count: links.filter((link) => agentStage(link.status) === "PENDING").length, icon: Clock, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50" },
+    { key: "ACTIVE", label: "Active", hint: "Approved to sell room inventory", count: links.filter((link) => link.status === "ACTIVE").length, icon: BadgeCheck, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50" },
+    { key: "SUSPENDED", label: "Suspended", hint: "Booking access paused", count: links.filter((link) => link.status === "SUSPENDED").length, icon: PauseCircle, text: "text-orange-700", bar: "bg-orange-400", soft: "bg-orange-50" },
+    { key: "ENDED", label: "Ended", hint: "Rejected or terminated relationship", count: links.filter((link) => agentStage(link.status) === "ENDED").length, icon: XCircle, text: "text-rose-600", bar: "bg-rose-400", soft: "bg-rose-50" },
+  ];
   const act = useCallback(async (linkId: number, path: string, verb: "post" | "patch" | "put", body?: any, okMsg?: string) => {
     setBusyId(linkId); setError(null); setNotice(null);
     try {
@@ -138,7 +164,13 @@ export default function NrmsAgentsPage() {
       await load();
       return true;
     } catch (e: any) {
-      setError(e?.response?.data?.error || "The action could not be completed");
+      const billing = e?.response?.status === 402 ? e?.response?.data?.billing : null;
+      if (billing) {
+        setBillingBlock(billing as NrmsBillingBlock);
+        setError(null);
+      } else {
+        setError(e?.response?.data?.error || "The action could not be completed");
+      }
       return false;
     } finally {
       setBusyId(null);
@@ -214,17 +246,18 @@ export default function NrmsAgentsPage() {
       {notice && <div className="rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">{notice}</div>}
       {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
 
+      <NrmsLifecycleRail stages={agentStages} selected={statusFilter} onSelect={setStatusFilter} />
+      <NrmsDirectoryShell title={statusFilter ? `${agentStages.find((stage) => stage.key === statusFilter)?.label ?? statusFilter} agents` : "All travel agents"} count={visibleLinks.length} loading={loading} query={query} onQueryChange={setQuery} placeholder="Search agency, code or email" view={view} onViewChange={setView} filter={statusFilter} onClearFilter={() => setStatusFilter("")}>
       {loading ? (
-        <div className="flex items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white p-6 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agents…</div>
-      ) : links.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
+        <div className="flex items-center justify-center gap-2 border-t border-neutral-100 p-12 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading agents…</div>
+      ) : visibleLinks.length === 0 ? (
+        <div className="border-t border-neutral-100 p-12 text-center">
           <p className="m-0 text-sm font-semibold text-neutral-700">No travel agents yet</p>
-          <p className="m-0 mt-1 text-[13px] text-neutral-500">Add an agency to let it book your rooms at agreed rates.</p>
+          <p className="m-0 mt-1 text-[13px] text-neutral-500">{query || statusFilter ? "Try another status or search." : "Add an agency to let it book your rooms at agreed rates."}</p>
         </div>
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-3 p-0">
-          {links.map((link) => {
-            const verify = link.agency ? (VERIFY[link.agency.verificationStatus] ?? { cls: "text-neutral-500", label: link.agency.verificationStatus }) : null;
+        <ul className={`m-0 list-none border-t border-neutral-100 p-3 sm:p-4 ${view === "cards" ? "grid grid-cols-1 gap-3 xl:grid-cols-2" : "flex flex-col gap-3"}`}>
+          {visibleLinks.map((link) => {
             const busy = busyId === link.id;
             const notVerified = link.agency?.verificationStatus !== "VERIFIED";
             const centralSuspension = link.status === "SUSPENDED" && link.suspensionAuthority === "ADMIN";
@@ -247,92 +280,95 @@ export default function NrmsAgentsPage() {
                         ? { tone: "bg-orange-50 text-orange-800", icon: Clock, text: "Paused by you. This agency cannot book until you activate it again." }
                         : null;
             return (
-              <li key={link.id} className="relative overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)]">
-                <span className={`absolute inset-y-0 left-0 w-1 ${skin.rail}`} aria-hidden="true" />
-                {/* Zone 1 - identity + actions, on a tint that matches the state */}
-                <div className={`flex flex-wrap items-start justify-between gap-3 py-3 pl-5 pr-4 ${skin.head}`}>
-                  <button type="button" onClick={() => setDetailFor(link.id)} className="flex min-w-0 flex-1 items-center gap-3 border-0 bg-transparent p-0 text-left group">
-                    <span className={`grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl text-[13px] font-bold shadow-sm ${skin.avatar}`}>{initials(link.agency?.legalName)}</span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-[15px] font-bold text-neutral-900 group-hover:text-emerald-700">{link.agency?.legalName ?? "Agency"}</span>
-                        <StatusPill status={link.status} />
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        {link.agency?.reference && <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500 ring-1 ring-neutral-200">{link.agency.reference}</span>}
-                        {verify && (
-                          <span className={`inline-flex items-center gap-1 text-[12px] font-medium ${verify.cls}`}>
-                            {link.agency?.verificationStatus === "VERIFIED" ? <BadgeCheck className="h-3.5 w-3.5" /> : <ShieldAlert className="h-3.5 w-3.5" />} {verify.label}
-                          </span>
-                        )}
+              <li key={link.id} className="relative box-border flex flex-col gap-3.5 rounded-2xl border border-solid border-neutral-300 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_16px_32px_-24px_rgba(15,23,42,0.45)] sm:p-5 [&_*]:box-border">
+                {(() => {
+                  // Partnership progress: how far this agency is from booking.
+                  const verified = link.agency?.verificationStatus === "VERIFIED";
+                  const ended = ["SUSPENDED", "REJECTED", "TERMINATED"].includes(link.status);
+                  const done = [true, link.status !== "INVITED", verified, link.status === "ACTIVE"];
+                  const firstOpen = ended ? 3 : done.findIndex((value) => !value);
+                  const labels = [link.status === "REQUESTED" ? "Requested" : "Invited", "Accepted", link.agency?.verificationStatus === "REJECTED" ? "Not verified" : "Verified", link.status === "SUSPENDED" ? "Suspended" : link.status === "REJECTED" ? "Rejected" : link.status === "TERMINATED" ? "Terminated" : "Active"];
+                  const endTone = link.status === "SUSPENDED" ? "text-orange-700" : link.status === "ACTIVE" ? "text-emerald-800" : "text-red-700";
+
+                  // One line on where it stands, and the one action that moves it forward.
+                  const next: { text: string; tone: string; action?: { label: string; icon: typeof Mail; run: () => void; disabled?: boolean; title?: string } } =
+                    centralSuspension ? { text: "Suspended by NoLSAF. Contact NoLSAF to review.", tone: "text-red-700" }
+                    : canApprove && notVerified ? { text: "Waiting for NoLSAF verification", tone: "text-amber-700" }
+                    : canApprove ? { text: link.status === "SUSPENDED" ? "Paused by you" : "Ready to go live", tone: link.status === "SUSPENDED" ? "text-orange-700" : "text-emerald-700", action: { label: "Activate", icon: CheckCircle2, run: () => void act(link.id, "/approve", "post", {}, "Agent activated."), title: "Activate this agent after the NRMS billing check" } }
+                    : link.status === "INVITED" ? { text: "Waiting for the agency to accept", tone: "text-amber-700", action: link.agency?.activationPending ? { label: "Resend invite", icon: Mail, run: () => void act(link.id, "/resend-invite", "post", {}, "Invitation email sent again.") } : undefined }
+                    : link.status === "ACTIVE" ? { text: noRates ? "Live, but no rates shared yet" : "Booking live", tone: noRates ? "text-amber-700" : "text-emerald-700", action: noRates ? { label: "Set rates", icon: Tag, run: () => setRateFor(link) } : undefined }
+                    : link.status === "REJECTED" ? { text: "Request rejected", tone: "text-neutral-500" }
+                    : link.status === "TERMINATED" ? { text: "Partnership ended", tone: "text-neutral-500" }
+                    : { text: LINK_STATUS[link.status]?.label ?? link.status, tone: "text-neutral-500" };
+
+                  const menuItem = "flex w-full appearance-none items-center gap-2 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left text-[12px] font-semibold transition disabled:opacity-50";
+                  return <>
+                    <div className="flex items-start gap-3">
+                      <span className={`grid h-11 w-11 flex-shrink-0 place-items-center rounded-xl text-sm font-bold ${skin.avatar}`}>{initials(link.agency?.legalName)}</span>
+                      <button type="button" onClick={() => setDetailFor(link.id)} className="group min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-left">
+                        <span className="block truncate text-[15px] font-bold leading-5 text-neutral-900 group-hover:text-emerald-700" title={link.agency?.legalName ?? undefined}>{link.agency?.legalName ?? "Agency"}</span>
+                        {link.agency?.reference && <span className="mt-0.5 block font-mono text-[11px] text-neutral-400">{link.agency.reference}</span>}
+                      </button>
+                      {busy && <Loader2 className="mt-2 h-4 w-4 animate-spin text-neutral-400" />}
+                      <div className="relative flex-shrink-0">
+                        <button type="button" aria-label="More actions" aria-expanded={menuFor === link.id} onClick={() => setMenuFor(menuFor === link.id ? null : link.id)} className="grid h-8 w-8 appearance-none place-items-center rounded-lg border-0 bg-transparent text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"><MoreHorizontal className="h-4 w-4" /></button>
+                        {menuFor === link.id && <>
+                          <button type="button" aria-label="Close menu" onClick={() => setMenuFor(null)} className="fixed inset-0 z-20 cursor-default appearance-none border-0 bg-transparent" />
+                          <div role="menu" className="absolute right-0 top-9 z-30 w-48 rounded-xl border border-solid border-neutral-200 bg-white p-1.5 shadow-[0_18px_40px_-16px_rgba(15,23,42,0.35)]" onClick={() => setMenuFor(null)}>
+                            <button type="button" role="menuitem" onClick={() => setDetailFor(link.id)} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><Eye className="h-3.5 w-3.5" />Open details</button>
+                            <button type="button" role="menuitem" onClick={() => setTermsFor(link)} disabled={busy} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><FileText className="h-3.5 w-3.5" />Edit terms</button>
+                            <button type="button" role="menuitem" onClick={() => setRateFor(link)} disabled={busy} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><Tag className="h-3.5 w-3.5" />Rate access</button>
+                            {link.status === "INVITED" && link.agency?.activationPending && next.action?.label !== "Resend invite" && (
+                              <button type="button" role="menuitem" onClick={() => void act(link.id, "/resend-invite", "post", {}, "Invitation email sent again.")} disabled={busy} className={`${menuItem} text-neutral-700 hover:bg-neutral-100`}><Mail className="h-3.5 w-3.5" />Resend invite</button>
+                            )}
+                            {(link.status === "ACTIVE" || ["INVITED", "REQUESTED", "AGENT_ACCEPTED", "SUSPENDED"].includes(link.status)) && <span className="my-1 block h-px bg-neutral-100" aria-hidden="true" />}
+                            {link.status === "ACTIVE" && <button type="button" role="menuitem" onClick={() => { setError(null); setConfirming({ link, kind: "suspend" }); }} disabled={busy} className={`${menuItem} text-orange-700 hover:bg-orange-50`}><PauseCircle className="h-3.5 w-3.5" />Suspend</button>}
+                            {["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(link.status) && <button type="button" role="menuitem" onClick={() => { setError(null); setConfirming({ link, kind: "reject" }); }} disabled={busy} className={`${menuItem} text-red-700 hover:bg-red-50`}><Ban className="h-3.5 w-3.5" />Reject</button>}
+                            {["ACTIVE", "SUSPENDED"].includes(link.status) && <button type="button" role="menuitem" onClick={() => { setError(null); setConfirming({ link, kind: "terminate" }); }} disabled={busy} className={`${menuItem} text-red-700 hover:bg-red-50`}><XCircle className="h-3.5 w-3.5" />Terminate</button>}
+                          </div>
+                        </>}
                       </div>
                     </div>
-                  </button>
-                  <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
-                    {busy && <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />}
-                    <button type="button" onClick={() => setDetailFor(link.id)} disabled={busy} title="View full details" className="inline-flex items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-neutral-700 transition hover:border-neutral-300 disabled:opacity-50"><Eye className="h-3.5 w-3.5" /> Open</button>
-                    <button type="button" onClick={() => setTermsFor(link)} disabled={busy} className="rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-neutral-700 transition hover:border-neutral-300 disabled:opacity-50">Terms</button>
-                    {canApprove && (
-                      <button type="button" onClick={() => void act(link.id, "/approve", "post", {}, "Agent activated.")} disabled={busy || notVerified} title={notVerified ? "The agency must be verified by NoLSAF before you can activate it" : undefined} className="inline-flex items-center gap-1 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400"><CheckCircle2 className="h-3.5 w-3.5" /> Activate</button>
-                    )}
-                    {/* The three status labels that used to sit here were not
-                        buttons. They made every card a different width and
-                        repeated the status pill beside the agency name. They
-                        are one explanatory note below now, so this row holds
-                        only things you can click. */}
-                    {link.status === "INVITED" && link.agency?.activationPending && <button type="button" onClick={() => void act(link.id, "/resend-invite", "post", {}, "Invitation email sent again.")} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-neutral-600 disabled:opacity-50"><Mail className="h-3.5 w-3.5" /> Resend activation</button>}
-                    {/* Ending a partnership is separated from the routine
-                        actions by a hairline and carries no coloured border of
-                        its own, so Terminate stops competing with Open for the
-                        eye while staying one click away. */}
-                    {(link.status === "ACTIVE" || ["INVITED", "REQUESTED", "AGENT_ACCEPTED", "SUSPENDED"].includes(link.status)) && (
-                      <span className="mx-0.5 h-5 w-px flex-shrink-0 bg-neutral-200" aria-hidden="true" />
-                    )}
-                    {/* These three open a confirmation rather than firing. */}
-                    {link.status === "ACTIVE" && (
-                      <button type="button" onClick={() => { setError(null); setConfirming({ link, kind: "suspend" }); }} disabled={busy} title="Pause this agency without ending the partnership" className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-semibold text-orange-700 transition hover:bg-orange-50 disabled:opacity-50"><Clock className="h-3.5 w-3.5" /> Suspend</button>
-                    )}
-                    {["INVITED", "REQUESTED", "AGENT_ACCEPTED"].includes(link.status) && (
-                      <button type="button" onClick={() => { setError(null); setConfirming({ link, kind: "reject" }); }} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-semibold text-neutral-600 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Reject</button>
-                    )}
-                    {["ACTIVE", "SUSPENDED"].includes(link.status) && (
-                      <button type="button" onClick={() => { setError(null); setConfirming({ link, kind: "terminate" }); }} disabled={busy} title="End this partnership permanently" className="inline-flex items-center gap-1 rounded-lg border-0 bg-transparent px-2.5 py-1.5 text-[12px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"><Ban className="h-3.5 w-3.5" /> Terminate</button>
-                    )}
-                  </div>
-                </div>
 
-                {/* Zone 1b - what this state means and what it is waiting on.
-                    The verification blocker in particular was only ever a
-                    `title` on a disabled Activate button, so an owner saw a
-                    dead button with no stated reason. */}
-                <div className="py-3 pl-5 pr-4">
-                  {stateNote && (
-                    <p className={`m-0 mb-3 flex items-start gap-2 rounded-lg px-3 py-2 text-[12px] leading-4 ${stateNote.tone}`}>
-                      <stateNote.icon className="mt-px h-3.5 w-3.5 flex-shrink-0" />
-                      <span>{stateNote.text}</span>
-                    </p>
-                  )}
+                    <ol className="m-0 flex list-none items-center p-0" aria-label="Partnership progress">
+                      {labels.map((label, index) => {
+                        const isDone = done[index] && !(ended && index === 3);
+                        const isCurrent = index === firstOpen;
+                        const text = index === 3 && (ended || link.status === "ACTIVE") ? endTone : isDone ? "text-emerald-700" : isCurrent ? "text-amber-700" : "text-neutral-400";
+                        return (
+                          <li key={label} className="flex min-w-0 flex-1 items-center last:flex-none" aria-current={isCurrent ? "step" : undefined}>
+                            <span className={`inline-flex items-center gap-1 whitespace-nowrap text-[11px] ${isCurrent || (index === 3 && link.status === "ACTIVE") ? "font-bold" : "font-semibold"} ${text}`}>
+                              {isDone ? <CheckCircle2 className="h-3 w-3" /> : <span className={`h-1.5 w-1.5 rounded-full ${isCurrent ? (ended ? "bg-current" : "bg-amber-500") : "bg-neutral-300"}`} />}{label}
+                            </span>
+                            {index < 3 && <span className={`mx-2 h-0.5 min-w-3 flex-1 rounded-full ${done[index + 1] && !(ended && index + 1 === 3) ? "bg-emerald-500" : "bg-neutral-200"}`} aria-hidden="true" />}
+                          </li>
+                        );
+                      })}
+                    </ol>
 
-                  {/* Zone 2 - the terms of the deal, as tiles */}
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <MetaTile icon={CheckCircle2} label="Booking" value={link.bookingMode === "INSTANT" ? "Instant confirm" : "Request to book"} />
-                    <MetaTile icon={Wallet} label="Payment" value={link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms} />
-                    <MetaTile icon={Globe} label="Currency" value={link.currency} />
-                    <MetaTile
-                      icon={Tag}
-                      label="Rate access"
-                      tone={noRates ? "warn" : "normal"}
-                      value={noRates ? "Set rates" : `${link.rateAccess.length} ${link.rateAccess.length === 1 ? "plan" : "plans"}`}
-                      onClick={() => setRateFor(link)}
-                    />
-                  </div>
-                </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[link.bookingMode === "INSTANT" ? "Instant confirm" : "Request to book", link.paymentTerms === "PREPAID" ? "Prepaid" : link.paymentTerms, link.currency].map((term) => (
+                        <span key={term} className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">{term}</span>
+                      ))}
+                      <button type="button" onClick={() => setRateFor(link)} className={`appearance-none rounded-full border-0 px-2.5 py-1 text-[11px] font-semibold transition ${noRates ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100" : "bg-neutral-100 text-neutral-700 hover:bg-emerald-50 hover:text-emerald-800"}`}>{noRates ? "No rate plans" : `${link.rateAccess.length} rate plan${link.rateAccess.length === 1 ? "" : "s"}`}</button>
+                    </div>
+
+                    <div className="mt-auto flex items-center gap-3 pt-3.5 shadow-[inset_0_1px_0_0_#eeeeee]">
+                      <span className={`min-w-0 flex-1 truncate text-[12px] font-semibold ${next.tone}`} title={stateNote?.text}>{next.text}</span>
+                      {next.action
+                        ? <button type="button" onClick={next.action.run} disabled={busy || next.action.disabled} title={next.action.title} className="inline-flex h-8 flex-shrink-0 appearance-none items-center gap-1.5 rounded-lg border-0 bg-[#073c35] px-3 text-[12px] font-semibold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><next.action.icon className="h-3.5 w-3.5" />{next.action.label}</button>
+                        : <button type="button" onClick={() => setDetailFor(link.id)} className="inline-flex h-8 flex-shrink-0 appearance-none items-center gap-1.5 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-[12px] font-semibold text-neutral-700 transition hover:bg-neutral-50"><Eye className="h-3.5 w-3.5" />Open</button>}
+                    </div>
+                  </>;
+                })()}
               </li>
             );
           })}
         </ul>
       )}
+      </NrmsDirectoryShell>
 
+      {billingBlock && <NrmsBillingBlockModal block={billingBlock} title="Agent activation paused" subtitle="The partnership was not activated" reassurance="Your active agents, existing reservations, check-ins and daily hotel operations are unaffected. Only this new agent activation is paused." onClose={() => setBillingBlock(null)} />}
       {showAdd && <AddAgentPanel propertyId={selectedPropertyId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); setNotice("Agent invited. The agency must accept the relationship before activation."); void load(); }} onInvited={(delivered) => { setShowAdd(false); setNotice(delivered ? "Invitation sent. The agency accepts the hotel relationship, then NoLSAF verification enables activation." : "The agency was created, but email delivery failed. Use Resend on the pending agent row."); void load(); }} onError={setError} />}
       {termsFor && <TermsModal propertyId={selectedPropertyId} link={termsFor} onClose={() => setTermsFor(null)} onSaved={() => { setTermsFor(null); setNotice("Terms updated."); void load(); }} onError={setError} />}
       {rateFor && <RateAccessModal link={rateFor} propertyId={selectedPropertyId} onClose={() => setRateFor(null)} onSaved={() => { setRateFor(null); setNotice("Rate access updated."); void load(); }} onError={setError} />}
@@ -624,7 +660,7 @@ function AgentDetailModal({ linkId, onClose, onEditTerms, onEditRates }: { linkI
 
 function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { propertyId: number; onClose: () => void; onAdded: () => void; onInvited: (delivered: boolean) => void; onError: (m: string) => void }) {
   const [mode, setMode] = useState<"search" | "invite">("search");
-  const [q, setQ] = useState({ registrationNo: "", tin: "", contactEmail: "" });
+  const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [attaching, setAttaching] = useState<number | null>(null);
@@ -634,10 +670,7 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
   const search = async () => {
     setSearching(true); setMatches(null);
     try {
-      const body: any = {};
-      if (q.registrationNo.trim()) body.registrationNo = q.registrationNo.trim();
-      if (q.tin.trim()) body.tin = q.tin.trim();
-      if (q.contactEmail.trim()) body.contactEmail = q.contactEmail.trim();
+      const body = query.trim() ? { q: query.trim() } : {};
       const res = await apiClient.post<any>(`/api/owner/nrms/agents/property/${propertyId}/lookup`, body);
       setMatches(res.data?.matches ?? []);
     } catch (e: any) {
@@ -646,6 +679,19 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
       setSearching(false);
     }
   };
+
+  useEffect(() => {
+    let live = true;
+    setSearching(true);
+    void apiClient.post<any>(`/api/owner/nrms/agents/property/${propertyId}/lookup`, {}).then((res) => {
+      if (live) setMatches(res.data?.matches ?? []);
+    }).catch((e: any) => {
+      if (live) onError(e?.response?.data?.error || "Approved agencies could not be loaded");
+    }).finally(() => {
+      if (live) setSearching(false);
+    });
+    return () => { live = false; };
+  }, [propertyId, onError]);
 
   const attach = async (agentAccountId: number) => {
     setAttaching(agentAccountId);
@@ -681,7 +727,7 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8">
-      <div className="w-full max-w-lg rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
+      <div className="w-full max-w-2xl rounded-2xl border border-solid border-neutral-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-0 border-b border-solid border-neutral-100 px-5 py-3">
           <h2 className="m-0 flex items-center gap-2 text-[15px] font-bold text-neutral-900">
             {mode === "invite" && <button type="button" onClick={() => setMode("search")} aria-label="Back" className="rounded-lg border-0 bg-transparent p-0 text-neutral-400 hover:text-neutral-700"><ArrowLeft className="h-4 w-4" /></button>}
@@ -692,38 +738,49 @@ function AddAgentPanel({ propertyId, onClose, onAdded, onInvited, onError }: { p
 
         {mode === "search" ? (
           <div className="flex flex-col gap-3 p-5">
-            <p className="m-0 text-[13px] text-neutral-500">Search for an agency already registered with NoLSAF by its registration number, TIN, or email, then add it to this property.</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <input value={q.registrationNo} onChange={(e) => setQ({ ...q, registrationNo: e.target.value })} placeholder="Registration no." className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-emerald-400" />
-              <input value={q.tin} onChange={(e) => setQ({ ...q, tin: e.target.value })} placeholder="TIN" className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-emerald-400" />
-              <input value={q.contactEmail} onChange={(e) => setQ({ ...q, contactEmail: e.target.value })} placeholder="Email" className="rounded-lg border border-solid border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-emerald-400" />
-            </div>
-            <button type="button" onClick={() => void search()} disabled={searching || (!q.registrationNo.trim() && !q.tin.trim() && !q.contactEmail.trim())} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-800 bg-neutral-800 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">
-              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Search
-            </button>
+            <p className="m-0 text-[13px] leading-5 text-neutral-500">Browse travel agencies already verified by NoLSAF and invite the right partner to your property.</p>
+            <form onSubmit={(event) => { event.preventDefault(); void search(); }} className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="relative block min-w-0"><span className="sr-only">Search approved agencies</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by agency name or email" className="box-border min-h-11 w-full min-w-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50 py-2 pl-9 pr-3 text-[13px] outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100" /></label>
+              <button type="submit" disabled={searching} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-solid border-neutral-900 bg-neutral-900 px-5 text-[13px] font-semibold text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50">{searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} Search</button>
+            </form>
 
             {matches !== null && (
               matches.length === 0 ? (
                 <div className="flex flex-col items-start gap-2 rounded-lg border border-solid border-neutral-100 bg-neutral-50 px-3 py-3">
-                  <p className="m-0 text-[13px] text-neutral-600">No matching agency found. If this agency has never worked with NoLSAF, invite them and we will email a link to set up their account.</p>
-                  <button type="button" onClick={() => { setInvite((v) => ({ ...v, registrationNo: q.registrationNo, tin: q.tin, email: q.contactEmail })); setMode("invite"); }} className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-emerald-700">
+                  <p className="m-0 text-[13px] text-neutral-600">No approved agency matches this search. You can invite a new agency if it is not registered with NoLSAF.</p>
+                  <button type="button" onClick={() => { if (query.includes("@")) setInvite((value) => ({ ...value, email: query.trim() })); setMode("invite"); }} className="inline-flex items-center gap-1.5 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-emerald-700">
                     <UserPlus className="h-3.5 w-3.5" /> Invite a new agency
                   </button>
                 </div>
               ) : (
-                <ul className="m-0 flex list-none flex-col gap-2 p-0">
+                <div>
+                  <div className="mb-2 flex items-center justify-between"><p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-400">Approved agencies</p><span className="text-[11px] font-semibold text-neutral-400">{matches.length} available</span></div>
+                  <ul className="m-0 flex max-h-[24rem] list-none flex-col gap-2 overflow-y-auto p-0 pr-1">
                   {matches.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between gap-3 rounded-lg border border-solid border-neutral-200 px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="m-0 truncate text-[13px] font-semibold text-neutral-900">{m.legalName}</p>
-                        <p className="m-0 text-[11px] text-neutral-500">{(VERIFY[m.verificationStatus]?.label) ?? m.verificationStatus} · matched on {m.matchedOn.join(", ") || "-"}</p>
+                    <li key={m.id} className="min-w-0 overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white transition hover:border-neutral-300 hover:shadow-sm">
+                      <div className="flex min-w-0 flex-col gap-3 p-3.5 sm:flex-row sm:items-center">
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-[12px] font-bold text-emerald-700 ring-1 ring-emerald-100">{initials(m.tradingName || m.legalName)}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2"><p className="m-0 max-w-full truncate text-[14px] font-bold text-neutral-900">{m.tradingName || m.legalName}</p><span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700"><BadgeCheck className="h-3 w-3" /> NoLSAF verified</span></div>
+                          {m.tradingName && m.tradingName !== m.legalName ? <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-500">{m.legalName}</p> : null}
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+                            {m.reference ? <span className="font-mono font-semibold text-neutral-600">{m.reference}</span> : null}
+                            {m.countryCode || m.nationality ? <span className="inline-flex items-center gap-1"><Globe className="h-3 w-3" />{[m.nationality, m.countryCode].filter(Boolean).join(" · ")}</span> : null}
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => void attach(m.id)} disabled={attaching === m.id} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-solid border-emerald-700 bg-emerald-700 px-4 text-[12px] font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-50">
+                          {attaching === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Add
+                        </button>
                       </div>
-                      <button type="button" onClick={() => void attach(m.id)} disabled={attaching === m.id} className="inline-flex flex-shrink-0 items-center gap-1 rounded-lg border border-solid border-emerald-600 bg-emerald-600 px-2.5 py-1.5 text-[12px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50">
-                        {attaching === m.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Add
-                      </button>
+                      <div className="grid gap-px border-0 border-t border-solid border-neutral-100 bg-neutral-200 sm:grid-cols-2">
+                        <span className="flex items-center gap-2 bg-neutral-50 px-3.5 py-2.5 text-[10px] font-semibold text-neutral-600"><ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />Identity and KYC reviewed</span>
+                        <span className="flex items-center gap-2 bg-neutral-50 px-3.5 py-2.5 text-[10px] font-semibold text-neutral-600"><FileText className="h-3.5 w-3.5 text-neutral-400" />{m.documentCount} document{m.documentCount === 1 ? "" : "s"} verified{formatShortDate(m.verifiedAt) ? ` · ${formatShortDate(m.verifiedAt)}` : ""}</span>
+                      </div>
                     </li>
                   ))}
-                </ul>
+                  </ul>
+                  <p className="m-0 mt-2 text-[10px] leading-4 text-neutral-400">Private contact information becomes available after the agency accepts your invitation.</p>
+                </div>
               )
             )}
 

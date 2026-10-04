@@ -13,6 +13,7 @@ import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import ShareBookingButton from "@/components/ShareBookingButton";
 import { useNrms } from "../_components/NrmsProvider";
+import { useNrmsAccessRole } from "../_components/NrmsAccessRole";
 
 type Tab = "rates" | "readiness" | "service" | "guest" | "portfolio" | "growth";
 
@@ -67,6 +68,36 @@ function Pager({ current, pages, total, size = PAGE_SIZE, onPage }: { current: n
 }
 function Empty({ children }: { children: ReactNode }) { return <div className="rounded-lg outline outline-1 outline-dashed outline-neutral-300 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">{children}</div>; }
 function Status({ value }: { value: string }) { const positive = ["ACTIVE", "VERIFIED", "COMPLETED", "RESOLVED", "APPLIED", "SENT"].includes(value); const attention = ["BLOCKED", "FAILED", "URGENT", "OVERDUE"].includes(value); return <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${positive ? "bg-emerald-50 text-emerald-700" : attention ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}>{value.replaceAll("_", " ")}</span>; }
+function permissionMessage(error: any, fallback: string) {
+  return error?.response?.status === 403 ? "You are not permitted to perform this task." : error?.response?.data?.error || fallback;
+}
+
+function SalesMessagingStatus({ state, status, onRefresh }: { state: MetaConnectionState | null; status: "loading" | "ready" | "unavailable"; onRefresh: () => void }) {
+  const channels: Array<{ provider: MetaConnection["provider"]; label: string; icon: typeof Instagram; configured: boolean }> = [
+    { provider: "INSTAGRAM", label: "Instagram inbox", icon: Instagram, configured: Boolean(state?.readiness.instagramOAuthConfigured) },
+    { provider: "WHATSAPP", label: "WhatsApp inbox", icon: MessageSquareText, configured: Boolean(state?.readiness.whatsappEmbeddedSignupConfigured) },
+  ];
+  return <div className="mx-auto max-w-5xl space-y-4 pb-10">
+    <header className="flex flex-wrap items-center justify-between gap-4 bg-white px-5 py-5 shadow-sm ring-1 ring-slate-200 sm:px-6">
+      <div><p className="m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">NRMS · Read only</p><h1 className="mb-0 mt-1 text-xl font-semibold text-neutral-950">Messaging status</h1><p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">Review whether guest channels are ready. Account changes are managed by a manager.</p></div>
+      <button type="button" disabled={status === "loading"} onClick={onRefresh} className="inline-flex min-h-9 items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:opacity-60"><RefreshCw className={`h-3.5 w-3.5 ${status === "loading" ? "animate-spin" : ""}`} />Check status</button>
+    </header>
+    <div className="grid gap-3 md:grid-cols-2">
+      {channels.map((channel) => {
+        const connection = state?.connections.find((item) => item.provider === channel.provider);
+        const connected = connection?.status === "CONNECTED";
+        const pending = connection?.status === "PENDING";
+        const unavailable = status === "unavailable";
+        const label = status === "loading" ? "Checking" : unavailable ? "Status unavailable" : connected ? "Connected" : pending ? "Action required" : channel.configured ? "Not connected" : "Setup pending";
+        const Icon = channel.icon;
+        return <article key={channel.provider} className="bg-white p-5 shadow-sm ring-1 ring-neutral-200">
+          <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-50 text-emerald-700 ring-1 ring-neutral-200"><Icon className="h-4 w-4" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="m-0 text-sm font-semibold text-neutral-900">{channel.label}</h2><span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${connected ? "text-emerald-700" : unavailable || pending ? "text-amber-700" : "text-neutral-500"}`}><span className={`h-1.5 w-1.5 rounded-full ${status === "loading" ? "animate-pulse bg-neutral-400" : connected ? "bg-emerald-500" : unavailable || pending ? "bg-amber-500" : "bg-neutral-400"}`} />{label}</span></div><p className="mb-0 mt-2 text-xs leading-5 text-neutral-500">{connected ? `${connection?.displayName || channel.label.replace(" inbox", "")} is connected to this property.` : unavailable ? "The status check could not be completed. Try again or ask a manager for help." : pending ? "A manager must finish the account setup before messages can sync." : "Ask a manager to connect or configure this account."}</p></div></div>
+        </article>;
+      })}
+    </div>
+    <div className="flex items-start gap-3 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950 ring-1 ring-amber-200"><Info className="mt-0.5 h-4 w-4 shrink-0" /><span>Sales Executives can check connection status only. Ask a manager to connect, register, reconnect, or disconnect Instagram and WhatsApp accounts.</span></div>
+  </div>;
+}
 type RestrictionConfirmation = { kind: "CREATE_STOP_SELL" } | { kind: "APPLY_STOP_SELL" | "REMOVE"; item: any };
 function RestrictionConfirmationCard({ confirmation, busy, roomName, dates, onCancel, onConfirm }: { confirmation: RestrictionConfirmation; busy: boolean; roomName: string; dates: string; onCancel: () => void; onConfirm: () => void }) {
   const removing = confirmation.kind === "REMOVE";
@@ -258,8 +289,12 @@ function WhatsAppRegistrationDialog({ busy, pin, confirmPin, onPin, onConfirmPin
 
 export default function NrmsControlsPage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
+  const { accessRole } = useNrmsAccessRole();
+  const isSalesExecutive = accessRole === "SALES_EXECUTIVE";
+  const isManager = accessRole === "MANAGER";
   const searchParams = useSearchParams();
-  const [tab, setTab] = useState<Tab>("rates"); const [data, setData] = useState<Dashboard | null>(null);
+  const requestedTab = searchParams.get("section");
+  const [tab, setTab] = useState<Tab>(() => CONTROL_TABS.some((item) => item.id === requestedTab) ? requestedTab as Tab : "rates"); const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
   const [restrictionConfirmation, setRestrictionConfirmation] = useState<RestrictionConfirmation | null>(null);
   const [online, setOnline] = useState(true); const [queued, setQueued] = useState(0);
@@ -269,6 +304,7 @@ export default function NrmsControlsPage() {
   const [service, setService] = useState({ title: "", category: "MAINTENANCE", priority: "NORMAL", roomUnitId: "", description: "" });
   const [journey, setJourney] = useState({ name: "", trigger: "PRE_ARRIVAL", offsetMinutes: "-1440", channel: "SMS", message: "Hello {{guest}}, we look forward to welcoming you to {{property}}." });
   const [guestContact, setGuestContact] = useState<GuestContact>(emptyGuestContact);
+  const [directConversion, setDirectConversion] = useState<Dashboard["directConversion"]>({ periodDays: 30, events: {}, sources: {} });
   const [metaConnections, setMetaConnections] = useState<MetaConnectionState | null>(null);
   const [metaConnectionStatus, setMetaConnectionStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [whatsappRegistration, setWhatsappRegistration] = useState<WhatsAppRegistrationDraft | null>(null);
@@ -301,10 +337,25 @@ export default function NrmsControlsPage() {
 
   const load = useCallback(async () => {
     if (!selectedPropertyId) return; setLoading(true); setError(null);
-    try { const response = await apiClient.get<Dashboard>(`/api/owner/nrms/market-readiness/${selectedPropertyId}`); setData(response.data); localStorage.setItem(cacheKey(selectedPropertyId), JSON.stringify({ savedAt: new Date().toISOString(), data: response.data })); void loadMetaConnections(); }
-    catch (requestError: any) { try { const snapshot = JSON.parse(localStorage.getItem(cacheKey(selectedPropertyId)) || "null"); if (snapshot?.data) { setData(snapshot.data); setMessage(`Showing the last synced hotel snapshot from ${new Date(snapshot.savedAt).toLocaleString()}.`); } else setError(requestError?.response?.data?.error || "Hotel controls could not be loaded."); } catch { setError(requestError?.response?.data?.error || "Hotel controls could not be loaded."); } }
+    try { const response = await apiClient.get<Dashboard>(`/api/owner/nrms/market-readiness/${selectedPropertyId}`); setData(response.data); setDirectConversion(response.data.directConversion); localStorage.setItem(cacheKey(selectedPropertyId), JSON.stringify({ savedAt: new Date().toISOString(), data: response.data })); }
+    catch (requestError: any) {
+      if (requestError?.response?.status === 403) { localStorage.removeItem(cacheKey(selectedPropertyId)); setData(null); setError("You are not permitted to perform this task."); }
+      else try { const snapshot = JSON.parse(localStorage.getItem(cacheKey(selectedPropertyId)) || "null"); if (snapshot?.data) { setData(snapshot.data); setMessage(`Showing the last synced hotel snapshot from ${new Date(snapshot.savedAt).toLocaleString()}.`); } else setError(permissionMessage(requestError, "Hotel controls could not be loaded.")); } catch { setError(permissionMessage(requestError, "Hotel controls could not be loaded.")); }
+    }
     finally { setLoading(false); }
-  }, [loadMetaConnections, selectedPropertyId]);
+  }, [selectedPropertyId]);
+
+  const loadManagerGuestContact = useCallback(async () => {
+    if (!selectedPropertyId) return;
+    setLoading(true); setError(null);
+    try {
+      const response = await apiClient.get<{ guestContact: GuestContact; directConversion: Dashboard["directConversion"] }>(`/api/owner/nrms/market-readiness/${selectedPropertyId}/guest-contact`);
+      setGuestContact(response.data.guestContact);
+      setDirectConversion(response.data.directConversion);
+    } catch (requestError: any) {
+      setError(permissionMessage(requestError, "Guest contact channels could not be loaded."));
+    } finally { setLoading(false); }
+  }, [selectedPropertyId]);
 
   const replay = useCallback(async () => {
     if (!selectedPropertyId || !navigator.onLine) return; const mutations = readQueue(selectedPropertyId); if (!mutations.length) return;
@@ -312,11 +363,16 @@ export default function NrmsControlsPage() {
     catch { /* Preserve the queue until connectivity is genuinely restored. */ }
   }, [load, selectedPropertyId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadMetaConnections(); }, [loadMetaConnections]);
+  useEffect(() => {
+    if (isSalesExecutive) { setLoading(false); setData(null); return; }
+    if (isManager && tab === "guest") { setData(null); void loadManagerGuestContact(); return; }
+    void load();
+  }, [isManager, isSalesExecutive, load, loadManagerGuestContact, tab]);
   useEffect(() => { if (data?.guestContact) setGuestContact(data.guestContact); }, [data?.guestContact]);
   useEffect(() => { const sync = () => { setOnline(navigator.onLine); if (selectedPropertyId) setQueued(readQueue(selectedPropertyId).length); if (navigator.onLine) void replay(); }; sync(); window.addEventListener("online", sync); window.addEventListener("offline", sync); return () => { window.removeEventListener("online", sync); window.removeEventListener("offline", sync); }; }, [replay, selectedPropertyId]);
 
-  const act = async (key: string, request: () => Promise<unknown>, success: string): Promise<boolean> => { setBusy(key); setError(null); setMessage(null); try { await request(); setMessage(success); await load(); return true; } catch (requestError: any) { setError(requestError?.response?.data?.error || "The action could not be completed."); return false; } finally { setBusy(null); } };
+  const act = async (key: string, request: () => Promise<unknown>, success: string): Promise<boolean> => { setBusy(key); setError(null); setMessage(null); try { await request(); setMessage(success); if (isManager && tab === "guest") await loadManagerGuestContact(); else await load(); return true; } catch (requestError: any) { setError(permissionMessage(requestError, "The action could not be completed.")); return false; } finally { setBusy(null); } };
   const normalizedRateCode = rate.code.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   const duplicateRatePlan = data?.ratePlans.find((plan) => plan.code === normalizedRateCode);
   const createRate = () => {
@@ -341,11 +397,21 @@ export default function NrmsControlsPage() {
     await act("service", () => apiClient.post(`/api/owner/nrms/market-readiness/${selectedPropertyId}/service-cases`, payload), "Service case opened.");
   };
   const updateCase = (item: any, status: string) => act(`case-${item.id}`, () => apiClient.patch(`/api/owner/nrms/market-readiness/${selectedPropertyId}/service-cases/${item.id}`, { version: item.version, status }), `Case ${status.toLowerCase().replaceAll("_", " ")}.`);
-  const saveGuestContact = () => act("guest-contact", () => apiClient.put(`/api/owner/nrms/market-readiness/${selectedPropertyId}/guest-contact`, guestContact), guestContact.enabled ? "Guest contact channels are now live on the booking page." : "Public guest contact channels were saved but remain hidden.");
+  const saveGuestContact = async () => {
+    if (!selectedPropertyId) return;
+    setBusy("guest-contact"); setError(null); setMessage(null);
+    try {
+      const response = await apiClient.put<{ guestContact: GuestContact }>(`/api/owner/nrms/market-readiness/${selectedPropertyId}/guest-contact`, guestContact);
+      setGuestContact(response.data.guestContact);
+      setMessage(response.data.guestContact.enabled ? "Guest contact channels are now live on the booking page." : "Public guest contact channels were saved but remain hidden.");
+    } catch (requestError: any) {
+      setError(permissionMessage(requestError, "Guest contact channels could not be saved."));
+    } finally { setBusy(null); }
+  };
   const connectInstagram = async () => {
     if (!selectedPropertyId) return; setBusy("meta-instagram"); setError(null);
     try { const response = await apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/instagram/connect`); window.location.assign(response.data.authorizeUrl); }
-    catch (requestError: any) { setError(requestError?.response?.data?.error || "Instagram connection could not be started."); setBusy(null); }
+    catch (requestError: any) { setError(permissionMessage(requestError, "Instagram connection could not be started.")); setBusy(null); }
   };
   const disconnectInstagram = () => act("meta-instagram", () => apiClient.post(`/api/owner/nrms/messaging/property/${selectedPropertyId}/INSTAGRAM/disconnect`), "Instagram was disconnected from this property.").then(() => loadMetaConnections());
   const connectWhatsApp = async () => {
@@ -370,7 +436,7 @@ export default function NrmsControlsPage() {
       setWhatsappPin(""); setWhatsappPinConfirmation("");
       setWhatsappRegistration({ mode: "NEW", authorizationCode, ...selectedAssets });
       setMessage("WhatsApp account selected. Create its six-digit registration PIN to finish the connection.");
-    } catch (requestError: any) { setError(requestError?.response?.data?.error || requestError?.message || "WhatsApp connection could not be completed."); }
+    } catch (requestError: any) { setError(permissionMessage(requestError, requestError?.message || "WhatsApp connection could not be completed.")); }
     finally { removeListener(); setBusy(null); }
   };
   const openWhatsAppRegistration = () => { setWhatsappPin(""); setWhatsappPinConfirmation(""); setError(null); setMessage(null); setWhatsappRegistration({ mode: "EXISTING" }); };
@@ -383,7 +449,7 @@ export default function NrmsControlsPage() {
       setWhatsappRegistration(null); setWhatsappPin(""); setWhatsappPinConfirmation("");
       setMessage("WhatsApp Business is registered and connected to this property. Incoming messages can now enter Reception inquiries."); await loadMetaConnections();
     } catch (requestError: any) {
-      setError(requestError?.response?.data?.error || "WhatsApp phone registration could not be completed.");
+      setError(permissionMessage(requestError, "WhatsApp phone registration could not be completed."));
       if (draft.mode === "NEW" && requestError?.response?.data?.code === "WHATSAPP_PHONE_REGISTRATION_FAILED") setWhatsappRegistration(null);
       await loadMetaConnections();
     } finally { setBusy(null); }
@@ -400,6 +466,14 @@ export default function NrmsControlsPage() {
     const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
     return act(`review-category-${key}`, () => apiClient.put(`/api/owner/nrms/market-readiness/${selectedPropertyId}/review-categories`, { categories: next }), "Review questions updated.");
   };
+
+  if (isSalesExecutive && tab === "guest") return <SalesMessagingStatus state={metaConnections} status={metaConnectionStatus} onRefresh={() => void loadMetaConnections()} />;
+
+  if (isSalesExecutive) return <div className="mx-auto max-w-3xl pb-10">
+    <section className="bg-white px-5 py-6 shadow-sm ring-1 ring-neutral-200 sm:px-6" role="alert">
+      <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-700"><AlertTriangle className="h-4 w-4" /></span><div><p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Restricted task</p><h1 className="mb-0 mt-1 text-lg font-semibold text-neutral-950">You are not permitted to perform this task.</h1><p className="mb-0 mt-2 text-sm leading-6 text-neutral-600">Forecast recomputation and hotel-control changes require a manager. Ask a manager to complete the change for {selectedProperty?.title || "this property"}.</p><Link href="/owner/nrms/controls?section=guest" className="mt-4 inline-flex min-h-9 items-center rounded-md bg-emerald-800 px-3.5 text-xs font-semibold text-white no-underline hover:bg-emerald-900 hover:no-underline">Check messaging status</Link></div></div>
+    </section>
+  </div>;
 
   if (loading && !data) return <div className="flex min-h-[50vh] items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
 
@@ -432,7 +506,7 @@ export default function NrmsControlsPage() {
             {online ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <CloudOff className="h-4 w-4 shrink-0" />}
             {online ? (queued ? `${queued} changes waiting` : "Synced") : `${queued} saved offline`}
           </span>
-          <ShareBookingButton propertyId={selectedPropertyId} propertyTitle={selectedProperty?.title} />
+          <ShareBookingButton bookingKey={selectedProperty?.nrmsBookingKey} propertyTitle={selectedProperty?.title} />
           <button type="button" onClick={() => void load()} className="inline-flex min-h-10 appearance-none items-center gap-2 rounded-lg border-0 bg-white px-3.5 text-xs font-bold text-neutral-700 shadow-sm ring-1 ring-slate-200 transition hover:bg-emerald-50 hover:text-emerald-800 hover:ring-emerald-300"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
       </div>
@@ -667,7 +741,7 @@ export default function NrmsControlsPage() {
             <div className="mt-5 rounded-2xl bg-white p-4 shadow-[0_5px_16px_rgba(15,23,42,0.07)] ring-1 ring-neutral-300">
               <div className="flex items-baseline justify-between gap-3"><h3 className="m-0 text-xs font-bold text-neutral-900">Direct conversion</h3><span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-neutral-400">Last 30 days</span></div>
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-                {[["Availability searches", data?.directConversion?.events?.AVAILABILITY_SEARCH || 0], ["Room selections", data?.directConversion?.events?.ROOM_SELECTED || 0], ["Contact actions", (data?.directConversion?.events?.INSTAGRAM_CLICK || 0) + (data?.directConversion?.events?.WHATSAPP_CLICK || 0) + (data?.directConversion?.events?.PHONE_CLICK || 0)], ["Room holds", data?.directConversion?.events?.HOLD_CREATED || 0]].map(([label, value], index) => <div key={String(label)} className={`${index > 1 ? "pt-3 shadow-[inset_0_1px_0_0_#f5f5f5]" : ""}`}><p className="m-0 text-xl font-bold tracking-tight text-neutral-950">{value}</p><p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{label}</p></div>)}
+                {[["Availability searches", directConversion.events.AVAILABILITY_SEARCH || 0], ["Room selections", directConversion.events.ROOM_SELECTED || 0], ["Contact actions", (directConversion.events.INSTAGRAM_CLICK || 0) + (directConversion.events.WHATSAPP_CLICK || 0) + (directConversion.events.PHONE_CLICK || 0)], ["Room holds", directConversion.events.HOLD_CREATED || 0]].map(([label, value], index) => <div key={String(label)} className={`${index > 1 ? "pt-3 shadow-[inset_0_1px_0_0_#f5f5f5]" : ""}`}><p className="m-0 text-xl font-bold tracking-tight text-neutral-950">{value}</p><p className="mb-0 mt-0.5 text-[10px] leading-4 text-neutral-500">{label}</p></div>)}
               </div>
             </div>
           </aside>

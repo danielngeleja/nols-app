@@ -9,6 +9,7 @@ import { sanitizeText } from "../lib/sanitize.js";
 import { calculateAvailability } from "../lib/availabilityCalculator.js";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
+import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 
 function roomReferencesOverlap(
   requested: string | null | undefined,
@@ -701,6 +702,15 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
         )
       : allBlocks;
 
+    // NRMS reservations and group blocks, shown read-only: they are changed in
+    // NRMS, where cancel/edit keep folios and room assignments consistent.
+    const allNrmsHolds = await getNrmsMarketplaceHolds(prisma, propertyIdNum, start, end);
+    const nrmsHolds = roomCode
+      ? allNrmsHolds.filter((hold) =>
+          roomReferencesOverlap(String(roomCode), hold.roomCode, property.roomsSpec),
+        )
+      : allNrmsHolds;
+
     // Parse roomsSpec to get room types
     const roomsSpec = property.roomsSpec as any;
     const roomTypes = Array.isArray(roomsSpec) ? roomsSpec : [];
@@ -738,7 +748,23 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
         endDate: b.endDate.toISOString(),
         createdAt: b.createdAt.toISOString(),
         updatedAt: b.updatedAt.toISOString(),
-      })),
+      })).concat(nrmsHolds.map((hold) => ({
+        id: hold.id,
+        propertyId: property.id,
+        propertyTitle: property.title,
+        startDate: hold.startDate.toISOString(),
+        endDate: hold.endDate.toISOString(),
+        roomCode: hold.roomCode,
+        source: "NRMS",
+        guestName: hold.label,
+        bedsBlocked: hold.bedsBlocked,
+        notes: null,
+        createdAt: null,
+        updatedAt: null,
+        readOnly: true,
+        nrmsKind: hold.nrmsKind,
+        nrmsRefId: hold.nrmsRefId,
+      }) as any)),
     });
   } catch (error: any) {
     console.error("GET /api/owner/availability/calendar error:", error);

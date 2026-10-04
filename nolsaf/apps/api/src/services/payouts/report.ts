@@ -20,7 +20,7 @@
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 
-export const REPORT_SOURCE_TYPES = ["OWNER_INVOICE", "TOUR_BOOKING", "DRIVER_TRIP", "SALES_PAYOUT"] as const;
+export const REPORT_SOURCE_TYPES = ["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"] as const;
 export type ReportSourceType = (typeof REPORT_SOURCE_TYPES)[number];
 
 /**
@@ -48,6 +48,7 @@ const DESTINATION_TYPE_LABEL: Record<string, string> = {
 const SOURCE_TYPE_TO_GROUP_LABEL: Record<string, string> = {
   OWNER_INVOICE: "Owner",
   TOUR_BOOKING: "Tour",
+  TOUR_ADVANCE: "Tour advance",
   DRIVER_TRIP: "Driver",
   SALES_PAYOUT: "Sales",
 };
@@ -143,7 +144,10 @@ export function buildReportWhere(filters: ReportFilters): Prisma.DisbursementWhe
   };
   const hasRange = filters.from !== undefined || filters.to !== undefined;
 
-  const sourceTypes = filters.groups.map((group) => GROUP_TO_SOURCE_TYPE[group]);
+  // A tour payout is either the balance or a pre-trip advance; "Tours" covers both.
+  const sourceTypes = filters.groups.flatMap((group) =>
+    group === "TOURS" ? (["TOUR_BOOKING", "TOUR_ADVANCE"] as ReportSourceType[]) : [GROUP_TO_SOURCE_TYPE[group]]
+  );
 
   // Both the beneficiary and the destination type live on the payout account,
   // so they have to be merged into one relation filter. Two separate

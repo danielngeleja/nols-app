@@ -8,6 +8,7 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { requireNrms, loadOwnedProperty } from "../lib/nrms.js";
+import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { checkNrmsQuota } from "../lib/nrmsQuotas.js";
 import { findUnitConflicts } from "../lib/nrmsAvailability.js";
@@ -15,7 +16,29 @@ import { queuePropertyChannelAriUpdates } from "../lib/channels/channelDelivery.
 
 export const router = Router();
 
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+router.use(requireAuth as RequestHandler);
+const requireOwnerRole = requireRole("OWNER") as RequestHandler;
+
+/** Rooms and rates that staff may READ, guarded per handler below. */
+const ROOM_READ_ROLES = ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"] as const;
+
+// Only the three reads are opened. The other seven handlers create, import,
+// rename and delete room types and units, and no staff role holds a capability
+// for that: a sales executive has `rates.read` and `rates.change_request`, to
+// request a change, never to apply one. Matched on method as well as path so a
+// mutation can never fall through a path that looks like a read.
+router.use(((req, res, next) => {
+  const readsInventory = req.method === "GET" && (
+    /^\/\d+$/.test(req.path)
+    || /^\/\d+\/availability$/.test(req.path)
+    || /^\/\d+\/reconciliation$/.test(req.path)
+  );
+  if (readsInventory) return next();
+  return requireOwnerRole(req, res, (roleError?: unknown) => {
+    if (roleError) return next(roleError);
+    return requireNrms(req, res, next);
+  });
+}) as RequestHandler);
 
 const ROOM_UNIT_STATUSES = ["ACTIVE", "INACTIVE", "MAINTENANCE", "OUT_OF_SERVICE"] as const;
 
@@ -26,6 +49,10 @@ const roomTypeCreateSchema = z.object({
   capacityChildren: z.number().int().min(0).max(50).optional(),
   bedSetup: z.string().max(200).optional().nullable(),
   baseRate: z.number().nonnegative().optional().nullable(),
+  // The lowest rate a staff member may agree on a group block for this room
+  // type. Null leaves it unset, which means baseRate is the floor; 0 lifts the
+  // limit. See nrmsRateFloor.ts, which is the only reader.
+  staffRateFloor: z.number().nonnegative().optional().nullable(),
   currency: z.string().trim().length(3).optional(),
   images: z.array(z.string().url().max(500)).max(30).optional(),
   amenities: z.array(z.string().max(120)).max(60).optional(),
@@ -119,6 +146,7 @@ function formatRoomType(type: any) {
     capacityChildren: type.capacityChildren,
     bedSetup: type.bedSetup,
     baseRate: type.baseRate != null ? Number(type.baseRate) : null,
+    staffRateFloor: type.staffRateFloor != null ? Number(type.staffRateFloor) : null,
     currency: type.currency,
     images: type.images ?? [],
     amenities: type.amenities ?? [],
@@ -184,10 +212,12 @@ async function loadOwnedRoomUnit(res: Response, ownerId: number, roomUnitId: num
  */
 router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const property = await loadOwnedProperty(res, ownerId, Number(req.params.propertyId), {
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), ROOM_READ_ROLES);
+    if (!access) return;
+    const property = await loadOwnedProperty(res, access.ownerId, Number(req.params.propertyId), {
       id: true,
       title: true,
+      totalFloors: true,
       nrmsActivatedAt: true,
     });
     if (!property) return;
@@ -216,36 +246,65 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
 }) as RequestHandler);
 
 /**
- * GET /:propertyId/availability?roomTypeId=&checkIn=&checkOut=
+ * GET /:propertyId/availability?roomTypeId=&checkIn=&checkOut=&allocationId=
  * Per-unit occupancy for one room type over a date range, using the exact same
  * conflict check the reservation-create transaction enforces at submit time -
  * so the form can only offer units that will actually be accepted.
  */
 router.get("/:propertyId/availability", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const property = await loadOwnedProperty(res, ownerId, Number(req.params.propertyId));
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), ROOM_READ_ROLES);
+    if (!access) return;
+    const property = await loadOwnedProperty(res, access.ownerId, Number(req.params.propertyId));
     if (!property) return;
 
     const query = z.object({
       roomTypeId: z.coerce.number().int().positive(),
       checkIn: z.coerce.date(),
       checkOut: z.coerce.date(),
+      allocationId: z.coerce.number().int().positive().optional(),
     }).safeParse(req.query);
     if (!query.success) return res.status(400).json({ error: "roomTypeId, checkIn and checkOut are required" });
-    const { roomTypeId, checkIn, checkOut } = query.data;
+    const { roomTypeId, checkIn, checkOut, allocationId } = query.data;
     if (checkOut <= checkIn) return res.status(400).json({ error: "checkOut must be after checkIn" });
+
+    // When the picker is assigning an existing allocation, preview the same
+    // conflict set as the final move-room transaction. Without these
+    // exclusions a marketplace-linked stay can conflict with its own Booking
+    // row, making a genuinely available room disappear from the picker.
+    const assignmentContext = allocationId
+      ? await prisma.reservationRoomAllocation.findFirst({
+          where: {
+            id: allocationId,
+            roomTypeId,
+            status: "ACTIVE",
+            reservation: {
+              propertyId: property.id as number,
+              status: { in: ["CONFIRMED", "CHECKED_IN"] },
+            },
+          },
+          select: { id: true, reservation: { select: { bookingId: true } } },
+        })
+      : null;
+    if (allocationId && !assignmentContext) {
+      return res.status(404).json({ error: "Active room allocation not found" });
+    }
 
     const units = await prisma.roomUnit.findMany({
       where: { propertyId: property.id as number, roomTypeId, status: "ACTIVE" },
-      select: { id: true, code: true },
+      select: { id: true, code: true, floor: true },
       orderBy: { code: "asc" },
     });
 
     const results = await Promise.all(
       units.map(async (unit) => {
-        const conflicts = await findUnitConflicts(unit.id, checkIn, checkOut);
-        return { id: unit.id, code: unit.code, available: conflicts.length === 0 };
+        const conflicts = await findUnitConflicts(unit.id, checkIn, checkOut, assignmentContext
+          ? {
+              excludeAllocationId: assignmentContext.id,
+              excludeBookingId: assignmentContext.reservation.bookingId ?? undefined,
+            }
+          : undefined);
+        return { id: unit.id, code: unit.code, floor: unit.floor, available: conflicts.length === 0 };
       }),
     );
 
@@ -263,8 +322,9 @@ router.get("/:propertyId/availability", (async (req: AuthedRequest, res: Respons
  */
 router.get("/:propertyId/reconciliation", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const property = await loadOwnedProperty(res, ownerId, Number(req.params.propertyId));
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), ROOM_READ_ROLES);
+    if (!access) return;
+    const property = await loadOwnedProperty(res, access.ownerId, Number(req.params.propertyId));
     if (!property) return;
 
     const specEntries = parseRoomsSpec((property as { roomsSpec?: unknown }).roomsSpec);
@@ -412,6 +472,7 @@ router.post("/:propertyId/types", (async (req: AuthedRequest, res: Response) => 
         capacityChildren: data.capacityChildren ?? 0,
         bedSetup: data.bedSetup ? sanitizeText(data.bedSetup) : null,
         baseRate: data.baseRate ?? null,
+        staffRateFloor: data.staffRateFloor ?? null,
         currency,
         images: data.images ?? undefined,
         amenities: data.amenities ?? undefined,
@@ -451,6 +512,7 @@ router.patch("/types/:roomTypeId", (async (req: AuthedRequest, res: Response) =>
           ...(data.capacityChildren !== undefined ? { capacityChildren: data.capacityChildren } : {}),
           ...(data.bedSetup !== undefined ? { bedSetup: data.bedSetup ? sanitizeText(data.bedSetup) : null } : {}),
           ...(data.baseRate !== undefined ? { baseRate: data.baseRate } : {}),
+          ...(data.staffRateFloor !== undefined ? { staffRateFloor: data.staffRateFloor } : {}),
           ...(data.currency !== undefined ? { currency: data.currency?.toUpperCase() } : {}),
           ...(data.images !== undefined ? { images: data.images } : {}),
           ...(data.amenities !== undefined ? { amenities: data.amenities } : {}),

@@ -279,7 +279,9 @@ export default function PaymentMethodModal({
                   >
                     <span className="flex h-7 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white">
                       {prov.logo ? (
-                        <Image src={prov.logo} alt="" width={40} height={28} className="h-6 w-9 object-contain" />
+                        <span className="relative block h-6 w-9">
+                          <Image src={prov.logo} alt="" fill sizes="36px" className="object-contain" />
+                        </span>
                       ) : (
                         <span className="text-[11px] font-black lowercase tracking-tight text-violet-700">{prov.mark}</span>
                       )}
@@ -360,13 +362,9 @@ export default function PaymentMethodModal({
                         className="h-4 w-4 shrink-0 accent-emerald-600"
                       />
                       <span className="flex h-7 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white px-1">
-                        <Image
-                          src={bank.logo}
-                          alt={`${bank.name} logo`}
-                          width={48}
-                          height={28}
-                          className="h-6 w-11 object-contain"
-                        />
+                        <span className="relative block h-6 w-11">
+                          <Image src={bank.logo} alt={`${bank.name} logo`} fill sizes="44px" className="object-contain" />
+                        </span>
                       </span>
                       <span className={`min-w-0 truncate ${selected ? "font-bold text-emerald-800" : "font-semibold text-slate-700"}`}>
                         {bank.name}
@@ -474,8 +472,12 @@ export default function PaymentMethodModal({
                   You&apos;ll be redirected to a secure hosted checkout page. We never see your card details.
                 </p>
                 <div className="mt-2 flex items-center gap-2">
-                  <Image src="/assets/visa_card.png" alt="Visa" width={44} height={24} className="h-5 w-11 object-contain" />
-                  <Image src="/assets/Mastercard_Logo.png" alt="Mastercard" width={36} height={24} className="h-5 w-9 object-contain" />
+                  <span className="relative block h-5 w-11">
+                    <Image src="/assets/visa_card.png" alt="Visa" fill sizes="44px" className="object-contain" />
+                  </span>
+                  <span className="relative block h-5 w-9">
+                    <Image src="/assets/Mastercard_Logo.png" alt="Mastercard" fill sizes="36px" className="object-contain" />
+                  </span>
                 </div>
               </div>
             </div>

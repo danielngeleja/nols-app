@@ -1,6 +1,7 @@
 "use client";
 
 import Terms from "@/components/Terms";
+import PolicyDocumentHeader from "@/components/PolicyDocumentHeader";
 import { TERMS_LAST_UPDATED, TERMS_SECTIONS } from "@/components/termsContent";
 import PublicHeader from "@/components/PublicHeader";
 import PublicFooter from "@/components/PublicFooter";
@@ -144,21 +145,7 @@ export default function TermsPage() {
         {/* Layout edge markers (left/right) to indicate content boundaries */}
         <LayoutFrame heightVariant="sm" topVariant="sm" colorVariant="muted" variant="solid" />
         
-        {/* Hero Image Section */}
-        <section className="relative h-48 md:h-64 lg:h-80 overflow-hidden">
-          <div className="public-container h-full">
-            <div className="relative h-full w-full max-w-[1200px] mx-auto overflow-hidden rounded-3xl">
-              <div className="absolute inset-0 bg-[url('/assets/nolsaf%20picture%201.jpg')] bg-cover bg-center" />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/20 to-transparent" />
-              <div className="relative h-full flex flex-col items-center justify-center">
-                <FileText size={64} className="text-white mb-4 drop-shadow-lg" strokeWidth={1.5} />
-                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white text-center px-4 drop-shadow-lg">
-                  Terms and Conditions
-                </h1>
-              </div>
-            </div>
-          </div>
-        </section>
+        <PolicyDocumentHeader title="Terms and Conditions" Icon={FileText} />
         
         <section className="relative bg-[#f7f9fb] pt-6 sm:pt-8 md:pt-10 pb-4 sm:pb-6 md:pb-10 overflow-x-hidden">
           <div className="public-container">

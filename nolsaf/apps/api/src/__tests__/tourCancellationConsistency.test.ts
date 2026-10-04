@@ -23,6 +23,8 @@ describe("tour cancellation consistency guard", () => {
   });
 
   it("allows approval after payout release but flags the recovery obligation", () => {
+    const advanceOnly = validateTourCancellationDecision({ ...base, action: "APPROVE_CANCELLATION", payoutStatus: "ADVANCE_PAID" });
+    expect(advanceOnly).toEqual({ valid: true, requiresRecovery: true });
     const result = validateTourCancellationDecision({ ...base, action: "APPROVE_CANCELLATION", payoutStatus: "DISBURSED" });
     expect(result.valid).toBe(true);
     if (result.valid) expect(result.requiresRecovery).toBe(true);

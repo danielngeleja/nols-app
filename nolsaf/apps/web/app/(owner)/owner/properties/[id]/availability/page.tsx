@@ -162,8 +162,12 @@ type AvailabilityBlock = {
   currency?: string | null;
   bedsBlocked: number | null;
   notes: string | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  /** NRMS reservation or group block: shown here, changed only in NRMS. */
+  readOnly?: boolean;
+  nrmsKind?: "RESERVATION" | "GROUP_BLOCK";
+  nrmsRefId?: number;
 };
 
 type Booking = {
@@ -1806,7 +1810,7 @@ export default function PropertyAvailabilityPage() {
                             <div
                               key={block.id}
                               className="text-[11px] px-2 py-1 rounded-lg bg-orange-500/15 text-orange-100 border border-orange-400/20 truncate"
-                              title={`External booking: ${block.guestName || block.source || "External"}`}
+                              title={`${block.readOnly ? "NRMS" : "External booking"}: ${block.guestName || block.source || "External"}`}
                             >
                               {block.guestName || block.source || "External booking"}
                             </div>
@@ -1855,9 +1859,9 @@ export default function PropertyAvailabilityPage() {
                                 {new Date(block.startDate).toLocaleDateString()} - {new Date(block.endDate).toLocaleDateString()}
                               </span>
                               <span className="px-2 py-1 text-xs font-semibold rounded-full border border-emerald-400/25 bg-emerald-500/15 text-emerald-100">
-                                External booking
+                                {block.readOnly ? (block.nrmsKind === "GROUP_BLOCK" ? "NRMS group block" : "NRMS reservation") : "External booking"}
                               </span>
-                              {block.source && (
+                              {block.source && !block.readOnly && (
                                 <span className="px-2 py-1 text-xs font-semibold rounded-full border border-orange-400/20 bg-orange-500/15 text-orange-100">
                                   {block.source}
                                 </span>
@@ -1868,6 +1872,11 @@ export default function PropertyAvailabilityPage() {
                                 </span>
                               )}
                             </div>
+                            {block.readOnly ? (
+                              <p className="mb-2 text-sm text-white/80">
+                                <strong className="text-white">{block.guestName}</strong>
+                              </p>
+                            ) : (
                             <div className="mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                               <span className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-white/80">
                                 Guest: <strong className="text-white">{block.guestName || "Guest"}</strong>
@@ -1879,14 +1888,18 @@ export default function PropertyAvailabilityPage() {
                                 Paid: <strong className="text-white">{formatMoney(block.amountPaid, block.currency || "TZS")}</strong>
                               </span>
                             </div>
+                            )}
                             {block.notes && (
                               <p className="text-sm text-white/70 mb-2">{block.notes}</p>
                             )}
                             <div className="flex flex-wrap items-center gap-4 text-xs text-white/50">
-                              <span>Beds: {block.bedsBlocked || 1}</span>
-                              <span>Created: {formatLocalDateTime(block.createdAt)}</span>
+                              <span>{block.readOnly ? "Rooms" : "Beds"}: {block.bedsBlocked || 1}</span>
+                              {!block.readOnly && <span>Created: {formatLocalDateTime(block.createdAt)}</span>}
                             </div>
                           </div>
+                          {block.readOnly ? (
+                            <span className="text-xs text-white/60 whitespace-nowrap">Managed in NRMS</span>
+                          ) : (
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleEdit(block)}
@@ -1903,6 +1916,7 @@ export default function PropertyAvailabilityPage() {
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -2275,7 +2289,7 @@ export default function PropertyAvailabilityPage() {
                                       </div>
                                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
                                         <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                          External booking
+                                          {blk.readOnly ? (blk.nrmsKind === "GROUP_BLOCK" ? "NRMS group block" : "NRMS reservation") : "External booking"}
                                         </span>
                                         {blk.amountPaid != null ? (
                                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800">
@@ -2283,9 +2297,12 @@ export default function PropertyAvailabilityPage() {
                                           </span>
                                         ) : null}
                                         {blk.roomCode ? <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Room: {blk.roomCode}</span> : null}
-                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">Beds: {blk.bedsBlocked || 1}</span>
+                                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">{blk.readOnly ? "Rooms" : "Beds"}: {blk.bedsBlocked || 1}</span>
                                       </div>
                                     </div>
+                                    {blk.readOnly ? (
+                                      <span className="text-xs text-slate-500 whitespace-nowrap">Managed in NRMS</span>
+                                    ) : (
                                     <div className="flex items-center gap-2">
                                       <button
                                         type="button"
@@ -2310,6 +2327,7 @@ export default function PropertyAvailabilityPage() {
                                         <Trash2 className="h-4 w-4" />
                                       </button>
                                     </div>
+                                    )}
                                   </div>
                                 </div>
                               ))}

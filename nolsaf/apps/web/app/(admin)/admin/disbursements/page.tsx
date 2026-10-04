@@ -22,6 +22,7 @@ import {
   XCircle,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 type PayoutAccountSummary = {
   id?: number;
@@ -76,7 +77,7 @@ type Disbursement = {
   events?: DisbursementEvent[];
 };
 
-const SOURCE_TYPES = ["", "OWNER_INVOICE", "TOUR_BOOKING", "DRIVER_TRIP", "SALES_PAYOUT"];
+const SOURCE_TYPES = ["", "OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"];
 const PAGE_SIZES = [25, 50, 100];
 const STALE_MINUTES = 30;
 
@@ -140,7 +141,9 @@ function sourceLabel(sourceType: string) {
     case "OWNER_INVOICE":
       return "Owner invoice";
     case "TOUR_BOOKING":
-      return "Tour booking";
+      return "Tour balance";
+    case "TOUR_ADVANCE":
+      return "Tour advance";
     case "DRIVER_TRIP":
       return "Driver trip";
     case "SALES_PAYOUT":
@@ -199,6 +202,7 @@ function Summary({
 }
 
 function DisbursementsView() {
+  const recordHref = useAdminHref();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -896,7 +900,7 @@ function DisbursementsView() {
                               </span>
                             )}
                             {(item.status === "BATCHED" || item.status === "AUTHORIZED") && item.batchId && (
-                              <Link href={`/admin/disbursements/batches/${item.batchId}`} className={`${actionClass} no-underline`}>
+                              <Link href={recordHref("disbursement-batch", item.batchId)} className={`${actionClass} no-underline`}>
                                 <Layers className="h-4 w-4" />
                                 View batch #{item.batchId}
                               </Link>

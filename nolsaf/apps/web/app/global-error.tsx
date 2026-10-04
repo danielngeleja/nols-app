@@ -1,97 +1,159 @@
 "use client";
 
-import { AlertTriangle, Mail, RefreshCw } from "lucide-react";
+// Last-resort screen when the app itself fails. It replaces the root layout, so
+// the app stylesheet may not be loaded: everything here is styled inline.
+//
+// Three states, told apart by the ring around the NoLSAF mark (the mark itself
+// always stays brand green):
+//   blue, dashed   offline. Only when the device truly has no connection: the
+//                  browser reports offline, or the error is a network failure
+//                  (chunk or fetch) and a no-cache request to this site's own
+//                  origin also fails. A code error is never shown as offline.
+//   amber, timer   our server. Retries by itself after a countdown.
+//   red            still failing after 3 automatic tries in a short window.
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import StatusMark from "@/components/StatusMark";
 
-function toSafeErrorMessage(error: unknown): string {
-  if (!error) return "Unknown error";
-  if (typeof error === "string") return error;
+const RETRY_SECONDS = 8;
+const MAX_TRIES = 3;
+// Attempts survive the reload a retry performs, but only within this window,
+// so an error days later starts fresh at attempt one.
+const TRIES_KEY = "nls-global-error-tries";
+const TRIES_WINDOW_MS = 3 * 60_000;
 
-  if (typeof error === "object") {
-    const asRecord = error as Record<string, unknown>;
-    const msg = asRecord.message;
-    if (typeof msg === "string" && msg.trim()) return msg;
+type Tries = { count: number; since: number };
 
-    try {
-      return JSON.stringify(error);
-    } catch {
-      return "An unexpected error occurred";
-    }
-  }
-
-  return String(error);
+function readTries(): Tries {
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(TRIES_KEY) || "null") as Tries | null;
+    if (raw && Date.now() - raw.since < TRIES_WINDOW_MS) return raw;
+  } catch { /* storage blocked: every error is attempt one */ }
+  return { count: 0, since: Date.now() };
 }
+function writeTries(tries: Tries) {
+  try { sessionStorage.setItem(TRIES_KEY, JSON.stringify(tries)); } catch { /* ignore */ }
+}
+
+/**
+ * Whether the error itself is a failure to load something over the network
+ * (a code chunk or a fetch), the only kind a lost connection can cause. A code
+ * error such as a ReferenceError or TypeError is ours, whatever the connection.
+ */
+function isNetworkError(error: Error | undefined): boolean {
+  const text = `${error?.name ?? ""} ${error?.message ?? ""}`;
+  return /ChunkLoadError|Loading (CSS )?chunk|Failed to fetch|NetworkError|Load failed|network error|Importing a module script failed|error loading dynamically imported module/i.test(text);
+}
+
+/** True only when the device genuinely cannot reach the internet. */
+async function reallyOffline(): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    // Any HTTP answer, even an error status, proves the device is online; only
+    // a network failure rejects. /icon is the app's generated favicon route.
+    await fetch(`/icon?online=${Date.now()}`, { method: "HEAD", cache: "no-store", signal: controller.signal });
+    clearTimeout(timer);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function eatTime(date: Date) {
+  return date.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+const button: CSSProperties = { height: 40, padding: "0 18px", borderRadius: 10, border: "1px solid #d4d4d4", background: "#fff", color: "#171717", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" };
 
 export default function GlobalError({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const safeMessage = toSafeErrorMessage(error);
-  const isDev = process.env.NODE_ENV === "development";
+  const [state, setState] = useState<"checking" | "offline" | "retrying" | "down">("checking");
+  const [seconds, setSeconds] = useState(RETRY_SECONDS);
+  const [failedAt] = useState(() => new Date());
+
+  const retry = useCallback(() => {
+    const tries = readTries();
+    writeTries({ count: tries.count + 1, since: tries.since });
+    // A full reload, not reset(): when the root layout itself failed, a
+    // re-render of the same tree usually fails the same way.
+    window.location.reload();
+  }, []);
+
+  // Decide which state this is. Offline is only possible when the browser says
+  // so, or when the error is a network failure and the site really cannot be
+  // reached. A slow probe (a busy or restarting server) must not turn a code
+  // error into "You're offline".
+  useEffect(() => {
+    let cancelled = false;
+    const ours = () => setState(readTries().count >= MAX_TRIES ? "down" : "retrying");
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setState("offline");
+      return;
+    }
+    if (!isNetworkError(error)) {
+      ours();
+      return;
+    }
+    void reallyOffline().then((offline) => {
+      if (cancelled) return;
+      if (offline) setState("offline");
+      else ours();
+    });
+    return () => { cancelled = true; };
+  }, [error]);
+
+  // Offline: carry on by itself the moment the connection returns.
+  useEffect(() => {
+    if (state !== "offline") return;
+    const back = () => window.location.reload();
+    window.addEventListener("online", back);
+    const poll = setInterval(() => { void reallyOffline().then((offline) => { if (!offline) back(); }); }, 5000);
+    return () => { window.removeEventListener("online", back); clearInterval(poll); };
+  }, [state]);
+
+  // Server issue: count down, then retry.
+  useEffect(() => {
+    if (state !== "retrying") return;
+    if (seconds <= 0) { retry(); return; }
+    const timer = setTimeout(() => setSeconds((value) => value - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [state, seconds, retry]);
+
+  const title = state === "offline" ? "You're offline" : state === "down" ? "Service unavailable" : state === "checking" ? "Checking connection" : "Server not responding";
+  const detail = state === "offline"
+    ? "Reconnecting automatically"
+    : state === "down"
+      ? `${error.digest ? `Ref ${error.digest.slice(0, 10)} · ` : ""}${eatTime(failedAt)} EAT`
+      : state === "retrying" ? `Retrying in ${seconds}s` : " ";
 
   return (
     <html lang="en">
-      <body className="bg-slate-50 text-slate-900">
-        <main className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
-          <section className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="grid gap-0 sm:grid-cols-[156px_1fr]">
-              <div className="flex items-center justify-center border-b border-slate-100 bg-[#f3faf8] px-6 py-8 sm:border-b-0 sm:border-r">
-                <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-[#02665e]/15">
-                  <div className="absolute inset-2 rounded-full bg-[#02665e]/10" />
-                  <AlertTriangle className="relative h-9 w-9 text-[#02665e]" aria-hidden="true" />
-                </div>
+      <body style={{ margin: 0, background: "#f5f5f5", fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", color: "#171717" }}>
+        <main role="alert" aria-live="assertive" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, boxSizing: "border-box" }}>
+          <section style={{ width: "100%", maxWidth: 380, boxSizing: "border-box", background: "#fff", border: "1px solid #e5e5e5", borderRadius: 20, padding: "40px 24px", textAlign: "center", boxShadow: "0 18px 40px -30px rgba(15,23,42,0.45)" }}>
+            <div style={{ display: "flex", justifyContent: "center" }}><StatusMark ring={state === "checking" ? "idle" : state} countdownSeconds={state === "retrying" ? RETRY_SECONDS : undefined} /></div>
+
+            <h1 style={{ margin: "22px 0 6px", fontSize: 20, fontWeight: 700, letterSpacing: "-0.01em" }}>{title}</h1>
+            <p style={{ margin: 0, fontSize: 14, color: "#525252", fontVariantNumeric: "tabular-nums" }}>{detail}</p>
+
+            {state === "retrying" && (
+              <button type="button" onClick={retry} style={{ ...button, marginTop: 22 }}>Retry now</button>
+            )}
+            {state === "down" && (
+              <div style={{ marginTop: 22, display: "flex", alignItems: "center", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
+                <button type="button" onClick={retry} style={button}>Try again</button>
+                <a href="mailto:support@nolsaf.com" style={{ fontSize: 14, color: "#525252", textDecoration: "none" }}>Contact support</a>
               </div>
+            )}
 
-              <div className="px-6 py-7 sm:px-8">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#02665e]">
-                  Temporary issue
-                </p>
-                <h1 className="text-2xl font-bold leading-tight tracking-tight text-slate-900">
-                  Something went wrong
-                </h1>
-                <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
-                  Sorry, we hit a temporary server problem. Please retry in a few moments.
-                </p>
-
-                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <button
-                    type="button"
-                    onClick={() => reset()}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#02665e] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#02514b] focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2"
-                  >
-                    <RefreshCw className="h-4 w-4" aria-hidden="true" />
-                    Retry
-                  </button>
-
-                  <a
-                    href="mailto:support@nolsaf.com"
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:border-[#02665e]/30 hover:bg-[#f3faf8] hover:text-[#02665e] focus:outline-none focus:ring-2 focus:ring-[#02665e] focus:ring-offset-2"
-                  >
-                    <Mail className="h-4 w-4" aria-hidden="true" />
-                    Contact support
-                  </a>
-                </div>
-
-                {isDev ? (
-                  <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
-                    {safeMessage}
-                  </div>
-                ) : null}
-
-                <p className="mt-5 text-xs leading-5 text-slate-500">
-                  If the problem continues, email{" "}
-                  <a
-                    href="mailto:support@nolsaf.com"
-                    className="font-semibold text-[#02665e] underline underline-offset-2"
-                  >
-                    support@nolsaf.com
-                  </a>
-                  .
-                </p>
-              </div>
-            </div>
+            {process.env.NODE_ENV === "development" && error?.message ? (
+              <p style={{ margin: "22px 0 0", padding: "8px 10px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 12, textAlign: "left", wordBreak: "break-word" }}>{error.message}</p>
+            ) : null}
           </section>
         </main>
       </body>

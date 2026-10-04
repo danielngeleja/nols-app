@@ -1,12 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { CheckCircle2, XCircle, AlertCircle, ArrowRight } from "lucide-react";
+import { ArrowRight, Bath, BedDouble, Check, ImageIcon, MapPin, Users } from "lucide-react";
+import Image from "next/image";
 import { AddPropertySection } from "./AddPropertySection";
 import { StepFooter } from "./StepFooter";
-import { StepHeader } from "./StepHeader";
-import { PropertyReviewDisplay } from "./PropertyReviewDisplay";
 import { PropertyVisualizationPreview } from "./PropertyVisualizationPreview";
+import { floorName, type FloorUses } from "./floorUses";
 
 type StepMeta = {
   index: number;
@@ -31,7 +31,15 @@ interface ReviewData {
   }>;
   buildingType: string;
   totalFloors: number | "";
+  floorUses?: FloorUses;
   currency?: string | null;
+  /** First property photo, shown as the listing cover */
+  coverPhoto?: string;
+  photoCount?: number;
+  description?: string;
+  bedrooms?: number | "";
+  bathrooms?: number | "";
+  maxGuests?: number | "";
 }
 
 type ReviewStepBaseProps = {
@@ -60,183 +68,18 @@ type ReviewStepChildrenProps = ReviewStepBaseProps & {
 
 type ReviewStepProps = ReviewStepFullProps | ReviewStepChildrenProps;
 
+const money = (n: number, currency = "TZS") => `${currency} ${Math.round(n).toLocaleString("en-US")}`;
+
 export function ReviewStep(props: ReviewStepProps) {
   const { isVisible, sectionRef, goToPreviousStep, submitForReview, submitDisabled } = props;
-
   const isChildrenMode = "children" in props;
 
-  const stepsMeta = !isChildrenMode ? props.stepsMeta : undefined;
-  const completeEnough = !isChildrenMode ? props.completeEnough : undefined;
-  const onStepClick = !isChildrenMode ? props.onStepClick : undefined;
-  const reviewData = !isChildrenMode ? props.reviewData : undefined;
-
-  const completedCount = stepsMeta?.filter((s) => s.completed).length ?? 0;
-  const totalSteps = stepsMeta?.length ?? 0;
-  const incompleteSteps = stepsMeta?.filter((s) => !s.completed) ?? [];
-
   return (
-    <AddPropertySection
-      as="section"
-      sectionRef={sectionRef}
-      isVisible={isVisible}
-      className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-sm"
-    >
+    <AddPropertySection as="section" sectionRef={sectionRef} isVisible={isVisible} className="add-property-step-surface">
       {isVisible && (
         <div className="w-full">
-          <StepHeader
-            step={6}
-            title="Review & submit"
-            description="Check everything once. When ready, submit for review."
-          />
-          <div className="pt-4 space-y-6">
-            {isChildrenMode ? (
-              props.children
-            ) : (
-              <>
-            {/* Completion Checklist - Modern Card Design */}
-            <div className="rounded-xl border-2 border-gray-200 bg-gradient-to-br from-gray-50 to-white p-5 sm:p-6 shadow-sm transition-all duration-300 hover:shadow-md">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-base transition-all duration-300 ${
-                    completeEnough
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-amber-100 text-amber-700"
-                  }`}>
-                    {completedCount}/{totalSteps}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900">Completion Checklist</h3>
-                    <p className="text-xs text-gray-500">
-                      {completeEnough ? "All steps completed" : `${totalSteps - completedCount} step(s) remaining`}
-                    </p>
-                  </div>
-                </div>
-                {completeEnough && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200/50">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span className="text-xs font-semibold text-emerald-700">Ready to submit</span>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-2">
-                {stepsMeta!.map((step) => {
-                  return (
-                    <div key={step.index} className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          // Security: Validate step index is within valid range
-                          if (onStepClick && step.index >= 0 && step.index < totalSteps) {
-                            onStepClick(step.index);
-                          }
-                        }}
-                        className={`flex-1 flex items-center justify-between p-3 rounded-xl border-2 transition-all duration-300 ${
-                          step.completed
-                            ? "border-emerald-200 bg-emerald-50/50 hover:border-emerald-300 hover:bg-emerald-50"
-                            : "border-amber-200 bg-amber-50/50 hover:border-amber-300 hover:bg-amber-50"
-                        } ${onStepClick ? "cursor-pointer" : "cursor-default"}`}
-                        disabled={!onStepClick}
-                        title={onStepClick ? `Go to ${step.title}` : undefined}
-                        aria-label={`${step.completed ? "Completed" : "Incomplete"}: ${step.title}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-300 ${
-                            step.completed
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-amber-100 text-amber-700"
-                          }`}>
-                            {step.completed ? (
-                              <CheckCircle2 className="w-4 h-4" />
-                            ) : (
-                              <XCircle className="w-4 h-4" />
-                            )}
-                          </div>
-                          <span className={`text-sm font-semibold ${
-                            step.completed ? "text-emerald-700" : "text-amber-700"
-                          }`}>
-                            {step.title}
-                          </span>
-                        </div>
-                        {onStepClick && (
-                          <ArrowRight className={`w-4 h-4 transition-colors duration-300 ${
-                            step.completed ? "text-emerald-600" : "text-amber-600"
-                          }`} />
-                        )}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Validation Summary - Modern Card Design */}
-            {!completeEnough && incompleteSteps.length > 0 && (
-              <div className="rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 sm:p-6 shadow-sm">
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                    <AlertCircle className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-1">Action Required</h3>
-                    <p className="text-xs text-gray-600">Please complete the following steps before submitting:</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {incompleteSteps.map((step) => (
-                    <div
-                      key={step.index}
-                      className="flex items-center gap-2 p-2.5 rounded-lg bg-white border border-amber-200"
-                    >
-                      <XCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                      <span className="text-sm text-gray-700">{step.title}</span>
-                      {onStepClick && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // Security: Validate step index is within valid range
-                            if (step.index >= 0 && step.index < totalSteps) {
-                              onStepClick(step.index);
-                            }
-                          }}
-                          className="ml-auto text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1 transition-colors"
-                          aria-label={`Go to ${step.title} step`}
-                        >
-                          Go to step <ArrowRight className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Review Content - Realistic Public View Display */}
-            <div className="space-y-6">
-              {/* Property Review Display - Matches Public View */}
-              <PropertyReviewDisplay
-                title={reviewData!.title}
-                type={reviewData!.type}
-                location={reviewData!.location}
-                rooms={reviewData!.rooms}
-                currency={reviewData!.currency}
-              />
-
-              {/* Property Visualization Preview - Floor Plan */}
-              {reviewData!.rooms.length > 0 && (
-                <PropertyVisualizationPreview
-                  title={reviewData!.title}
-                  buildingType={reviewData!.buildingType}
-                  totalFloors={reviewData!.totalFloors}
-                  rooms={reviewData!.rooms.map((r) => ({
-                    roomType: r.roomType,
-                    roomsCount: r.roomsCount,
-                    floorDistribution: r.floorDistribution,
-                  }))}
-                />
-              )}
-            </div>
-              </>
-            )}
+          <div className="ap-step-ground">
+            {isChildrenMode ? props.children : <ReviewBody {...(props as ReviewStepFullProps)} />}
           </div>
         </div>
       )}
@@ -254,4 +97,277 @@ export function ReviewStep(props: ReviewStepProps) {
   );
 }
 
+function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: ReviewStepFullProps) {
+  const currency = reviewData.currency || "TZS";
 
+  // The review step itself is not something to complete, so it is not counted
+  const workSteps = stepsMeta.filter((s) => s.index < stepsMeta.length - 1);
+  const doneCount = workSteps.filter((s) => s.completed).length;
+  const goTo = (index: number) => {
+    if (onStepClick && index >= 0 && index < stepsMeta.length) onStepClick(index);
+  };
+
+  const rooms = reviewData.rooms || [];
+  const totalRooms = rooms.reduce((sum, r) => sum + (Number(r.roomsCount) || 0), 0);
+  const prices = rooms.map((r) => Number(r.pricePerNight) || 0).filter((n) => n > 0);
+  const minPrice = prices.length ? Math.min(...prices) : 0;
+  const maxPrice = prices.length ? Math.max(...prices) : 0;
+  const fullNight = rooms.reduce((sum, r) => sum + (Number(r.pricePerNight) || 0) * (Number(r.roomsCount) || 0), 0);
+
+  const place = [reviewData.location.street, reviewData.location.city, reviewData.location.district, reviewData.location.regionName]
+    .map((p) => (p || "").trim())
+    .filter(Boolean)
+    .filter((p, i, all) => all.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i)
+    .join(", ");
+
+  const isMulti = reviewData.buildingType === "multi_storey" && Number(reviewData.totalFloors) >= 2;
+  const floorCount = isMulti ? Number(reviewData.totalFloors) : 0;
+
+  const cover = reviewData.coverPhoto;
+  const stats = [
+    { Icon: BedDouble, value: Number(reviewData.bedrooms) || totalRooms, label: "bedrooms" },
+    { Icon: Bath, value: Number(reviewData.bathrooms) || 0, label: "bathrooms" },
+    { Icon: Users, value: Number(reviewData.maxGuests) || 0, label: "guests" },
+  ].filter((s) => s.value > 0);
+
+  return (
+    <>
+      {/* ---------------------------------------------------------------
+          1. How guests will see it, and what is left before submitting
+         --------------------------------------------------------------- */}
+      <section className="ap-card">
+        <header className="ap-card-head">
+          <span className="ap-card-head-no">1</span>
+          <div className="ap-card-head-copy">
+            <h3 className="ap-card-title">How guests will see it</h3>
+            <p className="ap-card-sub">A preview of your listing card and page.</p>
+          </div>
+          {completeEnough ? (
+            <span className="ap-card-tag">
+              <Check className="h-3.5 w-3.5" aria-hidden />
+              Ready to submit
+            </span>
+          ) : (
+            <span className="ap-card-tag is-todo">
+              {workSteps.length - doneCount} {workSteps.length - doneCount === 1 ? "step" : "steps"} left
+            </span>
+          )}
+        </header>
+
+        <div className="ap-split">
+          <div className="ap-split-main">
+            <article className="ap-listing">
+              <div className="ap-listing-cover">
+                {cover ? (
+                  /^https?:\/\//i.test(cover) ? (
+                    <Image src={cover} alt="Listing cover" fill sizes="(min-width: 1024px) 360px, 100vw" className="object-cover" />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={cover} alt="Listing cover" className="absolute inset-0 h-full w-full object-cover" />
+                  )
+                ) : (
+                  <span className="flex h-full w-full flex-col items-center justify-center gap-1.5 text-[12px] text-white/45">
+                    <ImageIcon className="h-6 w-6" aria-hidden />
+                    No cover photo yet
+                  </span>
+                )}
+                {reviewData.photoCount ? (
+                  <span className="ap-photo-tag">
+                    <ImageIcon className="h-3 w-3" aria-hidden />
+                    {reviewData.photoCount} photos
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="ap-listing-body">
+                {reviewData.type ? <span className="ap-listing-type">{reviewData.type}</span> : null}
+                <h4 className="ap-listing-title">{reviewData.title || "Your property name"}</h4>
+                <p className="ap-listing-place">
+                  <MapPin className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                  <span className="truncate">{place || "Location not set"}</span>
+                </p>
+
+                {stats.length ? (
+                  <ul className="ap-listing-stats">
+                    {stats.map(({ Icon, value, label }) => (
+                      <li key={label}>
+                        <Icon className="h-3.5 w-3.5" aria-hidden />
+                        <strong>{value}</strong> {label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                {reviewData.description ? (
+                  <p className="m-0 ap-clamp-2 text-[12.5px] leading-5 text-white/65">{reviewData.description}</p>
+                ) : null}
+
+                <div className="ap-listing-price">
+                  {minPrice > 0 ? (
+                    <>
+                      <span className="text-[11.5px] text-white/50">From</span>
+                      <strong>{money(minPrice, currency)}</strong>
+                      <span className="text-[11.5px] text-white/50">per night</span>
+                    </>
+                  ) : (
+                    <span className="text-[12px] text-white/50">No rates yet</span>
+                  )}
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <aside className="ap-split-side">
+            <div>
+              <span className="ap-stat-label">Ready</span>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="font-mono text-[30px] font-bold leading-none tabular-nums text-white">{doneCount}</span>
+                <span className="text-[12.5px] text-white/50">of {workSteps.length} steps</span>
+              </div>
+              <span className="ap-photo-meter is-wide mt-2.5" aria-hidden>
+                {workSteps.map((s) => (
+                  <span key={s.index} className={s.completed ? "is-done" : ""} />
+                ))}
+              </span>
+            </div>
+
+            <ul className="ap-review-steps">
+              {workSteps.map((s) => (
+                <li key={s.index} className={s.completed ? "is-done" : ""}>
+                  <span className="ap-checklist-dot">{s.completed ? <Check className="h-3 w-3" /> : null}</span>
+                  <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                  {onStepClick ? (
+                    <button type="button" onClick={() => goTo(s.index)} className="ap-sum-link" aria-label={`Go to ${s.title}`}>
+                      {s.completed ? "Edit" : "Fix"}
+                      <ArrowRight className="h-3 w-3" aria-hidden />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+
+            <p className="m-0 mt-auto ap-note">
+              {completeEnough
+                ? "Our team reviews every listing before it goes live. You will be notified when the review is complete."
+                : "Finish the steps marked Fix, then submit. Our team reviews every listing before it goes live."}
+            </p>
+          </aside>
+        </div>
+      </section>
+
+      {/* ---------------------------------------------------------------
+          2. Room groups, as a table with totals
+         --------------------------------------------------------------- */}
+      <section className="ap-card">
+        <header className="ap-card-head">
+          <span className="ap-card-head-no">2</span>
+          <div className="ap-card-head-copy">
+            <h3 className="ap-card-title">Room groups</h3>
+            <p className="ap-card-sub">What guests can book, and at what rate.</p>
+          </div>
+          {rooms.length ? (
+            <span className="ap-card-tag">
+              <Check className="h-3.5 w-3.5" aria-hidden />
+              {totalRooms} {totalRooms === 1 ? "room" : "rooms"}
+            </span>
+          ) : (
+            <span className="ap-card-tag is-todo">None yet</span>
+          )}
+        </header>
+
+        {rooms.length === 0 ? (
+          <div className="ap-card-body">
+            <p className="m-0 ap-note">No room groups saved. Add at least one in the Rooms step.</p>
+          </div>
+        ) : (
+          <div className="ap-table-wrap">
+            <table className="ap-table">
+              <thead>
+                <tr>
+                  <th>Room type</th>
+                  <th className="is-num">Rooms</th>
+                  {isMulti ? <th>Floors</th> : null}
+                  <th className="is-num">Per night</th>
+                  <th className="is-num">All rooms, one night</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rooms.map((r, i) => {
+                  const floorsLabel = Object.entries(r.floorDistribution || {})
+                    .filter(([, v]) => Number(v) > 0)
+                    .map(([k, v]) => `${floorName(Number(k))} ${v}`)
+                    .join(" · ");
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <span className="ap-table-type">
+                          <span className="ap-floor-no">{String(r.roomType || "R").charAt(0)}</span>
+                          {r.roomType}
+                        </span>
+                      </td>
+                      <td className="is-num">{r.roomsCount}</td>
+                      {isMulti ? <td className="text-white/60">{floorsLabel || "Not placed"}</td> : null}
+                      <td className="is-num">{money(Number(r.pricePerNight) || 0, currency)}</td>
+                      <td className="is-num text-white/70">{money((Number(r.pricePerNight) || 0) * (Number(r.roomsCount) || 0), currency)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td className="is-num">{totalRooms}</td>
+                  {isMulti ? <td /> : null}
+                  <td className="is-num">
+                    {prices.length ? (minPrice === maxPrice ? money(minPrice, currency) : `${money(minPrice, currency)} to ${maxPrice.toLocaleString("en-US")}`) : "Not set"}
+                  </td>
+                  <td className="is-num">{money(fullNight, currency)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* ---------------------------------------------------------------
+          3. The building, floor by floor
+         --------------------------------------------------------------- */}
+      <section className="ap-card">
+        <header className="ap-card-head">
+          <span className="ap-card-head-no">3</span>
+          <div className="ap-card-head-copy">
+            <h3 className="ap-card-title">Building</h3>
+            <p className="ap-card-sub">
+              {isMulti ? "Rooms and uses on every floor, top floor first." : "How the rooms are laid out."}
+            </p>
+          </div>
+          <span className="ap-card-tag is-todo">
+            {isMulti ? `${floorCount} floors` : reviewData.buildingType === "separate_units" ? "Separate units" : "Single storey"}
+          </span>
+        </header>
+
+        {rooms.length > 0 ? (
+          <div className="ap-card-body">
+            <PropertyVisualizationPreview
+              tone="dark"
+              showHeader={false}
+              title={reviewData.title}
+              buildingType={reviewData.buildingType}
+              totalFloors={reviewData.totalFloors}
+              floorUses={reviewData.floorUses}
+              rooms={rooms.map((r) => ({
+                roomType: r.roomType,
+                roomsCount: r.roomsCount,
+                floorDistribution: r.floorDistribution,
+              }))}
+            />
+          </div>
+        ) : (
+          <div className="ap-card-body">
+            <p className="m-0 ap-note">The building appears here once a room group is saved.</p>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}

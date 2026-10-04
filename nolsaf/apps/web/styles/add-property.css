@@ -3,12 +3,42 @@
   /* This page is rendered inside `OwnerLayout`'s max-w-6xl frame.
      Avoid adding extra global padding/max-width here so it aligns with `LayoutFrame`.
      Also avoid `min-h-screen` to prevent nested scroll/overflow inside the layout. */
-  @apply relative min-h-full w-full overflow-x-clip bg-slate-950/5;
+  @apply relative min-h-full w-full overflow-x-clip bg-transparent;
 }
 
-.add-property-view select {
+/* Every block in the builder is its own surface: the same dark ground, its own
+   white hairline, its own corners, with air between them. Nothing is glued to a
+   single background running the height of the page. */
+.ap-block {
+  --ap-brand: #02665e;
+  --ap-line: rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--ap-line);
+  border-radius: 1rem;
+  background: #151b1e;
+  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
+}
+
+/* Without preflight, form controls keep the browser's own font, so a textarea
+   drew in monospace. Everything in the builder uses the page font. */
+.add-property-view input,
+.add-property-view select,
+.add-property-view textarea,
+.add-property-view button {
+  font-family: inherit;
+}
+
+/* Kills the native arrow across the builder. It also forced every select white,
+   which beat the control's own class because a descendant selector outranks a
+   single class, so converted steps drew white boxes on a dark block. Controls
+   that style themselves are left alone. */
+.add-property-view select:not(.ap-select) {
   @apply appearance-none;
   background-color: #ffffff;
+  background-image: none;
+}
+
+.add-property-view select.ap-select {
+  @apply appearance-none;
   background-image: none;
 }
 
@@ -29,186 +59,357 @@
   @apply block min-w-0;
 }
 
+/* Deliberately not a surface. It only groups the blocks below it, which each
+   carry their own background, so the page never becomes one dark slab. */
 .add-property-stepper {
-  @apply min-w-0 rounded-3xl border border-slate-200/80 bg-white/95 shadow-xl shadow-emerald-100/40 backdrop-blur;
-  overflow: hidden;
+  @apply min-w-0 bg-transparent;
 }
 
-.add-property-stepper-header {
-  background: #02665e;
-  border-bottom: 1px solid #014e47;
+/* ===========================================================================
+   Listing builder header.
+   Three colours only: black, white, #02665e. Structure comes from spacing and
+   contrast, not from decoration. Everything below scales from a 320px phone to
+   a wide desktop with no horizontal scrolling.
+   ======================================================================== */
+.ap-head {
+  --ap-brand: #02665e;
+  --ap-brand-lift: #0b8b7f;
+  --ap-line: rgba(255, 255, 255, 0.18);
   position: relative;
   overflow: hidden;
-  padding: 1.5rem 1.5rem;
-  border-radius: 0 0 1.25rem 1.25rem;
+  padding: 1.25rem 1.125rem 1.375rem;
+  border: 1px solid var(--ap-line);
+  border-radius: 1rem;
+  background: #07090c;
+  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
 }
 
-.add-property-stepper-header .ap-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: 9999px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.1);
-  padding: 0.375rem 0.75rem;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #ffffff;
+/* A single brand glow, so the black band is not a flat slab */
+.ap-head::after {
+  content: "";
+  position: absolute;
+  top: -55%;
+  right: -10%;
+  width: 60%;
+  height: 190%;
+  background: radial-gradient(closest-side, rgba(2, 102, 94, 0.55), rgba(2, 102, 94, 0));
+  pointer-events: none;
 }
 
-.add-property-stepper-header .ap-label {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: rgba(255,255,255,0.6);
+.ap-head-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
-.add-property-stepper-header .ap-title {
-  margin-top: 0.25rem;
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: #ffffff;
-  line-height: 1.2;
-}
-
-.add-property-stepper-header .ap-meta {
-  margin-top: 0.5rem;
+/* ---------------------------------------------------------------- top row -- */
+.ap-head-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem 0.75rem;
-  font-size: 0.875rem;
-  color: rgba(255,255,255,0.7);
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
-.add-property-stepper-header .ap-meta-hi {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.add-property-stepper-header .ap-meta-accent {
-  color: #6ee7b7;
-}
-
-.add-property-stepper-header .ap-progress-track {
-  height: 0.5rem;
-  width: 100%;
-  overflow: hidden;
-  border-radius: 9999px;
-  background: rgba(0,0,0,0.2);
-}
-
-.add-property-stepper-header .ap-progress-fill {
-  height: 100%;
-  border-radius: 9999px;
-  background: linear-gradient(90deg, #6ee7b7, #99f6e4, rgba(255,255,255,0.8));
-  transition: width 0.4s ease;
-}
-
-.add-property-stepper-header .ap-chip {
+.ap-head .ap-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.4rem;
   border-radius: 9999px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.1);
-  padding: 0.25rem 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: rgba(255,255,255,0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
 }
 
-.add-property-stepper-header .ap-step-pill {
-  display: flex;
-  min-width: 180px;
+.ap-head .ap-save {
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.1);
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.25rem 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.82);
 }
 
-.add-property-stepper-header .ap-step-pill:hover:not(:disabled) {
-  background: rgba(255,255,255,0.2);
-  border-color: rgba(255,255,255,0.35);
+.ap-head .ap-save.is-saved {
+  border-color: rgba(2, 102, 94, 0.9);
+  background: rgba(2, 102, 94, 0.35);
+  color: #ffffff;
 }
 
-.add-property-stepper-header .ap-step-pill:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
+.ap-head .ap-save.is-error {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
 }
 
-.add-property-stepper-header .ap-step-pill.is-active {
-  background: rgba(255,255,255,0.18);
-  border-color: rgba(255,255,255,0.45);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+.ap-head .ap-save-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: transparent;
+  border-radius: 9999px;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
 }
 
-.add-property-stepper-header .ap-step-circle {
+/* ------------------------------------------------------------- title block -- */
+.ap-head-main {
   display: flex;
-  height: 2.25rem;
-  width: 2.25rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ap-head-copy {
+  min-width: 0;
+}
+
+.ap-head .ap-title {
+  margin: 0;
+  font-size: clamp(1.375rem, 1.1rem + 1.4vw, 2rem);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.ap-head .ap-sub {
+  margin: 0.375rem 0 0;
+  max-width: 46ch;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* The step count, read as one number rather than a sentence */
+.ap-head .ap-count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-head .ap-count-now {
+  font-size: clamp(1.5rem, 1.2rem + 1.4vw, 2.125rem);
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+}
+
+.ap-head .ap-count-of {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* --------------------------------------------------------------- progress -- */
+/* One segment per step, so the bar and the rail below cannot disagree. */
+.ap-head .ap-track {
+  display: flex;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.ap-head .ap-seg {
+  flex: 1 1 0;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.ap-head .ap-seg.is-done {
+  background: var(--ap-brand-lift);
+}
+
+.ap-head .ap-seg.is-active {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 0 14px rgba(255, 255, 255, 0.35);
+}
+
+/* ------------------------------------------------------------------- rail -- */
+.ap-head .ap-rail {
+  min-width: 0;
+}
+
+.ap-head .ap-rail ol {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ap-head .ap-rail li {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+/* The active step is the one that grows to fill the room it needs */
+.ap-head .ap-rail li:has(.ap-node.is-active) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ap-head .ap-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.3125rem 0.5rem;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ap-head .ap-node:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+}
+
+.ap-head .ap-node:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ap-head .ap-node:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.ap-head .ap-node-dot {
+  display: inline-flex;
+  height: 1.625rem;
+  width: 1.625rem;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  border: 1px solid rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.08);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: rgba(255,255,255,0.55);
-  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.add-property-stepper-header .ap-step-circle.is-active {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: #02665e;
-}
-
-.add-property-stepper-header .ap-step-circle.is-completed {
-  background: rgba(110,231,183,0.2);
-  border-color: rgba(110,231,183,0.5);
-  color: #6ee7b7;
-}
-
-.add-property-stepper-header .ap-step-name {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #ffffff;
+.ap-head .ap-node-name {
+  display: none;
+  min-width: 0;
   overflow: hidden;
+  padding-right: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.add-property-stepper-header .ap-step-status {
+/* Done: brand fill. Active: white pill, brand text. Both are unmistakable. */
+.ap-head .ap-node.is-done .ap-node-dot,
+.ap-head .ap-node.is-visited .ap-node-dot {
+  border-color: transparent;
+  background: var(--ap-brand);
+  color: #ffffff;
+}
+
+.ap-head .ap-node.is-active {
+  border-color: #ffffff;
+  background: #ffffff;
+  color: var(--ap-brand);
+}
+
+.ap-head .ap-node.is-active .ap-node-dot {
+  border-color: transparent;
+  background: var(--ap-brand);
+  color: #ffffff;
+}
+
+/* On a phone the rail is numbers, and only the step you are on says its name.
+   Six labelled pills used to force a sideways scroll on every small screen. */
+.ap-head .ap-node.is-active .ap-node-name {
   display: block;
+}
+
+/* ------------------------------------------------------------------ chips -- */
+.ap-head .ap-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.ap-head .ap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.25rem 0.625rem;
   font-size: 0.75rem;
-  color: rgba(255,255,255,0.6);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
 }
 
-.add-property-stepper-header .ap-step-sep {
-  display: none;
-  width: 2rem;
-  height: 1px;
-  background: rgba(255,255,255,0.2);
-  margin: 0 0.5rem;
-  flex-shrink: 0;
+.ap-head .ap-chip svg {
+  color: var(--ap-brand-lift);
 }
 
+/* ------------------------------------------------------------ breakpoints -- */
 @media (min-width: 640px) {
-  .add-property-stepper-header .ap-step-sep {
-    display: inline-block;
+  .ap-head {
+    padding: 1.75rem 1.5rem 1.875rem;
   }
-  .add-property-stepper-header {
-    padding: 2rem 1.5rem;
+
+  .ap-head .ap-node {
+    padding: 0.3125rem 0.75rem 0.3125rem 0.375rem;
+  }
+
+  /* From tablet up there is room for every name, and the rail splits the width
+     evenly so it never scrolls sideways. */
+  .ap-head .ap-rail ol {
+    gap: 0.5rem;
+  }
+
+  .ap-head .ap-rail li {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .ap-head .ap-node {
+    width: 100%;
+  }
+
+  .ap-head .ap-node-name {
+    display: block;
+  }
+}
+
+@media (min-width: 1024px) {
+  .ap-head {
+    padding: 2rem 2rem 2.125rem;
+  }
+
+  .ap-head-inner {
+    gap: 1.25rem;
   }
 }
 
@@ -285,6 +486,1631 @@
   background-color: #02665e !important;
 }
 
+/* The converted step surface: white paper, black type, brand green used only to
+   mark what is chosen. The dark band above already carries the brand, so the
+   work itself reads on white. */
+/* Deliberately not a card. The shell around it is already a white panel, so a
+   second bordered white box inside it only added a layer and pushed the work
+   further from the edge. The step is a plain block; its cards do the framing. */
+.add-property-step-surface {
+  @apply block w-full min-w-0;
+}
+
+/* ===========================================================================
+   Step body building blocks.
+
+   The builder is one dark panel. Each section is a surface of its own, told
+   apart by a white hairline border rather than by a different colour, all
+   writing is white, and #02665e carries every indication: the round number,
+   the round icons, the selected state and the section tag.
+   ======================================================================== */
+.ap-card {
+  --ap-brand: #02665e;
+  --ap-line: rgba(255, 255, 255, 0.18);
+  @apply box-border overflow-hidden border border-solid;
+  border-color: var(--ap-line);
+  border-radius: 1rem;
+  background: #151b1e;
+  box-shadow: 0 18px 40px -30px rgba(0, 0, 0, 0.9);
+}
+
+.ap-card + .ap-card {
+  @apply mt-4;
+}
+
+.ap-card-head {
+  @apply flex flex-wrap items-center gap-x-2.5 gap-y-2 border-0 border-b border-solid px-3 py-2.5 sm:px-4;
+  border-color: var(--ap-line);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* The number: round, brand filled, exactly like the rail in the band above */
+.ap-card-head-no {
+  @apply inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[12.5px] font-bold text-white;
+  background: var(--ap-brand);
+}
+
+.ap-card-head-copy {
+  @apply flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5;
+}
+
+.ap-card-title {
+  @apply m-0 text-[14.5px] font-bold leading-tight text-white;
+}
+
+.ap-card-sub {
+  @apply m-0 text-[12.5px] leading-tight text-white/55;
+}
+
+/* The state of a section, shown on its own header */
+.ap-card-tag {
+  @apply inline-flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-bold uppercase tracking-[0.04em] text-white;
+  background: var(--ap-brand);
+}
+
+.ap-card-tag.is-todo {
+  @apply bg-transparent text-white/60;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.ap-card-body {
+  @apply p-3 sm:p-4;
+}
+
+/* Groups a step's cards. Carries no surface of its own. */
+.ap-step-ground {
+  @apply block min-w-0;
+}
+
+/* Two cards side by side from a laptop up. The class name avoids "grid" on
+   purpose: a legacy rule strips padding from every child of a "grid" class. */
+.ap-pair {
+  @apply mt-4 grid min-w-0 grid-cols-1 items-stretch gap-4 lg:grid-cols-2;
+}
+
+.ap-pair > .ap-card + .ap-card {
+  @apply mt-0;
+}
+
+/* The open map needs the full width, so the pair collapses to one column */
+@media (min-width: 1024px) {
+  .ap-pair:has(.ap-map-open) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A card that fills its column, with its actions pinned to the foot */
+.ap-card-fill {
+  @apply flex h-full flex-col;
+}
+
+.ap-card-body-fill {
+  @apply flex flex-1 flex-col gap-3;
+}
+
+/* Numbers read at a glance, split by hairlines rather than boxed */
+.ap-readout {
+  @apply m-0 grid grid-cols-3;
+}
+
+.ap-readout > div {
+  @apply min-w-0 border-0 border-l border-solid px-3;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.ap-readout > div:first-child {
+  @apply border-l-0 pl-0;
+}
+
+.ap-readout dt {
+  @apply text-[11px] font-semibold uppercase tracking-[0.06em] text-white/50;
+}
+
+.ap-readout dd {
+  @apply m-0 mt-1 truncate font-mono text-[14px] font-bold tabular-nums text-white;
+}
+
+.ap-card-actions {
+  @apply mt-auto flex flex-wrap items-center gap-2 pt-1;
+}
+
+.ap-btn {
+  @apply box-border inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-solid px-4 text-[13px] font-semibold text-white transition-colors disabled:opacity-60;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ap-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ap-btn.is-primary {
+  border-color: #02665e;
+  background: #02665e;
+}
+
+.ap-btn.is-primary:hover:not(:disabled) {
+  background: #03786f;
+}
+
+/* Floor planner: the building as rows, top floor first */
+.ap-floor-list {
+  @apply m-0 list-none p-0;
+}
+
+.ap-floor-no {
+  @apply inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full font-mono text-[12px] font-bold text-white;
+  background: #02665e;
+}
+
+.ap-fl-summary {
+  @apply flex flex-wrap items-center gap-x-4 gap-y-1 border-0 border-b border-solid px-3 py-2 text-[12.5px] text-white/60 sm:px-4;
+  border-color: var(--ap-line);
+}
+
+.ap-fl-summary > span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: 1rem;
+  border-radius: 9999px;
+  vertical-align: middle;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.ap-fl-summary strong {
+  @apply font-mono font-bold tabular-nums text-white;
+}
+
+.ap-fl-summary .ap-btn-text {
+  @apply h-auto px-0;
+}
+
+.ap-fl-cols {
+  @apply hidden border-0 border-b border-solid px-4 py-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-white/40 lg:grid lg:grid-cols-[170px_116px_minmax(0,1fr)] lg:gap-5;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-fl-row {
+  @apply flex min-h-[48px] flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4 lg:grid lg:grid-cols-[170px_116px_minmax(0,1fr)] lg:gap-5;
+}
+
+.ap-fl-row.is-mine {
+  background: rgba(2, 102, 94, 0.1);
+}
+
+.ap-fl-row:not(.is-mine) .ap-floor-no {
+  @apply text-white/70;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-fl-name {
+  @apply flex min-w-0 flex-1 items-center gap-2.5;
+}
+
+.ap-fl-count {
+  @apply flex-shrink-0;
+}
+
+.ap-fl-uses {
+  @apply flex min-w-0 basis-full flex-wrap items-center gap-1.5 lg:basis-auto;
+}
+
+.ap-use {
+  @apply box-border inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border border-solid px-2.5 text-[12px] font-semibold text-white/70 transition-colors;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-use:hover {
+  @apply text-white;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.ap-use.is-on {
+  @apply text-white;
+  border-color: #02665e;
+  background: #02665e;
+}
+
+.ap-use.is-add {
+  @apply border-dashed text-white/75;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: transparent;
+}
+
+.ap-use.is-done {
+  @apply text-white underline-offset-4 hover:underline;
+  border-color: transparent;
+  background: transparent;
+}
+
+.ap-btn-text:disabled {
+  @apply cursor-not-allowed opacity-40 hover:no-underline;
+}
+
+/* Several sections in one card, split by a hairline instead of nested boxes */
+.ap-card-body + .ap-card-body {
+  @apply border-0 border-t border-solid;
+  border-color: var(--ap-line);
+}
+
+.ap-label-row {
+  @apply mb-1.5 flex items-center justify-between gap-2;
+}
+
+.ap-label-row .ap-label {
+  @apply mb-0;
+}
+
+/* Up to three fields in a row. No "grid" in the name, see .ap-pair. */
+.ap-fields-3 {
+  @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-3;
+}
+
+/* One line of guidance under a control */
+.ap-note {
+  @apply flex items-start gap-1.5 text-[12.5px] leading-5 text-white/60;
+}
+
+.ap-note.is-strong {
+  @apply text-white;
+}
+
+/* minus / value / plus */
+.ap-stepper {
+  @apply box-border flex h-11 items-stretch overflow-hidden rounded-lg border border-solid;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ap-stepper.is-small {
+  @apply inline-flex h-8 w-auto flex-shrink-0;
+}
+
+.ap-step-btn {
+  @apply box-border flex w-11 flex-shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35;
+}
+
+.ap-stepper.is-small .ap-step-btn {
+  @apply w-8;
+}
+
+.ap-step-btn.is-plus {
+  @apply text-white;
+  background: #02665e;
+}
+
+.ap-step-btn.is-plus:hover:not(:disabled) {
+  background: #03786f;
+}
+
+.add-property-view .ap-stepper input,
+.ap-step-val {
+  @apply box-border flex h-full min-w-0 flex-1 items-center justify-center border-0 bg-transparent px-2 text-center font-mono text-[15px] font-bold tabular-nums text-white shadow-none outline-none;
+  -moz-appearance: textfield;
+}
+
+.add-property-view .ap-stepper.is-small input {
+  @apply w-11 flex-none text-[13px];
+}
+
+.add-property-view .ap-stepper.is-small input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.ap-stepper.is-small .ap-step-val {
+  @apply w-9 flex-none text-[13px];
+}
+
+.add-property-view .ap-stepper input:focus {
+  box-shadow: none;
+  outline: none;
+}
+
+.ap-stepper:focus-within {
+  border-color: #02665e;
+}
+
+.ap-stepper input::-webkit-outer-spin-button,
+.ap-stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* A total worked out from somewhere else: shown, not typed */
+.ap-sum {
+  @apply box-border flex h-11 items-center gap-2.5 rounded-lg border border-solid px-3;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-sum.is-set {
+  border-color: rgba(2, 102, 94, 0.9);
+}
+
+.ap-sum-value {
+  @apply font-mono text-[17px] font-bold tabular-nums text-white;
+}
+
+.ap-sum-note {
+  @apply min-w-0 flex-1 truncate text-[12px] text-white/50;
+}
+
+.ap-sum-link {
+  @apply inline-flex flex-shrink-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-white/75 hover:text-white hover:underline;
+}
+
+/* Two-way choice */
+.ap-toggles {
+  @apply flex gap-2;
+}
+
+.ap-toggle {
+  @apply box-border inline-flex h-11 min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg border border-solid px-3 text-[13px] font-semibold text-white/75 transition-colors;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-toggle:hover {
+  @apply text-white;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.ap-toggle.is-on {
+  @apply text-white;
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.3);
+}
+
+/* Beds */
+.ap-beds {
+  @apply grid gap-2 sm:grid-cols-2 xl:grid-cols-4;
+}
+
+.ap-bed {
+  @apply box-border flex min-w-0 items-center gap-2.5 rounded-lg border border-solid p-2.5 transition-colors;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-bed.is-on {
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.22);
+}
+
+.ap-bed-ico {
+  @apply flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white/60;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-bed.is-on .ap-bed-ico {
+  @apply text-white;
+  background: #02665e;
+}
+
+/* Floor allocation rows */
+.ap-alloc {
+  @apply grid gap-2 sm:grid-cols-2 lg:grid-cols-3;
+}
+
+.ap-alloc-row {
+  @apply box-border flex min-w-0 items-center gap-2.5 rounded-lg border border-solid px-2.5 py-2;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-use.is-lg {
+  @apply h-8 px-3 text-[12.5px];
+}
+
+/* Checkable amenities */
+.ap-checks {
+  @apply grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5;
+}
+
+.ap-check {
+  @apply box-border flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-solid px-2 py-1.5 text-[12.5px] font-medium text-white/80 transition-colors;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-check:hover {
+  @apply text-white;
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.ap-check-ico {
+  @apply flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-white/55;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-check.is-on {
+  @apply text-white;
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.22);
+}
+
+.ap-check.is-on .ap-check-ico {
+  @apply text-white;
+  background: #02665e;
+}
+
+/* Price: unit | amount | per */
+.ap-price {
+  @apply box-border flex h-11 max-w-md items-stretch overflow-hidden rounded-lg border border-solid;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ap-price.is-set {
+  border-color: rgba(2, 102, 94, 0.9);
+}
+
+.ap-price:focus-within {
+  border-color: #02665e;
+  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+}
+
+.ap-price-unit {
+  @apply flex flex-shrink-0 items-center px-3 text-[12px] font-bold text-white/55;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.add-property-view .ap-price input {
+  @apply box-border h-full min-w-0 flex-1 border-0 bg-transparent px-3 font-mono text-[15px] font-bold tabular-nums text-white shadow-none outline-none;
+}
+
+.add-property-view .ap-price input:focus {
+  box-shadow: none;
+}
+
+/* Main work on the left, a narrow panel on the right from a laptop up */
+.ap-split {
+  @apply flex flex-col lg:flex-row;
+}
+
+.ap-split-main {
+  @apply min-w-0 flex-1 p-3 sm:p-4;
+}
+
+.ap-split-side {
+  @apply box-border flex flex-col gap-3 border-0 border-t border-solid p-3 sm:p-4 lg:w-[340px] lg:flex-shrink-0 lg:border-l lg:border-t-0;
+  border-color: var(--ap-line, rgba(255, 255, 255, 0.18));
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ap-split-side .ap-label {
+  @apply mb-0;
+}
+
+/* Photos as named slots */
+.ap-photo-count {
+  @apply inline-flex items-center gap-2 font-mono text-[12px] font-bold tabular-nums text-white/70;
+}
+
+.ap-photo-meter {
+  @apply inline-flex gap-1;
+}
+
+.ap-photo-meter > span {
+  @apply block h-1 w-5 rounded-full;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ap-photo-meter > span.is-done {
+  background: #0b8b7f;
+}
+
+.ap-photos {
+  @apply grid grid-cols-2 gap-2 sm:grid-cols-3;
+}
+
+.ap-photo {
+  @apply relative box-border flex aspect-[4/3] min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border border-solid text-center;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-photo.is-empty {
+  @apply cursor-pointer border-dashed transition-colors;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.ap-photo.is-empty:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ap-photo.is-next {
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.14);
+}
+
+.ap-photo-ico {
+  @apply mb-1 flex h-9 w-9 items-center justify-center rounded-full text-white/65;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-photo.is-next .ap-photo-ico {
+  @apply text-white;
+  background: #02665e;
+}
+
+.ap-photo-tag {
+  @apply absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-white;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.ap-photo-remove {
+  @apply absolute right-1.5 top-1.5 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-0 text-white transition-colors hover:bg-black;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.ap-photo-busy {
+  @apply absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-[11px] font-semibold text-white;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* Review: the listing as a guest will meet it */
+.ap-listing {
+  @apply flex flex-col overflow-hidden rounded-xl border border-solid md:flex-row;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-listing-cover {
+  @apply relative aspect-[16/10] w-full flex-shrink-0 overflow-hidden md:aspect-auto md:min-h-[220px] md:w-[46%];
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ap-listing-body {
+  @apply flex min-w-0 flex-1 flex-col gap-2 p-4;
+}
+
+.ap-listing-type {
+  @apply inline-flex w-fit items-center rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white;
+  background: #02665e;
+}
+
+.ap-listing-title {
+  @apply m-0 text-[18px] font-bold leading-tight text-white;
+}
+
+.ap-listing-place {
+  @apply m-0 flex min-w-0 items-center gap-1.5 text-[12.5px] text-white/60;
+}
+
+.ap-listing-stats {
+  @apply m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0;
+}
+
+.ap-listing-stats li {
+  @apply inline-flex items-center gap-1.5 text-[12.5px] text-white/60;
+}
+
+.ap-listing-stats svg {
+  color: #0b8b7f;
+}
+
+.ap-listing-stats strong {
+  @apply font-mono font-bold tabular-nums text-white;
+}
+
+.ap-listing-price {
+  @apply mt-auto flex items-baseline gap-1.5 border-0 border-t border-solid pt-3;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-listing-price strong {
+  @apply font-mono text-[20px] font-bold tabular-nums text-white;
+}
+
+/* Steps left before submitting */
+.ap-review-steps {
+  @apply m-0 flex list-none flex-col border-0 border-t border-solid p-0 pt-1;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-review-steps li {
+  @apply flex items-center gap-2 border-0 border-b border-solid py-2 text-[13px] font-medium text-white/60;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.ap-review-steps li.is-done {
+  @apply text-white;
+}
+
+.ap-review-steps li.is-done .ap-checklist-dot {
+  background: #02665e;
+  box-shadow: none;
+}
+
+.ap-review-steps li:not(.is-done) .ap-sum-link {
+  @apply text-white;
+}
+
+/* A plain data table on a dark card */
+.ap-table-wrap {
+  @apply overflow-x-auto;
+}
+
+.ap-table {
+  @apply w-full border-collapse text-[13px] text-white;
+}
+
+.ap-table th {
+  @apply whitespace-nowrap border-0 border-b border-solid px-4 py-2 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-white/45;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-table td {
+  @apply whitespace-nowrap border-0 border-b border-solid px-4 py-2.5;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.ap-table .is-num {
+  @apply text-right font-mono tabular-nums;
+}
+
+.ap-table tfoot td {
+  @apply border-b-0 font-bold;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-table-type {
+  @apply inline-flex items-center gap-2.5 font-semibold;
+}
+
+/* ===========================================================================
+   Building preview, dark. The same component and layout the public page uses,
+   restyled only inside .pvp-dark so the light version elsewhere is untouched.
+   Room type tones collapse to the brand, keeping to black, white and #02665e.
+   ======================================================================== */
+.pvp-dark .bg-white,
+.pvp-dark .bg-white\/85 {
+  background-color: #151b1e;
+}
+
+.pvp-dark .border-slate-100,
+.pvp-dark .border-slate-200,
+.pvp-dark .border-slate-300 {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.pvp-dark .text-slate-900,
+.pvp-dark .text-slate-800,
+.pvp-dark .text-slate-700 {
+  color: #ffffff;
+}
+
+.pvp-dark .text-slate-600,
+.pvp-dark .text-slate-500 {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pvp-dark .text-slate-400,
+.pvp-dark .text-slate-300 {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.pvp-dark .text-\[\#02665e\] {
+  color: #0b8b7f;
+}
+
+/* The elevation panel and the building itself */
+.pvp-dark .from-sky-50\/80 {
+  background-image: none;
+  background-color: rgba(255, 255, 255, 0.025);
+}
+
+.pvp-dark .bg-slate-300 {
+  background-color: rgba(255, 255, 255, 0.22);
+}
+
+.pvp-dark .bg-slate-400 {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.pvp-dark .bg-slate-100,
+.pvp-dark .bg-slate-200 {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.pvp-dark .bg-slate-50,
+.pvp-dark .bg-slate-50\/60 {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.pvp-dark [style*="repeating-linear-gradient"] {
+  opacity: 0.3;
+}
+
+/* Floor rows */
+.pvp-dark .bg-\[\#02665e\]\/55 {
+  background-color: rgba(11, 139, 127, 0.75);
+}
+
+.pvp-dark .bg-emerald-300 {
+  background-color: #ffffff;
+}
+
+.pvp-dark .hover\:bg-\[\#02665e\]\/\[0\.04\]:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* The connector's hollow dot sits on the dark card */
+.pvp-dark svg circle[fill="#ffffff"] {
+  fill: #151b1e;
+}
+
+/* Floor panel */
+.pvp-dark .border-\[\#02665e\] {
+  border-color: #02665e;
+}
+
+/* Room type tones: one brand tone, told apart by name, not colour */
+.pvp-dark .bg-teal-50,
+.pvp-dark .bg-indigo-50,
+.pvp-dark .bg-amber-50,
+.pvp-dark .bg-rose-50,
+.pvp-dark .bg-sky-50,
+.pvp-dark .bg-violet-50,
+.pvp-dark .bg-lime-50,
+.pvp-dark .bg-orange-50 {
+  background-color: rgba(2, 102, 94, 0.28);
+}
+
+.pvp-dark .text-teal-700,
+.pvp-dark .text-indigo-600,
+.pvp-dark .text-indigo-700,
+.pvp-dark .text-amber-700,
+.pvp-dark .text-amber-800,
+.pvp-dark .text-rose-600,
+.pvp-dark .text-rose-700,
+.pvp-dark .text-sky-700,
+.pvp-dark .text-violet-600,
+.pvp-dark .text-violet-700,
+.pvp-dark .text-lime-700,
+.pvp-dark .text-lime-800,
+.pvp-dark .text-orange-700 {
+  color: #ffffff;
+}
+
+.pvp-dark .bg-teal-500,
+.pvp-dark .bg-indigo-500,
+.pvp-dark .bg-amber-500,
+.pvp-dark .bg-rose-500,
+.pvp-dark .bg-sky-500,
+.pvp-dark .bg-violet-500,
+.pvp-dark .bg-lime-600,
+.pvp-dark .bg-orange-500 {
+  background-color: #0b8b7f;
+}
+
+.pvp-dark [class*="hover:border-"][class*="-300"]:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Property gallery: the cover large, the rest as tiles, empty slots name the shot */
+.ap-card.is-dropping {
+  border-color: #02665e;
+  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45), 0 18px 40px -30px rgba(0, 0, 0, 0.9);
+}
+
+.ap-split-main {
+  position: relative;
+}
+
+/* Five columns from a tablet up: the 2 x 2 cover plus six shots make exactly two rows */
+.ap-gallery {
+  @apply grid grid-cols-2 gap-2 sm:grid-cols-5;
+}
+
+.ap-shot {
+  @apply relative box-border flex aspect-[4/3] min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg border border-solid text-center;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-shot.is-cover {
+  @apply col-span-2 sm:row-span-2 sm:aspect-auto;
+}
+
+.ap-shot.is-empty {
+  @apply cursor-pointer border-dashed transition-colors;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.ap-shot.is-empty:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ap-shot.is-next {
+  border-color: rgba(2, 102, 94, 0.9);
+  background: rgba(2, 102, 94, 0.1);
+}
+
+.ap-shot-index {
+  @apply absolute left-2 top-1.5 font-mono text-[10.5px] font-bold tracking-[0.04em] text-white/35;
+}
+
+.ap-shot-req {
+  @apply absolute right-2 top-2 h-1.5 w-1.5 rounded-full;
+  background: #0b8b7f;
+}
+
+.ap-shot-title {
+  @apply max-w-full truncate px-2 text-[12px] font-semibold text-white;
+}
+
+.ap-shot-hint {
+  @apply text-[10.5px] text-white/45;
+}
+
+.ap-shot.is-cover .ap-shot-title {
+  @apply text-[13.5px];
+}
+
+.ap-shot.is-cover .ap-photo-ico {
+  @apply h-11 w-11;
+}
+
+.ap-shot.is-next .ap-photo-ico {
+  @apply text-white;
+  background: #02665e;
+}
+
+.ap-shot-cover,
+.ap-shot-make {
+  @apply absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-md border-0 px-1.5 py-0.5 text-[11px] font-semibold text-white;
+}
+
+.ap-shot-cover {
+  background: #02665e;
+}
+
+.ap-shot-make {
+  @apply cursor-pointer opacity-90 transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.ap-shot-make:hover:not(:disabled) {
+  background: #02665e;
+}
+
+.ap-shot-no {
+  @apply absolute left-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-bold text-white;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.ap-drop-veil {
+  @apply pointer-events-none absolute inset-2 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed text-[14px] font-semibold text-white;
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.35);
+}
+
+.ap-photo-meter.is-wide {
+  @apply flex w-full;
+}
+
+.ap-photo-meter.is-wide > span {
+  @apply h-1.5 flex-1;
+}
+
+.ap-tips {
+  @apply m-0 flex list-none flex-col gap-1 border-0 border-t border-solid p-0 pt-3 text-[12px] text-white/55;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-tips li::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: 0.5rem;
+  border-radius: 9999px;
+  vertical-align: middle;
+  background: #0b8b7f;
+}
+
+label.ap-btn {
+  @apply cursor-pointer;
+}
+
+/* The rate panel */
+.ap-price.is-lg {
+  @apply h-14 max-w-none;
+}
+
+.add-property-view .ap-price.is-lg input {
+  @apply text-[22px];
+}
+
+.ap-rate {
+  @apply m-0;
+}
+
+.ap-rate > div {
+  @apply flex items-baseline justify-between gap-3 border-0 border-t border-solid py-2;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-rate dt {
+  @apply text-[12.5px] text-white/60;
+}
+
+.ap-rate dd {
+  @apply m-0 font-mono text-[13.5px] font-bold tabular-nums text-white;
+}
+
+.ap-checklist.is-stacked {
+  @apply flex-col gap-y-2 border-0 border-t border-solid pt-3;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-btn.is-block {
+  @apply mt-auto h-11 w-full;
+}
+
+/* Save row: what is left, then the action */
+.ap-save-row {
+  @apply flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between;
+}
+
+.ap-checklist {
+  @apply m-0 flex list-none flex-wrap gap-x-4 gap-y-1.5 p-0;
+}
+
+.ap-checklist li {
+  @apply inline-flex items-center gap-1.5 text-[12.5px] font-medium text-white/55;
+}
+
+.ap-checklist li.is-done {
+  @apply text-white;
+}
+
+.ap-checklist-dot {
+  @apply inline-flex h-4 w-4 items-center justify-center rounded-full text-white;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.ap-checklist li.is-done .ap-checklist-dot {
+  background: #02665e;
+  box-shadow: none;
+}
+
+/* A saved room group: the row opens its details, the icons act on it */
+.ap-saved {
+  @apply flex min-w-0 items-center gap-1 pr-2 sm:pr-3;
+}
+
+.ap-saved-main {
+  @apply box-border flex min-w-0 flex-1 cursor-pointer items-center gap-3 border-0 bg-transparent py-2.5 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04] sm:pl-4;
+}
+
+.ap-saved-item.is-editing {
+  background: rgba(2, 102, 94, 0.12);
+}
+
+.ap-saved-thumb {
+  @apply block h-10 w-[54px] flex-shrink-0 overflow-hidden rounded-md border border-solid border-white/15;
+}
+
+.ap-saved-price {
+  @apply hidden flex-shrink-0 flex-col items-end leading-tight sm:flex;
+}
+
+.ap-saved-price strong {
+  @apply font-mono text-[13px] font-bold tabular-nums text-white;
+}
+
+.ap-saved-price span {
+  @apply text-[11px] text-white/45;
+}
+
+.ap-saved-actions {
+  @apply flex flex-shrink-0 items-center gap-1 border-0 border-l border-solid pl-2;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-icon-btn {
+  @apply box-border flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-solid bg-transparent text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-default disabled:opacity-35;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.ap-icon-btn.is-danger:hover:not(:disabled) {
+  @apply text-red-300;
+  border-color: rgba(252, 165, 165, 0.45);
+}
+
+/* An opened saved group: photos left, the facts right */
+.ap-sheet {
+  @apply flex flex-col gap-3 border-0 border-t border-solid px-3 py-3 sm:px-4 lg:flex-row lg:gap-4;
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.ap-mosaic {
+  @apply grid w-full max-w-[420px] flex-shrink-0 grid-cols-4 content-start gap-1 lg:w-[300px];
+}
+
+.ap-mosaic-cover {
+  @apply relative col-span-4 aspect-[16/10] overflow-hidden rounded-lg border border-solid border-white/15 bg-white/5;
+}
+
+.ap-mosaic-thumb {
+  @apply relative aspect-[4/3] overflow-hidden rounded-md border border-solid border-white/15 bg-white/5;
+}
+
+.ap-mosaic-more {
+  @apply absolute inset-0 flex items-center justify-center text-[14px] font-bold text-white;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.ap-sheet-info {
+  @apply flex min-w-0 flex-1 flex-col gap-2.5;
+}
+
+.ap-sheet-info .ap-label {
+  @apply mb-1 text-[11.5px];
+}
+
+.ap-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Facts as a two-column sheet, split by hairlines */
+.ap-spec {
+  @apply m-0 grid grid-cols-2 overflow-hidden rounded-lg border border-solid sm:grid-cols-4;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Hairlines drawn by each cell, so a short last row leaves no patch */
+.ap-spec > div {
+  @apply min-w-0 px-2.5 py-1.5;
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.1), 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.ap-spec dt {
+  @apply truncate text-[10.5px] font-semibold uppercase tracking-[0.06em] text-white/45;
+}
+
+.ap-spec dd {
+  @apply m-0 mt-0.5 truncate text-[13px] font-semibold text-white;
+}
+
+.ap-chip-static {
+  @apply box-border inline-flex h-[22px] items-center gap-1 rounded-md border border-solid px-1.5 text-[11px] font-medium text-white/80;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ap-chip-static svg {
+  color: #0b8b7f;
+}
+
+.ap-chip-static.is-more {
+  @apply cursor-pointer border-dashed bg-transparent font-semibold text-white hover:border-white/40;
+}
+
+/* Services: balanced columns, each a short checklist */
+.ap-svc-cols {
+  @apply grid sm:grid-cols-2 lg:grid-cols-3;
+}
+
+.ap-svc-col {
+  @apply flex min-w-0 flex-col gap-3 border-0 border-t border-solid px-3 py-3 first:border-t-0 sm:px-4 lg:border-l lg:border-t-0 lg:first:border-l-0;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ap-svc-group {
+  @apply flex min-w-0 flex-col;
+}
+
+.ap-svc-head {
+  @apply mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45;
+}
+
+.ap-svc-count {
+  @apply inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 font-mono text-[10.5px] font-bold normal-case tracking-normal text-white;
+  background: #02665e;
+}
+
+.ap-svc-item {
+  @apply -mx-1.5 flex min-w-0 cursor-pointer items-center gap-2.5 rounded-md px-1.5 py-1 text-[13px] text-white/75 transition-colors hover:bg-white/[0.05] hover:text-white;
+}
+
+.ap-svc-ico {
+  @apply flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-white/55;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ap-svc-item.is-on {
+  @apply font-semibold text-white;
+}
+
+.ap-svc-item.is-on .ap-svc-ico {
+  @apply text-white;
+  background: #02665e;
+}
+
+.ap-svc-item.is-on .ap-checklist-dot {
+  background: #02665e;
+  box-shadow: none;
+}
+
+/* Nearby places */
+/* A place kind to add: a checklist row that opens the form */
+.ap-place-pick {
+  @apply w-full border-0 bg-transparent font-medium;
+}
+
+.ap-place-state {
+  @apply inline-flex flex-shrink-0 items-center gap-1 text-[11.5px] font-semibold text-white/40;
+}
+
+.ap-place-pick:hover .ap-place-state,
+.ap-place-pick.is-on .ap-place-state {
+  @apply text-white;
+}
+
+.ap-place-pick.is-on {
+  background: rgba(2, 102, 94, 0.22);
+}
+
+.ap-place-state.is-added {
+  color: #0b8b7f;
+}
+
+.ap-place-pick.is-added {
+  @apply cursor-default hover:bg-transparent;
+}
+
+.ap-place-pick.is-added .ap-svc-ico {
+  @apply text-white;
+  background: #02665e;
+}
+
+.ap-svc-cols.ap-divided {
+  @apply border-0 border-t border-solid;
+  border-color: var(--ap-line);
+}
+
+.ap-use.is-added {
+  @apply cursor-not-allowed text-white/45;
+  border-style: dashed;
+  background: transparent;
+}
+
+.ap-place-form {
+  @apply box-border flex flex-col gap-3 rounded-lg border border-solid p-3;
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.08);
+}
+
+/* On/off switch that sits in a card header */
+.ap-switch {
+  @apply inline-flex flex-shrink-0 cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0;
+}
+
+.ap-switch-text {
+  @apply text-[12px] font-bold uppercase tracking-[0.04em] text-white/55;
+}
+
+.ap-switch.is-on .ap-switch-text {
+  @apply text-white;
+}
+
+.ap-switch-track {
+  @apply relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ap-switch.is-on .ap-switch-track {
+  background: #02665e;
+}
+
+.ap-switch-knob {
+  @apply absolute left-0.5 h-5 w-5 rounded-full bg-white transition-transform duration-200;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.ap-switch.is-on .ap-switch-knob {
+  transform: translateX(20px);
+}
+
+.ap-switch:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 3px;
+  border-radius: 9999px;
+}
+
+/* Short facts in one line, each with a round icon */
+.ap-points {
+  @apply m-0 flex list-none flex-wrap gap-x-6 gap-y-2 p-0;
+}
+
+.ap-points li {
+  @apply flex items-center gap-2 text-[13px] text-white/80;
+}
+
+.ap-svc-ico.is-on {
+  @apply text-white;
+  background: #02665e;
+}
+
+/* Capacity: three figures in one strip, split by hairlines */
+.ap-stats {
+  @apply grid sm:grid-cols-3;
+}
+
+.ap-stat {
+  @apply flex min-w-0 flex-col gap-2 border-0 border-t border-solid px-4 py-4 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0 sm:px-5;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ap-stat-label {
+  @apply flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50;
+}
+
+.ap-stat-auto {
+  @apply inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal text-white;
+  background: #02665e;
+}
+
+.ap-stat-value {
+  @apply flex h-11 items-center font-mono text-[30px] font-bold leading-none tabular-nums text-white;
+}
+
+.ap-stat-note {
+  @apply text-[12px] text-white/45;
+}
+
+.ap-stepper.ap-stat-stepper {
+  @apply w-full max-w-[240px];
+}
+
+.add-property-view .ap-stepper.ap-stat-stepper input {
+  @apply text-[20px];
+}
+
+.ap-stepper.is-set {
+  border-color: rgba(2, 102, 94, 0.9);
+}
+
+/* Description meter under the text box */
+.ap-desc-meter {
+  @apply mt-2 flex items-center gap-2.5 text-[12px];
+}
+
+.ap-prompts li {
+  @apply items-start;
+}
+
+.ap-prompts .ap-checklist-dot {
+  @apply mt-0.5 flex-shrink-0;
+}
+
+/* House rules: four short rules in one row, split by hairlines */
+.ap-rules {
+  @apply grid sm:grid-cols-2 lg:grid-cols-4;
+}
+
+.ap-rule-cell {
+  @apply flex min-w-0 flex-col gap-2 border-0 border-t border-solid px-3 py-3 first:border-t-0 sm:px-4 lg:border-l lg:border-t-0 lg:first:border-l-0;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ap-rule-cell:nth-child(2) {
+  @apply sm:border-t-0;
+}
+
+.ap-toggles.is-compact .ap-toggle {
+  @apply gap-1.5 px-2 text-[12.5px];
+}
+
+label.ap-stat-label {
+  @apply block;
+}
+
+/* from | to, one joined control */
+.ap-range {
+  @apply box-border flex h-11 w-full items-stretch overflow-hidden rounded-lg border border-solid;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ap-range:focus-within {
+  border-color: #02665e;
+  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+}
+
+.add-property-view .ap-range input {
+  @apply box-border h-full min-w-0 flex-1 border-0 bg-transparent px-2.5 font-mono text-[14px] font-semibold tabular-nums text-white shadow-none outline-none;
+  color-scheme: dark;
+}
+
+.add-property-view .ap-range input:focus {
+  box-shadow: none;
+}
+
+.ap-range-sep {
+  @apply flex flex-shrink-0 items-center px-2 text-[12px] font-semibold text-white/45;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ap-input[type="time"] {
+  color-scheme: dark;
+}
+
+/* Added places as tiles: three across on a wide screen */
+.ap-place-tiles {
+  @apply grid gap-2 p-3 sm:grid-cols-2 sm:p-4 lg:grid-cols-3;
+}
+
+.ap-place-tile {
+  @apply box-border flex min-w-0 flex-col gap-2.5 rounded-lg border border-solid p-2.5;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-place-tile.is-editing {
+  border-color: #02665e;
+  background: rgba(2, 102, 94, 0.14);
+}
+
+.ap-place-foot {
+  @apply flex min-w-0 items-center gap-3 border-0 border-t border-solid pt-2;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ap-place-dist {
+  @apply flex-shrink-0 text-[11.5px] text-white/55;
+}
+
+.ap-place-dist strong {
+  @apply font-mono text-[14px] font-bold tabular-nums text-white;
+}
+
+.ap-reach-dot {
+  @apply inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-white/75;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-reach-dot.is-link {
+  @apply text-white hover:bg-white/15;
+}
+
+.ap-icon-btn.is-sm {
+  @apply h-7 w-7;
+}
+
+/* Four equal choices: 2 x 2 on a phone, one row from a tablet up */
+.ap-reach {
+  @apply grid grid-cols-2 gap-2 sm:grid-cols-4;
+}
+
+.ap-reach .ap-toggle {
+  @apply px-2;
+}
+
+.ap-form-actions {
+  @apply flex flex-wrap justify-end gap-2 border-0 border-t border-solid pt-3;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-saved-item.is-editing .ap-place-form {
+  @apply m-3 sm:mx-4;
+}
+
+.ap-card-body.ap-divided {
+  @apply border-0 border-t border-solid;
+  border-color: var(--ap-line);
+}
+
+/* "You are editing a saved group" bar above the room cards */
+.ap-editing {
+  @apply mb-4 flex flex-wrap items-center gap-3 px-3 py-2.5 sm:px-4;
+  border-color: #02665e;
+}
+
+.ap-floor-list > li + li {
+  @apply border-0 border-t border-solid;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.ap-btn-text {
+  @apply ml-auto h-10 cursor-pointer border-0 bg-transparent px-2 text-[12.5px] font-semibold text-white/60 underline-offset-4 hover:text-white hover:underline;
+}
+
+/* ------------------------------------------------------- the type chooser -- */
+/* Column counts divide twelve exactly at every breakpoint, so the last row is
+   never one stray chip. */
+.ap-type-grid {
+  @apply grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6;
+}
+
+.ap-type {
+  @apply box-border flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border border-solid px-2.5 py-2 transition-colors duration-150;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-type:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ap-type-ico {
+  @apply flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-white/60 transition-colors duration-150;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-type-name {
+  @apply min-w-0 flex-1 truncate text-[13px] font-semibold text-white;
+}
+
+.ap-type.is-selected {
+  border-color: var(--ap-brand);
+  background: rgba(2, 102, 94, 0.22);
+}
+
+.ap-type.is-selected .ap-type-ico {
+  background: var(--ap-brand);
+  @apply text-white;
+}
+
+/* --------------------------------------------------------------- fields ---- */
+.ap-field-grid {
+  @apply grid gap-3 sm:grid-cols-2;
+}
+
+.ap-field-wide {
+  @apply sm:col-span-2;
+}
+
+.ap-label {
+  @apply mb-1.5 block text-[12px] font-semibold text-white/80;
+}
+
+.add-property-view .ap-input,
+.add-property-view .ap-select,
+.ap-input,
+.ap-select {
+  @apply box-border h-11 w-full rounded-lg border border-solid px-3 text-[13.5px] text-white transition-colors duration-150;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  font-family: inherit;
+}
+
+.ap-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ap-input:hover,
+.ap-select:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.ap-input:focus,
+.ap-select:focus {
+  border-color: var(--ap-brand);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+}
+
+.ap-input.is-invalid {
+  border-color: #f87171;
+}
+
+.ap-select {
+  @apply cursor-pointer appearance-none pr-9;
+}
+
+/* A native option list is drawn by the OS, so it needs its own colours */
+.ap-select option {
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.ap-select:disabled {
+  @apply cursor-not-allowed text-white/35;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ap-select.is-set,
+.ap-input.is-set {
+  border-color: rgba(2, 102, 94, 0.9);
+}
+
+.ap-input:disabled {
+  @apply cursor-not-allowed text-white/35;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ap-field-error {
+  @apply mt-1.5 flex items-center gap-1 text-[12px] font-medium text-red-300;
+  margin-bottom: 0;
+}
+
+/* A textarea shares the input look but grows with its rows */
+.add-property-view .ap-input.ap-textarea {
+  @apply h-auto resize-y py-2.5 leading-relaxed;
+}
+
+/* ------------------------------------------------------ option cards ------- */
+.ap-opt-grid {
+  @apply grid gap-2 sm:grid-cols-3;
+}
+
+.ap-opt {
+  @apply box-border relative flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid p-3 transition-colors duration-150;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-opt:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ap-opt-ico {
+  @apply flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white/60 transition-colors duration-150;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-opt-name {
+  @apply text-[13px] font-semibold text-white;
+}
+
+.ap-opt-desc {
+  @apply mt-0.5 text-[11.5px] leading-snug text-white/55;
+}
+
+.ap-opt.is-selected {
+  border-color: var(--ap-brand);
+  background: rgba(2, 102, 94, 0.22);
+}
+
+.ap-opt.is-selected .ap-opt-ico {
+  background: var(--ap-brand);
+  @apply text-white;
+}
+
+.ap-opt-check {
+  @apply absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-white;
+  background: var(--ap-brand);
+}
+
+/* A small inline control that belongs to the option above it */
+.ap-inline {
+  @apply mt-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-solid px-3 py-2;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-inline-label {
+  @apply text-[12px] font-semibold text-white/80;
+}
+
+.ap-inline input {
+  @apply box-border h-8 w-16 rounded-md border border-solid px-2 text-center text-[12.5px] text-white;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ap-inline input:focus {
+  border-color: var(--ap-brand);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(2, 102, 94, 0.45);
+}
+
 .add-property-stage-header {
   @apply rounded-[28px] border border-slate-200/85 bg-white p-5 shadow-sm shadow-slate-200/40 sm:p-6;
 }
@@ -343,41 +2169,41 @@
 }
 
 .add-property-location-module {
-  @apply rounded-[28px] border border-white/10 p-5 shadow-lg sm:p-6;
-  background: radial-gradient(circle, rgba(255,255,255,0.12) 1px, transparent 1px), #02665e;
-  background-size: 18px 18px;
+  @apply min-w-0;
 }
 
+/* A group inside a card body, separated by a rule rather than by another box:
+   a bordered white card inside a bordered white card is one layer too many. */
 .add-property-location-submodule {
-  @apply rounded-[22px] border border-white/15 bg-white/10 p-5 sm:p-6;
+  @apply border-0 border-t border-solid border-slate-100 pt-3;
 }
 
 .add-property-location-hero {
-  @apply mb-6 rounded-[22px] border border-white/15 bg-white/10 p-6 backdrop-blur-sm sm:p-7;
+  @apply mb-4 rounded-[20px] border border-solid border-slate-200 bg-white p-4 sm:p-5;
 }
 
 .add-property-address-group {
-  @apply rounded-xl border border-white/15 bg-white/10 p-2.5 sm:p-3;
+  @apply rounded-xl border border-solid border-slate-200 bg-white p-2.5 sm:p-3;
 }
 
 .add-property-address-group-header {
-  @apply mb-2 flex flex-col gap-1.5 border-b border-white/15 pb-2 sm:mb-3 sm:flex-row sm:items-end sm:justify-between sm:gap-2 sm:pb-3;
+  @apply mb-2 flex flex-col gap-1.5 border-0 border-b border-solid border-slate-100 pb-2 sm:mb-3 sm:flex-row sm:items-end sm:justify-between sm:gap-2 sm:pb-3;
 }
 
 .add-property-address-group-kicker {
-  @apply text-[11px] font-semibold uppercase tracking-[0.22em] text-white/60;
+  @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400;
 }
 
 .add-property-address-group-title {
-  @apply mt-1 text-sm font-semibold text-white sm:text-base;
+  @apply mt-1 text-sm font-bold text-slate-900 sm:text-[15px];
 }
 
 .add-property-address-group-copy {
-  @apply mt-1 text-xs leading-relaxed text-white/60 sm:text-sm;
+  @apply mt-1 text-xs leading-relaxed text-slate-500 sm:text-[13px];
 }
 
 .add-property-address-group-meta {
-  @apply inline-flex items-center rounded-full border border-white/20 bg-white/15 px-2.5 py-1 text-[11px] font-semibold text-white/80 shadow-sm;
+  @apply inline-flex items-center rounded-full border border-solid border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600;
 }
 
 .add-property-address-grid {
@@ -393,7 +2219,7 @@
 }
 
 .add-property-address-card {
-  @apply relative rounded-xl border border-white/20 bg-white/95 p-2.5 shadow-sm transition-colors duration-200 sm:p-3;
+  @apply relative rounded-xl border border-solid border-slate-200 bg-white p-2.5 transition-colors duration-200 sm:p-3;
 }
 
 .add-property-address-card-active {

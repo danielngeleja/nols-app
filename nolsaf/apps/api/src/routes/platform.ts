@@ -20,6 +20,7 @@ import { handoffRouter as agentReportHandoffRouter } from "./agent.reports";
 import { router as upCld } from "./uploads.cloudinary";
 import { router as upS3 } from "./uploads.s3";
 import paymentWebhooksRouter from "./webhooks.payments";
+import ownerPaymentWebhooksRouter from "./webhooks.ownerPayments.js";
 import expediaWebhooksRouter from "./webhooks.expedia.js";
 import metaWebhooksRouter from "./webhooks.meta.js";
 import metaOAuthRouter from "./meta.oauth.js";
@@ -49,6 +50,7 @@ export function registerPaymentRoutes(app: Express): void {
   app.use("/webhooks/expedia", expediaWebhooksRouter);
   app.use("/webhooks/meta", metaWebhooksRouter);
   app.use("/webhooks/coralcommerce/card", coralCommerceCardRouter); // Coral callback/postback aliases
+  app.use("/webhooks/azampay/owner", ownerPaymentWebhooksRouter);
   app.use("/webhooks", paymentWebhooksRouter);
   app.use("/api/payments/azampay/disbursement", azampayDisbursementRouter); // Disbursement callback (money OUT)
   app.use("/api/payments/azampay", azampayPaymentsRouter);       // MNO: Airtel, M-Pesa, Mixx, HaloPesa
@@ -67,7 +69,9 @@ export function registerFxRoutes(app: Express): void {
 }
 
 export function registerChatbotRoute(app: Express): void {
-  app.use("/api/chatbot", chatbotRouter as RequestHandler);
+  // maybeAuth so a signed-in visitor's conversation is linked to their account
+  // and can be authorised by user id. Anonymous visitors still pass through.
+  app.use("/api/chatbot", maybeAuth as RequestHandler, chatbotRouter as RequestHandler);
 }
 
 export function registerReportSealRoute(app: Express): void {

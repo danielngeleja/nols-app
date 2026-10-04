@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import {
   AlertTriangle,
@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 
-type RoomUnit = { id: number; code: string; floor: number | null; status: string };
+type RoomUnit = { id: number; code: string; floor: number | null; status: string; housekeepingStatus: string | null };
 type PayInstruction = { label: string; value: string; name: string | null };
 type FloorFilter = "ALL" | "UNASSIGNED" | "TABLES" | number;
 type OrderPoint = {
@@ -54,6 +54,9 @@ export default function QrCodesPage() {
   const canManage = accessRole === "OWNER" || accessRole === "MANAGER";
   const [points, setPoints] = useState<OrderPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [syncInterrupted, setSyncInterrupted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -63,6 +66,8 @@ export default function QrCodesPage() {
 
   const [payRows, setPayRows] = useState<PayInstruction[]>([]);
   const [payDirty, setPayDirty] = useState(false);
+  const payDirtyRef = useRef(false);
+  const loadInFlightRef = useRef(false);
   const [savingPay, setSavingPay] = useState(false);
   const [floorFilter, setFloorFilter] = useState<FloorFilter>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
@@ -77,23 +82,36 @@ export default function QrCodesPage() {
   const [menuPublic, setMenuPublic] = useState<{ enabled: boolean; menuUrl: string | null }>({ enabled: false, menuUrl: null });
   const [togglingMenu, setTogglingMenu] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!selectedPropertyId) return;
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (background = false) => {
+    if (!selectedPropertyId || loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    if (background) setRefreshing(true);
+    else {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [res, menuRes] = await Promise.all([
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/order-points`),
         apiClient.get(`/api/nrms/operations/property/${selectedPropertyId}/menu-public`),
       ]);
       setPoints(res.data?.orderPoints ?? []);
-      setPayRows(Array.isArray(res.data?.guestPayInstructions) ? res.data.guestPayInstructions : []);
-      setPayDirty(false);
+      // Background reservation sync must not overwrite payment details that
+      // the owner or manager is currently editing.
+      if (!payDirtyRef.current) {
+        setPayRows(Array.isArray(res.data?.guestPayInstructions) ? res.data.guestPayInstructions : []);
+        setPayDirty(false);
+      }
       setMenuPublic({ enabled: Boolean(menuRes.data?.enabled), menuUrl: menuRes.data?.menuUrl ?? null });
+      setLastSyncedAt(new Date());
+      setSyncInterrupted(false);
     } catch (cause: any) {
-      setError(cause?.response?.data?.error || "Failed to load order points");
+      if (background) setSyncInterrupted(true);
+      else setError(cause?.response?.data?.error || "Failed to load order points");
     } finally {
-      setLoading(false);
+      loadInFlightRef.current = false;
+      if (background) setRefreshing(false);
+      else setLoading(false);
     }
   }, [selectedPropertyId]);
 
@@ -115,6 +133,15 @@ export default function QrCodesPage() {
 
   useEffect(() => {
     void load();
+    const sync = () => {
+      if (document.visibilityState === "visible") void load(true);
+    };
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
+    };
   }, [load]);
 
   const generateRooms = async () => {
@@ -126,7 +153,7 @@ export default function QrCodesPage() {
       const res = await apiClient.post(`/api/nrms/operations/property/${selectedPropertyId}/order-points/generate-rooms`);
       const created = res.data?.created ?? 0;
       setNotice(created > 0 ? `Generated QR codes for ${created} room${created > 1 ? "s" : ""}` : res.data?.message || "All rooms already have QR codes");
-      await load();
+      await load(true);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to generate room QR codes");
     } finally {
@@ -147,7 +174,7 @@ export default function QrCodesPage() {
       setTableLabel("");
       setShowAddTable(false);
       setNotice(`Table "${tableLabel.trim()}" added`);
-      await load();
+      await load(true);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Failed to add table");
     } finally {
@@ -157,6 +184,7 @@ export default function QrCodesPage() {
 
   const updatePayRow = (index: number, patch: Partial<PayInstruction>) => {
     setPayRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+    payDirtyRef.current = true;
     setPayDirty(true);
   };
 
@@ -170,6 +198,7 @@ export default function QrCodesPage() {
     try {
       await apiClient.patch(`/api/nrms/operations/property/${selectedPropertyId}/guest-pay-instructions`, { instructions: cleaned });
       setPayRows(cleaned);
+      payDirtyRef.current = false;
       setPayDirty(false);
       setNotice("Guest payment details saved");
     } catch (cause: any) {
@@ -196,7 +225,7 @@ export default function QrCodesPage() {
         setNotice(`"${confirmAction.label}" deleted`);
       }
       setConfirmAction(null);
-      await load();
+      await load(true);
     } catch (cause: any) {
       setError(cause?.response?.data?.error || "Action failed");
     } finally {
@@ -418,13 +447,13 @@ export default function QrCodesPage() {
                 <label className="min-w-0"><span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-neutral-500">Channel</span><input type="text" value={row.label} onChange={(event) => updatePayRow(index, { label: event.target.value.slice(0, 40) })} placeholder="M-Pesa Lipa Namba" className="box-border h-9 w-full min-w-0 max-w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-950 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" /></label>
                 <label className="min-w-0"><span className="mb-1 block text-[9px] font-bold uppercase tracking-wide text-neutral-500">Number or account</span><input type="text" value={row.value} onChange={(event) => updatePayRow(index, { value: event.target.value.slice(0, 80) })} placeholder="512345" className="box-border h-9 w-full min-w-0 max-w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-950 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" /></label>
                 <label className="min-w-0"><span className="mb-1 block truncate text-[9px] font-bold uppercase tracking-wide text-neutral-500">Account name <span className="font-medium normal-case text-neutral-400">(optional)</span></span><input type="text" value={row.name ?? ""} onChange={(event) => updatePayRow(index, { name: event.target.value.slice(0, 60) })} placeholder="Property or business name" className="box-border h-9 w-full min-w-0 max-w-full rounded-lg border border-neutral-200 bg-white px-3 text-sm text-neutral-950 outline-none transition placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" /></label>
-                <button type="button" onClick={() => { setPayRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index)); setPayDirty(true); }} aria-label={`Remove payment channel ${index + 1}`} title={`Remove payment channel ${index + 1}`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-lg border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
+                <button type="button" onClick={() => { setPayRows((rows) => rows.filter((_, rowIndex) => rowIndex !== index)); payDirtyRef.current = true; setPayDirty(true); }} aria-label={`Remove payment channel ${index + 1}`} title={`Remove payment channel ${index + 1}`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center justify-self-end rounded-lg border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             ))}
             {payRows.length === 0 && (
               <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 px-5 py-8 text-center"><WalletCards className="mx-auto h-7 w-7 text-neutral-300" /><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">No payment channels yet</p><p className="mb-0 mt-1 text-xs text-neutral-400">Add your Lipa Namba or bank details so guests know exactly where to pay.</p></div>
             )}
-            {payRows.length < 6 && <button type="button" onClick={() => { setPayRows((rows) => [...rows, { label: "", value: "", name: null }]); setPayDirty(true); }} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-white px-3.5 text-xs font-bold text-neutral-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:w-auto"><Plus className="h-3.5 w-3.5" /> Add payment channel</button>}
+            {payRows.length < 6 && <button type="button" onClick={() => { setPayRows((rows) => [...rows, { label: "", value: "", name: null }]); payDirtyRef.current = true; setPayDirty(true); }} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-white px-3.5 text-xs font-bold text-neutral-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 sm:w-auto"><Plus className="h-3.5 w-3.5" /> Add payment channel</button>}
           </div>
           <div className="flex items-start gap-2 border-t border-neutral-100 bg-emerald-50/50 px-5 py-3.5 text-[11px] leading-5 text-emerald-900/70 sm:px-6"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-700" /><span>NoLSAF displays these instructions but does not collect or hold the guest&apos;s outlet payment.</span></div>
         </section>
@@ -468,7 +497,16 @@ export default function QrCodesPage() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Building2 className="h-4 w-4" /></span>
               <div className="min-w-0"><h2 className="m-0 text-sm font-bold tracking-tight text-neutral-950">Order-point library</h2><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{visiblePoints.length} of {points.length} points shown</p></div>
             </div>
-            <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "ALL" | "ACTIVE" | "INACTIVE")} className="h-8 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 text-[11px] font-bold normal-case tracking-normal text-neutral-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10"><option value="ALL">All statuses</option><option value="ACTIVE">Active only</option><option value="INACTIVE">Paused only</option></select></label>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className={`inline-flex h-8 items-center gap-2 rounded-lg border px-2.5 text-[10px] font-semibold ${syncInterrupted ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`} title="Room assignments and checked-in guests synchronize automatically with front desk changes">
+                <span className={`h-1.5 w-1.5 rounded-full ${syncInterrupted ? "bg-amber-500" : "bg-emerald-500"}`} />
+                {syncInterrupted ? "Sync interrupted" : lastSyncedAt ? `Front desk synced ${lastSyncedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Connecting to front desk"}
+              </div>
+              <button type="button" onClick={() => void load(true)} disabled={refreshing} aria-label="Refresh front desk room data" title="Refresh front desk room data" className="flex h-8 w-8 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-500 transition hover:border-emerald-200 hover:text-emerald-700 disabled:opacity-50">
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
+              <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide text-neutral-400"><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "ALL" | "ACTIVE" | "INACTIVE")} className="h-8 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 text-[11px] font-bold normal-case tracking-normal text-neutral-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10"><option value="ALL">All statuses</option><option value="ACTIVE">Active only</option><option value="INACTIVE">Paused only</option></select></label>
+            </div>
           </header>
           <div className="flex gap-1.5 overflow-x-auto border-t border-neutral-100 bg-neutral-50/70 px-3 py-2" aria-label="Filter order points by floor">
             <FloorFilterButton active={floorFilter === "ALL"} onClick={() => setFloorFilter("ALL")} label="All floors" count={rooms.length} />
@@ -597,6 +635,16 @@ function FloorFilterButton({ active, onClick, label, count }: { active: boolean;
   );
 }
 
+function roomState(room: RoomUnit | null) {
+  if (!room) return { label: "Room not linked", tone: "neutral" as const };
+  if (room.status !== "ACTIVE") return { label: "Out of service", tone: "red" as const };
+  if (room.housekeepingStatus === "DIRTY") return { label: "Vacant · cleaning needed", tone: "amber" as const };
+  if (room.housekeepingStatus === "IN_PROGRESS") return { label: "Vacant · cleaning in progress", tone: "amber" as const };
+  if (room.housekeepingStatus === "CLEAN") return { label: "Available · clean", tone: "emerald" as const };
+  if (room.housekeepingStatus === "INSPECTED") return { label: "Available · inspected", tone: "emerald" as const };
+  return { label: "Available", tone: "emerald" as const };
+}
+
 function PointCard({
   point,
   canManage,
@@ -613,6 +661,21 @@ function PointCard({
   onAction: (action: { id: number; action: "rotate" | "deactivate" | "delete"; label: string }) => void;
 }) {
   const typeLabel = point.type === "ROOM" ? "Room" : "Table";
+  const vacancy = roomState(point.roomUnit);
+  const vacancyClasses = vacancy.tone === "red"
+    ? "border-red-100 bg-red-50/80 text-red-800"
+    : vacancy.tone === "amber"
+      ? "border-amber-100 bg-amber-50/80 text-amber-800"
+      : vacancy.tone === "neutral"
+        ? "border-neutral-200 bg-neutral-50 text-neutral-600"
+        : "border-emerald-100 bg-emerald-50/70 text-emerald-900";
+  const vacancyIconClasses = vacancy.tone === "red"
+    ? "bg-red-100 text-red-700"
+    : vacancy.tone === "amber"
+      ? "bg-amber-100 text-amber-700"
+      : vacancy.tone === "neutral"
+        ? "bg-neutral-200 text-neutral-600"
+        : "bg-emerald-100 text-emerald-700";
   return (
     <article className={`group overflow-hidden rounded-xl border border-l-4 bg-white shadow-sm transition duration-200 hover:shadow-md ${point.active ? "border-neutral-200 border-l-emerald-500" : "border-neutral-200 border-l-neutral-300 bg-neutral-50/70"}`}>
       <div className="p-3.5">
@@ -622,13 +685,13 @@ function PointCard({
         </div>
 
         {point.type === "ROOM" && (
-          <div className={`mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-2 ${point.currentStay ? "border-sky-100 bg-sky-50/80" : "border-emerald-100 bg-emerald-50/70"}`}>
-            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${point.currentStay ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>
+          <div className={`mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-2 ${point.currentStay ? "border-sky-100 bg-sky-50/80 text-sky-950" : vacancyClasses}`}>
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${point.currentStay ? "bg-sky-100 text-sky-700" : vacancyIconClasses}`}>
               {point.currentStay ? <UserRound className="h-3.5 w-3.5" /> : <BedDouble className="h-3.5 w-3.5" />}
             </span>
             <div className="min-w-0">
-              <p className={`m-0 text-[8px] font-bold uppercase tracking-[0.12em] ${point.currentStay ? "text-sky-600" : "text-emerald-600"}`}>{point.currentStay ? "Checked-in guest" : "Room status"}</p>
-              <p className={`mb-0 mt-0.5 truncate text-[10px] font-bold ${point.currentStay ? "text-sky-950" : "text-emerald-900"}`} title={point.currentStay?.guestName ?? undefined}>{point.currentStay ? (point.currentStay.guestName || "Guest name not recorded") : "Available"}</p>
+              <p className={`m-0 text-[8px] font-bold uppercase tracking-[0.12em] ${point.currentStay ? "text-sky-600" : "opacity-70"}`}>{point.currentStay ? "Checked-in guest" : "Front desk room status"}</p>
+              <p className="mb-0 mt-0.5 truncate text-[10px] font-bold" title={point.currentStay?.guestName ?? vacancy.label}>{point.currentStay ? (point.currentStay.guestName || "Guest name not recorded") : vacancy.label}</p>
             </div>
           </div>
         )}

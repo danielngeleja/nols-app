@@ -183,7 +183,7 @@ export default function RecentBookings() {
                                 <Check className="h-4 w-4 text-green-600" />
                                 <span className="text-sm">Validate</span>
                               </Link>
-                              <Link href={`/owner/bookings/checked-in/${b.id}`} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 hover:text-slate-900 no-underline">
+                              <Link href={`/owner/bookings/checked-in/${encodeURIComponent(b.bookingReference)}`} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 hover:text-slate-900 no-underline">
                                 <Eye className="h-4 w-4 text-slate-600" />
                                 <span className="text-sm">View</span>
                               </Link>

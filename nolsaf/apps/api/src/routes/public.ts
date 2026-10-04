@@ -10,17 +10,20 @@ import publicDriverVerificationRouter from "./public.driverVerification";
 import { router as publicEmailVerify } from "./public.email.verify";
 import publicGroupStayReceiptRouter from "./public.groupStayReceipt";
 import publicInvoicesRouter from "./public.invoices";
+import publicNewsletterRouter from "./public.newsletter";
 import publicNolScopeRouter from "./public.nolscope";
 import publicNrmsMenuRouter from "./public.nrmsMenu";
 import publicNrmsGuestRouter from "./public.nrmsGuest";
 import publicNrmsAgentAuthRouter from "./public.nrmsAgentAuth";
 import publicNrmsRoomingListRouter from "./public.nrmsRoomingList";
+import publicNrmsMasterFolioPaymentRouter from "./public.nrmsMasterFolioPayment";
 import publicNrmsCalendarRouter from "./public.nrmsCalendar";
 import publicNrmsProFormaRouter from "./public.nrmsProForma";
+import publicNrmsSupplierOrderRouter from "./public.nrmsSupplierOrder";
 import publicOwnerPayoutReceiptsRouter from "./public.ownerPayoutReceipts";
+import publicPayslipsRouter from "./public.payslips";
 import publicAgentsRouter from "./public.agents";
 import publicPickupPointsRouter from "./public.pickupPoints";
-import publicPlanRequestRouter from "./public.planRequest";
 import publicPodcastsRouter from "./public.podcasts";
 import publicPropertiesRouter from "./public.properties";
 import publicPropertySharesRouter from "./public.propertyShares.js";
@@ -29,7 +32,9 @@ import publicReportsRouter from "./public.reports";
 import publicServiceAvailabilityRouter from "./public.service-availability";
 import publicSupportRouter from "./public.support";
 import publicTourBookingsRouter from "./public.tourBookings";
+import publicTourVisaItinerariesRouter from "./public.tourVisaItineraries";
 import publicTourismSitesRouter from "./public.tourismSites";
+import publicTripSharesRouter from "./public.tripShares";
 import publicUpdatesRouter from "./public.updates";
 
 export function registerPublicEmailVerifyRoute(app: Express): void {
@@ -46,12 +51,14 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/client-errors", maybeAuth as RequestHandler, clientErrorsRouter);
   app.use("/api/public/support", publicSupportRouter);
   app.use("/api/public/updates", publicUpdatesRouter);
+  app.use("/api/public/newsletter", publicNewsletterRouter);
   app.use("/api/public/podcasts", publicPodcastsRouter);
   app.use("/api/public/booking", publicBookingRouter);
   app.use("/api/public/bookings", publicBookingsRouter);
   app.use("/api/public/service-availability", publicServiceAvailabilityRouter);
   app.use("/api/public/invoices", publicInvoicesRouter);
   app.use("/api/public/owner-payout-receipts", publicOwnerPayoutReceiptsRouter);
+  app.use("/api/public/payslips", publicPayslipsRouter);
   app.use("/api/public/reports", publicReportsRouter);
   app.use("/api/public/group-stays/receipt", publicGroupStayReceiptRouter);
   app.use("/api/public/pickup-points", publicPickupPointsRouter);
@@ -61,12 +68,15 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/property-shares", publicPropertySharesRouter);
   app.use("/api/public/properties", publicPropertiesRouter);
   app.use("/api/public/tourism-sites", publicTourismSitesRouter);
+  app.use("/api/public/trip-shares", publicTripSharesRouter);
   app.use("/api/public/nolscope", publicNolScopeRouter);
   app.use("/api/public/nrms/guest", publicNrmsGuestRouter);
   // Mounted before the menu router so /nrms/rooming-lists/* never falls through
   // to its parameterized routes.
   app.use("/api/public/nrms/rooming-lists", publicNrmsRoomingListRouter);
+  app.use("/api/public/nrms/master-folio-payments", publicNrmsMasterFolioPaymentRouter);
   app.use("/api/public/nrms/pro-formas", publicNrmsProFormaRouter);
+  app.use("/api/public/nrms/supplier-orders", publicNrmsSupplierOrderRouter);
   // Also ahead of the menu router, whose /:token routes would otherwise swallow it.
   app.use("/api/public/nrms/calendars", publicNrmsCalendarRouter);
   // Ahead of the menu catch-all so /nrms/agent/* is not swallowed by /:token routes.
@@ -74,11 +84,8 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public/nrms", publicNrmsMenuRouter);
   app.use("/api/public/agents", publicAgentsRouter);
   app.use("/api/public/tour-bookings", publicTourBookingsRouter);
+  app.use("/api/public/tour-visa-itineraries", publicTourVisaItinerariesRouter);
   app.use("/api/public/driver-verification", publicDriverVerificationRouter);
-}
-
-export function registerPublicPlanRequestRoute(app: Express): void {
-  app.use("/api/plan-request", publicPlanRequestRouter);
 }
 
 export function registerPublicAvailabilityRoute(app: Express): void {

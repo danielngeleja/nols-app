@@ -5,6 +5,15 @@ node_modules
 **/build
 **/coverage
 **/*.log
+.npm-cache-eas
+.expo
+.vercel
+.elasticbeanstalk
+.local-reports
+.tmp
+artifacts
+backups
+reports
 .env
 .env.*
 .git

@@ -5,14 +5,30 @@
 import { Router, type Response } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
-import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { canonicalGuestPhone, loadGuestSmsEligibility, noPhoneEligibility } from "../lib/guestSmsCampaigns.js";
 import { computeGuestBalance } from "../lib/nrmsFolio.js";
 
 export const router = Router();
 
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+// Access is resolved per handler. Both routes here are reads, and reading the
+// guest book is not owner-only work: front desk searches it at check in, and a
+// sales executive holds `guest.read` to answer for their own accounts.
+// loadNrmsPropertyAccess also checks the PROPERTY owner's NRMS enrollment,
+// which is what requireNrms used to check against the caller's own account and
+// which no staff member has.
+router.use(requireAuth as RequestHandler);
+
+const GUEST_READ_ROLES = ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"] as const;
+
+/** Subscriber digits of a phone-shaped query (drops +, spaces, a leading 0 or 255), or null. */
+export function guestPhoneSearchTail(q: string): string | null {
+  if (!/^[+\d\s()-]+$/.test(q)) return null;
+  const digits = q.replace(/\D/g, "");
+  const tail = digits.startsWith("255") ? digits.slice(3) : digits.startsWith("0") ? digits.slice(1) : digits;
+  return tail.length >= 3 ? tail : null;
+}
 
 /**
  * GET /api/owner/nrms/guests/:propertyId?q=&page=&pageSize=&sortOrder=
@@ -20,18 +36,51 @@ router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler
  */
 router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const property = active.property;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), GUEST_READ_ROLES);
+    if (!access) return;
+    // The property's owner, not the caller: guest rows and SMS eligibility are
+    // both scoped by ownerId, so a staff member's own id would match nothing.
+    const ownerId = access.ownerId;
+    const property = access.property;
     const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const page = Math.max(Math.floor(Number(req.query.page) || 1), 1);
     const pageSize = Math.min(Math.max(Math.floor(Number(req.query.pageSize) || 10), 1), 50);
     const sortOrder = req.query.sortOrder === "desc" ? "desc" : "asc";
+    // Front desk types numbers the way the guest says them (0789..., +255 789...,
+    // 255789...), while profiles keep whatever was typed at the time. Matching on
+    // the subscriber digits makes every one of those forms find the same guest.
+    const phoneTail = guestPhoneSearchTail(q);
     const where = {
       propertyId: property.id as number,
-      ...(q ? { OR: [{ fullName: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }] } : {}),
+      ...(q ? { OR: [
+        { fullName: { contains: q } },
+        { phone: { contains: q } },
+        { email: { contains: q } },
+        ...(phoneTail && phoneTail !== q ? [{ phone: { contains: phoneTail } }] : []),
+      ] } : {}),
     };
+
+    // Type-ahead lookup (front desk "returning guest" picker): one query, no
+    // total count and no SMS consent, because it fires on every keystroke and
+    // only needs names, phones and stay counts.
+    if (req.query.mode === "lookup") {
+      const matches = await prisma.guestProfile.findMany({
+        where,
+        select: { id: true, fullName: true, phone: true, email: true, nationality: true, _count: { select: { reservations: true } } },
+        orderBy: [{ fullName: "asc" }, { id: "desc" }],
+        take: pageSize,
+      });
+      return res.json({
+        guests: matches.map((g) => ({
+          id: g.id,
+          fullName: g.fullName,
+          phone: g.phone,
+          email: g.email,
+          nationality: g.nationality,
+          reservationCount: g._count.reservations,
+        })),
+      });
+    }
 
     const [total, guests] = await prisma.$transaction([
       prisma.guestProfile.count({ where }),
@@ -84,10 +133,12 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
  */
 router.get("/:propertyId/:guestId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
-    const property = active.property;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), GUEST_READ_ROLES);
+    if (!access) return;
+    // The property's owner, not the caller: guest rows and SMS eligibility are
+    // both scoped by ownerId, so a staff member's own id would match nothing.
+    const ownerId = access.ownerId;
+    const property = access.property;
     const guestId = Number(req.params.guestId);
     if (!Number.isInteger(guestId) || guestId <= 0) {
       return res.status(400).json({ error: "Invalid guest id" });

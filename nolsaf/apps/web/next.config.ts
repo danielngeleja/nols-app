@@ -99,18 +99,16 @@ const nextConfig: NextConfig = {
         { source: '/socket.io/:path*', destination: `${apiOrigin}/socket.io/:path*` },
       ],
 
-      // afterFiles: rewrites run AFTER Next.js pages/filesystem checks.
-      // This ensures Next.js pages (e.g. /admin/owners/[id], /admin/users/[id]) are served
-      // by the Next.js router first, and only fall through to the API proxy if no page is found.
-      // This prevents the catch-all proxy from accidentally swallowing RSC navigation requests
-      // for page routes that exist in the Next.js app.
+      // Dynamic admin page routes must also be excluded explicitly. In particular,
+      // Revenue uses the project's opaque iv_<22 chars> invoice reference in URLs.
       afterFiles: [
         {
           // Proxy legacy /admin/* routes to the API backend.
-          // IMPORTANT: This runs AFTER Next.js pages, so Next.js admin pages always win.
-          // The exclusion list is kept for safety but the afterFiles ordering is the main guard.
+          // Keep both legacy numeric URLs and opaque page references out of this proxy.
           source:
-            '/admin/:path((?!cancellations/tours/\\d+|cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/\\d+|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|nrms/integrity/\\d+|nrms/\\d+|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
+            // Any segment shaped like a record reference (xx_ + 22 chars, see
+            // lib/adminRecordRefs.ts) is a detail page, whatever section it sits in.
+            '/admin/:path((?!cancellations/tours/\\d+|cancellations/\\d+|bookings/\\d+|owners/\\d+|properties/\\d+|revenue/(?:\\d+|iv_[A-Za-z0-9_-]{22})|users/\\d+|agents/\\d+|agents/tour-revenue/\\d+|nrms/merchants/\\d+|nrms/integrity/\\d+|nrms/\\d+|disbursements/batches/\\d+|(?:[^/]+/)*[a-z]{2}_[A-Za-z0-9_-]{22}(?:/|$)|management/.*|drivers/audit/.*|drivers/invoices/review(?:/.*)?$|profile$|profile/).*)',
           // NOTE: removed trailing $ anchors so RSC sub-paths like /owners/3.segments/... are also excluded
           destination: `${apiOrigin}/admin/:path*`,
         },

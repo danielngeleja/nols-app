@@ -9,7 +9,7 @@ import {
   ArrowLeft, CheckCircle2, Clock,
   Eye, FileText, History, Lock, LogOut, Mail, MapPin, Pencil,
   Phone, Save, Trash2, Upload, User, X, AlertTriangle,
-  ChevronDown, ChevronUp, ShieldCheck,
+  ChevronDown, ChevronRight, ChevronUp, ShieldCheck,
 } from 'lucide-react';
 import DatePickerField from "@/components/DatePickerField";
 import SecurePayoutPreferenceCard from "@/components/SecurePayoutPreferenceCard";
@@ -64,11 +64,11 @@ function EditableInfoItem({
   maskFn?: (v: string) => string;
 }) {
   const editing = editingField === fieldKey;
-  const display = value ? (maskFn ? maskFn(String(value)) : value) : "—";
+  const display = value ? (maskFn ? maskFn(String(value)) : value) : "Not set";
 
   if (editing) {
     return (
-      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-md border border-[#02665e]/20 bg-[#02665e]/[0.03] p-3">
+      <div className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-solid border-[#02665e]/25 bg-[#02665e]/[0.03] p-3.5">
         <div className="flex items-center justify-between gap-1 mb-1.5 w-full min-w-0 max-w-full">
           <div className="text-xs font-medium text-slate-500">{label}</div>
           <button
@@ -120,7 +120,7 @@ function EditableInfoItem({
   }
 
   return (
-    <div className="group flex min-w-0 items-start gap-3 overflow-hidden rounded-md border border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50/60">
+    <div className="group flex h-full min-w-0 items-start gap-3 overflow-hidden rounded-xl border border-solid border-slate-300 bg-white p-3.5 transition-colors hover:border-slate-400">
       <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-[#02665e]/[0.06] text-[#02665e] [&>svg]:h-4 [&>svg]:w-4">
         {icon}
       </div>
@@ -907,22 +907,24 @@ export default function OwnerProfile() {
   }, [form, me]);
 
   const profileCompletion = useMemo(() => {
-    const checks: Array<boolean> = [
-      Boolean(avatarUrl),
-      Boolean(displayName && displayName !== '—'),
-      Boolean(emailValue),
-      Boolean(phoneValue),
-      Boolean(tinValue),
-      Boolean(addressValue),
-      requiredDocsOk,
-      Boolean(payoutPreferred),
-      payoutDetailsOk,
+    // Each check names itself and its section, so the header can say what is next.
+    const checks: Array<{ ok: boolean; label: string; anchor: string }> = [
+      { ok: Boolean(avatarUrl), label: 'Add a profile photo', anchor: 'owner-identity' },
+      { ok: Boolean(displayName && displayName !== '—'), label: 'Add your full name', anchor: 'owner-personal' },
+      { ok: Boolean(emailValue), label: 'Add your email', anchor: 'owner-personal' },
+      { ok: Boolean(phoneValue), label: 'Add your phone', anchor: 'owner-personal' },
+      { ok: Boolean(tinValue), label: 'Add your business TIN', anchor: 'owner-personal' },
+      { ok: Boolean(addressValue), label: 'Add your business address', anchor: 'owner-personal' },
+      { ok: requiredDocsOk, label: 'Upload the required documents', anchor: 'owner-documents' },
+      { ok: Boolean(payoutPreferred), label: 'Choose a payout method', anchor: 'owner-payout' },
+      { ok: payoutDetailsOk, label: 'Complete your payout details', anchor: 'owner-payout' },
     ];
 
     const total = checks.length;
-    const done = checks.filter(Boolean).length;
+    const done = checks.filter((c) => c.ok).length;
     const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-    return { pct, done, total };
+    const next = checks.find((c) => !c.ok) ?? null;
+    return { pct, done, total, next };
   }, [addressValue, avatarUrl, displayName, emailValue, phoneValue, payoutDetailsOk, payoutPreferred, requiredDocsOk, tinValue]);
 
   const completionTone = useMemo(() => {
@@ -984,85 +986,72 @@ export default function OwnerProfile() {
 
 
 
-      {/* -- Hero banner --------------------------------------------------- */}
+      {/* -- Identity band: who this account is, and what is left to do ---- */}
 
-      <div className="mb-6 relative rounded-3xl border border-[#02665e]/30 bg-[#040f0e] shadow-card overflow-hidden">
-
-        <div className="absolute inset-0 bg-gradient-to-br from-[#02665e]/45 via-[#02665e]/10 to-slate-950" aria-hidden />
-
-        <div className="pointer-events-none absolute -top-10 -left-10 h-64 w-64 rounded-full bg-[#02665e]/15 blur-3xl" aria-hidden />
-        <div className="pointer-events-none absolute -bottom-6 right-10 h-40 w-40 rounded-full bg-[#02665e]/10 blur-2xl" aria-hidden />
-
-        <div className="relative p-5 sm:p-7">
-
-          <div className="relative flex flex-col items-center justify-center min-h-[120px] py-3">
-
-            <Link href="/owner" aria-label="Back"
-
-              className="absolute left-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#02665e]/30 bg-[#02665e]/10 text-white/90 shadow-card transition-colors hover:bg-[#02665e]/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/50"
-
+      <div id="owner-identity" className="mb-5 overflow-hidden rounded-2xl bg-[#012a26] text-white">
+        <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <Link
+              href="/owner"
+              aria-label="Back"
+              className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-white/15 bg-white/[0.06] text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white"
             >
-
               <ArrowLeft className="h-4 w-4" aria-hidden />
-
             </Link>
 
-
-
-            {/* Completion ring */}
-
-            <div className="absolute right-0 top-0 flex items-center gap-2 rounded-2xl border border-[#02665e]/30 bg-[#02665e]/10 px-2.5 py-2 backdrop-blur-sm">
-
-              <div className="relative h-11 w-11">
-
-                <svg viewBox="0 0 36 36" className="h-11 w-11" aria-hidden>
-
-                  <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" className="text-white/10" strokeWidth="3.5" />
-
-                  <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor"
-
-                    className={completionTone === "good" ? "text-emerald-500" : completionTone === "warn" ? "text-amber-500" : "text-rose-500"}
-
-                    strokeWidth="3.5" strokeLinecap="round" pathLength="100"
-
-                    strokeDasharray={`${profileCompletion.pct} 100`} transform="rotate(-90 18 18)"
-
-                  />
-
-                </svg>
-
-                <div className="absolute inset-0 flex items-center justify-center">
-
-                  <div className="text-xs font-bold text-white tabular-nums">{profileCompletion.pct}%</div>
-
-                </div>
-
+            <div className="relative h-14 w-14 flex-shrink-0">
+              <div className="relative h-14 w-14 overflow-hidden rounded-full bg-white/10 ring-2 ring-white/15">
+                {avatarUrl
+                  ? <Image src={avatarUrl} alt="Profile photo" fill sizes="56px" unoptimized={bypassAvatarOptimizer} className="object-cover" />
+                  : <span className="grid h-full w-full place-items-center"><User className="h-6 w-6 text-white/80" aria-hidden /></span>}
               </div>
-
-              <div className="hidden sm:block text-left">
-
-                <div className="text-[11px] font-semibold text-white/70 leading-tight">Profile status</div>
-
-                <div className="text-[11px] font-semibold text-white/60 leading-tight">{profileCompletion.done}/{profileCompletion.total} items</div>
-
-              </div>
-
+              <input ref={avatarFileInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; await uploadAvatar(f); }} />
+              <button
+                type="button"
+                onClick={() => { if (!avatarUploading) avatarFileInputRef.current?.click(); }}
+                disabled={avatarUploading}
+                aria-label="Change photo"
+                title="Change photo"
+                className="absolute -bottom-0.5 -right-0.5 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border-2 border-solid border-[#012a26] bg-white text-[#02665e] transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {avatarUploading
+                  ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-solid border-[#02665e]/20 border-t-[#02665e]" aria-hidden />
+                  : <Pencil className="h-3 w-3" aria-hidden />}
+              </button>
             </div>
 
-
-
-            <div className="text-center">
-
-              <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight leading-tight">My Profile</h1>
-
-              <p className="mt-2 text-sm sm:text-base text-white/70 leading-relaxed">Business details, payout info, and required documents.</p>
-
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#9fd8cc]">Property owner</p>
+              <h1 className="m-0 mt-0.5 truncate text-xl font-semibold tracking-tight text-white sm:text-2xl">
+                {displayName && displayName !== '—' ? displayName : 'My profile'}
+              </h1>
+              {emailValue ? <p className="m-0 mt-0.5 truncate text-[13px] text-white/65">{emailValue}</p> : null}
             </div>
-
           </div>
 
+          <div className="w-full sm:w-72">
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="font-semibold text-white">Profile {profileCompletion.pct}% complete</span>
+              <span className="tabular-nums text-white/55">{profileCompletion.done} of {profileCompletion.total}</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${completionTone === 'good' ? 'bg-[#6ee7b7]' : completionTone === 'warn' ? 'bg-amber-400' : 'bg-rose-400'}`}
+                style={{ width: `${profileCompletion.pct}%` }}
+              />
+            </div>
+            {profileCompletion.next ? (
+              <a href={`#${profileCompletion.next.anchor}`} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#9fd8cc] no-underline hover:text-white">
+                Next: {profileCompletion.next.label}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </a>
+            ) : (
+              <p className="m-0 mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#9fd8cc]">
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />Everything is complete
+              </p>
+            )}
+          </div>
         </div>
-
       </div>
 
 
@@ -1087,13 +1076,14 @@ export default function OwnerProfile() {
 
         {/* -- Personal details -------------------------------------------- */}
 
-        <div className="lg:col-span-12 min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div id="owner-personal" className="lg:col-span-12 min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
 
-          <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex flex-col gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-sm font-semibold text-slate-800">Personal details</div>
-              <div className="mt-0.5 text-xs text-slate-500">Contact and business identity.</div>
+              <div className="text-[15px] font-semibold text-slate-900">Personal details</div>
+              <div className="mt-0.5 text-[13px] text-slate-500">Contact and business identity.</div>
             </div>
+            <div className="flex flex-wrap items-center gap-2">
             {form.email && (
               me?.emailVerifiedAt ? (
                 <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
@@ -1117,52 +1107,22 @@ export default function OwnerProfile() {
                 </button>
               )
             )}
+            <button type="button" onClick={save} disabled={saving}
+              className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3.5 text-xs font-semibold text-white transition-colors hover:bg-[#014e47] disabled:cursor-wait disabled:opacity-60">
+              <Save className="h-3.5 w-3.5" aria-hidden />{saving ? "Saving..." : "Save changes"}
+            </button>
+            </div>
           </div>
 
-          <div className="min-w-0 p-4 sm:p-5">
-            <div className="flex min-w-0 flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-white bg-slate-50 shadow-sm ring-1 ring-slate-200">
-                  {avatarUrl
-                    ? <Image src={avatarUrl} alt="Profile photo" fill sizes="56px" unoptimized={bypassAvatarOptimizer} className="object-cover" />
-                    : <span className="grid h-full w-full place-items-center bg-[#02665e]/5"><User className="h-6 w-6 text-[#02665e]" aria-hidden /></span>}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-800">Profile photo</div>
-                  <div className="mt-0.5 text-xs leading-4 text-slate-500">Visible on your owner account.</div>
-                </div>
-              </div>
-              <input ref={avatarFileInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; await uploadAvatar(f); }} />
-              <button type="button" onClick={() => { if (!avatarUploading) avatarFileInputRef.current?.click(); }} disabled={avatarUploading}
-                className="inline-flex h-8 w-fit items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition hover:border-[#02665e]/30 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none">
-                {avatarUploading
-                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#02665e]/20 border-t-[#02665e]" aria-hidden />Uploading...</>
-                  : <><Pencil className="h-3.5 w-3.5" aria-hidden />Change photo</>}
-              </button>
-            </div>
-
-            <div
-              className="mt-4 overflow-x-auto overscroll-x-contain pb-2 [scrollbar-color:#94a3b8_transparent] [scrollbar-width:thin]"
-              role="region"
-              aria-label="Personal details. Swipe or scroll horizontally to view all fields."
-              tabIndex={0}
-            >
-              <div className="flex min-w-max snap-x snap-mandatory gap-3">
-                <div className="w-[230px] shrink-0 snap-start">
-                  <EditableInfoItem icon={<User />} label="Full name" value={form.fullName || form.name} fieldKey="fullName" {...editProps} />
-                </div>
-                <div className="w-[310px] shrink-0 snap-start">
-                  <EditableInfoItem icon={<Mail />} label="Email" value={form.email} fieldKey="email" {...editProps} />
-                </div>
-                <div className="w-[235px] shrink-0 snap-start">
-                  <EditableInfoItem icon={<Phone />} label="Phone" value={form.phone} fieldKey="phone" fieldType="tel" {...editProps} />
-                </div>
-                <div className="w-[200px] shrink-0 snap-start">
-                  <EditableInfoItem icon={<FileText />} label="Business TIN" value={form.tin} fieldKey="tin" {...editProps} />
-                </div>
-                <div className="w-[300px] shrink-0 snap-start">
-                  <EditableInfoItem icon={<MapPin />} label="Business address" value={form.address} fieldKey="address" fieldType="textarea" {...editProps} />
-                </div>
+          <div className="min-w-0 p-5">
+            {/* Every field visible at once: no sideways scrolling to find the address. */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <EditableInfoItem icon={<User />} label="Full name" value={form.fullName || form.name} fieldKey="fullName" {...editProps} />
+              <EditableInfoItem icon={<Mail />} label="Email" value={form.email} fieldKey="email" {...editProps} />
+              <EditableInfoItem icon={<Phone />} label="Phone" value={form.phone} fieldKey="phone" fieldType="tel" {...editProps} />
+              <EditableInfoItem icon={<FileText />} label="Business TIN" value={form.tin} fieldKey="tin" {...editProps} />
+              <div className="sm:col-span-2 xl:col-span-2">
+                <EditableInfoItem icon={<MapPin />} label="Business address" value={form.address} fieldKey="address" fieldType="textarea" {...editProps} />
               </div>
             </div>
           </div>
@@ -1172,8 +1132,9 @@ export default function OwnerProfile() {
 
 
         {/* One secure component owns method selection and destination details. */}
+        <div id="owner-payout" className="lg:col-span-12 scroll-mt-24">
         <SecurePayoutPreferenceCard
-          className="lg:col-span-12"
+          className=""
           value={form}
           disabled={payoutSaving}
           saving={payoutSaving}
@@ -1188,22 +1149,31 @@ export default function OwnerProfile() {
             setForm((current: any) => ({ ...current, ...patch }));
           }}
         />
+        </div>
 
 
 
         {/* -- Required documents ------------------------------------------ */}
 
-        <div className="lg:col-span-12 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div id="owner-documents" className="lg:col-span-12 scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
 
-          <div className="border-b border-slate-200 bg-slate-50/60 p-4 sm:px-5">
+          <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
 
-            <div className="text-sm font-semibold text-slate-800">Required documents</div>
-
-            <div className="mt-0.5 text-xs text-slate-500">PDF, JPG, PNG or WebP · maximum 15 MB each.</div>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[15px] font-semibold text-slate-900">Required documents</div>
+                <div className="mt-0.5 text-[13px] text-slate-500">PDF, JPG, PNG or WebP, up to 15 MB each.</div>
+              </div>
+              {!documentsUnavailable && (
+                <span className="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium tabular-nums text-slate-600">
+                  {requiredDocTypes.filter((t) => String(getLatestDocByType(Array.isArray(me?.documents) ? me.documents : [], t.type)?.status || "").toUpperCase() === "APPROVED").length} of {requiredDocTypes.length} approved
+                </span>
+              )}
+            </div>
 
           </div>
 
-          <div className="space-y-4 p-4 sm:p-5">
+          <div className="space-y-4 p-5">
 
             <input ref={docInputRef} type="file" className="hidden" accept="application/pdf,image/*"
 
@@ -1235,9 +1205,9 @@ export default function OwnerProfile() {
 
             {showUploader && (
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+              <div className="rounded-xl border border-solid border-slate-300 bg-slate-50/60 p-4">
 
-                <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_auto]">
+                <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(200px,1fr)_auto]">
 
                   <div className="min-w-0">
 
@@ -1245,7 +1215,7 @@ export default function OwnerProfile() {
 
                     <select value={selectedDocType} onChange={(e) => setSelectedDocType(e.target.value)} disabled={actionableDocTypes.length === 0}
 
-                      className="mt-1.5 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/15">
+                      className="mt-1.5 box-border h-10 w-full rounded-lg border border-solid border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/15">
 
                       <option value="">Select document</option>
 
@@ -1267,7 +1237,7 @@ export default function OwnerProfile() {
 
                   <button type="button" disabled={!selectedDocType || !!docUploading}
                     onClick={() => docInputRef.current?.click()}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#02665e] px-4 text-sm font-medium text-white transition hover:bg-[#01564f] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+                    className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#01564f] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                     {docUploading
                       ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />Uploading...</>
                       : <><Upload className="h-4 w-4" aria-hidden />Choose file</>}
@@ -1283,14 +1253,12 @@ export default function OwnerProfile() {
 
             {!showUploader && !documentsUnavailable && (
 
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-5 text-center">
-
-                <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto mb-2" />
-
-                <div className="text-sm font-semibold text-slate-900">All required documents uploaded</div>
-
-                <div className="text-xs text-slate-500 mt-0.5">Pending admin review & approval.</div>
-
+              <div className="flex items-center gap-3 rounded-xl border border-solid border-emerald-200 bg-emerald-50/50 px-4 py-3">
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">All required documents uploaded</div>
+                  <div className="mt-0.5 text-xs text-slate-500">NoLSAF reviews new uploads before they are approved.</div>
+                </div>
               </div>
 
             )}
@@ -1299,7 +1267,7 @@ export default function OwnerProfile() {
 
             {/* Document status list */}
 
-            <div className="overflow-hidden rounded-lg border border-slate-200 divide-y divide-slate-200">
+            <div className="overflow-hidden rounded-xl border border-solid border-slate-300 divide-y divide-slate-200 [&>*+*]:border-0 [&>*+*]:border-t [&>*+*]:border-solid [&>*+*]:border-slate-200">
 
               {requiredDocTypes.map((item) => {
 
@@ -1336,96 +1304,52 @@ export default function OwnerProfile() {
 
                 return (
 
-                  <div key={item.type} className="bg-white p-3.5 sm:p-4">
-
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
-                      <div className="flex items-center gap-2 min-w-0">
-
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#02665e]/[0.06] text-[#02665e]">
-
-                          <FileText className="w-4 h-4" />
-
-                        </div>
-
-                        <div className="min-w-0">
-
-                          <div className="text-sm font-medium leading-snug text-slate-800">{item.label}</div>
-
-                          {hasUrl && doc?.url && (
-
-                            <a href={doc.url} target="_blank" rel="noreferrer" className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-[#02665e] hover:underline">
-
-                              <Eye className="h-3 w-3" />View document
-
-                            </a>
-
-                          )}
-
-                        </div>
-
+                  <div key={item.type} className="flex flex-col gap-3 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#02665e]/[0.06] text-[#02665e]">
+                        <FileText className="h-4 w-4" />
                       </div>
-
-                      <span className={`inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium ${badgeCls}`}>
-
-                        {statusText === "PENDING" && <Clock className="w-3 h-3" />}
-
-                        {statusText === "APPROVED" && !isExpired && <CheckCircle2 className="w-3 h-3" />}
-
-                        {badgeText}
-
-                      </span>
-
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-slate-900">{item.label}</div>
+                        <div className={`mt-0.5 text-xs ${isExpired || statusText === "REJECTED" ? "text-rose-600" : typeof daysLeft === "number" && daysLeft <= 10 ? "text-orange-600" : "text-slate-500"}`}>
+                          {isExpired && expiresAt
+                            ? `Expired ${new Date(expiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}. Upload the renewed licence.`
+                            : statusText === "REJECTED"
+                              ? (doc?.reason ? `Rejected: ${doc.reason}` : "Rejected. Upload a clearer copy.")
+                              : expiresAt
+                                ? `Expires ${new Date(expiresAt).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}${typeof daysLeft === "number" && daysLeft <= 30 ? ` (${daysLeft} days left)` : ""}`
+                                : statusText === "APPROVED"
+                                  ? "Approved and locked"
+                                  : statusText === "PENDING"
+                                    ? "Under review and locked"
+                                    : statusText === "UNAVAILABLE"
+                                      ? "Refresh to load the saved status"
+                                      : "Not uploaded yet"}
+                        </div>
+                      </div>
                     </div>
 
-                    {expiresAt && (
-
-                      <div className={`ml-11 mt-1.5 text-[11px] font-medium ${isExpired ? "text-rose-600" : typeof daysLeft === "number" && daysLeft <= 10 ? "text-orange-600" : "text-slate-500"}`}>
-
-                        {isExpired ? "⚠ Expired: " : "Expires: "}{new Date(expiresAt).toLocaleDateString()}
-
-                        {!isExpired && typeof daysLeft === "number" && daysLeft <= 30 && ` (${daysLeft}d left)`}
-
-                      </div>
-
-                    )}
-
-                    {statusText === "REJECTED" && doc?.reason && (
-
-                      <div className="ml-11 mt-2 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs text-rose-700">
-
-                        <span className="font-semibold">Reason:</span> {doc.reason}
-
-                      </div>
-
-                    )}
-
-                    {canUpload ? (
-
-                      <button type="button" disabled={!!docUploading}
-
-                        onClick={() => { setDocError(null); setDocSuccess(null); setSelectedDocType(item.type); triggerDocUpload(); }}
-
-                        className="ml-11 mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50">
-
-                        <Upload className="w-3 h-3" />{!hasUrl ? "Upload" : isExpired ? "Renew" : "Re-upload"}
-
-                      </button>
-
-                    ) : (
-
-                      <div className="ml-11 mt-2 flex items-center gap-1.5 text-[10px] font-medium text-slate-400">
-
-                        <Lock className="w-3 h-3" />
-
-                        {statusText === "UNAVAILABLE" ? "Refresh to load saved status" : statusText === "APPROVED" ? "Approved — locked" : "Under review — locked"}
-
-                      </div>
-
-                    )}
-
+                    <div className="flex shrink-0 items-center gap-2 sm:justify-end">
+                      <span className={`inline-flex items-center gap-1 rounded-md border border-solid px-2 py-1 text-[11px] font-medium ${badgeCls}`}>
+                        {statusText === "PENDING" && <Clock className="h-3 w-3" />}
+                        {statusText === "APPROVED" && !isExpired && <CheckCircle2 className="h-3 w-3" />}
+                        {isExpired && <AlertTriangle className="h-3 w-3" />}
+                        {badgeText}
+                      </span>
+                      {hasUrl && doc?.url && (
+                        <a href={doc.url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 no-underline transition-colors hover:border-slate-400">
+                          <Eye className="h-3.5 w-3.5" />View
+                        </a>
+                      )}
+                      {canUpload && (
+                        <button type="button" disabled={!!docUploading}
+                          onClick={() => { setDocError(null); setDocSuccess(null); setSelectedDocType(item.type); triggerDocUpload(); }}
+                          className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#014e47] disabled:opacity-50">
+                          <Upload className="h-3.5 w-3.5" />{!hasUrl ? "Upload" : isExpired ? "Renew" : "Re-upload"}
+                        </button>
+                      )}
+                    </div>
                   </div>
-
                 );
 
               })}
@@ -1438,66 +1362,56 @@ export default function OwnerProfile() {
 
 
 
-        {/* -- Account actions --------------------------------------------- */}
+        {/* -- Account: settings rows, with delete kept apart ------------- */}
 
-        <div className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
-
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50/60">
-
-            <div className="text-sm font-bold text-slate-900">Account actions</div>
-
-            <div className="text-sm text-slate-600 mt-1">Profile security and account management.</div>
-
+        <div className="lg:col-span-12 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
+          <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
+            <div className="text-[15px] font-semibold text-slate-900">Account</div>
+            <div className="mt-0.5 text-[13px] text-slate-500">Sign-in and session.</div>
           </div>
+          <button type="button" onClick={() => { window.location.href = "/owner/settings/password"; }}
+            className="flex w-full cursor-pointer items-center gap-3 border-0 bg-white px-5 py-3.5 text-left transition-colors hover:bg-slate-50">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><Lock className="h-4 w-4" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-slate-900">Change password</span>
+              <span className="block text-xs text-slate-500">Update the password you sign in with.</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          </button>
+          <button type="button" onClick={async () => { try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch {} window.location.href = "/owner/login"; }}
+            className="flex w-full cursor-pointer items-center gap-3 border-0 border-t border-solid border-slate-200 bg-white px-5 py-3.5 text-left transition-colors hover:bg-slate-50">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><LogOut className="h-4 w-4" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-slate-900">Sign out</span>
+              <span className="block text-xs text-slate-500">End this session on this device.</span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          </button>
+        </div>
 
-          <div className="p-5 sm:p-6 grid grid-cols-2 gap-3">
-
-            <button onClick={save} disabled={saving}
-
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#02665e] text-white text-sm font-semibold hover:bg-[#02665e]/90 shadow-card transition-colors disabled:opacity-60 disabled:cursor-wait">
-
-              <Save className="h-4 w-4" />{saving ? "Saving profile..." : "Save profile details"}
-
-            </button>
-
-            <button onClick={() => { window.location.href = "/owner/settings/password"; }}
-
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 shadow-card transition-colors">
-
-              <Lock className="h-4 w-4" />Change password
-
-            </button>
-
-            <button onClick={async () => { try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch {} window.location.href = "/owner/login"; }}
-
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50 shadow-card transition-colors">
-
-              <LogOut className="h-4 w-4" />Logout
-
-            </button>
-
-            <button
-              onClick={() => { setDeleteOpen(true); setDeleteStep('confirm'); setDeleteInput(''); setDeleteError(null); }}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-sm font-semibold hover:bg-rose-100 transition-colors"
-            >
-              <Trash2 className="h-4 w-4" />Delete account
-            </button>
-
+        <div className="lg:col-span-12 flex flex-col gap-3 rounded-2xl border border-solid border-rose-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-rose-700">Delete account</div>
+            <div className="mt-0.5 text-xs text-slate-500">Permanently remove this owner account. You will be asked to confirm.</div>
           </div>
-
+          <button type="button"
+            onClick={() => { setDeleteOpen(true); setDeleteStep('confirm'); setDeleteInput(''); setDeleteError(null); }}
+            className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-rose-200 bg-rose-50 px-3.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-100">
+            <Trash2 className="h-3.5 w-3.5" />Delete account
+          </button>
         </div>
 
 
 
         {/* -- Audit / Change history -------------------------------------- */}
 
-        <div className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
+        <div className="lg:col-span-12 overflow-hidden rounded-2xl border border-solid border-slate-300 bg-white">
 
-          <div className="p-5 sm:p-6 border-b border-slate-200 bg-slate-50/60">
+          <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
 
-            <div className="text-sm font-bold text-slate-900">Change history</div>
+            <div className="text-[15px] font-semibold text-slate-900">Change history</div>
 
-            <div className="text-sm text-slate-600 mt-1">All modifications to your profile and payout details.</div>
+            <div className="mt-0.5 text-[13px] text-slate-500">Every change to your profile and payout details.</div>
 
           </div>
 

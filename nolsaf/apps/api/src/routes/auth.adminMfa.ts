@@ -9,7 +9,9 @@ import {
 } from "@simplewebauthn/server";
 import { authenticator } from "otplib";
 import { decrypt } from "../lib/crypto.js";
+import { verifyTotp } from "../lib/totp.js";
 import { audit } from "../lib/audit.js";
+import { raiseSecurityAlert } from "../lib/securityAlerts.js";
 import { hashCode } from "../lib/otp.js";
 import { getRedis } from "../lib/redis.js";
 import { sendSms } from "../lib/sms.js";
@@ -182,9 +184,16 @@ async function loadRequestChallenge(req: Request, res: Response): Promise<{ id: 
   return { id, challenge };
 }
 
-async function recordFailure(id: string, challenge: AdminMfaChallenge, res: Response): Promise<boolean> {
+async function recordFailure(id: string, challenge: AdminMfaChallenge, res: Response, req: Request): Promise<boolean> {
   challenge.failures += 1;
   if (challenge.failures >= MAX_VERIFY_FAILURES) {
+    // Password was right but the second factor kept failing: a strong sign the
+    // admin password is known to someone else.
+    void raiseSecurityAlert("security_admin_mfa_locked", String(challenge.userId), {
+      userId: challenge.userId,
+      ip: req.ip,
+      attempts: challenge.failures,
+    });
     await removeChallenge(id);
     clearChallengeCookie(res);
     res.status(429).json({ error: "Too many failed verification attempts. Sign in again.", code: "ADMIN_MFA_LOCKED" });
@@ -332,7 +341,7 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
     where: { userId: loaded.challenge.userId, credentialId },
   }) : null;
   if (!stored) {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Passkey does not belong to this administrator.", code: "ADMIN_MFA_INVALID" });
   }
 
@@ -343,9 +352,9 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
       expectedChallenge: loaded.challenge.authenticationChallenge,
       expectedOrigin: expectedOrigins,
       expectedRPID: rpID,
-      authenticator: {
-        credentialID: stored.credentialId,
-        credentialPublicKey: base64UrlToBuffer(stored.publicKey),
+      credential: {
+        id: stored.credentialId,
+        publicKey: Uint8Array.from(base64UrlToBuffer(stored.publicKey)),
         counter: stored.signCount,
       },
       requireUserVerification: true,
@@ -357,7 +366,7 @@ adminMfaRouter.post("/admin-mfa/passkey/verify", async (req, res) => {
     }
     await completeAdminLogin(req, res, loaded.id, "passkey");
   } catch {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Passkey verification failed.", code: "ADMIN_MFA_INVALID" });
   }
 });
@@ -377,13 +386,13 @@ adminMfaRouter.post("/admin-mfa/totp/verify", async (req, res) => {
       user?.twoFactorEnabled &&
       String(user.twoFactorMethod || "").toUpperCase() === "TOTP" &&
       user.totpSecretEnc &&
-      authenticator.verify({ token: code, secret: decrypt(user.totpSecretEnc, { log: false }) }),
+      verifyTotp(code, decrypt(user.totpSecretEnc, { log: false })),
     );
   } catch {
     verified = false;
   }
   if (!verified) {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Authenticator code is invalid.", code: "ADMIN_MFA_INVALID" });
   }
   if (loaded.challenge.passkeyCount === 0) {
@@ -436,7 +445,7 @@ adminMfaRouter.post("/admin-mfa/bootstrap/verify", limitOtpVerify, async (req, r
     crypto.timingSafeEqual(Buffer.from(hashCode(code), "hex"), Buffer.from(expected, "hex")),
   );
   if (!valid) {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Security code is invalid or expired.", code: "ADMIN_MFA_INVALID" });
   }
   loaded.challenge.bootstrapVerified = true;
@@ -459,7 +468,8 @@ adminMfaRouter.post("/admin-mfa/passkey/register/options", async (req, res) => {
   const options = await generateRegistrationOptions({
     rpName: process.env.APP_NAME || "NoLSAF",
     rpID,
-    userID: String(user.id),
+    // SimpleWebAuthn v14 requires raw user-handle bytes, not a string.
+    userID: new TextEncoder().encode(String(user.id)),
     userName: user.email || `admin-${user.id}`,
     userDisplayName: user.name || user.email || `Admin ${user.id}`,
     timeout: 60_000,
@@ -486,16 +496,17 @@ adminMfaRouter.post("/admin-mfa/passkey/register/verify", async (req, res) => {
       expectedRPID: rpID,
       requireUserVerification: true,
     } as any);
-    const info = verification.registrationInfo;
-    if (!verification.verified || !info?.credentialID || !info.credentialPublicKey) throw new Error("not verified");
-    const credentialId = bufferToBase64Url(Buffer.from(info.credentialID));
-    const publicKey = bufferToBase64Url(Buffer.from(info.credentialPublicKey));
+    const info = verification.registrationInfo as any;
+    const registeredCredential = info?.credential;
+    if (!verification.verified || !registeredCredential?.id || !registeredCredential.publicKey) throw new Error("not verified");
+    const credentialId = registeredCredential.id;
+    const publicKey = bufferToBase64Url(Buffer.from(registeredCredential.publicKey));
     await prisma.passkey.create({
       data: {
         userId: loaded.challenge.userId,
         credentialId,
         publicKey,
-        signCount: typeof info.counter === "number" ? info.counter : 0,
+        signCount: typeof registeredCredential.counter === "number" ? registeredCredential.counter : 0,
         transports: Array.isArray(req.body?.response?.response?.transports) ? req.body.response.response.transports : undefined,
       },
     });
@@ -503,7 +514,7 @@ adminMfaRouter.post("/admin-mfa/passkey/register/verify", async (req, res) => {
     await putChallenge(loaded.id, loaded.challenge);
     await completeAdminLogin(req, res, loaded.id, "passkey");
   } catch {
-    if (await recordFailure(loaded.id, loaded.challenge, res)) return;
+    if (await recordFailure(loaded.id, loaded.challenge, res, req)) return;
     return res.status(400).json({ error: "Passkey registration failed.", code: "ADMIN_MFA_INVALID" });
   }
 });

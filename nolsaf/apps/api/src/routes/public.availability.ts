@@ -10,6 +10,7 @@ import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlo
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { findRestrictionBlocks, resolveRoomTypeIdForCode } from "../lib/nrmsRestrictions.js";
 import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
+import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 
 export const router = Router();
 
@@ -208,6 +209,9 @@ router.post("/check", availabilityLimiter, (async (req: Request, res: Response) 
       },
     });
     const availabilityBlocks = await filterPayableAvailabilityBlocks(rawAvailabilityBlocks);
+    // NRMS reservations and group blocks hold rooms without a Booking row.
+    // Booking creation counts them; the displayed counts must too.
+    availabilityBlocks.push(...(await getNrmsMarketplaceHolds(prisma, propertyId, checkIn, checkOut)) as any[]);
 
     // Parse roomsSpec to get room types and their capacities.
     // Supports multiple shapes across the app: {code, rooms, beds} or {roomType, roomsCount, beds} etc.

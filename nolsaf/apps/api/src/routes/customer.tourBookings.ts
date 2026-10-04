@@ -2,16 +2,51 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import QRCode from "qrcode";
 import type { SignOptions } from "jsonwebtoken";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { evaluateTourCancellation, packageIsNonRefundable } from "../lib/tourCancellationPolicy.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { generateBookingPDF } from "../lib/pdfGenerator.js";
 import { notifyTourOperatorCase } from "../lib/tourCaseNotifications.js";
 import { mapTourLifecycle } from "../lib/serviceLifecycle.js";
+import { assessVisaItineraryReadiness, buildVisaItineraryModel } from "../lib/tourVisaItinerary.js";
+import { generateTourVisaItineraryPdf } from "../lib/tourVisaItineraryPdf.js";
+import { tourVisaVerificationToken } from "../lib/tourVisaVerification.js";
+import {
+  customerRecordReference,
+  isCustomerRecordReference,
+  matchesCustomerRecordReference,
+} from "../lib/customerBookingReference.js";
+import { signTourDocumentToken, type TourDocumentKind } from "../lib/tourDocumentToken.js";
+import { loadTourReceiptDocument, loadTourVoucherDocument } from "../lib/tourDocuments.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
+
+router.param("id", async (req, res, next, value) => {
+  const authedReq = req as AuthedRequest;
+  const requestedId = String(value || "").trim();
+  if (!isCustomerRecordReference(requestedId, "tour")) return next();
+
+  const candidates = await prisma.tourBooking.findMany({
+    where: { customerId: authedReq.user!.id },
+    select: { id: true },
+  });
+  let match = candidates.find(({ id }) => matchesCustomerRecordReference(requestedId, "tour", id));
+  if (!match) {
+    // A traveller who joined a shared itinerary opens it by the same tr_
+    // reference. Resolving it grants nothing: every route still checks access
+    // (the timeline route via getTimelineAccessRole; the rest are owner-only).
+    const shared = await sharedTourBookingIds(authedReq.user!.id);
+    const sharedMatch = shared.find((id) => matchesCustomerRecordReference(requestedId, "tour", id));
+    if (sharedMatch) match = { id: sharedMatch };
+  }
+  if (!match) return res.status(404).json({ error: "Tour booking not found" });
+  req.params.id = String(match.id);
+  return next();
+});
 
 function toCustomerTimelineStatus(rawStatus: string | null | undefined, paymentStatus: string | null | undefined): string {
   const status = String(rawStatus || "").trim().toUpperCase();
@@ -126,6 +161,29 @@ function timelineTeamSummary(metadata: unknown, travelerCount: number | null | u
     joinedTotal: Math.min(totalTravellers, acceptedCount + 1),
     remainingTravellers: Math.max(0, invitedCapacity - acceptedCount),
   };
+}
+
+/**
+ * Tour bookings another customer owns whose itinerary this user joined through
+ * a timeline invite. Participants live in metadata.timelineParticipants, so the
+ * JSON containment filter narrows the rows and findTimelineParticipant confirms
+ * each one. Never throws: a failed lookup just means "no shared trips".
+ */
+async function sharedTourBookingIds(userId: number): Promise<number[]> {
+  try {
+    const rows = await prisma.tourBooking.findMany({
+      where: {
+        customerId: { not: userId },
+        metadata: { path: "$.timelineParticipants", array_contains: [{ userId }] } as any,
+      },
+      select: { id: true, metadata: true },
+      take: 200,
+    });
+    return rows.filter((row) => findTimelineParticipant(safeObject(row.metadata), userId)).map((row) => row.id);
+  } catch (error) {
+    console.error("sharedTourBookingIds failed:", error);
+    return [];
+  }
 }
 
 function getTimelineAccessRole(booking: { customerId: number | null; metadata: unknown }, userId: number): TimelineAccessRole | null {
@@ -371,39 +429,6 @@ function draftPaymentAccessWindow(metadata: unknown, createdAt: Date) {
   };
 }
 
-function formatYmd(value: Date | null | undefined): string {
-  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) return "00000000";
-  const y = value.getFullYear();
-  const m = String(value.getMonth() + 1).padStart(2, "0");
-  const d = String(value.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
-}
-
-function checksum36(input: string): string {
-  let acc = 0;
-  for (let i = 0; i < input.length; i += 1) acc += input.charCodeAt(i) * (i + 1);
-  return (acc % 36).toString(36).toUpperCase();
-}
-
-function buildVoucherIdentity(payload: {
-  bookingId: number;
-  bookingCode: string | null | undefined;
-  startDate: Date | null | undefined;
-  travelerCount: number | null | undefined;
-}) {
-  const suffix = bookingCodeSuffix(payload.bookingCode) || String(payload.bookingId).slice(-6).padStart(6, "0");
-  const ymd = formatYmd(payload.startDate);
-  const travelerPart = String(Math.max(1, Number(payload.travelerCount || 1))).padStart(2, "0");
-  const core = `NLSAF-TVR-${ymd}-${suffix}-${travelerPart}`;
-  const check = checksum36(core);
-  return {
-    voucherNumber: `${core}-${check}`,
-    securityMark: `★${suffix}-${check}★`,
-    machineLine: `NLSAF|TVR|${payload.bookingId}|${suffix}|${travelerPart}|${check}`,
-    issuedAt: new Date().toISOString(),
-  };
-}
-
 /**
  * GET /api/customer/tour-bookings
  * Returns tour package purchases linked to the authenticated customer account.
@@ -479,6 +504,7 @@ router.get("/", (async (req: AuthedRequest, res) => {
       const draftAccess = dashboardBucket === "DRAFT" ? draftPaymentAccessWindow(item.metadata, item.createdAt) : null;
       return {
         id: item.id,
+        tourReference: customerRecordReference("tour", item.id),
         bookingCode: item.bookingCode,
         bookingCodeSuffix: bookingCodeSuffix(item.bookingCode),
         title: item.title,
@@ -546,6 +572,51 @@ router.get("/", (async (req: AuthedRequest, res) => {
  * GET /api/customer/tour-bookings/:id
  * Returns one tour package purchase linked to the authenticated customer account.
  */
+/**
+ * GET /api/customer/tour-bookings/shared
+ * Trips another customer owns whose itinerary this user joined by invite.
+ * Registered before "/:id" so "shared" is never read as a booking id. Returns
+ * only what a joined traveller may see: no payment, contact or row id.
+ */
+router.get("/shared", (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const ids = await sharedTourBookingIds(userId);
+    if (!ids.length) return res.json({ items: [] });
+    const rows = await prisma.tourBooking.findMany({
+      where: { id: { in: ids } },
+      orderBy: { startDate: "desc" },
+      select: {
+        id: true,
+        title: true,
+        destination: true,
+        startDate: true,
+        endDate: true,
+        travelerCount: true,
+        status: true,
+        operatorSnapshot: true,
+        customer: { select: { name: true, fullName: true } },
+      },
+    });
+    return res.json({
+      items: rows.map((row) => ({
+        tourReference: customerRecordReference("tour", row.id),
+        title: row.title,
+        destination: row.destination,
+        startDate: row.startDate,
+        endDate: row.endDate,
+        travelerCount: row.travelerCount,
+        completed: String(row.status || "").toUpperCase() === "COMPLETED",
+        operatorName: String(safeObject(row.operatorSnapshot).companyName || "").trim() || null,
+        sharedBy: String(row.customer?.fullName || row.customer?.name || "").trim().split(/\s+/)[0] || null,
+      })),
+    });
+  } catch (error: any) {
+    console.error("GET /customer/tour-bookings/shared error:", error);
+    return res.status(500).json({ error: "Failed to load shared trips" });
+  }
+}) as RequestHandler);
+
 router.get("/:id", (async (req: AuthedRequest, res) => {
   try {
     const userId = req.user!.id;
@@ -599,7 +670,10 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
           where: { type: "CANCELLATION" },
           orderBy: { createdAt: "desc" },
           take: 5,
-          include: { events: { orderBy: { createdAt: "desc" }, take: 5 } },
+          // Full history, oldest first. The policy estimate lives on the first
+          // event (ELIGIBILITY_CALCULATED); a newest-5 window dropped it once a
+          // case had more activity, and the refund estimate silently read 0%.
+          include: { events: { orderBy: { createdAt: "asc" }, take: 100 } },
         },
       },
     });
@@ -647,6 +721,7 @@ router.get("/:id", (async (req: AuthedRequest, res) => {
 
     return res.json({
       ...booking,
+      tourReference: customerRecordReference("tour", booking.id),
       metadata: md,
       bookingCodeSuffix: bookingCodeSuffix(booking.bookingCode),
       timelineStatus: toCustomerTimelineStatus(booking.status, booking.paymentStatus),
@@ -718,6 +793,7 @@ router.get("/:id/timeline", (async (req: AuthedRequest, res) => {
         destination: true,
         category: true,
         operatorAgentId: true,
+        operator: { select: { publicKey: true } },
         startDate: true,
         endDate: true,
         travelerCount: true,
@@ -758,6 +834,7 @@ router.get("/:id/timeline", (async (req: AuthedRequest, res) => {
       destination: booking.destination,
       category: booking.category,
       operatorAgentId: booking.operatorAgentId,
+      operatorPublicKey: booking.operator.publicKey,
       startDate: booking.startDate,
       endDate: booking.endDate,
       travelerCount: booking.travelerCount,
@@ -885,7 +962,18 @@ router.get("/timeline-invites/:token", (async (req: AuthedRequest, res) => {
 
     const booking = await prisma.tourBooking.findUnique({
       where: { id: parsedToken.bookingId },
-      select: { id: true, title: true, bookingCode: true, travelerCount: true, metadata: true, customerId: true },
+      select: {
+        id: true,
+        title: true,
+        destination: true,
+        startDate: true,
+        endDate: true,
+        travelerCount: true,
+        metadata: true,
+        customerId: true,
+        operatorSnapshot: true,
+        customer: { select: { name: true, fullName: true } },
+      },
     });
     if (!booking) return res.status(404).json({ error: "Timeline invite not found" });
 
@@ -901,15 +989,24 @@ router.get("/timeline-invites/:token", (async (req: AuthedRequest, res) => {
     const accessRole = getTimelineAccessRole(booking, userId);
     const inviteCapacity = timelineInviteCapacity(booking.travelerCount);
     const acceptedCount = acceptedTimelineParticipants(md).length;
+    // Enough context for the invitee to know what they are joining, without
+    // the owner's contact details: first name only, no booking code or row id.
+    const ownerFirstName = String(booking.customer?.fullName || booking.customer?.name || "").trim().split(/\s+/)[0] || null;
     return res.json({
       ok: true,
-      bookingId: booking.id,
       title: booking.title,
-      bookingCode: booking.bookingCode,
+      destination: booking.destination,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      operatorName: String(safeObject(booking.operatorSnapshot).companyName || "").trim() || null,
+      sharedBy: ownerFirstName,
+      isOwner: accessRole === "OWNER",
       alreadyAccepted: Boolean(accessRole),
       travelerCount: booking.travelerCount,
+      joinedCount: Math.min(Math.max(1, Number(booking.travelerCount || 1)), acceptedCount + 1),
       remainingSlots: Math.max(0, inviteCapacity - acceptedCount),
-      timelineUrl: `/account/tour-packages/${booking.id}/timeline`,
+      expiresAt: invite.expiresAt || null,
+      timelineUrl: `/account/tour-packages/${customerRecordReference("tour", booking.id)}/timeline`,
     });
   } catch (error: any) {
     console.error("GET /customer/tour-bookings/timeline-invites/:token error:", error);
@@ -999,9 +1096,8 @@ router.post("/timeline-invites/:token/accept", (async (req: AuthedRequest, res) 
 
     return res.json({
       ok: true,
-      bookingId: booking.id,
       accessRole: existingRole || "TRAVELLER",
-      timelineUrl: `/account/tour-packages/${booking.id}/timeline`,
+      timelineUrl: `/account/tour-packages/${customerRecordReference("tour", booking.id)}/timeline`,
     });
   } catch (error: any) {
     console.error("POST /customer/tour-bookings/timeline-invites/:token/accept error:", error);
@@ -1925,49 +2021,9 @@ router.get("/:id/voucher", (async (req: AuthedRequest, res) => {
     const userId = req.user!.id;
     const idNum = Number(req.params.id);
     if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
-
-    const booking = await prisma.tourBooking.findFirst({
-      where: { id: idNum, customerId: userId },
-      select: {
-        id: true,
-        bookingCode: true,
-        title: true,
-        destination: true,
-        startDate: true,
-        endDate: true,
-        travelerCount: true,
-        guestName: true,
-        guestPhone: true,
-        packageSnapshot: true,
-        operatorSnapshot: true,
-      },
-    });
-    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
-
-    const pkg = safeObject(booking.packageSnapshot);
-    const identity = buildVoucherIdentity({
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      startDate: booking.startDate,
-      travelerCount: booking.travelerCount,
-    });
-
-    return res.json({
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      voucherIdentity: identity,
-      title: booking.title,
-      destination: booking.destination,
-      startDate: booking.startDate,
-      endDate: booking.endDate,
-      travelerCount: booking.travelerCount,
-      guestName: booking.guestName,
-      guestPhone: booking.guestPhone,
-      operatorSnapshot: booking.operatorSnapshot || null,
-      itinerary: Array.isArray(pkg.itinerary) ? pkg.itinerary : [],
-      meetingPoints: Array.isArray(pkg.meetingPoints) ? pkg.meetingPoints : (pkg.meetingPoint ? [pkg.meetingPoint] : []),
-      inclusions: Array.isArray(pkg.inclusions) ? pkg.inclusions : [],
-    });
+    const result = await loadTourVoucherDocument(idNum, userId);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    return res.json(result.data);
   } catch (error: any) {
     console.error("GET /customer/tour-bookings/:id/voucher error:", error);
     return res.status(500).json({ error: "Failed to load voucher" });
@@ -1983,6 +2039,26 @@ router.get("/:id/receipt", (async (req: AuthedRequest, res) => {
     const userId = req.user!.id;
     const idNum = Number(req.params.id);
     if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
+    const result = await loadTourReceiptDocument(idNum, userId);
+    if (!result.ok) return res.status(result.status).json({ error: result.error, ...(result.message ? { message: result.message } : {}) });
+    return res.json(result.data);
+  } catch (error: any) {
+    console.error("GET /customer/tour-bookings/:id/receipt error:", error);
+    return res.status(500).json({ error: "Failed to load receipt" });
+  }
+}) as RequestHandler);
+
+/**
+ * GET /api/customer/tour-bookings/:id/receipt.html
+ * The tour receipt rendered with the same document template as the stay
+ * booking receipt (pdfGenerator), so every customer receipt looks and prints
+ * the same. Paid bookings only.
+ */
+router.get("/:id/receipt.html", (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const idNum = Number(req.params.id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
 
     const booking = await prisma.tourBooking.findFirst({
       where: { id: idNum, customerId: userId },
@@ -1990,39 +2066,240 @@ router.get("/:id/receipt", (async (req: AuthedRequest, res) => {
         id: true,
         bookingCode: true,
         title: true,
+        destination: true,
+        startDate: true,
+        endDate: true,
         currency: true,
         grossAmount: true,
         paymentStatus: true,
-        paymentProvider: true,
-        paymentRef: true,
         paidAt: true,
         travelerCount: true,
         guestName: true,
+        guestPhone: true,
+        operatorSnapshot: true,
       },
     });
     if (!booking) return res.status(404).json({ error: "Tour booking not found" });
 
     const pay = String(booking.paymentStatus || "").toUpperCase();
-    if (pay !== "PAID" && pay !== "APPROVED") {
+    if (!["PAID", "APPROVED", "DISBURSED", "SETTLED"].includes(pay)) {
       return res.status(409).json({ error: "receipt_not_available", message: "Receipt is available after successful payment." });
     }
 
-    return res.json({
+    const operatorName = String(safeObject(booking.operatorSnapshot).companyName || "").trim();
+    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const start = booking.startDate ? new Date(booking.startDate) : null;
+    const end = booking.endDate ? new Date(booking.endDate) : null;
+    const dayOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const days = start && end ? Math.round((dayOf(end) - dayOf(start)) / 86_400_000) + 1 : null;
+    const sameDay = !start || !end || dayOf(start) === dayOf(end);
+    const travellers = Math.max(1, Number(booking.travelerCount || 1));
+    const code = String(booking.bookingCode || "");
+    // Receipt number comes from the booking code, never the row id.
+    const receiptNumber = code.replace(/^TOUR-/i, "TPR-") || code;
+
+    const { html } = await generateBookingPDF({
       bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      title: booking.title,
-      currency: booking.currency,
-      amount: Number(booking.grossAmount || 0),
-      paymentStatus: booking.paymentStatus,
-      paymentProvider: booking.paymentProvider,
-      paymentRef: booking.paymentRef,
-      paidAt: booking.paidAt,
+      bookingCode: code,
+      guestName: booking.guestName || "Traveller",
+      guestPhone: booking.guestPhone || undefined,
+      property: { title: booking.title || "Tour package", type: "Tour package", country: "Tanzania" },
+      checkIn: booking.startDate ?? new Date(),
+      checkOut: booking.endDate ?? booking.startDate ?? new Date(),
+      totalAmount: Number(booking.grossAmount || 0),
+      invoice: { receiptNumber, paidAt: booking.paidAt || undefined },
+      document: {
+        title: "TOUR RECEIPT",
+        reservationKicker: "Tour",
+        reservationSub: [booking.destination ? `${booking.destination}, Tanzania` : null, operatorName ? `with ${operatorName}` : null].filter(Boolean).join(" | "),
+        periodColumn: "Travel",
+        periodTitle: start ? (!sameDay && end ? `${fmt(start)} to ${fmt(end)}` : fmt(start)) : "Dates to be confirmed",
+        periodSub: [days && days > 1 ? `${days} days` : null, `${travellers} traveller${travellers === 1 ? "" : "s"}`].filter(Boolean).join(" | "),
+        lineTitle: booking.title || "Tour package",
+        lineSub: operatorName ? `Operated by ${operatorName}` : undefined,
+        currency: booking.currency || "TZS",
+        confirmationCopy: "Your tour is confirmed and paid. Show your voucher at the meetup. This document is not a fiscal tax receipt.",
+        verifyUrl: null,
+      },
+    });
+    if (!html) return res.status(500).json({ error: "Failed to generate receipt" });
+
+    const filename = `Tour Receipt - ${receiptNumber}.pdf`.replace(/"/g, '\\"');
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    res.setHeader("X-NoLSAF-Filename", filename);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(html);
+  } catch (error: any) {
+    console.error("GET /customer/tour-bookings/:id/receipt.html error:", error);
+    return res.status(500).json({ error: "Failed to generate receipt" });
+  }
+}) as RequestHandler);
+
+/**
+ * GET /api/customer/tour-bookings/:id/visa-itinerary.pdf
+ * An A4 PDF itinerary for visa/travel applications, in the NRMS document style. Only the booking
+ * owner can open it, and only after payment is confirmed so drafts cannot be
+ * represented as confirmed travel.
+ */
+router.get("/:id/visa-itinerary.pdf", (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const idNum = Number(req.params.id);
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
+
+    const booking = await prisma.tourBooking.findFirst({
+      where: { id: idNum, customerId: userId },
+      select: {
+        bookingCode: true,
+        title: true,
+        destination: true,
+        startDate: true,
+        endDate: true,
+        travelerCount: true,
+        guestName: true,
+        nationality: true,
+        status: true,
+        paymentStatus: true,
+        currency: true,
+        grossAmount: true,
+        packageSnapshot: true,
+        operatorSnapshot: true,
+        metadata: true,
+        travelers: {
+          where: { status: "ACTIVE" },
+          select: { fullName: true, nationality: true, documentType: true, documentNumber: true },
+          orderBy: { createdAt: "asc" },
+        },
+        operator: { select: { operatorProfile: true } },
+        _count: { select: { cases: { where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"] } } } } },
+      },
+    });
+    if (!booking) return res.status(404).json({ error: "Tour booking not found" });
+
+    const paymentStatus = String(booking.paymentStatus || "").toUpperCase();
+    if (!["PAID", "APPROVED", "DISBURSED", "SETTLED"].includes(paymentStatus)) {
+      return res.status(409).json({
+        error: "visa_itinerary_not_available",
+        message: "The visa-support itinerary is available after successful payment.",
+      });
+    }
+    const bookingStatus = String(booking.status || "").toUpperCase();
+    if (["CANCELED", "CANCELLED", "REFUNDED"].includes(bookingStatus)) {
+      return res.status(409).json({
+        error: "visa_itinerary_cancelled",
+        message: "A visa-support itinerary cannot be issued for a cancelled booking.",
+      });
+    }
+    // A consulate checks entry and exit dates against the plan: only an
+    // upcoming trip with both dates and a daily schedule gets a document.
+    const readiness = assessVisaItineraryReadiness({
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      bookingStatus: booking.status,
+      packageSnapshot: booking.packageSnapshot,
+      metadata: booking.metadata,
+    });
+    if (!readiness.ready) {
+      return res.status(409).json({
+        error: "visa_itinerary_not_ready",
+        message: readiness.missing.join(" "),
+        missing: readiness.missing,
+        checks: readiness.checks,
+      });
+    }
+
+    // The operator's legal details come from their current profile so a
+    // licence or address added after booking still appears.
+    const profile = booking.operator?.operatorProfile && typeof booking.operator.operatorProfile === "object" && !Array.isArray(booking.operator.operatorProfile)
+      ? (booking.operator.operatorProfile as Record<string, any>)
+      : {};
+    const snapshot = booking.operatorSnapshot && typeof booking.operatorSnapshot === "object" && !Array.isArray(booking.operatorSnapshot)
+      ? (booking.operatorSnapshot as Record<string, any>)
+      : {};
+    const profileText = (...values: unknown[]) => values.map((v) => String(v ?? "").trim()).find(Boolean) || null;
+
+    const verificationToken = tourVisaVerificationToken(idNum);
+    const verificationUrl = `${resolveWebOrigin(req)}/verify/tour-itinerary/${encodeURIComponent(verificationToken)}`;
+    const qrPng = await QRCode.toBuffer(verificationUrl, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 320,
+    }).catch(() => null);
+    const model = buildVisaItineraryModel({
+      bookingCode: String(booking.bookingCode || ""),
+      title: booking.title || "Tour itinerary",
+      destination: booking.destination,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
       travelerCount: booking.travelerCount,
       guestName: booking.guestName,
+      nationality: booking.nationality,
+      paymentStatus: booking.paymentStatus,
+      bookingStatus: booking.status,
+      currency: booking.currency,
+      amountPaid: Number(booking.grossAmount || 0),
+      packageSnapshot: booking.packageSnapshot,
+      operatorSnapshot: booking.operatorSnapshot,
+      metadata: booking.metadata,
+      travellers: booking.travelers,
+      openCaseCount: booking._count.cases,
+      operator: {
+        name: profileText(profile.companyName, snapshot.companyName),
+        registrationNumber: profileText(profile.businessRegistrationNumber),
+        tourismLicence: profileText(profile.tourismPermitNumber, profile.tourismLicenseNumber, profile.businessLicenseNumber),
+        tin: profileText(profile.tinNumber),
+        address: profileText(profile.businessAddress, profile.physicalLocation),
+        email: profileText(profile.companyEmail, profile.contactEmail, snapshot.contactEmail),
+        phone: profileText(profile.companyPhone, profile.contactPhone, snapshot.contactPhone),
+        website: profileText(profile.companyWebsite),
+      },
     });
+    const pdf = await generateTourVisaItineraryPdf({ model, verificationUrl, qrPng });
+
+    const filename = `Visa Itinerary - ${String(booking.bookingCode || "NoLSAF")}.pdf`.replace(/"/g, "");
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    res.setHeader("X-NoLSAF-Filename", filename);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(pdf);
+  } catch (error) {
+    console.error("GET /customer/tour-bookings/:id/visa-itinerary.pdf error:", error);
+    return res.status(500).json({ error: "Failed to generate visa-support itinerary" });
+  }
+}) as RequestHandler);
+
+/**
+ * GET /api/customer/tour-bookings/:id/document-link/:kind
+ * Exchanges the app session for a short-lived link to the canonical web
+ * receipt or voucher. The browser never receives the customer's auth token.
+ */
+router.get("/:id/document-link/:kind", (async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const idNum = Number(req.params.id);
+    const kind = String(req.params.kind || "").toLowerCase() as TourDocumentKind;
+    if (!Number.isFinite(idNum) || idNum <= 0) return res.status(400).json({ error: "Invalid booking id" });
+    if (kind !== "voucher" && kind !== "receipt") return res.status(400).json({ error: "Invalid document type" });
+
+    const document = kind === "voucher"
+      ? await loadTourVoucherDocument(idNum, userId)
+      : await loadTourReceiptDocument(idNum, userId);
+    if (!document.ok) {
+      return res.status(document.status).json({
+        error: document.error,
+        ...("message" in document && document.message ? { message: document.message } : {}),
+      });
+    }
+
+    const documentToken = signTourDocumentToken(idNum, userId, kind);
+    const url = new URL(`/account/tour-packages/${encodeURIComponent(String(idNum))}/${kind}`, resolveWebOrigin(req));
+    url.searchParams.set("document_token", documentToken);
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    return res.json({ ok: true, url: url.toString(), expiresInSeconds: 600 });
   } catch (error: any) {
-    console.error("GET /customer/tour-bookings/:id/receipt error:", error);
-    return res.status(500).json({ error: "Failed to load receipt" });
+    console.error("GET /customer/tour-bookings/:id/document-link/:kind error:", error);
+    return res.status(500).json({ error: "Failed to issue document link" });
   }
 }) as RequestHandler);
 
@@ -2403,7 +2680,12 @@ router.post("/:id/cases/:caseId/withdraw", (async (req: AuthedRequest, res) => {
   const caseId = Number(req.params.caseId);
   const existing = await prisma.tourCase.findFirst({ where: { id: caseId, tourBookingId: bookingId, requestedByUserId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: "Case not found" });
-  if (["RESOLVED", "CLOSED", "WITHDRAWN"].includes(existing.status)) return res.status(409).json({ error: "Case is already closed" });
+  // Only an undecided request can be withdrawn. Once NoLSAF has approved (the
+  // booking is already cancelled and a refund queued) or rejected it, the
+  // decision stands; withdrawing it would leave the booking and money out of step.
+  if (!["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE"].includes(existing.status)) {
+    return res.status(409).json({ error: "This request has already been decided and can no longer be withdrawn." });
+  }
   const updated = await prisma.$transaction(async (tx) => {
     const item = await tx.tourCase.update({ where: { id: caseId }, data: { status: "WITHDRAWN", withdrawnAt: new Date(), closedAt: new Date() } });
     await tx.tourCaseEvent.create({ data: { tourCaseId: caseId, actorUserId: req.user!.id, type: "WITHDRAWN", message: cleanText(req.body?.reason, 1000) } });

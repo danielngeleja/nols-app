@@ -7,7 +7,10 @@ const webOrigin = () => String(process.env.WEB_ORIGIN || process.env.NEXT_PUBLIC
 
 export async function processNrmsGuestAutomation(now = new Date()): Promise<{ expiredHolds: number; journeys: number; reviews: number; payments: number }> {
   let expiredHolds = 0;
-  const staleHolds = await prisma.reservation.findMany({ where: { source: "DIRECT", status: "HELD", holdExpiresAt: { lte: now } }, select: { id: true }, take: BATCH_SIZE });
+  // A provider-accepted payment can complete after the visible hold deadline.
+  // Keep its inventory protected until reconciliation establishes the result;
+  // expiring it here could sell the same room while the guest is being charged.
+  const staleHolds = await prisma.reservation.findMany({ where: { source: "DIRECT", status: "HELD", holdExpiresAt: { lte: now }, paymentRequests: { none: { status: "PROCESSING" } } }, select: { id: true }, take: BATCH_SIZE });
   for (const hold of staleHolds) {
     const changed = await prisma.reservation.updateMany({ where: { id: hold.id, status: "HELD", holdExpiresAt: { lte: now } }, data: { status: "EXPIRED" } }); if (!changed.count) continue;
     await prisma.$transaction([prisma.nrmsGuestPaymentRequest.updateMany({ where: { reservationId: hold.id, status: "PENDING" }, data: { status: "CANCELLED", cancelledAt: now } }), prisma.reservationEvent.create({ data: { reservationId: hold.id, type: "EXPIRED", data: { reason: "DIRECT_HOLD_TIMEOUT" } } })]); expiredHolds += 1;
@@ -33,7 +36,7 @@ export async function processNrmsGuestAutomation(now = new Date()): Promise<{ ex
   const payments = await prisma.nrmsGuestPaymentRequest.findMany({ where: { status: "PENDING", reminderCount: { lt: 3 }, OR: [{ lastReminderAt: null }, { lastReminderAt: { lte: reminderBefore }, dueAt: { lte: now } }], reservation: { guestProfile: { phone: { not: null } } } }, include: { reservation: { include: { guestProfile: { select: { phone: true } }, property: { select: { title: true } } } } }, orderBy: { createdAt: "asc" }, take: BATCH_SIZE });
   for (const payment of payments) {
     if (!payment.reservation.guestProfile?.phone) continue;
-    const result = await sendSms(payment.reservation.guestProfile.phone, `${payment.reservation.property.title} requests ${Number(payment.amount).toLocaleString()} ${payment.currency} for your stay. View the hotel's payment instructions: ${webOrigin()}/nrms/guest/payment/${payment.publicToken}`);
+    const result = await sendSms(payment.reservation.guestProfile.phone, `${payment.reservation.property.title} requests ${Number(payment.amount).toLocaleString()} ${payment.currency} for your stay. Pay through the secure property checkout: ${webOrigin()}/nrms/guest/payment/${payment.publicToken}`);
     if (result.success && result.provider !== "suppressed") await prisma.nrmsGuestPaymentRequest.update({ where: { id: payment.id }, data: { reminderCount: { increment: 1 }, lastReminderAt: now } }); paymentCount += 1;
   }
   return { expiredHolds, journeys: journeyCount, reviews: reviewCount, payments: paymentCount };

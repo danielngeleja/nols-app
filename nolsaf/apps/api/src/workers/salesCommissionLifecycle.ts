@@ -1,4 +1,5 @@
 import { prisma } from "@nolsaf/prisma";
+import { COMMISSION_TRANSACTION_OPTIONS } from "../lib/nrmsTransaction.js";
 import {
   accrueMarketplaceSalesCommission,
   accrueNrmsSalesCommission,
@@ -50,21 +51,27 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
 
   let nrmsAccrued = 0;
   let marketplaceAccrued = 0;
+  // Bound database work per run; sources remain eligible for the next run.
+  let attempted = 0;
   for (const statement of statements) {
     if (accruedStatementIds.has(statement.id)) continue;
-    const result = await db.$transaction((tx: any) => accrueNrmsSalesCommission(tx, statement.id));
+    if (attempted >= 50) break;
+    attempted += 1;
+    const result = await db.$transaction((tx: any) => accrueNrmsSalesCommission(tx, statement.id), COMMISSION_TRANSACTION_OPTIONS);
     if (result.created) nrmsAccrued += 1;
   }
   for (const invoice of invoices) {
     if (accruedInvoiceIds.has(invoice.id)) continue;
-    const result = await db.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, invoice.id));
+    if (attempted >= 100) break;
+    attempted += 1;
+    const result = await db.$transaction((tx: any) => accrueMarketplaceSalesCommission(tx, invoice.id), COMMISSION_TRANSACTION_OPTIONS);
     if (result.created) marketplaceAccrued += 1;
   }
 
   const candidates = await db.salesCommission.findMany({
     where: { status: "VALIDATING", eligibleAt: { lte: now } },
     orderBy: { eligibleAt: "asc" },
-    take: 500,
+    take: 50,
     select: { id: true, status: true, eligibleAt: true },
   });
   let madeEligible = 0;
@@ -87,7 +94,7 @@ export async function runSalesCommissionLifecycle(now = new Date()): Promise<{
         },
       });
       return true;
-    });
+    }, COMMISSION_TRANSACTION_OPTIONS);
     if (changed) madeEligible += 1;
   }
   return { nrmsAccrued, marketplaceAccrued, madeEligible };

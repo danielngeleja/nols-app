@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import Chart from "@/components/Chart";
 import type { ChartData } from "chart.js";
 
@@ -134,6 +135,7 @@ type TripLookupBooking = {
 type TripLookupResponse = { booking: TripLookupBooking };
 
 export default function AdminDriversInvoicesPage() {
+  useAdminHref();
   const [status, setStatus] = useState<string>("PENDING");
   const [date, setDate] = useState<string | string[]>("");
   const [q, setQ] = useState("");
@@ -412,7 +414,7 @@ export default function AdminDriversInvoicesPage() {
   }, [histogramData, histogramPeriod]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       {/* Premium Header Banner */}
       <div
         className="relative rounded-2xl overflow-hidden"
@@ -893,7 +895,7 @@ export default function AdminDriversInvoicesPage() {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatDateTime(invoice.requestedAt)}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">
                             <Link
-                              href={`/admin/drivers/invoices/review?id=${invoice.id}`}
+                              href={`/admin/drivers/invoices/review?id=${adminRefOrId("transport-payout", invoice.id)}`}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:border-gray-400"
                               aria-label={`Open ${invoice.invoiceNumber || `DP-${invoice.id}`}`}
                             >
@@ -931,7 +933,7 @@ export default function AdminDriversInvoicesPage() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">
                             <Link
-                              href={`/admin/drivers/invoices/review?id=${invoice.id}`}
+                              href={`/admin/drivers/invoices/review?id=${adminRefOrId("transport-payout", invoice.id)}`}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:border-gray-400"
                               aria-label={`Open ${invoice.invoiceNumber || `DP-${invoice.id}`}`}
                             >
@@ -981,7 +983,7 @@ export default function AdminDriversInvoicesPage() {
                     </div>
                   </div>
                   <Link
-                    href={`/admin/drivers/invoices/review?id=${invoice.id}`}
+                    href={`/admin/drivers/invoices/review?id=${adminRefOrId("transport-payout", invoice.id)}`}
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 active:scale-[0.99]"
                     aria-label={`Open ${invoice.invoiceNumber || `DP-${invoice.id}`}`}
                   >

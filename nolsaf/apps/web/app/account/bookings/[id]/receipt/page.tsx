@@ -3,39 +3,88 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Download } from "lucide-react";
-import { sanitizeTrustedHtml } from "@/utils/html";
+import { ArrowLeft, Download, FileText, Printer } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 
 export default function BookingReceiptPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const bookingId = Number(idParam);
+  const bookingReference = String(idParam || "");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [receiptHtml, setReceiptHtml] = useState<string>("");
-  const [filename, setFilename] = useState<string>(`Booking-Receipt-${bookingId}.pdf`);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pdfGenerating, setPdfGenerating] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [filename, setFilename] = useState<string>(`Booking-Receipt-${bookingReference}.pdf`);
+  const viewerFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const viewerStageRef = useRef<HTMLDivElement | null>(null);
 
-  const backHref = useMemo(() => `/account/bookings/${bookingId}`, [bookingId]);
+  const backHref = useMemo(() => `/account/bookings/${encodeURIComponent(bookingReference)}`, [bookingReference]);
+  const pdfHref = useMemo(
+    () => `/api/customer/bookings/${encodeURIComponent(bookingReference)}/pdf`,
+    [bookingReference],
+  );
 
-  const sanitizedReceiptHtml = useMemo(() => {
-    return sanitizeTrustedHtml(receiptHtml);
-  }, [receiptHtml]);
+  const fitReceipt = useCallback(() => {
+    const frame = viewerFrameRef.current;
+    const stage = viewerStageRef.current;
+    const doc = frame?.contentDocument;
+    const sheet = doc?.querySelector(".sheet") as HTMLElement | null;
+    if (!frame || !stage || !doc?.body || !sheet) return;
+
+    sheet.style.position = "absolute";
+    sheet.style.left = "0";
+    sheet.style.top = "0";
+    sheet.style.margin = "0";
+    sheet.style.transform = "scale(1)";
+    sheet.style.transformOrigin = "top left";
+
+    const width = sheet.offsetWidth;
+    const height = sheet.offsetHeight;
+    if (!width || !height) return;
+
+    const availableWidth = Math.max(280, stage.clientWidth - 32);
+    const scale = Math.min(availableWidth / width, 1.12);
+    const renderedWidth = Math.ceil(width * scale);
+    const renderedHeight = Math.ceil(height * scale);
+
+    doc.documentElement.style.width = `${width}px`;
+    doc.documentElement.style.height = `${height}px`;
+    doc.documentElement.style.overflow = "hidden";
+    Object.assign(doc.body.style, {
+      width: `${width}px`,
+      height: `${height}px`,
+      margin: "0",
+      padding: "0",
+      overflow: "hidden",
+      background: "#ffffff",
+    });
+
+    sheet.style.transform = `scale(${scale})`;
+    frame.style.width = `${renderedWidth}px`;
+    frame.style.height = `${renderedHeight}px`;
+  }, []);
+
+  useEffect(() => {
+    const stage = viewerStageRef.current;
+    const observer = stage ? new ResizeObserver(fitReceipt) : null;
+    if (stage) observer?.observe(stage);
+    window.addEventListener("resize", fitReceipt);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fitReceipt);
+    };
+  }, [fitReceipt]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const url = `/api/customer/bookings/${bookingId}/receipt.html`;
+      const url = `/api/customer/bookings/${encodeURIComponent(bookingReference)}/receipt.html`;
       const r = await fetch(url, { credentials: "include", cache: "no-store" });
       const html = await r.text();
       if (!r.ok) {
         throw new Error(`Failed to load receipt (${r.status})`);
       }
-      const fn = r.headers.get("x-nolsaf-filename") || `Booking-Receipt-${bookingId}.pdf`;
+      const fn = r.headers.get("x-nolsaf-filename") || `Booking-Receipt-${bookingReference}.pdf`;
       setFilename(fn);
       setReceiptHtml(html);
     } catch (e: any) {
@@ -44,58 +93,21 @@ export default function BookingReceiptPage() {
     } finally {
       setLoading(false);
     }
-  }, [bookingId]);
+  }, [bookingReference]);
+
+  const printReceipt = useCallback(() => {
+    viewerFrameRef.current?.contentWindow?.focus();
+    viewerFrameRef.current?.contentWindow?.print();
+  }, []);
 
   useEffect(() => {
-    if (!Number.isFinite(bookingId) || bookingId <= 0) {
-      setErr("Invalid booking ID");
+    if (!bookingReference) {
+      setErr("Invalid booking reference");
       setLoading(false);
       return;
     }
     load();
-  }, [bookingId, load]);
-
-  useEffect(() => {
-    let revokedUrl: string | null = null;
-    async function gen() {
-      if (!sanitizedReceiptHtml) return;
-      const root = containerRef.current;
-      if (!root) return;
-
-      const el = (root.querySelector(".sheet") as HTMLElement | null) || root;
-
-      setPdfGenerating(true);
-      try {
-        const html2pdfModule: any = await import("html2pdf.js");
-        const h2p = html2pdfModule && (html2pdfModule.default || html2pdfModule);
-        if (!h2p) throw new Error("html2pdf load failed");
-
-        const worker = h2p().from(el).set({
-          filename,
-          margin: 0,
-          jsPDF: { unit: "mm", format: "a5", orientation: "portrait" },
-          html2canvas: { scale: 2, useCORS: true, logging: false, windowWidth: 558 },
-          pagebreak: { mode: [] },
-        });
-
-        const pdf = await worker.toPdf().get("pdf");
-        const nextUrl = pdf.output("bloburl");
-        revokedUrl = nextUrl;
-        setPdfUrl(nextUrl);
-      } catch (e: any) {
-        setPdfUrl(null);
-        setErr(e?.message || "Failed to generate PDF");
-      } finally {
-        setPdfGenerating(false);
-      }
-    }
-    gen();
-    return () => {
-      if (revokedUrl) {
-        try { URL.revokeObjectURL(revokedUrl); } catch {}
-      }
-    };
-  }, [sanitizedReceiptHtml, filename, bookingId]);
+  }, [bookingReference, load]);
 
   if (loading) {
     return (
@@ -124,52 +136,58 @@ export default function BookingReceiptPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <div className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-[#eef2f1]">
+      <header className="flex h-16 flex-shrink-0 items-center justify-between gap-3 border-0 border-b border-solid border-slate-200 bg-white px-3 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
         <Link
           href={backHref}
-          className="no-underline inline-flex items-center justify-center w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-800 shadow-sm hover:shadow-md hover:bg-gray-50 active:scale-[0.99] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e] focus-visible:ring-offset-2"
-          title="Back"
-          aria-label="Back"
+          className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 no-underline transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]"
+          title="Back to booking"
+          aria-label="Back to booking"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="h-4 w-4" aria-hidden />
         </Link>
-
+          <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
+            <FileText className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h1 className="m-0 truncate text-[15px] font-bold text-slate-900 sm:text-[16px]">Booking receipt</h1>
+            <p className="m-0 truncate text-[11.5px] text-slate-500">NoLSAF proof of reservation</p>
+          </div>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={printReceipt}
+            title="Print receipt"
+            aria-label="Print receipt"
+            className="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-200 bg-white text-slate-700 transition-colors hover:border-[#02665e]/40 hover:text-[#02665e]"
+          >
+            <Printer className="h-4 w-4" aria-hidden />
+        </button>
         <a
-          href={pdfUrl || "#"}
+          href={pdfHref}
           download={filename}
-          className={`no-underline inline-flex items-center gap-2 px-4 py-2 rounded-xl text-white transition-all ${
-            pdfUrl ? "bg-[#02665e] hover:bg-[#014e47] shadow-sm hover:shadow-md" : "bg-gray-300 cursor-not-allowed"
-          }`}
-          onClick={(e) => { if (!pdfUrl) e.preventDefault(); }}
-          title={pdfUrl ? "Download PDF" : "Generating PDF…"}
+          className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#02665e] px-3.5 text-sm font-semibold text-white no-underline transition-colors hover:bg-[#014e47]"
+          title="Download PDF"
         >
-          <Download className="w-4 h-4" />
-          Download PDF
+          <Download className="h-4 w-4" aria-hidden />
+          <span className="hidden sm:inline">Download PDF</span>
         </a>
-      </div>
-
-      {pdfGenerating && (
-        <div className="text-sm text-gray-600 flex items-center gap-2">
-          <LogoSpinner size="xs" className="h-4 w-4" ariaLabel="Generating PDF" />
-          Generating PDF…
         </div>
-      )}
+      </header>
 
-      {pdfUrl ? (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-          <iframe title="Receipt PDF" src={pdfUrl} className="w-full h-[75vh]" />
+      <main className="relative min-h-0 flex-1 overflow-auto bg-[#dfe5e4]">
+        <div ref={viewerStageRef} className="flex min-h-full w-full items-start justify-center px-3 py-5 sm:px-6 sm:py-7">
+          <iframe
+            ref={viewerFrameRef}
+            title="Booking receipt"
+            srcDoc={receiptHtml}
+            onLoad={fitReceipt}
+            className="block shrink-0 border-0 bg-white shadow-[0_12px_35px_rgba(15,46,43,0.16)]"
+          />
         </div>
-      ) : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-          <iframe title="Receipt Template" srcDoc={sanitizedReceiptHtml} className="w-full h-[75vh]" />
-        </div>
-      )}
-
-      {/* Hidden source HTML for PDF generation */}
-      <div className="fixed left-[-10000px] top-0">
-        <div ref={containerRef} dangerouslySetInnerHTML={{ __html: sanitizedReceiptHtml }} />
-      </div>
+      </main>
     </div>
   );
 }

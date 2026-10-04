@@ -227,7 +227,9 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
     };
 
     fetchCounts();
-    intervalId = setInterval(() => { if (mounted) fetchCounts(); }, 30000);
+    intervalId = setInterval(() => {
+      if (mounted && document.visibilityState === "visible") fetchCounts();
+    }, 60_000);
     const onChanged = () => { if (mounted) fetchCounts(); };
     window.addEventListener("nols:checkedin-changed", onChanged);
     window.addEventListener("nols:checkout-changed", onChanged);

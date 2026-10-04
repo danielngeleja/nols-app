@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { referralCodeFor } from "../lib/referralCode.js";
 
 const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -13,8 +14,8 @@ function appOrigin(): string {
 // GET /api/customer/referrals
 router.get("/", (async (req: AuthedRequest, res: any) => {
   const userId = req.user!.id;
-  const code = `CUSTOMER-${userId}`;
-  const link = `${appOrigin()}/register?ref=${code}`;
+  const code = referralCodeFor("CUSTOMER", userId);
+  const link = `${appOrigin()}/register?ref=${encodeURIComponent(code)}`;
 
   const [total, referrals] = await Promise.all([
     prisma.user.count({ where: { referredBy: userId } }),

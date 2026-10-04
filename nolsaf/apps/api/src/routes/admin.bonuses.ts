@@ -322,6 +322,25 @@ router.post('/grant', limitBonusOperations, (async (req, res) => {
         },
       });
 
+      // A granted bonus is a NoLSAF cost: record it in the expense ledger in
+      // the same transaction, keyed by its payment reference so a retry can
+      // never count it twice (see lib/platformMargin.ts).
+      if (Number(bonusAmount) > 0) {
+        await tx.platformExpense.create({
+          data: {
+            category: 'PARTNER_BONUS',
+            description: 'Bonus granted to an owner',
+            amount: Number(bonusAmount).toFixed(2) as any,
+            currency: 'TZS',
+            incurredAt: new Date(),
+            origin: 'SYSTEM',
+            sourceKey: `BONUS:${bonusPaymentRef}`,
+            recordedById: adminId,
+            note: `Ref ${bonusPaymentRef}`,
+          },
+        });
+      }
+
       // Audit using audit function
       await audit(req as AuthedRequest, "ADMIN_BONUS_GRANTED", `owner:${ownerId}`, null, details);
     });
@@ -430,6 +449,23 @@ router.post('/grant-driver', limitBonusOperations, (async (req, res) => {
           details: JSON.stringify(details),
         },
       });
+
+      // A granted bonus is a NoLSAF cost (see the owner grant above).
+      if (Number(bonusAmount) > 0) {
+        await tx.platformExpense.create({
+          data: {
+            category: 'PARTNER_BONUS',
+            description: 'Bonus granted to a driver',
+            amount: Number(bonusAmount).toFixed(2) as any,
+            currency: 'TZS',
+            incurredAt: new Date(),
+            origin: 'SYSTEM',
+            sourceKey: `BONUS:${bonusPaymentRef}`,
+            recordedById: adminId,
+            note: `Ref ${bonusPaymentRef}`,
+          },
+        });
+      }
 
       // Audit using audit function
       await audit(req as AuthedRequest, "ADMIN_BONUS_GRANTED", `driver:${driverId}`, null, details);

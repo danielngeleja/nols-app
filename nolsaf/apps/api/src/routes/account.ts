@@ -5,11 +5,13 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
+import { referralCodeFor, referralKindForRole } from "../lib/referralCode.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
 import { hashCode as hashOtpCode } from "../lib/otp.js";
 import { PASSWORD_MAX_LENGTH, validatePasswordStrength, isPasswordReused, addPasswordToHistory, getPasswordChangeCooldownRemaining, recordPasswordChangeSuccess } from "../lib/security.js";
 import { validatePasswordWithSettings } from "../lib/securitySettings.js";
 import { authenticator } from "otplib";
+import { backupCodeCandidates, generateBackupCodes, verifyTotp as verifyTotpCode } from "../lib/totp.js";
 import QRCode from "qrcode";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { limitContactChangeOtp, limitContactChangeConfirm } from "../middleware/rateLimit.js";
@@ -27,6 +29,8 @@ import {
 import { isAllowedDocumentTypeForRole, isTrustedUserDocumentUrl, sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
 import { getRedis } from "../lib/redis.js";
 import { invalidateAuthSessionCacheForUser } from "../lib/authSessionCache.js";
+import { accountMfaBinding, requiresAccountTotp } from "../lib/accountMfaPolicy.js";
+import { setAuthCookie, signUserJwt } from "../lib/sessionManager.js";
 import { getWebAuthnRp } from "../lib/webauthnRp.js";
 import {
   generateRegistrationOptions,
@@ -39,6 +43,7 @@ import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../serv
 import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
 import { buildDriverVerificationCode } from "../lib/driverVerificationCode.js";
+import { isTravellerDocumentPublicId, signedTravellerDocumentUrl } from "../lib/travellerDocuments.js";
 
 export const router = Router();
 router.use(requireAuth as unknown as RequestHandler);
@@ -204,6 +209,19 @@ const updatePayoutsSchema = z.discriminatedUnion("payoutPreferred", [
     })
     .strict(),
 ]);
+
+/** How a destination reads on sales payout requests and receipts, e.g. "M-Pesa" or "CRDB Bank". */
+function payoutMethodLabel(isBank: boolean, provider: string): string {
+  if (isBank) return `${provider} Bank`;
+  switch (canonicalAzamPayProvider(provider)) {
+    case "vodacom": return "M-Pesa";
+    case "yas": return "Mixx by Yas";
+    case "airtel": return "Airtel Money";
+    case "halotel": return "HaloPesa";
+    case "azampesa": return "AzamPesa";
+    default: return provider;
+  }
+}
 
 const confirmPayoutSchema = z.object({
   challengeToken: z.string().trim().min(32).max(256),
@@ -704,7 +722,7 @@ const getMe: RequestHandler = async (req, res) => {
     // review but appeared as "Not uploaded" on the owner's own profile.
     try {
       const documentRole = String((user as any).role || "").toUpperCase();
-      if (["DRIVER", "OWNER", "AGENT"].includes(documentRole) && (prisma as any).userDocument) {
+      if (["DRIVER", "OWNER", "AGENT", "CUSTOMER", "USER", "TRAVELLER", "TRAVELER"].includes(documentRole) && (prisma as any).userDocument) {
         const docs = await prisma.userDocument.findMany({
           where: { userId },
           orderBy: { id: 'desc' },
@@ -876,18 +894,14 @@ const getReferral: RequestHandler = async (req, res) => {
     if (!user) return sendError(res, 404, "User not found");
 
     /**
-     * The code must be built from the user's own id in the format registration
-     * accepts (`DRIVER-<id>` or `CUSTOMER-<id>`, parsed in auth.ts). Two bugs
-     * lived here:
+     * The code is derived from the user's own id but never shows it (see
+     * lib/referralCode.ts), and registration decodes it in auth.ts.
      *
-     * 1. `String(user.id)` produced a bare number, which matches neither
-     *    pattern, so every customer referral was silently discarded.
-     * 2. `user.referralCode` stores the code this user ARRIVED with, meaning a
-     *    referred customer's own share link credited whoever referred them.
+     * `user.referralCode` is NOT this user's code: it stores the code they
+     * ARRIVED with, so using it would make a referred customer's share link
+     * credit whoever referred them.
      */
-    const code = String(user.role || "").toUpperCase() === "DRIVER"
-      ? `DRIVER-${user.id}`
-      : `CUSTOMER-${user.id}`;
+    const code = referralCodeFor(referralKindForRole(user.role), user.id);
     sendSuccess(res, { code, link: `${publicWebOrigin()}/account/register?ref=${encodeURIComponent(code)}` });
   } catch {
     sendError(res, 500, "Failed to fetch referral info");
@@ -925,10 +939,16 @@ const upsertMyDocument: RequestHandler = async (req, res) => {
     return sendSuccess(res, { type, url, status: "PENDING" }, "Document saved");
   }
 
-  const existing = await prisma.userDocument.findFirst({
+  const bookingId = typeof metadata?.bookingId === "string" ? metadata.bookingId.trim() : "";
+  const bookingScoped = bookingId.length > 0 && String(metadata?.source || "").startsWith("tour_");
+  const candidates = await prisma.userDocument.findMany({
     where: { userId, type },
     orderBy: { id: "desc" },
+    take: bookingScoped ? 100 : 1,
   });
+  const existing = bookingScoped
+    ? candidates.find((candidate: any) => String(candidate?.metadata?.bookingId || "").trim() === bookingId) || null
+    : candidates[0] || null;
 
   const doc = existing
     ? await prisma.userDocument.update({
@@ -951,6 +971,44 @@ const upsertMyDocument: RequestHandler = async (req, res) => {
   return sendSuccess(res, { doc });
 };
 router.put("/documents", upsertMyDocument as unknown as RequestHandler);
+
+/**
+ * GET /account/documents/:id/view
+ * Authorizes an account-owned document and redirects to a five-minute signed
+ * URL for new private traveller uploads. Legacy public uploads remain readable
+ * so existing customers do not lose access while records are migrated.
+ */
+router.get("/documents/:id/view", (async (req: AuthedRequest, res) => {
+  const documentId = Number(req.params.id);
+  if (!Number.isInteger(documentId) || documentId <= 0) return sendError(res, 400, "Invalid document id");
+
+  const document = await prisma.userDocument.findFirst({
+    where: { id: documentId, userId: getUserId(req) },
+    select: { url: true, metadata: true },
+  });
+  if (!document?.url) return sendError(res, 404, "Document not found");
+
+  const metadata = document.metadata && typeof document.metadata === "object" && !Array.isArray(document.metadata)
+    ? document.metadata as Record<string, unknown>
+    : {};
+  const publicId = metadata.cloudinaryPublicId;
+  const resourceType = String(metadata.cloudinaryResourceType || "image");
+
+  if (isTravellerDocumentPublicId(publicId)) {
+    try {
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.redirect(302, signedTravellerDocumentUrl(publicId, resourceType));
+    } catch {
+      return sendError(res, 503, "Private document delivery is unavailable");
+    }
+  }
+
+  if (!isTrustedUserDocumentUrl(document.url, String(req.user?.role || ""))) {
+    return sendError(res, 400, "Document location is not trusted");
+  }
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.redirect(302, document.url);
+}) as RequestHandler);
 
 /** PUT /account/profile - update authenticated user's profile */
 const updateProfile: RequestHandler = async (req, res) => {
@@ -1293,7 +1351,7 @@ const requestContactChange: RequestHandler = async (req, res) => {
         const totpRequired = Boolean(user.twoFactorEnabled && user.twoFactorMethod === "TOTP" && user.totpSecretEnc);
         let stepUpValid = false;
         if (totpRequired && totpCode) {
-          stepUpValid = authenticator.verify({ token: totpCode, secret: decrypt(user.totpSecretEnc) });
+          stepUpValid = verifyTotpCode(totpCode, decrypt(user.totpSecretEnc));
         } else if (!totpRequired && user.passwordHash && currentPassword) {
           stepUpValid = await verifyPassword(user.passwordHash, currentPassword);
         }
@@ -1732,6 +1790,17 @@ const updatePayouts: RequestHandler = async (req, res) => {
         data: { isDefault: false, isActive: false },
       });
       await tx.user.update({ where: { id: userId }, data: { payout: payoutData } });
+      // Sales partners withdraw through SalesPayoutRequest, which requires and
+      // snapshots these profile fields. Keep them in step with the verified
+      // destination so there is one place to set it. No-op for everyone else.
+      await tx.salesPartnerProfile.updateMany({
+        where: { userId },
+        data: {
+          payoutName: resolvedName,
+          payoutMethod: payoutMethodLabel(isBank, provider),
+          payoutAccount: accountNumber,
+        },
+      });
       return verified;
     });
 
@@ -1913,6 +1982,12 @@ const setupTotp: RequestHandler = async (req, res) => {
       return sendError(res, 404, "User not found");
     }
 
+    // Writing a new secret over an enabled authenticator silently breaks every
+    // code from the app the user already set up, and signs out their sessions.
+    if (user.twoFactorEnabled && user.twoFactorMethod === "TOTP" && user.totpSecretEnc) {
+      return sendError(res, 409, "Authenticator is already on. Turn it off first to set up a new one.");
+    }
+
     const issuer = process.env.TOTP_ISSUER || "NoLSAF";
     const secret = authenticator.generateSecret();
     const accountName = user.email || user.phone || `user-${user.id}`;
@@ -1937,6 +2012,27 @@ const setupTotp: RequestHandler = async (req, res) => {
 };
 router.post("/2fa/totp/setup", sensitive as unknown as RequestHandler, setupTotp as unknown as RequestHandler);
 
+/**
+ * Once the authenticator is turned on, accountMfaSessionAllowed rejects every
+ * session that was not issued through the MFA check, including the one that
+ * just turned it on. The person has proved possession of the authenticator in
+ * this very request, so hand back a session that carries that proof instead of
+ * signing them out mid-setup (and losing the backup codes on screen).
+ * ADMIN keeps its own admin-MFA session; `sensitive` already refuses
+ * impersonated sessions, so this never mints a real session for support.
+ */
+async function issueAccountMfaSession(res: Response, userId: number): Promise<string | null> {
+  const fresh = await prisma.user.findUnique({ where: { id: userId } });
+  if (!fresh || !requiresAccountTotp(fresh) || !fresh.totpSecretEnc) return null;
+  const token = await signUserJwt(
+    { id: fresh.id, role: fresh.role, email: fresh.email },
+    { accountMfa: { method: "totp", binding: accountMfaBinding(fresh) } },
+  );
+  await setAuthCookie(res, token, fresh.role);
+  await invalidateAuthSessionCacheForUser(fresh.id).catch(() => {});
+  return token;
+}
+
 /** 2FA: Verify and enable — step 2 */
 const verifyTotp: RequestHandler = async (req, res) => {
   try {
@@ -1955,13 +2051,13 @@ const verifyTotp: RequestHandler = async (req, res) => {
     }
 
     const secret = decrypt(user.totpSecretEnc);
-    const isValid = authenticator.verify({ token: code, secret });
+    const isValid = verifyTotpCode(code, secret);
     if (!isValid) {
       return sendError(res, 400, "Invalid code");
     }
 
     // Generate backup codes
-    const plainCodes: string[] = Array.from({ length: BACKUP_CODES_COUNT }, () => genBackupCode());
+    const plainCodes: string[] = generateBackupCodes(BACKUP_CODES_COUNT);
     const hashed = await Promise.all(plainCodes.map((c) => hashCode(c)));
 
     await prisma.user.update({
@@ -1970,9 +2066,10 @@ const verifyTotp: RequestHandler = async (req, res) => {
     });
     
     await audit(req as AuthedRequest, "USER_2FA_ENABLED", `user:${user.id}`);
+    const token = await issueAccountMfaSession(res as Response, user.id);
 
     // Return plaintext codes ONCE
-    sendSuccess(res, { backupCodes: plainCodes }, "2FA enabled successfully");
+    sendSuccess(res, { backupCodes: plainCodes, ...(token ? { token } : {}) }, "2FA enabled successfully");
   } catch (error: any) {
     console.error('account.2fa.totp.verify failed', error);
     sendError(res, 500, "Failed to verify TOTP");
@@ -1980,11 +2077,6 @@ const verifyTotp: RequestHandler = async (req, res) => {
 };
 router.post("/2fa/totp/verify", sensitive as unknown as RequestHandler, verifyTotp as unknown as RequestHandler);
 
-function genBackupCode(): string {
-  // XXXX-XXXX format
-  const n = Math.floor(Math.random() * 36 ** 8).toString(36).padStart(8, "0");
-  return `${n.slice(0, 4)}-${n.slice(4)}`.toUpperCase();
-}
 
 // =========================================================
 //  SECURITY (Hub) APIs — used by agent/account security UI
@@ -2020,8 +2112,12 @@ const getSecurity2faProvision: RequestHandler = async (req, res) => {
   const type = (req.query.type as string) || "totp";
   if (type !== "totp") return sendError(res, 400, "unsupported type");
   try {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, phone: true } } as any);
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, phone: true, twoFactorEnabled: true, twoFactorMethod: true } } as any);
     if (!user) return sendError(res, 404, "User not found");
+    // See setupTotp: never replace the secret behind an enabled authenticator.
+    if ((user as any).twoFactorEnabled && (user as any).twoFactorMethod === "TOTP") {
+      return sendError(res, 409, "Authenticator is already on. Turn it off first to set up a new one.");
+    }
 
     const issuer = process.env.TOTP_ISSUER || "NoLSAF";
     const secret = authenticator.generateSecret();
@@ -2066,14 +2162,14 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
       if (code.includes("-")) {
         if ((user as any).backupCodesHash && Array.isArray((user as any).backupCodesHash)) {
           for (const hash of (user as any).backupCodesHash as string[]) {
-            if (await verifyCode(hash, code)) {
+            if ((await Promise.all(backupCodeCandidates(code).map((c) => verifyCode(hash, c)))).some(Boolean)) {
               isValid = true;
               break;
             }
           }
         }
       } else if ((user as any).totpSecretEnc) {
-        isValid = authenticator.verify({ token: code, secret: decrypt((user as any).totpSecretEnc) });
+        isValid = verifyTotpCode(code, decrypt((user as any).totpSecretEnc));
       }
 
       if (!isValid) return sendError(res, 400, "Invalid code");
@@ -2091,6 +2187,9 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
     }
 
     // enable
+    if ((user as any).twoFactorEnabled && (user as any).twoFactorMethod === "TOTP") {
+      return sendError(res, 409, "Authenticator is already on. Turn it off first to set up a new one.");
+    }
     // If secret was provided, persist it first (best-effort)
     if (secret && typeof secret === "string" && secret.trim()) {
       try {
@@ -2104,10 +2203,10 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
     if (!fresh || !(fresh as any).totpSecretEnc) return sendError(res, 400, "TOTP not initiated");
 
     const secretPlain = decrypt((fresh as any).totpSecretEnc);
-    const isValid = authenticator.verify({ token: code, secret: secretPlain });
+    const isValid = verifyTotpCode(code, secretPlain);
     if (!isValid) return sendError(res, 400, "Invalid code");
 
-    const plainCodes: string[] = Array.from({ length: BACKUP_CODES_COUNT }, () => genBackupCode());
+    const plainCodes: string[] = generateBackupCodes(BACKUP_CODES_COUNT);
     const hashed = await Promise.all(plainCodes.map((c) => hashCode(c)));
 
     await prisma.user.update({
@@ -2120,8 +2219,9 @@ const postSecurity2fa: RequestHandler = async (req, res) => {
     } catch {
       // ignore
     }
+    const token = await issueAccountMfaSession(res as Response, (fresh as any).id);
 
-    return res.json({ ok: true, backupCodes: plainCodes });
+    return res.json({ ok: true, backupCodes: plainCodes, ...(token ? { token } : {}) });
   } catch (e: any) {
     console.error("account.security.2fa.post failed", e);
     return res.status(500).json({ error: "failed" });
@@ -2257,7 +2357,8 @@ const postAccountPasskeysCreate: RequestHandler = async (req, res) => {
     const options = await generateRegistrationOptions({
       rpName: process.env.APP_NAME || "nolsaf",
       rpID,
-      userID: String(userId),
+      // SimpleWebAuthn v14 requires raw user-handle bytes, not a string.
+      userID: new TextEncoder().encode(String(userId)) as any,
       userName,
       timeout: 60000,
       attestationType: "direct",
@@ -2328,13 +2429,14 @@ const postAccountPasskeysVerify: RequestHandler = async (req, res) => {
     }
 
     const regInfo = verification.registrationInfo;
-    if (!regInfo || !regInfo.credentialID || !regInfo.credentialPublicKey) {
+    const registeredCredential = regInfo?.credential;
+    if (!registeredCredential?.id || !registeredCredential.publicKey) {
       return res.status(500).json({ error: "missing registration info" });
     }
 
-    const credentialId = toBase64Url(Buffer.from(regInfo.credentialID));
-    const publicKey = toBase64Url(Buffer.from(regInfo.credentialPublicKey));
-    const signCount = typeof regInfo.counter === "number" ? regInfo.counter : 0;
+    const credentialId = registeredCredential.id;
+    const publicKey = toBase64Url(registeredCredential.publicKey);
+    const signCount = typeof registeredCredential.counter === "number" ? registeredCredential.counter : 0;
 
     if ((prisma as any).passkey) {
       try {
@@ -2467,9 +2569,9 @@ const postAccountPasskeysAuthenticateVerify: RequestHandler = async (req, res) =
         expectedChallenge: storedChallenge,
         expectedOrigin: expectedOrigins,
         expectedRPID: rpID,
-        authenticator: {
-          credentialID: stored.credentialId || stored.credentialID || stored.id || credId,
-          credentialPublicKey: fromBase64Url(publicKey),
+        credential: {
+          id: stored.credentialId || stored.credentialID || stored.id || credId,
+          publicKey: Uint8Array.from(fromBase64Url(publicKey)),
           counter: signCount,
         },
         requireUserVerification: false,
@@ -2627,7 +2729,7 @@ const disable2FA: RequestHandler = async (req, res) => {
         // Backup code
         if (user.backupCodesHash && Array.isArray(user.backupCodesHash)) {
           for (const hash of user.backupCodesHash as string[]) {
-            if (await verifyCode(hash, code)) {
+            if ((await Promise.all(backupCodeCandidates(code).map((c) => verifyCode(hash, c)))).some(Boolean)) {
               isValid = true;
               break;
             }
@@ -2635,7 +2737,7 @@ const disable2FA: RequestHandler = async (req, res) => {
         }
       } else if (user.totpSecretEnc) {
         // TOTP code
-        isValid = authenticator.verify({ token: code, secret: decrypt(user.totpSecretEnc) });
+        isValid = verifyTotpCode(code, decrypt(user.totpSecretEnc));
       }
     }
     
@@ -2668,11 +2770,19 @@ const regenCodes: RequestHandler = async (req, res) => {
     const userId = getUserId(req as AuthedRequest);
     const user = await prisma.user.findUnique({ where: { id: userId } });
     
-    if (!user?.twoFactorEnabled) {
-      return sendError(res, 400, "2FA not enabled");
+    if (!user?.twoFactorEnabled || user.twoFactorMethod !== "TOTP" || !user.totpSecretEnc) {
+      return sendError(res, 400, "Turn on the authenticator app first");
     }
 
-    const plainCodes: string[] = Array.from({ length: BACKUP_CODES_COUNT }, () => genBackupCode());
+    // New codes replace every old one and can sign in without the phone, so
+    // prove the authenticator is still in hand. A signed-in session alone is
+    // not enough: a stolen one could otherwise mint its own way back in.
+    const code = typeof (req.body as any)?.code === "string" ? (req.body as any).code : "";
+    if (!verifyTotpCode(code, decrypt(user.totpSecretEnc))) {
+      return sendError(res, 400, "Enter the current 6-digit code from your authenticator app");
+    }
+
+    const plainCodes: string[] = generateBackupCodes(BACKUP_CODES_COUNT);
     const hashed = await Promise.all(plainCodes.map((c) => hashCode(c)));
     
     await prisma.user.update({ 

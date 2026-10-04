@@ -67,6 +67,8 @@ function publicPayout(row: any) {
     requestedAmount: number(row.requestedAmount),
     approvedAmount: row.approvedAmount == null ? null : number(row.approvedAmount),
     deductionAmount: number(row.deductionAmount),
+    withholdingTaxRate: row.withholdingTaxRate == null ? null : number(row.withholdingTaxRate),
+    withholdingTaxAmount: number(row.withholdingTaxAmount),
     netPaidAmount: row.netPaidAmount == null ? null : number(row.netPaidAmount),
     payoutAccount: maskPayoutAccount(row.payoutAccount),
     items: row.items?.map((item: any) => ({
@@ -101,6 +103,8 @@ router.get("/payouts", limitSalesPropertyRead, asyncHandler(async (req: SalesAut
         requestedAmount: true,
         approvedAmount: true,
         deductionAmount: true,
+        withholdingTaxRate: true,
+        withholdingTaxAmount: true,
         netPaidAmount: true,
         currency: true,
         status: true,

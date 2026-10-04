@@ -16,6 +16,7 @@ import { adminSalesMaterialsRouter, salesMaterialsRouter } from "./sales.materia
 import salesEarningsRouter from "./sales.earnings.js";
 import salesPayoutsRouter from "./sales.payouts.js";
 import salesWorkspaceRouter from "./sales.workspace.js";
+import salesStatementsRouter from "./sales.statements.js";
 
 export function registerSalesRoutes(app: Express): void {
   // Workspace discovery and selection live under /api/me/* because they are
@@ -28,6 +29,7 @@ export function registerSalesRoutes(app: Express): void {
   app.use("/api/sales", salesMaterialsRouter as RequestHandler);
   app.use("/api/sales", salesEarningsRouter as RequestHandler);
   app.use("/api/sales", salesPayoutsRouter as RequestHandler);
+  app.use("/api/sales", salesStatementsRouter as RequestHandler);
 
   app.use("/admin/sales", adminSalesPartnersRouter);
   app.use("/admin/sales", adminSalesAttributionsRouter);

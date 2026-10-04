@@ -685,7 +685,11 @@ export async function markBookingCodeAsUsed(
         },
       });
       await updateNoLsafBookingStatus(tx, checkinCode.bookingId, "CHECKED_IN");
-    });
+      // The NRMS projection inside this transaction is a dozen round trips
+      // (guest profile, reservation upsert, event, allocations). On the default
+      // 5s budget a slow database expires the transaction mid-projection and
+      // the guest is turned away at the desk with the code already consumed.
+    }, { maxWait: 10_000, timeout: 30_000 });
 
     return { success: true };
   } catch (error: any) {

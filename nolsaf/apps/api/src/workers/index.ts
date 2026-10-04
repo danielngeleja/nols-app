@@ -16,6 +16,7 @@ import { startNrmsRetentionWorker } from "./nrmsRetention.js";
 import { startNrmsUsageAccrualWorker } from "./nrmsUsageAccrual.js";
 import { startNrmsGuestAutomationWorker } from "./nrmsGuestAutomation.js";
 import { startNrmsMetaMessagingWorker } from "./nrmsMetaMessaging.js";
+import { startNrmsStockDigestWorker } from "./nrmsStockDigest.js";
 import { startBookingComReservationSyncWorker } from "../lib/channels/bookingComReservationSync.js";
 import { startBookingComOutboundDeliveryWorker } from "../lib/channels/bookingComDelivery.js";
 import { startChannelOperationsWorker } from "../lib/channels/channelOperations.js";
@@ -23,10 +24,15 @@ import { startIcalCalendarSyncWorker } from "../lib/channels/icalSync.js";
 import { startExpediaReservationSyncWorker } from "../lib/channels/expediaReservationSync.js";
 import { startExpediaOutboundDeliveryWorker } from "../lib/channels/expediaDelivery.js";
 import { startSalesCommissionLifecycleWorker } from "./salesCommissionLifecycle.js";
+import { startNrmsInquiryFollowUpWorker } from "./nrmsInquiryFollowUps.js";
+import { startSalesLeadReminderWorker } from "./salesLeadReminders.js";
 import { startAuditRetentionWorker } from "./auditRetention.js";
+import { startTravellerTripReminders } from "./travellerTripReminders.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
+import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
+import { startFinalizeTourCompletionWorker } from "./finalizeTourCompletion.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -95,6 +101,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
       // within the grace window, the trip will later become claimable.
       startTransportAutoDispatch({ io });
       startOwnerBusinessLicenceExpiryReminders({ io });
+      startTravellerTripReminders({ io });
       // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
       startExpireStaleBookings();
       // Expire group stay offers whose 24h deposit window has passed.
@@ -111,8 +118,20 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startNrmsRetentionWorker();
       startNrmsGuestAutomationWorker();
       startNrmsMetaMessagingWorker();
+      // Owner stock digest: off unless the owner switches it on per property.
+      startNrmsStockDigestWorker();
       startSalesCommissionLifecycleWorker();
+      // Sales partners: follow-up dates that have arrived, and lead claims about to lapse.
+      startSalesLeadReminderWorker();
+      startNrmsInquiryFollowUpWorker();
       startAuditRetentionWorker();
+      // Twiga threads an agent took and then left go to Resolved after 12 quiet
+      // hours, so the Open view only holds chats someone still has to act on.
+      startTwigaAutoResolveWorker();
+      // Tour Operator Disbursement Policy: an operator-completed trip becomes
+      // COMPLETED once its dispute window closes with no open case, so the
+      // balance never waits on a traveller who does not tap "confirm".
+      startFinalizeTourCompletionWorker();
       // Fallback for missed/delayed AzamPay disbursement callbacks: polls
       // transaction-status for any payout stuck in SUBMITTED/PROCESSING and
       // applies the result through the same idempotent ledger path a callback

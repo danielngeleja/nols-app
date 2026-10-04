@@ -16,6 +16,19 @@ import { findUnitConflicts } from "./nrmsAvailability.js";
 /** Only a stay that has not started can be given a different room this way. */
 export const ASSIGNABLE_STATUSES = ["CONFIRMED"];
 
+export function roomAssignmentPaymentReady(input: {
+  totalAmount: unknown;
+  chargesTotal?: unknown;
+  amountPaid?: unknown;
+  agencyBilled?: boolean;
+  masterFolioStatus?: unknown;
+}): boolean {
+  if (input.agencyBilled) return String(input.masterFolioStatus || "").toUpperCase() === "SETTLED";
+  const total = Number(input.totalAmount ?? 0) + Number(input.chargesTotal ?? 0);
+  const paid = Number(input.amountPaid ?? 0);
+  return total <= 0.005 || (paid > 0 && total - paid <= 0.005);
+}
+
 /** A room the desk can hand over without housekeeping getting in the way. */
 const READY_HOUSEKEEPING = ["CLEAN", "INSPECTED"];
 
@@ -65,10 +78,18 @@ function preferenceOrder(a: Candidate, b: Candidate): number {
 }
 
 async function loadGroupAllocations(tx: any, groupId: number, propertyId: number, ownerId: number): Promise<MemberAllocation[]> {
+  const block = await tx.nrmsGroupBlock.findUnique({
+    where: { groupId },
+    select: { billingMode: true, masterFolio: { select: { status: true } } },
+  });
+  const agencyBilled = ["MASTER", "SPLIT"].includes(String(block?.billingMode || "").toUpperCase());
   const members = await tx.reservation.findMany({
     where: { groupId, propertyId, ownerId, status: { in: ASSIGNABLE_STATUSES } },
     select: {
       id: true,
+      totalAmount: true,
+      chargesTotal: true,
+      amountPaid: true,
       guestProfile: { select: { fullName: true } },
       allocations: {
         where: { status: "ACTIVE" },
@@ -78,7 +99,13 @@ async function loadGroupAllocations(tx: any, groupId: number, propertyId: number
     },
     orderBy: [{ checkIn: "asc" }, { id: "asc" }],
   });
-  return members.flatMap((member: any) =>
+  return members.filter((member: any) => roomAssignmentPaymentReady({
+    totalAmount: member.totalAmount,
+    chargesTotal: member.chargesTotal,
+    amountPaid: member.amountPaid,
+    agencyBilled,
+    masterFolioStatus: block?.masterFolio?.status,
+  })).flatMap((member: any) =>
     (member.allocations ?? []).map((allocation: any) => ({
       allocationId: allocation.id,
       reservationId: member.id,

@@ -1,4 +1,5 @@
 import type { PropertyImage } from "@prisma/client";
+import { APPROX_LOCATION_RADIUS_M, approximateCoordinates, hasPublicExactLocation } from "./propertyLocationPrivacy.js";
 
 const DEFAULT_PROPERTY_VERIFICATION_METHOD = "Site visit and listing review";
 
@@ -40,6 +41,10 @@ export type PublicPropertyDetail = {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** APPROXIMATE for private homes before booking: the point is shifted and street is withheld. */
+  locationPrecision: "EXACT" | "APPROXIMATE";
+  /** Radius of the area to draw when the location is approximate. */
+  locationRadiusMeters: number | null;
   images: string[];
   basePrice: number | null;
   currency: string | null;
@@ -76,9 +81,9 @@ export function slugify(input: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-export function buildPropertySlug(title: string, id: number) {
+export function buildPropertySlug(title: string, publicKey: string) {
   const base = slugify(title);
-  return base ? `${base}-${id}` : String(id);
+  return base ? `${base}-${publicKey}` : publicKey;
 }
 
 function safeString(v: any): string | null {
@@ -207,9 +212,31 @@ export function pickImages(opts: {
 
   const out: string[] = [];
 
+  // The owner's photos list carries their chosen order, cover first. When it
+  // holds real web URLs it decides the order; each photo still uses its
+  // processed thumbnail when an image row has one. Image rows are sorted by
+  // upload time, so leading with them ignored "Make cover".
+  const orderedPhotoUrls = Array.isArray(photos)
+    ? photos.map((p: any) => String(p || "").trim()).filter((u: string) => /^https?:\/\//i.test(u))
+    : [];
+  const rows = Array.isArray(images) ? images : [];
+  if (orderedPhotoUrls.length) {
+    const rowByUrl = new Map<string, Pick<PropertyImage, "url" | "thumbnailUrl" | "status">>();
+    for (const row of rows) {
+      const u = safeString(row.url);
+      if (u) rowByUrl.set(u, row);
+    }
+    for (const u of orderedPhotoUrls) {
+      const row = rowByUrl.get(u);
+      const thumb = row ? safeString(row.thumbnailUrl) : null;
+      const pub = toPublicImageUrl(thumb || u, thumb ? 900 : 1600);
+      if (pub) out.push(pub);
+    }
+  }
+
   // Prefer moderated/processed images when available; otherwise take whatever exists.
-  if (Array.isArray(images) && images.length) {
-    const urls = images
+  if (rows.length) {
+    const urls = rows
       .map((i) => toPublicImageUrl(safeString(i.thumbnailUrl) || safeString(i.url) || "", i.thumbnailUrl ? 900 : 1600))
       .filter((u): u is string => typeof u === "string");
     out.push(...urls);
@@ -243,7 +270,7 @@ export function formatLocation(p: {
 
 export function toPublicCard(p: any): PublicPropertyCard {
   const id = Number(p.id);
-  const slug = buildPropertySlug(String(p.title || ""), id);
+  const slug = buildPropertySlug(String(p.title || ""), String(p.nrmsBookingKey || ""));
   const effectiveBasePrice = extractEffectiveBasePrice(p);
   // If primaryImage is pre-extracted (e.g. from a raw SQL query using JSON_EXTRACT or
   // batchResolvePrimaryImages), use it directly — but still validate it's a renderable URL
@@ -292,11 +319,23 @@ export function toPublicCard(p: any): PublicPropertyCard {
 
 export function toPublicDetail(p: any): PublicPropertyDetail {
   const id = Number(p.id);
-  const slug = buildPropertySlug(String(p.title || ""), id);
+  const slug = buildPropertySlug(String(p.title || ""), String(p.nrmsBookingKey || ""));
   const propertyImages = pickImages({ images: p.images, photos: p.photos, limit: null });
   const roomImages = pickRoomImages(p.roomsSpec);
   const images = Array.from(new Set<string>([...propertyImages, ...roomImages]));
   const effectiveBasePrice = extractEffectiveBasePrice(p);
+
+  // Private homes: approximate point and no street before booking. The exact
+  // location reaches the guest through their confirmed booking instead.
+  const exactLocation = hasPublicExactLocation(p.type);
+  const rawLat = p.latitude !== null && typeof p.latitude !== "undefined" ? Number(p.latitude) : null;
+  const rawLng = p.longitude !== null && typeof p.longitude !== "undefined" ? Number(p.longitude) : null;
+  const hasPoint = rawLat != null && rawLng != null && Number.isFinite(rawLat) && Number.isFinite(rawLng);
+  const point = hasPoint
+    ? exactLocation
+      ? { latitude: rawLat as number, longitude: rawLng as number }
+      : approximateCoordinates(id, rawLat as number, rawLng as number)
+    : { latitude: null, longitude: null };
 
   return {
     id,
@@ -311,10 +350,12 @@ export function toPublicDetail(p: any): PublicPropertyDetail {
     district: p.district ?? null,
     ward: p.ward ?? null,
     city: p.city ?? null,
-    street: p.street ?? null,
+    street: exactLocation ? p.street ?? null : null,
     country: p.country ?? null,
-    latitude: p.latitude !== null && typeof p.latitude !== "undefined" ? Number(p.latitude) : null,
-    longitude: p.longitude !== null && typeof p.longitude !== "undefined" ? Number(p.longitude) : null,
+    latitude: point.latitude,
+    longitude: point.longitude,
+    locationPrecision: exactLocation ? "EXACT" : "APPROXIMATE",
+    locationRadiusMeters: exactLocation ? null : APPROX_LOCATION_RADIUS_M,
     images,
     basePrice: effectiveBasePrice,
     currency: p.currency ?? null,

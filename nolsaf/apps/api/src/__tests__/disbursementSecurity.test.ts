@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeBatchFingerprint, type BatchFingerprintMember } from "../services/payouts/fingerprint";
-import { isAfterHours, scoreLevel, type RiskFlag } from "../services/payouts/riskScoring";
+import { clampRecentChangeHours, isAfterHours, scoreLevel, type RiskFlag } from "../services/payouts/riskScoring";
 import { isWebhookIpAllowed } from "../routes/webhooks.payments";
 import { describeSelfRelease } from "../services/payouts/batching";
 import { releaseChallengePurpose } from "../services/payouts/releaseChallenge";
@@ -68,6 +68,21 @@ describe("payout risk scoring", () => {
 
   it("scores a clean payout LOW", () => {
     expect(scoreLevel([])).toBe("LOW");
+  });
+
+  it("always holds a payout past an admin-set limit, even for a clean payee", () => {
+    expect(scoreLevel(flags("AMOUNT_AT_REVIEW_THRESHOLD"))).toBe("HIGH");
+    expect(scoreLevel(flags("PAYEE_DAILY_CAP_EXCEEDED"))).toBe("HIGH");
+    expect(scoreLevel(flags("AMOUNT_AT_REVIEW_THRESHOLD", "FIRST_PAYOUT_TO_BENEFICIARY"))).toBe("HIGH");
+  });
+
+  it("keeps the recent-change window inside 24 hours to two weeks", () => {
+    expect(clampRecentChangeHours(null)).toBe(72);
+    expect(clampRecentChangeHours(undefined)).toBe(72);
+    expect(clampRecentChangeHours("abc")).toBe(72);
+    expect(clampRecentChangeHours(1)).toBe(24);
+    expect(clampRecentChangeHours(48)).toBe(48);
+    expect(clampRecentChangeHours(10_000)).toBe(336);
   });
 
   it("reads business hours in the payout timezone, not the host's", () => {

@@ -44,6 +44,7 @@ export default function NrmsActivationScreen() {
   const policyCurrency = usagePolicy?.currency || "";
   const roomNightPrice = usagePolicy ? Number(usagePolicy.roomNightPrice).toLocaleString() : "Configured at activation";
   const trialDays = usagePolicy?.trialDays;
+  const hasTrial = typeof trialDays === "number" && trialDays > 0;
 
   const onActivate = async () => {
     setBusy(true);
@@ -124,7 +125,7 @@ export default function NrmsActivationScreen() {
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
               <button type="button" onClick={onActivate} disabled={busy} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-neutral-950 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-neutral-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-700 disabled:pointer-events-none disabled:opacity-60">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {busy ? "Activating workspace…" : trialDays ? `Start ${trialDays}-day free trial` : "Activate workspace"}
+                {busy ? "Activating workspace…" : "Activate NRMS"}
                 {!busy && <ArrowRight className="h-4 w-4" />}
               </button>
               <p className="text-xs leading-5 text-neutral-500">No card required<br className="hidden sm:block" /> Activate properties when ready</p>
@@ -139,8 +140,13 @@ export default function NrmsActivationScreen() {
         </div>
 
         <div className="mt-12 grid overflow-hidden rounded-2xl border border-emerald-100 bg-white/80 shadow-sm sm:grid-cols-3">
-          <PricingFact icon={Clock3} label="Free trial" value={trialDays ? `${trialDays} days` : "Policy controlled"} detail="for every activated property" />
-          <PricingFact icon={CircleDollarSign} label="After trial" value={usagePolicy ? `${policyCurrency} ${roomNightPrice}` : roomNightPrice} detail="per completed external room-night" />
+          <PricingFact
+            icon={Clock3}
+            label={hasTrial ? "Property trial" : "Billing begins"}
+            value={hasTrial ? `${trialDays} days` : usagePolicy ? "On activation" : "Policy unavailable"}
+            detail={hasTrial ? "from property activation" : usagePolicy ? "when a property goes live" : "refresh to load current terms"}
+          />
+          <PricingFact icon={CircleDollarSign} label={hasTrial ? "After trial" : "External stays"} value={usagePolicy ? `${policyCurrency} ${roomNightPrice}` : roomNightPrice} detail="per completed external room-night" />
           <PricingFact icon={WalletCards} label="Marketplace bookings" value={usagePolicy ? `${policyCurrency} 0 NRMS fee` : "No NRMS usage fee"} detail="your normal commission remains" />
         </div>
         <div className="mt-4 rounded-2xl border border-emerald-100 bg-white/85 p-4 sm:p-5">
@@ -148,7 +154,7 @@ export default function NrmsActivationScreen() {
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Info className="h-4 w-4" /></span>
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-emerald-700">Pay As You Go, in plain terms</p>
-              <p className="mt-1.5 text-sm leading-6 text-neutral-600">NRMS itself has no subscription fee. After your trial, you&apos;re only billed for stays NRMS actually completed outside the NoLSAF marketplace, walk-ins, phone bookings and other OTAs, each at the per-room-night rate above. A guest who books you through the NoLSAF marketplace never adds an NRMS fee.</p>
+              <p className="mt-1.5 text-sm leading-6 text-neutral-600">NRMS itself has no subscription fee. {hasTrial ? "After the property trial, you’re" : "You’re"} only billed for stays NRMS actually completed outside the NoLSAF marketplace, walk-ins, phone bookings and other OTAs, each at the current per-room-night rate above. A guest who books you through the NoLSAF marketplace never adds an NRMS fee.</p>
             </div>
           </div>
         </div>
@@ -169,12 +175,14 @@ export default function NrmsActivationScreen() {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-300">What happens next</p>
               <h2 className="mt-2 text-2xl font-bold tracking-tight">Go live at your own pace.</h2>
-              <p className="mt-2 text-sm leading-6 text-emerald-50/70">Enrollment opens the workspace. Your 45-day trial only starts when you activate a property.</p>
+              <p className="mt-2 text-sm leading-6 text-emerald-50/70">
+                Enrollment opens the workspace. {hasTrial ? `Your ${trialDays}-day trial starts only when you activate a property.` : "Usage billing starts only when you activate a property."}
+              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <SetupStep number="01" title="Open NRMS" text="Activate your owner workspace." />
               <SetupStep number="02" title="Confirm rooms" text="Import or arrange room inventory." />
-              <SetupStep number="03" title="Activate property" text="Start the trial and operations." />
+              <SetupStep number="03" title="Activate property" text={hasTrial ? "Start the trial and operations." : "Start operations under the current usage policy."} />
             </div>
           </div>
           <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">

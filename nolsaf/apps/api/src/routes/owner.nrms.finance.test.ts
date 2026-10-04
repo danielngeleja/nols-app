@@ -29,20 +29,18 @@ vi.mock("../middleware/auth.js", () => ({
 
 vi.mock("../lib/nrmsPropertyAccess.js", () => ({ loadNrmsPropertyAccess: mocks.loadNrmsPropertyAccess }));
 vi.mock("../lib/nrmsAvailability.js", () => ({ lockPropertyInventory: mocks.lockPropertyInventory }));
-vi.mock("../lib/nrmsNightAuditLedger.js", () => ({ createNightAuditLedgerTransaction: vi.fn() }));
+vi.mock("../lib/nrmsNightAuditLedger.js", () => ({ createNightAuditLedgerTransactions: vi.fn(async () => undefined) }));
 vi.mock("../lib/nrmsReporting.js", () => ({ allocateStayValue: vi.fn() }));
-vi.mock("../lib/nrmsShifts.js", () => ({
-  assertNrmsBusinessDayWritable: vi.fn(),
-  ensureBusinessDay: mocks.ensureBusinessDay,
-  expectedCashForShift: mocks.expectedCashForShift,
-  nextShiftDayKey: (key: string) => {
-    const date = new Date(`${key}T00:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + 1);
-    return date.toISOString().slice(0, 10);
-  },
-  NRMS_BUSINESS_DAY_LOCKED: "NRMS_BUSINESS_DAY_LOCKED",
-  shiftHandoverSummary: mocks.shiftHandoverSummary,
-}));
+vi.mock("../lib/nrmsShifts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/nrmsShifts.js")>();
+  return {
+    ...actual,
+    assertNrmsBusinessDayWritable: vi.fn(),
+    ensureBusinessDay: mocks.ensureBusinessDay,
+    expectedCashForShift: mocks.expectedCashForShift,
+    shiftHandoverSummary: mocks.shiftHandoverSummary,
+  };
+});
 
 import financeRouter from "./owner.nrms.finance.js";
 
@@ -86,6 +84,71 @@ describe("NRMS finance access boundaries", () => {
     expect(mocks.shiftUpdate).not.toHaveBeenCalled();
   });
 
+  it("does not let a manager sign off a shift without a physical cash count", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "MANAGER",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
+    });
+    const update = vi.fn();
+    const tx = {
+      nrmsCashierShift: {
+        findFirst: vi.fn().mockResolvedValue({ id: 8, propertyId: 91, status: "CLOSED", declaredCash: null, variance: null }),
+        update,
+      },
+    };
+    mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
+
+    const response = await request(app)
+      .post("/api/owner/nrms/finance/property/91/shifts/8/sign-off")
+      .send({});
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("SHIFT_PHYSICAL_COUNT_REQUIRED");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("lets a manager configure the property Night Audit boundary and records the change", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "MANAGER",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date(), nrmsNightAuditCloseTime: "02:00" },
+    });
+    const propertyUpdate = vi.fn().mockResolvedValue({ nrmsNightAuditCloseTime: "03:30" });
+    const auditCreate = vi.fn().mockResolvedValue({ id: 100 });
+    mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback({
+      property: { update: propertyUpdate },
+      auditLog: { create: auditCreate },
+    }));
+
+    const response = await request(app)
+      .put("/api/owner/nrms/finance/property/91/night-audit/settings")
+      .send({ closeTime: "03:30" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.settings).toMatchObject({ closeTime: "03:30", timezone: "Africa/Dar_es_Salaam" });
+    expect(propertyUpdate).toHaveBeenCalledWith({ where: { id: 91 }, data: { nrmsNightAuditCloseTime: "03:30" }, select: { nrmsNightAuditCloseTime: true } });
+    expect(auditCreate.mock.calls[0][0].data).toMatchObject({ action: "NRMS_NIGHT_AUDIT_TIME_UPDATED", beforeJson: { closeTime: "02:00" }, afterJson: { closeTime: "03:30" } });
+  });
+
+  it("does not let front desk change the property Night Audit boundary", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "FRONT_DESK",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date(), nrmsNightAuditCloseTime: "02:00" },
+    });
+
+    const response = await request(app)
+      .put("/api/owner/nrms/finance/property/91/night-audit/settings")
+      .send({ closeTime: "03:30" });
+
+    expect(response.status).toBe(403);
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
   it("takes the property lock before reading the Night Audit control snapshot", async () => {
     mocks.loadNrmsPropertyAccess.mockResolvedValue({
       role: "MANAGER",
@@ -95,7 +158,7 @@ describe("NRMS finance access boundaries", () => {
     });
     const firstControlRead = vi.fn().mockResolvedValue(1);
     const tx = {
-      nrmsBusinessDay: { update: vi.fn().mockResolvedValue({}) },
+      nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z"), businessDate: new Date("2026-08-13T00:00:00Z") }), findFirst: vi.fn().mockResolvedValue({ businessDate: new Date("2026-08-13T00:00:00Z") }), update: vi.fn().mockResolvedValue({}) },
       nrmsCashierShift: { count: firstControlRead },
       nrmsOutletOrder: { count: vi.fn().mockResolvedValue(0) },
       reservation: { count: vi.fn().mockResolvedValue(0) },
@@ -133,11 +196,30 @@ describe("NRMS finance access boundaries", () => {
         .send({ businessDate });
 
       expect(response.status).toBe(409);
-      expect(response.body.code).toBe("BUSINESS_DAY_NOT_COMPLETED");
+      expect(response.body.code).toBe("NIGHT_AUDIT_NOT_YET_AVAILABLE");
       expect(response.body.latestClosableDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.lockPropertyInventory).not.toHaveBeenCalled();
+  });
+
+  it("does not create a historical business day just because Night Audit was requested", async () => {
+    mocks.loadNrmsPropertyAccess.mockResolvedValue({
+      role: "MANAGER",
+      actorId: 23,
+      ownerId: 12,
+      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
+    });
+    const tx = { nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue(null) } };
+    mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
+
+    const response = await request(app)
+      .post("/api/owner/nrms/finance/property/91/night-audit/close")
+      .send({ businessDate: "2026-08-12" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("BUSINESS_DAY_NOT_OPENED");
+    expect(mocks.ensureBusinessDay).not.toHaveBeenCalled();
   });
 
   it("requires an explicit acknowledgement for that business date's fiscal backlog", async () => {
@@ -150,7 +232,7 @@ describe("NRMS finance access boundaries", () => {
     const zero = vi.fn().mockResolvedValue(0);
     const businessDayUpdate = vi.fn().mockResolvedValue({});
     const tx = {
-      nrmsBusinessDay: { update: businessDayUpdate },
+      nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z"), businessDate: new Date("2026-08-13T00:00:00Z") }), findFirst: vi.fn().mockResolvedValue({ businessDate: new Date("2026-08-13T00:00:00Z") }), update: businessDayUpdate },
       nrmsCashierShift: { count: zero },
       nrmsOutletOrder: { count: zero },
       reservation: { count: zero },
@@ -184,8 +266,8 @@ describe("NRMS finance access boundaries", () => {
     const zero = vi.fn().mockResolvedValue(0);
     const nightAuditUpdate = vi.fn().mockResolvedValue({ id: 4, status: "CLOSED" });
     const tx = {
-      nrmsBusinessDay: { update: vi.fn().mockResolvedValue({ id: 7, status: "CLOSED" }) },
-      nrmsCashierShift: { count: zero },
+      nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z"), businessDate: new Date("2026-08-13T00:00:00Z") }), findFirst: vi.fn().mockResolvedValueOnce({ businessDate: new Date("2026-08-13T00:00:00Z") }).mockResolvedValueOnce(null), update: vi.fn().mockResolvedValue({ id: 7, status: "CLOSED" }) },
+      nrmsCashierShift: { count: zero, findMany: empty },
       nrmsOutletOrder: { count: zero, findMany: empty },
       reservation: { count: zero, findMany: empty },
       externalPaymentRecord: { count: zero, findMany: empty },
@@ -198,12 +280,14 @@ describe("NRMS finance access boundaries", () => {
       nrmsMasterFolioPayment: { findMany: empty },
       nrmsUsageEvent: { findMany: empty },
       nrmsExpense: { findMany: empty },
+      // Stock control milestone 5: nothing to post from stock or supplier payments.
+      nrmsSupplierPayment: { findMany: empty },
+      nrmsStockMovement: { findMany: empty, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      nrmsStockTransfer: { findMany: empty },
       nrmsNightAuditRun: { create: vi.fn().mockResolvedValue({ id: 4, status: "DRAFT" }), update: nightAuditUpdate },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 99 }) },
     };
-    mocks.ensureBusinessDay
-      .mockResolvedValueOnce({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z") })
-      .mockResolvedValueOnce({ id: 8, status: "OPEN" });
+    mocks.ensureBusinessDay.mockResolvedValueOnce({ id: 8, status: "OPEN" });
     mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
 
     const response = await request(app)
@@ -230,8 +314,8 @@ describe("NRMS finance access boundaries", () => {
       .mockResolvedValueOnce({ id: 7, status: "CLOSING" })
       .mockResolvedValueOnce({ id: 7, status: "CLOSED" });
     const tx = {
-      nrmsBusinessDay: { update: businessDayUpdate },
-      nrmsCashierShift: { count: zero },
+      nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ id: 7, status: "OPEN", openedAt: new Date("2026-08-13T00:00:00Z"), businessDate: new Date("2026-08-13T00:00:00Z") }), findFirst: vi.fn().mockResolvedValueOnce({ businessDate: new Date("2026-08-13T00:00:00Z") }).mockResolvedValueOnce(null), update: businessDayUpdate },
+      nrmsCashierShift: { count: zero, findMany: empty },
       nrmsOutletOrder: { count: zero, findMany: empty },
       reservation: { count: zero, findMany: empty },
       externalPaymentRecord: { count: zero, findMany: empty },
@@ -241,14 +325,16 @@ describe("NRMS finance access boundaries", () => {
       nrmsMasterFolioPayment: { findMany: empty },
       nrmsUsageEvent: { findMany: empty },
       nrmsExpense: { findMany: empty },
+      // Stock control milestone 5: nothing to post from stock or supplier payments.
+      nrmsSupplierPayment: { findMany: empty },
+      nrmsStockMovement: { findMany: empty, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      nrmsStockTransfer: { findMany: empty },
       nrmsNightAuditRun: {
         create: vi.fn().mockResolvedValue({ id: 4, status: "DRAFT" }),
         update: vi.fn().mockResolvedValue({ id: 4, status: "CLOSED" }),
       },
     };
-    mocks.ensureBusinessDay
-      .mockResolvedValueOnce({ id: 7, status: "OPEN", businessDate: new Date("2026-08-13T00:00:00Z") })
-      .mockResolvedValueOnce({ id: 8, status: "OPEN", businessDate: new Date("2026-08-14T00:00:00Z") });
+    mocks.ensureBusinessDay.mockResolvedValueOnce({ id: 8, status: "OPEN", businessDate: new Date("2026-08-14T00:00:00Z") });
     mocks.transaction.mockImplementation(async (callback: (source: any) => unknown) => callback(tx));
 
     const response = await request(app)
@@ -256,9 +342,9 @@ describe("NRMS finance access boundaries", () => {
       .send({ businessDate: "2026-08-13" });
 
     expect(response.status).toBe(200);
-    expect(mocks.ensureBusinessDay).toHaveBeenNthCalledWith(1, tx, 91, "2026-08-13", 23);
-    expect(mocks.ensureBusinessDay).toHaveBeenNthCalledWith(2, tx, 91, "2026-08-14", 23);
+    expect(tx.nrmsBusinessDay.findUnique).toHaveBeenCalledWith({ where: { propertyId_businessDate: { propertyId: 91, businessDate: new Date("2026-08-13T00:00:00.000Z") } } });
+    expect(mocks.ensureBusinessDay).toHaveBeenCalledWith(tx, 91, "2026-08-14", 23);
     expect(response.body.nextBusinessDay).toMatchObject({ id: 8, status: "OPEN" });
-    expect(businessDayUpdate.mock.invocationCallOrder[1]).toBeLessThan(mocks.ensureBusinessDay.mock.invocationCallOrder[1]);
+    expect(businessDayUpdate.mock.invocationCallOrder[1]).toBeLessThan(mocks.ensureBusinessDay.mock.invocationCallOrder[0]);
   });
 });

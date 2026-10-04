@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { AlertTriangle, BadgeCheck, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ChevronLeft, ChevronRight, Loader2, LockKeyhole, Plus, Receipt, RefreshCw, Scale, WalletCards, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, BadgeCheck, BedDouble, BookOpen, Calculator, CalendarCheck2, CheckCircle2, ChevronLeft, ChevronRight, Clock3, ClipboardCheck, Loader2, LockKeyhole, LogIn, LogOut, Plus, Receipt, RefreshCw, Scale, Settings2, WalletCards, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 import { useNrms } from "../_components/NrmsProvider";
 import FiscalReceiptsCard from "../_components/FiscalReceiptsCard";
 import { serviceLabelForRole } from "../_components/ShiftPanel";
+import NrmsModalFrame from "../_components/NrmsModalFrame";
 
 type Tab = "audit" | "cashiers" | "expenses" | "ledger" | "tax" | "nbs";
 type ExpenseRow = { id: number; category: string; description: string; amount: number; currency: string; paymentMethod: string | null; incurredAt: string; recordedBy: string; voidedAt: string | null; voidReason: string | null; createdAt: string };
@@ -21,16 +22,50 @@ type ShiftCloseSummary = {
 type Shift = { id: number; cashierName: string; assignment: { role: string; outletName: string | null } | null; handoverFromName: string | null; currency: string; status: string; openingFloat: number; liveExpectedCash: number; expectedCash: number; declaredCash: number | null; variance: number | null; closeNote: string | null; closeSummary: ShiftCloseSummary | null; openedAt: string; closedAt: string | null; ownerSignedOffAt: string | null; ownerSignedOffByName: string | null };
 type LedgerEntry = { id: number; accountCode: string; accountName: string; debit: number; credit: number };
 type LedgerTransaction = { id: number; transactionNumber: string; description: string; sourceType: string; currency: string; occurredAt: string; entries: LedgerEntry[] };
+type NightAuditReview = {
+  generatedAt: string;
+  window: { startedAt: string; through: string };
+  controls: { passed: boolean; blockers: Blocker[]; warnings: Blocker[] };
+  operations: { arrivals: number; departures: number; reservationsCreated: number; inHouseAtReview: number };
+  cashiers: { total: number; open: number; closed: number; signedOff: number; expectedCash: number; declaredCash: number; variance: number };
+  ledger: {
+    transactionCount: number;
+    stockMovementsPosted: number;
+    debitTotal: number;
+    creditTotal: number;
+    balanced: boolean;
+    bySource: Array<{ sourceType: string; count: number; debit: number; credit: number }>;
+    activities: Array<{ sourceType: string; description: string; currency: string; occurredAt: string; debit: number; credit: number }>;
+  };
+};
 type FinanceData = {
   property: { id: number; title: string; currency: string | null }; accessRole: "OWNER" | "MANAGER" | "FRONT_DESK"; businessDate: string; month: string;
+  nightAuditPolicy: { closeTime: string; timezone: string; activeBusinessDate: string; latestClosableDate: string; nextCloseAt: string; canCloseSelectedDate: boolean };
+  unclosedBusinessDays: Array<{ id: number; businessDate: string; status: "OPEN" | "CLOSING"; openedAt: string; canClose: boolean }>;
+  businessDayStrip?: Array<{ businessDate: string; status: "OPEN" | "CLOSING" | "CLOSED" }>;
+  operatingTimeline?: {
+    days: Array<{ businessDate: string; status: "OPEN" | "CLOSING" | "CLOSED" }>;
+    firstRecordedDate: string | null;
+    lastClosed: { businessDate: string; closedAt: string | null } | null;
+    closedCount: number;
+  } | null;
+  nightAuditReview: NightAuditReview | null;
   businessDay: { id: number | null; status: string; openedAt?: string; closedAt?: string | null; audits: Array<{ id: number; reportNumber: string; status: string; startedAt: string; completedAt: string | null; summary: any }> };
   blockers: Blocker[]; warnings: Blocker[]; shifts: Shift[];
   unassignedSales: { count: number; amount: number; byMethod: Array<{ method: string; count: number; amount: number }> };
   unclassifiedTenders: Array<{ id: number; orderNumber: string; currency: string; total: number; settledAt: string; outlet: { name: string; type: string }; guest: string; room: string }>;
-  ledger: { balanced: boolean; accounts: Array<{ accountCode: string; accountName: string; accountType: string; currency: string; debit: number; credit: number; balance: number }>; transactions: LedgerTransaction[] };
+  ledger: { loaded: boolean; balanced: boolean; accounts: Array<{ accountCode: string; accountName: string; accountType: string; currency: string; debit: number; credit: number; balance: number }>; transactions: LedgerTransaction[] };
   tax: { total: number; note: string; rows: Array<{ transactionNumber: string; occurredAt: string; description: string; currency: string; tax: number }> };
   nbs: { month: string; reportingDays: number; bedsAvailable: number; bedNightsAvailable: number; bedNightsOccupied: number; domesticBedNights: number; internationalBedNights: number; roomNightsOccupied: number; bedOccupancyRate: number; missingNationalityBedNights: number; methodology: string };
+  stock?: { tracked: boolean; value: number };
 };
+
+const JOURNAL_PAGE_SIZE = 25;
+
+/** Food and beverage revenue against its cost (stock control milestone 5). */
+const FNB_REVENUE_CODES = ["4200", "4210", "4220"];
+const COGS_CODES = ["5010", "5020"];
+const STOCK_LOSS_CODES = ["5030", "5040", "5050", "5060"];
 
 const EXPENSE_CATEGORIES: Array<{ value: string; label: string }> = [
   { value: "STAFF_WAGES", label: "Staff wages" },
@@ -46,16 +81,22 @@ function expenseCategoryLabel(value: string): string { return EXPENSE_CATEGORIES
 
 function localDay(date = new Date()) { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date); }
 function lastCompletedDay() { return localDay(new Date(Date.now() - 86_400_000)); }
-/** Step a YYYY-MM-DD business date without tripping over month ends. */
-function shiftDay(day: string, delta: number) {
-  const [y, m, d] = day.split("-").map(Number);
-  return localDay(new Date(Date.UTC(y!, m! - 1, d! + delta, 12)));
-}
 /** One date format across the page: "27 Aug 2026", matching the picker. */
 function dayLabel(day: string) {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", day: "2-digit", month: "short", year: "numeric" });
 }
+function shiftMonth(month: string, delta: number) {
+  const [y, m] = month.split("-").map(Number);
+  const next = new Date(Date.UTC(y!, m! - 1 + delta, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function countdown(ms: number) {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+function clockTime(value: Date) { return value.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit", hour12: false }); }
 function cash(value: number, currency: string) { return `${currency} ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`; }
 function time(value?: string | null) { return value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) + " EAT" : "Not recorded"; }
 function tenderAmount(shift: Shift, method: string): number { return shift.closeSummary?.mySales.byMethod.find((row) => row.method === method)?.amount ?? 0; }
@@ -68,12 +109,15 @@ function shiftRowTone(shift: Shift): string {
   return "";
 }
 
-const ACCOUNT_TYPE_ORDER = ["ASSET", "LIABILITY", "REVENUE", "EXPENSE"];
+const ACCOUNT_TYPE_ORDER = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
+/** Account types whose balance normally sits on the debit side. */
+const DEBIT_NORMAL_TYPES = ["ASSET", "EXPENSE"];
 const ACCOUNT_TYPE_STYLE: Record<string, { label: string; dot: string; border: string }> = {
   ASSET: { label: "Assets", dot: "bg-blue-500", border: "shadow-[inset_3px_0_0_0_#60a5fa]" },
   LIABILITY: { label: "Liabilities", dot: "bg-amber-500", border: "shadow-[inset_3px_0_0_0_#fbbf24]" },
   REVENUE: { label: "Revenue", dot: "bg-emerald-500", border: "shadow-[inset_3px_0_0_0_#34d399]" },
   EXPENSE: { label: "Expenses", dot: "bg-violet-500", border: "shadow-[inset_3px_0_0_0_#a78bfa]" },
+  EQUITY: { label: "Equity", dot: "bg-slate-500", border: "shadow-[inset_3px_0_0_0_#94a3b8]" },
 };
 
 /**
@@ -85,6 +129,7 @@ const ACCOUNT_TYPE_STYLE: Record<string, { label: string; dot: string; border: s
 const BUSINESS_DAY_STATE: Record<string, { label: string; skin: string; note: string }> = {
   NOT_OPENED: { label: "Not opened", skin: "bg-amber-50 text-amber-800 ring-amber-300", note: "No business day exists for this date yet. Night Audit cannot run until it is opened." },
   OPEN: { label: "Open", skin: "bg-emerald-50 text-emerald-800 ring-emerald-200", note: "The day is trading. Sales and payments post to this date." },
+  CLOSING: { label: "Closing", skin: "bg-amber-50 text-amber-800 ring-amber-300", note: "Night Audit is currently closing this business date." },
   CLOSED: { label: "Closed", skin: "bg-neutral-900 text-white ring-neutral-900", note: "Night Audit has run. This date is finalised and locked." },
 };
 
@@ -102,12 +147,46 @@ function Metric({ label, value, note, tone = "neutral" }: { label: string; value
   return <div className={`min-w-0 rounded-xl p-4 ring-1 ${tone === "green" ? "ring-emerald-200 bg-emerald-50" : tone === "amber" ? "ring-amber-200 bg-amber-50" : "ring-neutral-200 bg-white"}`}><p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{label}</p><p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
 }
 
+function codeLabel(value: string) {
+  return value.split("_").map((word) => word.charAt(0) + word.slice(1).toLowerCase()).join(" ");
+}
+
+function ReviewMetric({ icon, label, value, note }: { icon: React.ReactNode; label: string; value: string; note: string }) {
+  return <div className="rounded-xl bg-neutral-50 p-3 ring-1 ring-neutral-200"><div className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></div><p className="mb-0 mt-2 text-lg font-extrabold tabular-nums text-neutral-950">{value}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p></div>;
+}
+
+type AuditTone = "neutral" | "good" | "warn" | "bad";
+const AUDIT_TONE_ICON: Record<AuditTone, React.ReactNode> = {
+  neutral: null,
+  good: <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="OK" />,
+  warn: <AlertTriangle className="h-4 w-4 text-amber-600" aria-label="Needs review" />,
+  bad: <XCircle className="h-4 w-4 text-red-600" aria-label="Problem" />,
+};
+
+/** Night Audit summary tile: the corner mark says whether the figure is fine, not just what it is. */
+function AuditTile({ icon, label, value, note, tone = "neutral" }: { icon: React.ReactNode; label: string; value: string; note: string; tone?: AuditTone }) {
+  return <div className="min-w-0 rounded-xl bg-white p-3.5 ring-1 ring-neutral-200">
+    <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-neutral-500">{icon}<span className="text-[9px] font-bold uppercase tracking-[0.12em]">{label}</span></span>{AUDIT_TONE_ICON[tone]}</div>
+    <p className="mb-0 mt-2 truncate text-lg font-extrabold tabular-nums text-neutral-950">{value}</p>
+    <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{note}</p>
+  </div>;
+}
+
+type AuditStepState = "done" | "current" | "blocked" | "pending";
+const AUDIT_STEP_SKIN: Record<AuditStepState, { bar: string; dot: string; label: string }> = {
+  done: { bar: "bg-emerald-600", dot: "bg-emerald-600 text-white", label: "text-neutral-900" },
+  current: { bar: "bg-sky-500", dot: "bg-sky-500 text-white", label: "text-neutral-900" },
+  blocked: { bar: "bg-red-500", dot: "bg-red-500 text-white", label: "text-red-800" },
+  pending: { bar: "bg-neutral-200", dot: "bg-neutral-200 text-neutral-500", label: "text-neutral-400" },
+};
+
 export default function FinanceControlPage() {
   const { selectedPropertyId } = useNrms();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("audit");
-  const [businessDate, setBusinessDate] = useState(lastCompletedDay());
-  const [month, setMonth] = useState(lastCompletedDay().slice(0, 7));
+  const [businessDate, setBusinessDate] = useState(() => searchParams.get("view") === "cashiers" ? localDay() : lastCompletedDay());
+  const [month, setMonth] = useState(() => (searchParams.get("view") === "cashiers" ? localDay() : lastCompletedDay()).slice(0, 7));
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [message, setMessage] = useState<string | null>(null);
   const [counted, setCounted] = useState<Record<number, string>>({}); const [notes, setNotes] = useState<Record<number, string>>({});
@@ -119,6 +198,20 @@ export default function FinanceControlPage() {
   const [voidTargetId, setVoidTargetId] = useState<number | null>(null);
   const [confirmNightAudit, setConfirmNightAudit] = useState(false);
   const [acknowledgeFiscalBacklog, setAcknowledgeFiscalBacklog] = useState(false);
+  const [editingAuditTime, setEditingAuditTime] = useState(false);
+  const [auditTimeDraft, setAuditTimeDraft] = useState("20:00");
+  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  // The journal holds the whole reporting month, which can run to hundreds of
+  // transactions, so it is paged on the client. Back to page 1 on a new scope.
+  const [journalPage, setJournalPage] = useState(1);
+  useEffect(() => { setJournalPage(1); }, [month, selectedPropertyId]);
+
+  // Drives the "Night Audit in 3h 12m" countdown; minute precision is enough.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const view = searchParams.get("view");
@@ -127,26 +220,71 @@ export default function FinanceControlPage() {
       setError(null);
       setMessage(null);
     }
+    const requestedBusinessDate = searchParams.get("businessDate");
+    if (requestedBusinessDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedBusinessDate) && requestedBusinessDate <= localDay()) {
+      setBusinessDate(requestedBusinessDate);
+      setMonth(requestedBusinessDate.slice(0, 7));
+    } else if (view === "cashiers") {
+      const today = localDay();
+      setBusinessDate(today);
+      setMonth(today.slice(0, 7));
+    } else if (view === "audit") {
+      const completed = lastCompletedDay();
+      setBusinessDate(completed);
+      setMonth(completed.slice(0, 7));
+    }
   }, [searchParams]);
   useEffect(() => {
     if (data?.accessRole === "FRONT_DESK" && !["audit", "cashiers"].includes(tab)) setTab("audit");
   }, [data?.accessRole, tab]);
-
-  const load = useCallback(async (silent = false) => {
-    if (!selectedPropertyId) return; if (!silent) setLoading(true); setError(null);
-    try { const response = await apiClient.get(`/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}`); setData(response.data); }
-    catch (cause: any) { setError(cause?.response?.data?.error || "Unable to load financial control records"); }
-    finally { if (!silent) setLoading(false); }
-  }, [businessDate, month, selectedPropertyId]);
   useEffect(() => {
-    void load();
-    // Cashier shifts and sales are shared with every attendant; poll so the
-    // owner sees a shift open/close or a new sale without a manual refresh.
+    if (!editingAuditTime && data?.nightAuditPolicy.closeTime) setAuditTimeDraft(data.nightAuditPolicy.closeTime);
+  }, [data?.nightAuditPolicy.closeTime, editingAuditTime]);
+
+  // One finance request at a time. This payload can be heavy (an open day's
+  // Night Audit preview), and after a close the date, tab and URL all change in
+  // quick succession; without this the page sent several copies at once and
+  // kept the database busy enough to slow the close itself.
+  const inflightRef = useRef<{ url: string; promise: Promise<unknown>; controller: AbortController } | null>(null);
+  const load = useCallback(async (silent = false, force = false) => {
+    if (!selectedPropertyId) return;
+    const url = `/api/owner/nrms/finance/property/${selectedPropertyId}?businessDate=${businessDate}&month=${month}&view=${tab}`;
+    const running = inflightRef.current;
+    // The same request is already on its way: share it rather than send another.
+    if (running && running.url === url && !force) { await running.promise.catch(() => undefined); return; }
+    // A different (or forced) request supersedes the one in flight.
+    running?.controller.abort();
+    const controller = new AbortController();
+    const promise = apiClient.get(url, { signal: controller.signal });
+    inflightRef.current = { url, promise, controller };
+    if (!silent) setLoading(true); setError(null);
+    try {
+      const response = await promise;
+      if (inflightRef.current?.promise === promise) { setData(response.data); setLastLoadedAt(new Date()); }
+    } catch (cause: any) {
+      if (controller.signal.aborted || cause?.code === "ERR_CANCELED") return;
+      setError(cause?.response?.data?.error || "Unable to load financial control records");
+    } finally {
+      if (inflightRef.current?.promise === promise) { inflightRef.current = null; if (!silent) setLoading(false); }
+    }
+  }, [businessDate, month, selectedPropertyId, tab]);
+  useEffect(() => {
+    // Several state changes often land together (date, month, tab from the URL);
+    // a short pause lets them settle into a single request.
+    const timer = window.setTimeout(() => { void load(); }, 120);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+  useEffect(() => () => inflightRef.current?.controller.abort(), []);
+  useEffect(() => {
+    // Only the two operational finance tabs need a live safety refresh. The
+    // full payload also contains ledger, tax and NBS data, so do not reload it
+    // every few seconds or while someone is reading a historical tab.
+    if (!["audit", "cashiers"].includes(tab)) return;
     const refreshTimer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load(true);
-    }, 15_000);
+    }, 60_000);
     return () => window.clearInterval(refreshTimer);
-  }, [load]);
+  }, [load, tab]);
 
   const loadExpenses = useCallback(async () => {
     if (!selectedPropertyId) return;
@@ -198,32 +336,74 @@ export default function FinanceControlPage() {
     finally { setBusy(false); }
   };
 
-  const action = async (request: () => Promise<unknown>, success: string) => {
+  const action = async (request: () => Promise<unknown>, success: string, reload = true) => {
     setBusy(true); setError(null); setMessage(null);
-    try { await request(); setMessage(success); await load(); return true; }
+    try { await request(); setMessage(success); if (reload) await load(false, true); return true; }
     catch (cause: any) { setError(cause?.response?.data?.error || "The control action could not be completed"); return false; }
     finally { setBusy(false); }
   };
   const propertyCurrency = data?.property.currency || "Currency not set";
   const fiscalBacklogWarning = data?.warnings.find((warning) => warning.code === "FISCAL_RECEIPTS_PENDING") ?? null;
-  const isCompletedBusinessDate = businessDate < localDay();
+  const canCloseSelectedDate = Boolean(data?.nightAuditPolicy.canCloseSelectedDate);
+  const latestAuditDate = data?.nightAuditPolicy.latestClosableDate ?? lastCompletedDay();
+  const unclosedBusinessDays = data?.unclosedBusinessDays ?? [];
+  const oldestUnclosedDay = unclosedBusinessDays[0] ?? null;
+  const isDayScoped = tab === "audit" || tab === "cashiers";
+  const journalTotal = data?.ledger.transactions.length ?? 0;
+  const journalPageCount = Math.max(1, Math.ceil(journalTotal / JOURNAL_PAGE_SIZE));
+  // Clamped so a refresh that shortens the list never strands you past the end.
+  const journalPageSafe = Math.min(journalPage, journalPageCount);
   const closeShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/close`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Cashier shift closed and its variance has been recorded.");
+  const reconcileShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/reconcile`, { declaredCash: Number(counted[shift.id]), closeNote: notes[shift.id]?.trim() || undefined }), "Physical cash count recorded. Review and sign off this shift.");
   const signOffShift = (shift: Shift) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/shifts/${shift.id}/sign-off`), "Shift sales acknowledged and signed off.");
   const closeAudit = async () => {
     const closed = await action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/close`, {
       businessDate,
       acknowledgeFiscalBacklog: fiscalBacklogWarning ? acknowledgeFiscalBacklog : false,
-    }), "Night Audit completed. This date is locked, the next business day is open, and operations can continue.");
+    }), "Night Audit completed. This date is locked, the next business day is open, and operations can continue.", false);
     if (closed) {
       setConfirmNightAudit(false);
       setAcknowledgeFiscalBacklog(false);
+      // Reload once: either the next business date (via the date change) or,
+      // if there is none to move to, this date again.
+      let moved = false;
+      try {
+        const response = await apiClient.get<{ finance: { targetBusinessDate: string | null } }>(`/api/nrms/operations/property/${selectedPropertyId}/attention`, { params: { fresh: 1 } });
+        const nextDate = response.data.finance.targetBusinessDate;
+        if (nextDate && nextDate !== businessDate) {
+          moved = true;
+          setBusinessDate(nextDate);
+          setMonth(nextDate.slice(0, 7));
+          router.replace(`/owner/nrms/finance?view=audit&businessDate=${encodeURIComponent(nextDate)}`);
+        }
+      } catch { /* the sidebar refresh remains the fallback */ }
+      if (!moved) await load(false, true);
     }
+  };
+  const saveAuditTime = async () => {
+    if (!selectedPropertyId || !/^([01]\d|2[0-3]):[0-5]\d$/.test(auditTimeDraft)) {
+      setError("Choose a valid Night Audit time.");
+      return;
+    }
+    const saved = await action(
+      () => apiClient.put(`/api/owner/nrms/finance/property/${selectedPropertyId}/night-audit/settings`, { closeTime: auditTimeDraft }),
+      `Night Audit boundary updated to ${auditTimeDraft} EAT.`,
+    );
+    if (saved) setEditingAuditTime(false);
   };
   const classifyTender = (orderId: number) => action(() => apiClient.post(`/api/owner/nrms/finance/property/${selectedPropertyId}/outlet-orders/${orderId}/classify`, { method: tenderCorrections[orderId] }), "Outlet payment method classified for reconciliation.");
   const canManage = data?.accessRole === "OWNER" || data?.accessRole === "MANAGER";
+  const blockerAction = (code: string): { label: string; run: () => void } | null => {
+    if (code === "OPEN_CASHIER_SHIFTS") return { label: "Review shift", run: () => router.push(`/owner/nrms/finance?view=cashiers&businessDate=${encodeURIComponent(businessDate)}`) };
+    if (code === "UNRECONCILED_CASHIER_SHIFTS") return { label: "Reconcile shifts", run: () => router.push(`/owner/nrms/finance?view=cashiers&businessDate=${encodeURIComponent(businessDate)}`) };
+    if (code === "OPEN_OUTLET_ORDERS") return { label: "Review orders", run: () => router.push("/owner/nrms/orders") };
+    if (code === "DUE_OUT_GUESTS") return { label: "Review departures", run: () => router.push("/owner/nrms") };
+    if (code === "UNCLASSIFIED_TENDERS") return { label: "Classify tenders", run: () => document.getElementById("unclassified-tenders")?.scrollIntoView({ behavior: "smooth", block: "start" }) };
+    return null;
+  };
   useEffect(() => {
-    if (tab !== "audit" || !canManage || !isCompletedBusinessDate || Boolean(data?.blockers.length) || data?.businessDay.status === "CLOSED") setConfirmNightAudit(false);
-  }, [canManage, data?.blockers.length, data?.businessDay.status, isCompletedBusinessDate, tab]);
+    if (tab !== "audit" || !canManage || !canCloseSelectedDate || data?.businessDay.status === "CLOSED") setConfirmNightAudit(false);
+  }, [canCloseSelectedDate, canManage, data?.businessDay.status, tab]);
   const profitAndLoss = useMemo(() => {
     const byCurrency = new Map<string, { revenue: number; expense: number }>();
     for (const account of data?.ledger.accounts ?? []) {
@@ -233,6 +413,22 @@ export default function FinanceControlPage() {
       byCurrency.set(account.currency, row);
     }
     return [...byCurrency.entries()].map(([currency, row]) => ({ currency, revenue: row.revenue, expense: row.expense, net: row.revenue - row.expense }));
+  }, [data]);
+  const grossProfit = useMemo(() => {
+    const byCurrency = new Map<string, { revenue: number; cogs: number; losses: number }>();
+    for (const account of data?.ledger.accounts ?? []) {
+      const row = byCurrency.get(account.currency) ?? { revenue: 0, cogs: 0, losses: 0 };
+      if (FNB_REVENUE_CODES.includes(account.accountCode)) row.revenue += account.credit - account.debit;
+      if (COGS_CODES.includes(account.accountCode)) row.cogs += account.debit - account.credit;
+      if (STOCK_LOSS_CODES.includes(account.accountCode)) row.losses += account.debit - account.credit;
+      byCurrency.set(account.currency, row);
+    }
+    return [...byCurrency.entries()]
+      .filter(([, row]) => row.cogs !== 0 || row.losses !== 0)
+      .map(([currency, row]) => {
+        const gross = row.revenue - row.cogs;
+        return { currency, ...row, gross, margin: row.revenue > 0 ? Math.round((gross / row.revenue) * 1000) / 10 : null, afterLosses: gross - row.losses };
+      });
   }, [data]);
   const accountGroups = useMemo(() => {
     const groups = new Map<string, FinanceData["ledger"]["accounts"]>();
@@ -251,61 +447,189 @@ export default function FinanceControlPage() {
   return <div className="mx-auto max-w-[1500px] space-y-4 pb-10">
     {/* Preflight is disabled app-wide, so `border-*` on a div paints nothing.
         Edges here are rings, and single-side rules are inset shadows. */}
+    {/* Header: identity and page-wide actions on top, then a week strip that is
+        both the date picker and an at-a-glance audit status for recent days,
+        then the view tabs. Month-based views get a month strip instead. */}
     <section className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_38px_-32px_rgba(15,23,42,0.5)] ring-1 ring-neutral-200">
-      <header className="flex flex-wrap items-start gap-x-5 gap-y-3 px-5 py-4">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"><WalletCards className="h-5 w-5" /></span>
-        <div className="min-w-[16rem] flex-1">
-          <p className="m-0 text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS financial control</p>
-          <h2 className="mb-0 mt-0.5 text-xl font-bold tracking-tight text-neutral-950">Business date, cash and statutory records</h2>
-          <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">One controlled flow from operational transactions to Night Audit, ledgers and NBS statistics.</p>
-        </div>
-        {/* Both states were 8px/10px chips in the far corner. They gate every
-            action on this page, so they carry real weight now. */}
-        <div className="flex flex-wrap items-center gap-2">
-          {(() => {
-            const state = BUSINESS_DAY_STATE[data?.businessDay.status ?? ""] ?? { label: "Unknown", skin: "bg-neutral-100 text-neutral-600 ring-neutral-200", note: "The state of this business day could not be read." };
-            return (
-              <span title={state.note} className={`inline-flex min-h-10 cursor-help items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${loading ? "bg-neutral-100 text-neutral-500 ring-neutral-200" : state.skin}`}>
-                <LockKeyhole className="h-4 w-4 shrink-0 opacity-70" />
-                <span className="flex flex-col leading-none">
-                  <span className="text-[8px] font-bold uppercase tracking-wide opacity-60">Business date</span>
-                  <span className="mt-0.5">{loading ? "Checking" : state.label}</span>
-                </span>
-              </span>
-            );
-          })()}
-          <span className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-bold ring-1 ${data?.ledger.balanced ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-300"}`}>
-            {data?.ledger.balanced ? <CheckCircle2 className="h-4 w-4 shrink-0 opacity-70" /> : <AlertTriangle className="h-4 w-4 shrink-0 opacity-70" />}
-            <span className="flex flex-col leading-none">
-              <span className="text-[8px] font-bold uppercase tracking-wide opacity-60">Ledger control</span>
-              <span className="mt-0.5">{loading ? "Checking" : data?.ledger.balanced ? "Balanced" : "Review required"}</span>
-            </span>
-          </span>
-          <button type="button" onClick={() => void load()} className="inline-flex h-10 appearance-none items-center gap-2 rounded-xl border-0 bg-white px-3.5 text-xs font-bold text-neutral-600 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
-        </div>
-      </header>
+      {(() => {
+        const status = data?.businessDay.status;
+        const closeTime = data?.nightAuditPolicy.closeTime ?? "20:00";
+        const msToClose = data ? new Date(data.nightAuditPolicy.nextCloseAt).getTime() - now : 0;
+        const auditDue = isDayScoped && status === "OPEN" && canCloseSelectedDate;
+        const auditLine = !isDayScoped ? `Cutoff ${closeTime} EAT`
+          : status === "CLOSING" ? "Night Audit running now"
+          : auditDue ? `Night Audit due · cutoff ${closeTime} EAT passed`
+          : msToClose > 0 ? `Night Audit ${closeTime} EAT · in ${countdown(msToClose)}`
+          : `Night Audit ${closeTime} EAT`;
+        const today = localDay();
+        const thisMonth = today.slice(0, 7);
 
-      {/* The two pickers scope everything below. They sat inside the same row
-          as the status chips, with a wide gap between, so it was not obvious
-          they were controls rather than more status. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 bg-neutral-50/70 px-5 py-2.5 shadow-[inset_0_1px_0_0_#f1f5f9]">
-        <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400"><CalendarCheck2 className="h-3.5 w-3.5" />Business date</span>
-        {/* Reconciliation is done day by day, so stepping is the common move
-            and it was only possible through the calendar popover. */}
-        <div className="flex items-center gap-1.5">
-          <button type="button" aria-label="Previous day" onClick={() => setBusinessDate(shiftDay(businessDate, -1))} className="flex h-9 w-9 appearance-none items-center justify-center rounded-lg border-0 bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300"><ChevronLeft className="h-4 w-4" /></button>
-          <div className="w-[148px]"><DatePickerField label="Business date" value={businessDate} onChangeAction={setBusinessDate} widthClassName="!w-full" size="sm" twoMonths={false} allowPast /></div>
-          <button type="button" aria-label="Next day" disabled={businessDate >= localDay()} onClick={() => setBusinessDate(shiftDay(businessDate, 1))} className="flex h-9 w-9 appearance-none items-center justify-center rounded-lg border-0 bg-white text-neutral-500 ring-1 ring-neutral-200 transition hover:text-emerald-800 hover:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
-          {businessDate !== lastCompletedDay() && (
-            <button type="button" onClick={() => setBusinessDate(lastCompletedDay())} className="h-9 appearance-none rounded-lg border-0 bg-white px-3 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200 transition hover:bg-emerald-50">Latest closed day</button>
-          )}
-        </div>
-        <span className="hidden h-6 w-px bg-neutral-200 sm:block" aria-hidden="true" />
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">NBS month</span>
-          <div className="w-[132px]"><DatePickerField label="NBS reporting month" value={`${month}-01`} onChangeAction={(next) => setMonth(next.slice(0, 7))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast display="month" /></div>
-        </div>
-      </div>
+        // The strip is the hotel's operating timeline: only business days NRMS
+        // recorded, never calendar dates the property did not operate.
+        const timeline = data?.operatingTimeline ?? null;
+        const recordedDays = (timeline?.days ?? []).map((row) => (row.businessDate === businessDate && status && status !== "NOT_OPENED" ? { ...row, status: status as "OPEN" | "CLOSING" | "CLOSED" } : row));
+        const stripStatus = new Map(recordedDays.map((row) => [row.businessDate, row.status]));
+        const selectedIndex = recordedDays.findIndex((row) => row.businessDate === businessDate);
+        const anchorIndex = selectedIndex >= 0 ? selectedIndex : recordedDays.length - 1;
+        const windowStart = Math.max(0, Math.min(anchorIndex - 3, recordedDays.length - 7));
+        const stripDays = recordedDays.slice(windowStart, windowStart + 7).map((row) => row.businessDate);
+        const previousRecorded = selectedIndex > 0 ? recordedDays[selectedIndex - 1]!.businessDate : selectedIndex < 0 ? recordedDays[recordedDays.length - 1]?.businessDate ?? null : null;
+        const nextRecorded = selectedIndex >= 0 && selectedIndex < recordedDays.length - 1 ? recordedDays[selectedIndex + 1]!.businessDate : null;
+        const goToDay = (day: string) => { setBusinessDate(day); setMonth(day.slice(0, 7)); };
+        // The three facts the page must answer before anything else.
+        const toAudit = unclosedBusinessDays.filter((openDay) => openDay.canClose);
+        const tradingDay = unclosedBusinessDays.find((openDay) => !openDay.canClose) ?? null;
+
+        const monthEnd = [shiftMonth(month, 2), thisMonth].sort()[0]!;
+        const stripMonths = Array.from({ length: 6 }, (_, index) => shiftMonth(monthEnd, index - 5));
+
+        const tileState = (day: string): { label: string; tone: "closed" | "due" | "trading" | "none" } => {
+          const dayStatus = stripStatus.get(day);
+          if (dayStatus === "CLOSED") return { label: "Closed", tone: "closed" };
+          if (dayStatus === "CLOSING") return { label: "Closing", tone: "due" };
+          if (dayStatus === "OPEN") return day <= latestAuditDate ? { label: "To audit", tone: "due" } : { label: "Trading", tone: "trading" };
+          return { label: loading && !data ? "..." : "No record", tone: "none" };
+        };
+        const tileSkin = {
+          closed: "border-0 bg-white text-neutral-900 ring-1 ring-neutral-200 hover:ring-emerald-300",
+          due: "border-0 bg-amber-50 text-amber-950 ring-1 ring-amber-300 hover:ring-amber-400",
+          trading: "border border-dashed border-neutral-300 bg-white text-neutral-900 hover:border-emerald-400",
+          none: "border-0 bg-transparent text-neutral-400 ring-1 ring-neutral-200 hover:bg-white",
+        };
+        const tileStatusText = { closed: "text-emerald-700", due: "text-amber-700", trading: "text-sky-700", none: "text-neutral-400" };
+        const stepButton = "flex h-full min-h-[64px] w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent";
+
+        return <>
+          <header className="flex flex-wrap items-center gap-x-5 gap-y-3 px-5 py-4">
+            <div className="min-w-[15rem] flex-1">
+              <p className="m-0 truncate text-[10px] font-bold uppercase tracking-[0.17em] text-emerald-700">NRMS financial control{data?.property.title && <span className="normal-case tracking-normal text-neutral-400"> · {data.property.title}</span>}</p>
+              <h2 className="mb-0 mt-0.5 text-lg font-bold tracking-tight text-neutral-950 sm:text-xl">Business date, cash and statutory records</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => canManage && setEditingAuditTime(true)}
+                disabled={!canManage}
+                aria-expanded={editingAuditTime}
+                title={canManage ? "Change the property's business-date cutoff" : "Only an owner or manager can change the Night Audit cutoff"}
+                className={`inline-flex h-9 appearance-none items-center gap-1.5 rounded-lg border-0 px-3 text-[11px] font-semibold transition enabled:cursor-pointer disabled:cursor-default ${auditDue ? "bg-amber-50 text-amber-900 enabled:hover:bg-amber-100" : "bg-transparent text-neutral-600 enabled:hover:bg-neutral-100"}`}
+              >
+                <Clock3 className={`h-3.5 w-3.5 ${auditDue ? "text-amber-600" : "text-sky-700"}`} />{auditLine}{canManage && <Settings2 className="h-3 w-3 text-neutral-400" />}
+              </button>
+              <button type="button" onClick={() => void load()} title="Reload financial controls" className="inline-flex h-9 appearance-none items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 text-[11px] font-semibold tabular-nums text-neutral-500 transition hover:bg-neutral-100 hover:text-emerald-800">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />{loading ? "Syncing" : lastLoadedAt ? clockTime(lastLoadedAt) : "Sync"}
+              </button>
+            </div>
+          </header>
+
+          <div className="flex items-stretch gap-1.5 bg-neutral-50 px-2 py-3 shadow-[inset_0_1px_0_0_#f1f5f9] sm:px-3">
+            {isDayScoped ? <div className="min-w-0 flex-1 space-y-3">
+              {/* Control summary: what is closed, what waits for audit, what is trading. */}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-4 w-4" /></span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Last closed</p>
+                    {timeline?.lastClosed ? (
+                      <button type="button" onClick={() => goToDay(timeline.lastClosed!.businessDate)} className="m-0 cursor-pointer appearance-none border-0 bg-transparent p-0 text-left text-sm font-bold text-neutral-900 hover:text-emerald-800">
+                        {dayLabel(timeline.lastClosed.businessDate)}<span className="ml-1.5 text-[11px] font-semibold text-neutral-400">{timeline.closedCount} closed</span>
+                      </button>
+                    ) : <p className="m-0 text-sm font-bold text-neutral-500">{data ? "No day closed yet" : "..."}</p>}
+                  </div>
+                </div>
+                <div className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 ring-1 ${toAudit.length ? "bg-amber-50 ring-amber-300" : "bg-white ring-neutral-200"}`}>
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toAudit.length ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>{toAudit.length ? <AlertTriangle className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${toAudit.length ? "text-amber-700" : "text-neutral-400"}`}>To audit</p>
+                    <p className="m-0 text-sm font-bold text-neutral-900">{!data ? "..." : toAudit.length ? `${toAudit.length} day${toAudit.length === 1 ? "" : "s"} waiting` : "Nothing waiting"}</p>
+                  </div>
+                  {toAudit.length > 0 && toAudit[0]!.businessDate !== businessDate && (
+                    <button type="button" onClick={() => goToDay(toAudit[0]!.businessDate)} className="h-8 shrink-0 cursor-pointer rounded-lg border-0 bg-[#073c35] px-2.5 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">
+                      Start {dayLabel(toAudit[0]!.businessDate)}
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-neutral-200">
+                  <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-700"><Clock3 className="h-4 w-4" />{tradingDay && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />}</span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">Trading now</p>
+                    {tradingDay ? (
+                      <button type="button" onClick={() => goToDay(tradingDay.businessDate)} className="m-0 cursor-pointer appearance-none border-0 bg-transparent p-0 text-left text-sm font-bold text-neutral-900 hover:text-emerald-800">
+                        {dayLabel(tradingDay.businessDate)}{msToClose > 0 && <span className="ml-1.5 text-[11px] font-semibold text-neutral-400">closes in {countdown(msToClose)}</span>}
+                      </button>
+                    ) : <p className="m-0 text-sm font-bold text-neutral-500">{data ? "No day trading" : "..."}</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Recorded business days only; arrows step from one recorded day to the next. */}
+              <div className="flex items-stretch gap-1.5">
+                <button type="button" aria-label="Previous recorded day" disabled={!previousRecorded} onClick={() => previousRecorded && goToDay(previousRecorded)} className={stepButton}><ChevronLeft className="h-4 w-4" /></button>
+                <div className="min-w-0 flex-1 overflow-x-auto">
+                  {stripDays.length ? (
+                    <div className="grid min-w-[520px] grid-cols-7 gap-1.5">
+                      {stripDays.map((day) => {
+                        const on = day === businessDate;
+                        const state = tileState(day);
+                        const [y, m, d] = day.split("-").map(Number);
+                        const weekday = day === today ? "Today" : new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", weekday: "short" });
+                        const monthShort = new Date(Date.UTC(y!, m! - 1, d!, 12)).toLocaleDateString("en-GB", { timeZone: "UTC", month: "short" });
+                        return (
+                          <button key={day} type="button" onClick={() => goToDay(day)} aria-current={on ? "date" : undefined} title={`${dayLabel(day)} · ${state.label}`}
+                            className={`flex min-h-[64px] cursor-pointer appearance-none flex-col items-center justify-center rounded-xl px-1 py-2 text-center transition ${on ? "border-0 bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)] ring-1 ring-[#073c35]" : tileSkin[state.tone]}`}>
+                            <span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{weekday}</span>
+                            <span className="mt-0.5 text-base font-extrabold leading-none tabular-nums">{d}<span className={`ml-1 text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{monthShort}</span></span>
+                            <span className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold ${on ? "text-emerald-200" : tileStatusText[state.tone]}`}>{state.tone === "closed" && <CheckCircle2 className="h-3 w-3" />}{state.tone === "trading" && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-300" : "bg-emerald-500"}`} />}{state.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[64px] items-center justify-center rounded-xl px-4 text-center text-xs text-neutral-500 ring-1 ring-neutral-200">
+                      {data ? "No business days recorded yet. The first day opens when this property starts operating in NRMS." : "Loading the operating timeline..."}
+                    </div>
+                  )}
+                </div>
+                <button type="button" aria-label="Next recorded day" disabled={!nextRecorded} onClick={() => nextRecorded && goToDay(nextRecorded)} className={stepButton}><ChevronRight className="h-4 w-4" /></button>
+                {/* Older dates: the calendar, limited to the days this property could have records for. */}
+                <div className="relative flex w-10 shrink-0 items-center justify-center rounded-xl text-neutral-500 ring-1 ring-neutral-200 transition hover:bg-white hover:text-emerald-800" title="Find an older business date">
+                  <CalendarCheck2 className="h-4 w-4" />
+                  <div className="absolute inset-0 opacity-0 [&>*]:!h-full [&_button]:!h-full [&_button]:!w-full [&_button]:!min-w-0 [&_button]:!cursor-pointer [&_button]:!p-0"><DatePickerField label="Business date" value={businessDate} onChangeAction={(value) => goToDay(String(value))} widthClassName="!w-full" size="sm" twoMonths={false} allowPast min={timeline?.firstRecordedDate ?? undefined} max={today} /></div>
+                </div>
+              </div>
+            </div> : <>
+              {/* One light track, the selected month raised in brand green. The
+                  old tiles never reset the browser's button border, which with
+                  preflight off drew a thick grey outset frame round each one. */}
+              <button type="button" aria-label="Earlier months" onClick={() => setMonth(shiftMonth(month, -6))} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800"><ChevronLeft className="h-4 w-4" /></button>
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <div role="tablist" aria-label="Reporting month" className="grid min-w-[480px] grid-cols-6 gap-1 rounded-2xl bg-white p-1 ring-1 ring-neutral-200">
+                  {stripMonths.map((value) => {
+                    const on = value === month;
+                    const [y, m] = value.split("-").map(Number);
+                    const label = new Date(Date.UTC(y!, m! - 1, 1, 12)).toLocaleDateString("en-US", { timeZone: "UTC", month: "short" });
+                    const daysInMonth = new Date(Date.UTC(y!, m!, 0)).getUTCDate();
+                    const current = value === thisMonth;
+                    const sub = current ? `Day ${Number(today.slice(8, 10))} of ${daysInMonth}` : `${daysInMonth} days`;
+                    return (
+                      <button key={value} type="button" role="tab" aria-selected={on} onClick={() => setMonth(value)}
+                        className={`relative flex h-14 appearance-none flex-col items-center justify-center rounded-xl border-0 px-1 text-center transition ${on ? "bg-[#073c35] text-white shadow-[0_8px_18px_-10px_rgba(7,60,53,0.9)]" : "bg-transparent text-neutral-700 hover:bg-neutral-100"}`}>
+                        <span className="flex items-center gap-1.5 text-sm font-extrabold leading-none">
+                          {label}<span className={`text-[10px] font-semibold ${on ? "text-emerald-200" : "text-neutral-400"}`}>{y}</span>
+                        </span>
+                        <span className={`mt-1.5 flex items-center gap-1 text-[10px] font-semibold tabular-nums ${on ? "text-emerald-200" : current ? "text-emerald-700" : "text-neutral-400"}`}>
+                          {current && <span className={`h-1.5 w-1.5 rounded-full ${on ? "bg-emerald-300" : "bg-emerald-500"}`} />}{sub}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="button" aria-label="Later months" disabled={month >= thisMonth} onClick={() => setMonth([shiftMonth(month, 6), thisMonth].sort()[0]!)} className="flex w-9 shrink-0 appearance-none items-center justify-center rounded-xl border-0 bg-transparent text-neutral-500 transition hover:bg-white hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"><ChevronRight className="h-4 w-4" /></button>
+            </>}
+          </div>
+        </>;
+      })()}
 
       {/* Six views were reachable only from the workspace sidebar, so the page
           never showed which one you were in or offered a way across. */}
@@ -316,9 +640,13 @@ export default function FinanceControlPage() {
             <button
               key={item.id}
               type="button"
-              onClick={() => { setTab(item.id); setError(null); setMessage(null); }}
+              onClick={() => {
+                const nextBusinessDate = item.id === "cashiers" ? data?.nightAuditPolicy.activeBusinessDate ?? localDay() : item.id === "audit" ? latestAuditDate : businessDate;
+                setTab(item.id); setBusinessDate(nextBusinessDate); setMonth(nextBusinessDate.slice(0, 7)); setError(null); setMessage(null);
+                router.replace(`/owner/nrms/finance?view=${item.id}&businessDate=${encodeURIComponent(nextBusinessDate)}`);
+              }}
               aria-current={on ? "page" : undefined}
-              className={`inline-flex min-h-11 shrink-0 appearance-none items-center gap-1.5 rounded-t-lg border-0 px-3 text-xs font-bold transition ${on ? "bg-white text-emerald-800 shadow-[inset_0_-2px_0_0_#047857]" : "bg-transparent text-neutral-500 hover:bg-white/70 hover:text-neutral-800"}`}
+              className={`inline-flex min-h-11 shrink-0 appearance-none items-center gap-1.5 border-0 bg-transparent px-3 text-xs font-bold transition ${on ? "text-emerald-800 shadow-[inset_0_-2px_0_0_#047857]" : "text-neutral-500 hover:text-neutral-900"}`}
             >
               <item.icon className="h-3.5 w-3.5" />{item.label}
             </button>
@@ -326,155 +654,250 @@ export default function FinanceControlPage() {
         })}
       </nav>
     </section>
+    {editingAuditTime && canManage && (
+      <NrmsModalFrame
+        title="Night Audit cutoff"
+        compact
+        compactFooter
+        small
+        closeOnEscape={!busy}
+        onClose={() => { if (!busy) { setEditingAuditTime(false); setAuditTimeDraft(data?.nightAuditPolicy.closeTime ?? "20:00"); } }}
+        footer={<div className="flex items-center justify-end gap-2"><button type="button" onClick={() => { setEditingAuditTime(false); setAuditTimeDraft(data?.nightAuditPolicy.closeTime ?? "20:00"); }} disabled={busy} className="h-9 rounded-lg border-0 bg-white px-3 text-[11px] font-bold text-neutral-600 ring-1 ring-neutral-200 transition hover:bg-neutral-50 disabled:opacity-50">Cancel</button><button type="button" onClick={() => void saveAuditTime()} disabled={busy || auditTimeDraft === data?.nightAuditPolicy.closeTime} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeCheck className="h-3.5 w-3.5" />}Save</button></div>}
+      >
+        <div>
+          <label className="block" htmlFor="night-audit-cutoff"><span className="text-[9px] font-bold uppercase tracking-[0.12em] text-neutral-500">Closing time</span><div className="mt-1.5 flex h-10 items-center overflow-hidden rounded-lg bg-white ring-1 ring-neutral-300 focus-within:ring-2 focus-within:ring-emerald-500"><input id="night-audit-cutoff" type="time" value={auditTimeDraft} onChange={(event) => setAuditTimeDraft(event.target.value)} className="h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-extrabold tabular-nums text-neutral-900 outline-none" /><span className="mr-2 rounded bg-neutral-100 px-1.5 py-1 text-[9px] font-bold text-neutral-500">EAT</span></div></label>
+          <p className="mb-0 mt-2 text-[10px] leading-4 text-neutral-500">Earlier activity stays on the previous business date. Closing remains manual.</p>
+        </div>
+      </NrmsModalFrame>
+    )}
     {(error || message) && <div className={`rounded-xl px-4 py-3 text-xs font-semibold ring-1 ${error ? "ring-red-200 bg-red-50 text-red-700" : "ring-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
     {tab === "audit" && (
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
-        <section className="rounded-2xl ring-1 ring-neutral-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="m-0 text-base font-bold">Night Audit checklist</h3>
-              <p className="mb-0 mt-1 text-xs text-neutral-500">Every blocking item must be cleared. There is no override or bypass.</p>
+      <>
+        <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
+          <header className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CalendarCheck2 className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <h3 className="m-0 text-base font-bold text-neutral-900">Night Audit · {dayLabel(businessDate)}</h3>
+              <p className="mb-0 mt-1 text-xs text-neutral-500">Review every recorded activity and closing outcome before locking the date.</p>
             </div>
-            <CalendarCheck2 className="h-6 w-6 text-emerald-700" />
-          </div>
-          <div className="mt-4 space-y-2">
-            {data?.businessDay.status === "CLOSED" ? (
-              <div className="flex gap-3 rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-neutral-700 shadow-sm ring-1 ring-neutral-200"><LockKeyhole className="h-4 w-4" /></span>
-                <div>
-                  <p className="m-0 text-xs font-bold text-neutral-900">This business date is already closed</p>
-                  <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-600">The ledger and Night Audit are locked for this date. Operations continue on the next open business date; any later correction must be recorded there with its audit reason.</p>
-                  {data.businessDay.closedAt && <p className="mb-0 mt-1.5 text-[9px] font-semibold text-neutral-400">Closed {time(data.businessDay.closedAt)}</p>}
-                </div>
-              </div>
-            ) : !isCompletedBusinessDate ? (
-              <div className="flex gap-3 rounded-xl ring-1 ring-amber-200 bg-amber-50 p-3">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                <div><p className="m-0 text-xs font-bold text-amber-900">This business date is still operating</p><p className="mb-0 mt-1 text-[10px] text-amber-700">Choose yesterday or an earlier open date. Today cannot be locked while guests and outlets are still operating.</p></div>
-              </div>
-            ) : data?.blockers.length ? (
-              data.blockers.map((blocker) => <div key={blocker.code} className="flex gap-3 rounded-xl ring-1 ring-red-200 bg-red-50 p-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><div><p className="m-0 text-xs font-bold text-red-800">{blocker.message}</p><p className="mb-0 mt-1 text-[10px] text-red-600">Resolve this in the related operational workspace, then refresh this control.</p></div></div>)
+            {data?.businessDay.status === "NOT_OPENED" ? (
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${BUSINESS_DAY_STATE.NOT_OPENED!.skin}`}>{BUSINESS_DAY_STATE.NOT_OPENED!.label}</span>
             ) : (
-              <div className="flex gap-3 rounded-xl ring-1 ring-emerald-200 bg-emerald-50 p-4"><CheckCircle2 className="h-5 w-5 text-emerald-700" /><div><p className="m-0 text-xs font-bold text-emerald-800">All closing controls passed</p><p className="mb-0 mt-1 text-[10px] text-emerald-700">NRMS is ready to post balanced entries and lock this completed business date.</p></div></div>
+              <button type="button" onClick={() => setConfirmNightAudit(true)} disabled={busy || data?.businessDay.status === "CLOSING"} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white transition hover:bg-[#0b5148] disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"><ClipboardCheck className="h-4 w-4" />{data?.businessDay.status === "CLOSED" ? "View final report" : "Open full review"}</button>
             )}
-          </div>
+          </header>
 
-          {confirmNightAudit && canManage && isCompletedBusinessDate && !data?.blockers.length && data?.businessDay.status !== "CLOSED" && (
-            <div className="mt-4 rounded-xl ring-1 ring-solid border-amber-300 bg-amber-50 p-4" role="region" aria-live="polite" aria-labelledby="night-audit-confirmation-title">
-              <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 shadow-sm ring-1 ring-amber-200"><LockKeyhole className="h-4 w-4" /></span>
-                <div className="min-w-0 flex-1">
-                  <p id="night-audit-confirmation-title" className="m-0 text-sm font-bold text-amber-950">Close business date {businessDate}?</p>
-                  <p className="mb-0 mt-1 text-xs leading-5 text-amber-900">Review the impact before confirming. This is a controlled financial close, not a temporary status change.</p>
-                  <ul className="mb-0 mt-3 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900">
-                    <li>Balanced operational entries will be posted to the accounting ledger and the Night Audit report will be stored.</li>
-                    <li>This completed business date will be locked. Any later correction must be recorded on an open business date with its audit reason.</li>
-                    <li>The next business date will open immediately so check-ins, checkouts, payments and outlet operations can continue.</li>
-                  </ul>
-                  {fiscalBacklogWarning && (
-                    <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-[11px] leading-4 text-amber-950 ring-1 ring-amber-300">
-                      <input
-                        type="checkbox"
-                        checked={acknowledgeFiscalBacklog}
-                        onChange={(event) => setAcknowledgeFiscalBacklog(event.target.checked)}
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700"
-                      />
-                      <span>
-                        <strong className="block">Acknowledge unresolved TRA delivery</strong>
-                        {fiscalBacklogWarning.message} I understand the listed receipts remain legally outstanding and that this acknowledgement will be stored with the Night Audit.
-                      </span>
-                    </label>
-                  )}
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <button type="button" onClick={() => void closeAudit()} disabled={busy || Boolean(fiscalBacklogWarning && !acknowledgeFiscalBacklog)} className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-amber-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
-                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LockKeyhole className="h-3.5 w-3.5" />} Yes, post ledger and close
-                    </button>
-                    <button type="button" onClick={() => setConfirmNightAudit(false)} disabled={busy} className="min-h-10 cursor-pointer rounded-lg border border-solid border-amber-300 bg-white px-4 text-xs font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-50">Not yet</button>
-                  </div>
-                </div>
+          {data?.businessDay.status === "NOT_OPENED" ? (
+            <div className="flex items-start gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-5">
+              <Clock3 className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
+              <div className="min-w-0 flex-1">
+                {(() => {
+                  const first = data?.operatingTimeline?.firstRecordedDate ?? null;
+                  const beforeStart = Boolean(first && businessDate < first);
+                  const target = oldestUnclosedDay?.canClose ? oldestUnclosedDay : unclosedBusinessDays.find((openDay) => !openDay.canClose) ?? oldestUnclosedDay;
+                  return <>
+                    <p className="m-0 text-sm font-bold text-neutral-800">{beforeStart ? "Before NRMS started at this property" : "No operations recorded on this date"}</p>
+                    <p className="mb-0 mt-1 text-xs leading-5 text-neutral-500">
+                      {beforeStart
+                        ? `The first recorded business day is ${dayLabel(first!)}. Nothing before it can be audited or closed.`
+                        : "No business day was opened on this date, so there is nothing to audit or close here."}
+                    </p>
+                    {target && (
+                      <button type="button" onClick={() => { setBusinessDate(target.businessDate); setMonth(target.businessDate.slice(0, 7)); }} className="mt-3 h-9 cursor-pointer rounded-lg border-0 bg-[#073c35] px-3 text-[11px] font-bold text-white transition hover:bg-[#0b5148]">
+                        {target.canClose ? `Audit ${dayLabel(target.businessDate)}` : `Go to today's trading day · ${dayLabel(target.businessDate)}`}
+                      </button>
+                    )}
+                  </>;
+                })()}
               </div>
             </div>
-          )}
+          ) : (
+            (() => {
+              // One status reading drives the headline, the stepper and the tile marks,
+              // so the card cannot say "locked" in one place and "waiting" in another.
+              const status = data?.businessDay.status;
+              const closed = status === "CLOSED";
+              const closing = status === "CLOSING";
+              const blockerCount = data?.blockers.length ?? 0;
+              const warningCount = data?.warnings.length ?? 0;
+              const readyToClose = canCloseSelectedDate && !blockerCount;
+              const finalAudit = data?.businessDay.audits.find((audit) => audit.status === "CLOSED") ?? null;
+              const currency = data?.property.currency || "TZS";
+              const review = data?.nightAuditReview;
+              const closeTime = data?.nightAuditPolicy.closeTime ?? "20:00";
 
-          <button
-            type="button"
-            onClick={() => setConfirmNightAudit(true)}
-            disabled={!canManage || busy || !isCompletedBusinessDate || Boolean(data?.blockers.length) || data?.businessDay.status === "CLOSED" || confirmNightAudit}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border-0 bg-[#073c35] px-4 text-xs font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400"
+              const headline = closed ? { icon: <LockKeyhole className="h-4 w-4" />, skin: "bg-neutral-900 text-white", title: "Completed and locked", detail: `Closed ${time(data?.businessDay.closedAt)}${finalAudit ? ` · Report ${finalAudit.reportNumber}` : ""}` }
+                : closing ? { icon: <Loader2 className="h-4 w-4 animate-spin" />, skin: "bg-amber-100 text-amber-800", title: "Night Audit is running", detail: "The ledger is posting. This date locks when the run finishes." }
+                : !canCloseSelectedDate ? { icon: <Clock3 className="h-4 w-4" />, skin: "bg-sky-100 text-sky-800", title: `Trading until the ${closeTime} EAT cutoff`, detail: `This date becomes eligible after the boundary. Next boundary: ${time(data?.nightAuditPolicy.nextCloseAt)}.` }
+                : blockerCount ? { icon: <AlertTriangle className="h-4 w-4" />, skin: "bg-red-100 text-red-700", title: `${blockerCount} closing control${blockerCount === 1 ? "" : "s"} need attention`, detail: "Open the review to see each blocker, the day's activity and the affected outcome." }
+                : { icon: <CheckCircle2 className="h-4 w-4" />, skin: "bg-emerald-100 text-emerald-800", title: "Ready to close", detail: `All blocking controls passed${warningCount ? `, ${warningCount} warning${warningCount === 1 ? "" : "s"} to acknowledge` : ""}. Review operations, cash and ledger entries before confirming.` };
+
+              const steps: Array<{ label: string; detail: string; state: AuditStepState }> = [
+                { label: "Day opened", detail: data?.businessDay.openedAt ? time(data.businessDay.openedAt) : "Trading started", state: "done" },
+                { label: `Cutoff ${closeTime} EAT`, detail: closed || canCloseSelectedDate ? "Boundary passed" : `Next ${time(data?.nightAuditPolicy.nextCloseAt)}`, state: closed || canCloseSelectedDate ? "done" : "current" },
+                { label: "Closing controls", detail: closed ? "All passed" : !canCloseSelectedDate ? "Checked after cutoff" : blockerCount ? `${blockerCount} blocking` : "All passed", state: closed ? "done" : !canCloseSelectedDate ? "pending" : blockerCount ? "blocked" : "done" },
+                { label: "Audit and lock", detail: closed ? time(data?.businessDay.closedAt) : closing ? "Running now" : readyToClose ? "Ready to run" : "Waiting", state: closed ? "done" : closing || readyToClose ? "current" : "pending" },
+              ];
+
+              const cashiers = review?.cashiers;
+              const ledger = review?.ledger;
+              return (
+                <div className="space-y-4 p-4 shadow-[inset_0_1px_0_0_#f1f5f9] sm:p-5">
+                  <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
+                    <div className="flex items-start gap-3">
+                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${headline.skin}`}>{headline.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="m-0 text-sm font-bold text-neutral-900">{headline.title}</p>
+                        <p className="mb-0 mt-1 text-[11px] leading-4 text-neutral-600">{headline.detail}</p>
+                      </div>
+                    </div>
+                    <ol className="m-0 mt-4 grid list-none grid-cols-2 gap-x-3 gap-y-4 p-0 lg:grid-cols-4" aria-label="Night Audit progress">
+                      {steps.map((step, index) => {
+                        const skin = AUDIT_STEP_SKIN[step.state];
+                        return (
+                          <li key={step.label} className="min-w-0" aria-current={step.state === "current" || step.state === "blocked" ? "step" : undefined}>
+                            <span className={`block h-1 rounded-full ${skin.bar}`} aria-hidden />
+                            <div className="mt-2.5 flex items-start gap-2">
+                              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${skin.dot}`}>{step.state === "done" ? <CheckCircle2 className="h-3.5 w-3.5" /> : step.state === "blocked" ? "!" : index + 1}</span>
+                              <div className="min-w-0">
+                                <p className={`m-0 truncate text-[11px] font-bold ${skin.label}`}>{step.label}</p>
+                                <p className="mb-0 mt-0.5 truncate text-[10px] text-neutral-500">{step.detail}</p>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+
+                  {review && cashiers && ledger && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <AuditTile icon={<BedDouble className="h-3.5 w-3.5" />} label="Guest movement" value={`${review.operations.arrivals} in · ${review.operations.departures} out`} note={`${review.operations.inHouseAtReview} in house · ${review.operations.reservationsCreated} new reservation${review.operations.reservationsCreated === 1 ? "" : "s"}`} />
+                    <AuditTile icon={<WalletCards className="h-3.5 w-3.5" />} label="Cashier shifts" value={cashiers.total ? `${cashiers.signedOff}/${cashiers.total} signed off` : "No shifts"} note={cashiers.total ? `${cashiers.open} still open · ${cashiers.closed} closed` : "No cashier shift was recorded for this date"} tone={!cashiers.total ? "neutral" : cashiers.open || cashiers.signedOff !== cashiers.total ? "warn" : "good"} />
+                    <AuditTile icon={<Scale className="h-3.5 w-3.5" />} label="Cash variance" value={cash(cashiers.variance, currency)} note={cashiers.total ? `Expected ${cash(cashiers.expectedCash, currency)} · declared ${cash(cashiers.declaredCash, currency)}` : "No cash was counted"} tone={!cashiers.total ? "neutral" : cashiers.variance === 0 ? "good" : "warn"} />
+                    <AuditTile icon={<BookOpen className="h-3.5 w-3.5" />} label="Ledger" value={`${ledger.transactionCount} ${ledger.transactionCount === 1 ? "entry" : "entries"}`} note={`${ledger.balanced ? "Balanced" : "Not balanced"} · ${ledger.stockMovementsPosted} stock movement${ledger.stockMovementsPosted === 1 ? "" : "s"}`} tone={ledger.balanced ? "good" : "bad"} />
+                  </div>}
+
+                  {data && data.businessDay.audits.length > 0 && <div>
+                    <p className="m-0 text-[9px] font-bold uppercase tracking-[0.14em] text-neutral-400">Audit history</p>
+                    <ul className="m-0 mt-2 list-none overflow-hidden rounded-xl p-0 ring-1 ring-neutral-200">
+                      {data.businessDay.audits.map((audit, index) => (
+                        <li key={audit.id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 bg-white px-3.5 py-2.5 text-[11px] ${index ? "shadow-[inset_0_1px_0_0_#f1f5f9]" : ""}`}>
+                          {audit.status === "CLOSED" ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" /> : <XCircle className="h-3.5 w-3.5 shrink-0 text-red-600" />}
+                          <span className="font-mono font-semibold text-neutral-800">{audit.reportNumber}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{codeLabel(audit.status)}</span>
+                          <span className="ml-auto tabular-nums text-neutral-500">{time(audit.completedAt || audit.startedAt)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>}
+                </div>
+              );
+            })()
+          )}
+        </section>
+
+        {confirmNightAudit && data?.businessDay.status !== "NOT_OPENED" && (
+          <NrmsModalFrame
+            title={`Night Audit · ${dayLabel(businessDate)}`}
+            subtitle={`Business-date boundary ${data?.nightAuditPolicy.closeTime} EAT · review generated ${time(data?.nightAuditReview?.generatedAt)}`}
+            icon={<ClipboardCheck className="h-5 w-5" />}
+            extraWide
+            closeOnEscape={!busy}
+            onClose={() => { if (!busy) { setConfirmNightAudit(false); setAcknowledgeFiscalBacklog(false); } }}
+            footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><button type="button" onClick={() => setConfirmNightAudit(false)} disabled={busy} className="min-h-10 rounded-lg border border-neutral-200 bg-white px-4 text-xs font-bold text-neutral-700 disabled:opacity-50">Close review</button>{data?.businessDay.status === "OPEN" && <button type="button" onClick={() => void closeAudit()} disabled={!canManage || !canCloseSelectedDate || Boolean(data?.blockers.length) || busy || Boolean(fiscalBacklogWarning && !acknowledgeFiscalBacklog) || !data?.nightAuditReview?.ledger.balanced} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border-0 bg-amber-700 px-5 text-xs font-bold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}Post ledger and close date</button>}</div>}
           >
-            <LockKeyhole className="h-4 w-4" />
-            {data?.businessDay.status === "CLOSED" ? "Business date closed" : !isCompletedBusinessDate ? "Choose a completed business date" : !canManage ? "Manager approval required to close" : confirmNightAudit ? "Review the impact above" : "Review closing impact"}
-          </button>
-        </section>
-        <section className="rounded-2xl ring-1 ring-neutral-200 bg-white p-5 shadow-sm">
-          <h3 className="m-0 text-sm font-bold">Audit history</h3>
-          <div className="mt-3 space-y-2">
-            {data?.businessDay.audits.map((audit) => <div key={audit.id} className="rounded-xl ring-1 ring-neutral-200 p-3"><div className="flex items-center justify-between gap-3"><strong className="text-xs">{audit.reportNumber}</strong><span className={`rounded-full px-2 py-1 text-[9px] font-bold ${audit.status === "CLOSED" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{audit.status}</span></div><p className="mb-0 mt-1 text-[10px] text-neutral-500">{time(audit.completedAt || audit.startedAt)}</p></div>)}
-            {!data?.businessDay.audits.length && <p className="text-xs text-neutral-400">No Night Audit has been attempted for this date.</p>}
-          </div>
-        </section>
-      </div>
+            {!data?.nightAuditReview ? <div className="rounded-xl bg-neutral-50 p-5 text-sm text-neutral-600 ring-1 ring-neutral-200">This historical close predates the expanded activity snapshot. Its report number and ledger remain available in Audit history and Accounting ledger.</div> : <div className="space-y-5">
+              <section>
+                <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Operational activity</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Captured from {time(data.nightAuditReview.window.startedAt)} through {time(data.nightAuditReview.window.through)}.</p></div><span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-bold text-sky-700 ring-1 ring-sky-200">{data.nightAuditPolicy.closeTime} EAT boundary</span></div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><ReviewMetric icon={<LogIn className="h-3.5 w-3.5" />} label="Checked in" value={String(data.nightAuditReview.operations.arrivals)} note="Arrivals completed in this business window" /><ReviewMetric icon={<LogOut className="h-3.5 w-3.5" />} label="Checked out" value={String(data.nightAuditReview.operations.departures)} note="Departures completed in this business window" /><ReviewMetric icon={<BedDouble className="h-3.5 w-3.5" />} label="In house" value={String(data.nightAuditReview.operations.inHouseAtReview)} note="Guests still checked in at review time" /><ReviewMetric icon={<CalendarCheck2 className="h-3.5 w-3.5" />} label="Reservations" value={String(data.nightAuditReview.operations.reservationsCreated)} note="Reservations created in this business window" /></div>
+              </section>
+
+              <section className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200"><div className="flex items-center justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Cashier reconciliation</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Physical cash, recorded expectation and manager sign-off.</p></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${data.nightAuditReview.cashiers.open || data.nightAuditReview.cashiers.signedOff !== data.nightAuditReview.cashiers.total ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{data.nightAuditReview.cashiers.signedOff}/{data.nightAuditReview.cashiers.total} signed off</span></div><div className="mt-3 grid gap-3 sm:grid-cols-3"><Metric label="Expected cash" value={cash(data.nightAuditReview.cashiers.expectedCash, data?.property.currency || "TZS")} note={`${data.nightAuditReview.cashiers.closed} closed shift${data.nightAuditReview.cashiers.closed === 1 ? "" : "s"}`} /><Metric label="Declared cash" value={cash(data.nightAuditReview.cashiers.declaredCash, data?.property.currency || "TZS")} note="Physical counts entered by cashiers or managers" /><Metric label="Variance" value={cash(data.nightAuditReview.cashiers.variance, data?.property.currency || "TZS")} note={data.nightAuditReview.cashiers.variance === 0 ? "Expected and declared cash agree" : "Explained variance retained in shift records"} tone={data.nightAuditReview.cashiers.variance === 0 ? "green" : "amber"} /></div></section>
+
+              <section><h4 className="m-0 text-sm font-bold text-neutral-900">Closing controls</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every blocking control must clear. No override or bypass is available.</p><div className="mt-3 space-y-2">{data.nightAuditReview.controls.blockers.length ? data.nightAuditReview.controls.blockers.map((blocker) => { const next = blockerAction(blocker.code); return <div key={blocker.code} className="flex flex-wrap items-center gap-3 rounded-xl bg-red-50 p-3 ring-1 ring-red-200"><AlertTriangle className="h-4 w-4 shrink-0 text-red-600" /><div className="min-w-0 flex-1"><p className="m-0 text-xs font-bold text-red-900">{codeLabel(blocker.code)}</p><p className="mb-0 mt-1 text-[10px] text-red-700">{blocker.message}</p></div>{next && <button type="button" onClick={() => { setConfirmNightAudit(false); next.run(); }} className="h-8 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700">{next.label}</button>}</div>; }) : <div className="flex items-center gap-3 rounded-xl bg-emerald-50 p-3 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="h-4 w-4" />All blocking controls passed.</div>}{data.nightAuditReview.controls.warnings.map((warning) => <div key={warning.code} className="flex items-start gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" /><div><p className="m-0 text-xs font-bold text-amber-900">{codeLabel(warning.code)}</p><p className="mb-0 mt-1 text-[10px] text-amber-800">{warning.message}</p></div></div>)}</div></section>
+
+              <section><div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="m-0 text-sm font-bold text-neutral-900">Proposed ledger outcome</h4><p className="mb-0 mt-1 text-[11px] text-neutral-500">Every activity below becomes an immutable balanced ledger transaction when you close.</p></div><div className="text-right"><p className="m-0 text-lg font-extrabold tabular-nums text-neutral-950">{cash(data.nightAuditReview.ledger.debitTotal, data?.property.currency || "TZS")}</p><p className="m-0 text-[9px] font-bold uppercase tracking-wide text-neutral-400">Debit = credit · {data.nightAuditReview.ledger.transactionCount} entries</p></div></div><div className="mt-3 overflow-hidden rounded-xl ring-1 ring-neutral-200"><div className="max-h-72 overflow-auto"><table className="w-full min-w-[680px] border-collapse text-left"><thead className="sticky top-0 bg-neutral-50 text-[9px] font-bold uppercase tracking-wide text-neutral-500"><tr><th className="px-3 py-2.5">Activity</th><th className="px-3 py-2.5">Type</th><th className="px-3 py-2.5">Time</th><th className="px-3 py-2.5 text-right">Debit</th><th className="px-3 py-2.5 text-right">Credit</th></tr></thead><tbody className="divide-y divide-neutral-100 text-[11px]">{data.nightAuditReview.ledger.activities.map((activity, index) => <tr key={`${activity.sourceType}-${index}`}><td className="max-w-[260px] px-3 py-2.5 font-semibold text-neutral-800">{activity.description}</td><td className="px-3 py-2.5 text-neutral-500">{codeLabel(activity.sourceType)}</td><td className="whitespace-nowrap px-3 py-2.5 text-neutral-500">{time(activity.occurredAt)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.debit, activity.currency)}</td><td className="px-3 py-2.5 text-right tabular-nums text-neutral-700">{cash(activity.credit, activity.currency)}</td></tr>)}{!data.nightAuditReview.ledger.activities.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-xs text-neutral-400">No ledger activity is waiting to post for this date.</td></tr>}</tbody></table></div></div></section>
+
+              <section className="rounded-xl bg-amber-50 p-4 ring-1 ring-amber-200"><h4 className="m-0 text-sm font-bold text-amber-950">What closing will do</h4><ul className="mb-0 mt-2 space-y-1.5 pl-4 text-[11px] leading-4 text-amber-900"><li>Post the balanced activities above to the accounting ledger and store this review in the Night Audit report.</li><li>Lock {dayLabel(businessDate)}. Later corrections must be recorded on an open business date with an audit reason.</li><li>Open the next sequential business date so hotel operations continue without a gap.</li></ul>{fiscalBacklogWarning && <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-[11px] leading-4 text-amber-950 ring-1 ring-amber-300"><input type="checkbox" checked={acknowledgeFiscalBacklog} onChange={(event) => setAcknowledgeFiscalBacklog(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-amber-700" /><span><strong className="block">Acknowledge unresolved TRA delivery</strong>{fiscalBacklogWarning.message} I understand this acknowledgement is stored with the final Night Audit.</span></label>}</section>
+            </div>}
+          </NrmsModalFrame>
+        )}
+      </>
     )}
 
-    {tab === "audit" && Boolean(data?.unclassifiedTenders?.length) && <section className="overflow-hidden rounded-xl ring-1 ring-amber-200 bg-white shadow-sm">
+    {tab === "audit" && Boolean(data?.unclassifiedTenders?.length) && <section id="unclassified-tenders" className="scroll-mt-4 overflow-hidden rounded-xl ring-1 ring-amber-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-50/70 px-4 py-3 shadow-[inset_0_-1px_0_0_#fef3c7]"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Classify outlet payments</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">These older settled orders have no recorded tender. Select the actual method received before Night Audit.</p></div><span className="rounded-md ring-1 ring-amber-200 bg-white px-2 py-1 text-[9px] font-bold text-amber-800">{data?.unclassifiedTenders?.length} required</span></div>
       <div className="[&>*]:shadow-[inset_0_-1px_0_0_#f5f5f5] [&>*:last-child]:shadow-none">{data?.unclassifiedTenders?.map((order) => <div key={order.id} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(180px,1fr)_minmax(150px,.8fr)_auto_180px_auto] md:items-center"><div className="min-w-0"><p className="m-0 truncate text-xs font-bold text-neutral-900">{order.orderNumber} · {order.outlet.name}</p><p className="mb-0 mt-1 truncate text-[10px] text-neutral-400">Settled {time(order.settledAt)}</p></div><div className="min-w-0"><p className="m-0 truncate text-[11px] font-semibold text-neutral-700">{order.guest}</p><p className="mb-0 mt-0.5 truncate text-[9px] text-neutral-400">{order.room}</p></div><strong className="whitespace-nowrap text-xs tabular-nums text-neutral-900">{cash(order.total, order.currency)}</strong><select value={tenderCorrections[order.id] ?? ""} onChange={(event) => setTenderCorrections((current) => ({ ...current, [order.id]: event.target.value }))} className="h-9 rounded-lg border border-neutral-200 bg-white px-2 text-[10px] font-bold text-neutral-700 outline-none focus:border-emerald-500" aria-label={`Payment method for ${order.orderNumber}`}><option value="">Select payment method</option><option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="CARD">Card</option><option value="BANK">Bank transfer</option><option value="OTHER">Other</option></select><button type="button" onClick={() => classifyTender(order.id)} disabled={!canManage || busy || !tenderCorrections[order.id]} className="h-9 whitespace-nowrap rounded-lg border-0 bg-neutral-900 px-3 text-[10px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Save method</button></div>)}</div>
     </section>}
 
-    {tab === "cashiers" && <section className="overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm">
-      <header className="shadow-[inset_0_-1px_0_0_#e5e5e5] px-5 py-4">
-        <div className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-4 w-4" /></span><div><h3 className="m-0 text-base font-bold">Cashier shift variance</h3><p className="mb-0 mt-1 text-xs text-neutral-500">Expected cash includes the opening float, cash folio payments and cash settled at outlets. Attendants open and close their own shift from their Shift &amp; cash page.</p></div></div>
-        <div className="mt-3 flex items-center gap-3 text-[10px] font-bold text-neutral-500"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-400" />Bar</span><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />Restaurant</span></div>
+    {tab === "cashiers" && <section id="nrms-cashier-shifts" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
+      <style>{`#nrms-cashier-shifts, #nrms-cashier-shifts * { box-sizing: border-box; }`}</style>
+      <header className="flex flex-wrap items-center gap-3 px-4 py-3.5 sm:px-5">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-5 w-5" /></span>
+        <div className="min-w-0"><h3 className="m-0 text-base font-bold text-neutral-900">Cashier shift variance</h3><p className="mb-0 mt-0.5 text-xs text-neutral-500">{dayLabel(businessDate)} · compare expected cash with the physical count, then close and sign off.</p></div>
+        <div className="ml-auto flex items-center gap-3 text-xs font-semibold text-neutral-500"><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-400" />Bar</span><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />Restaurant</span></div>
       </header>
-      <div className="overflow-x-auto overscroll-x-contain">
-        <table className="w-full min-w-[1440px] border-collapse text-left">
-          <thead><tr className="bg-neutral-50 text-[9px] uppercase tracking-wide text-neutral-500">
-            <th className="p-2.5 pl-5">Cashier</th>
-            <th className="p-2.5">Opened</th>
-            <th className="p-2.5 text-right">Opening float</th>
-            <th className="p-2.5 text-right">Expected cash</th>
-            <th className="p-2.5 text-right">Counted cash</th>
-            <th className="p-2.5 text-right">Variance</th>
-            <th className="p-2.5 text-right">Cash</th>
-            <th className="p-2.5 text-right">Mobile money</th>
-            <th className="p-2.5 text-right">Bank</th>
-            <th className="p-2.5 text-right">Card</th>
-            <th className="p-2.5 text-right">Folio</th>
-            <th className="p-2.5 pr-5">Note and control</th>
-          </tr></thead>
-          <tbody>{data?.shifts.map((shift) => <tr key={shift.id} className={`shadow-[inset_0_1px_0_0_#f5f5f5] text-xs ${shiftRowTone(shift)}`}>
-            <td className="p-2.5 pl-5 font-bold">{shift.cashierName}{shift.assignment && <small className="mt-0.5 block font-normal text-neutral-500">{serviceLabelForRole(shift.assignment.role)}{shift.assignment.outletName ? ` · ${shift.assignment.outletName}` : ""}</small>}<small className={`mt-0.5 block font-normal ${shift.status === "OPEN" ? "text-emerald-600" : "text-neutral-400"}`}>{shift.status}{shift.handoverFromName ? ` · took over from ${shift.handoverFromName}` : ""}</small></td>
-            <td className="p-2.5 whitespace-nowrap text-neutral-500">{time(shift.openedAt)}</td>
-            <td className="p-2.5 text-right tabular-nums">{cash(shift.openingFloat, shift.currency)}</td>
-            <td className="p-2.5 text-right font-bold tabular-nums">{cash(shift.liveExpectedCash, shift.currency)}</td>
-            <td className="p-2.5 text-right">{shift.status === "OPEN" ? <input type="text" inputMode="decimal" value={counted[shift.id] ?? ""} onChange={(event) => setCounted((current) => ({ ...current, [shift.id]: event.target.value.replace(/[^0-9.]/g, "") }))} placeholder="Physical count" className="h-8 w-32 rounded-md border border-neutral-200 bg-white px-2 text-right text-[10px] outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10" /> : cash(shift.declaredCash || 0, shift.currency)}</td>
-            <td className={`p-2.5 text-right font-bold tabular-nums ${Number(shift.variance) ? "text-red-600" : "text-emerald-700"}`}>{shift.status === "OPEN" ? <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[8px] font-bold text-emerald-700">Pending</span> : cash(shift.variance || 0, shift.currency)}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "CASH"), shift.currency)}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "MOBILE_MONEY"), shift.currency)}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "BANK"), shift.currency)}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(tenderAmount(shift, "CARD"), shift.currency)}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{shift.status === "OPEN" ? "–" : cash(shift.closeSummary?.folioPosted.amount ?? 0, shift.currency)}</td>
-            <td className="p-2.5 pr-5">{shift.status === "OPEN" ? <div className="flex items-center justify-end gap-1.5"><input value={notes[shift.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [shift.id]: event.target.value }))} placeholder="Variance note if needed" className="h-8 w-44 rounded-md border border-neutral-200 bg-white px-2 text-[9px] outline-none focus:border-emerald-500" /><button type="button" onClick={() => closeShift(shift)} disabled={busy || counted[shift.id] === undefined} className="h-8 whitespace-nowrap rounded-md border-0 bg-neutral-900 px-3 text-[9px] font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Close</button></div> : <div className="text-[10px] leading-4 text-neutral-500">
-              {shift.closeSummary && shift.closeSummary.unpaid.count > 0 && <strong className="block text-amber-700">{shift.closeSummary.unpaid.count} unpaid at close ({cash(shift.closeSummary.unpaid.amount, shift.currency)})</strong>}
-              {otherTenderAmount(shift) > 0 && <span className="block">Other tender {cash(otherTenderAmount(shift), shift.currency)}</span>}
-              <span>{shift.closeNote || (shift.closeSummary?.unpaid.count ? "" : "Matched")}</span>
-              <div className="mt-1.5">{shift.ownerSignedOffAt ? <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700"><BadgeCheck className="h-3 w-3" />Signed off by {shift.ownerSignedOffByName} · {time(shift.ownerSignedOffAt)}</span> : canManage ? <button type="button" onClick={() => signOffShift(shift)} disabled={busy} className="h-7 whitespace-nowrap rounded-md border border-emerald-200 bg-white px-2 text-[9px] font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Acknowledge and sign off</button> : <span className="text-[9px] text-neutral-400">Not yet signed off</span>}</div>
-            </div>}</td>
-          </tr>)}{Boolean(data?.unassignedSales.count) && <tr className="shadow-[inset_0_1px_0_0_#f5f5f5] bg-amber-50/40 text-xs">
-            <td className="p-2.5 pl-5 font-bold">Other sales<small className="mt-0.5 block font-normal text-amber-700">Settled outside any shift</small></td>
-            <td className="p-2.5 text-neutral-400"><span className="text-neutral-300">n/a</span></td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-400"><span className="text-neutral-300">n/a</span></td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-400"><span className="text-neutral-300">n/a</span></td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-400"><span className="text-neutral-300">n/a</span></td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-400"><span className="text-neutral-300">n/a</span></td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "CASH")?.amount ?? 0, data!.property.currency || "TZS")}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "MOBILE_MONEY")?.amount ?? 0, data!.property.currency || "TZS")}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "BANK")?.amount ?? 0, data!.property.currency || "TZS")}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-600">{cash(data!.unassignedSales.byMethod.find((row) => row.method === "CARD")?.amount ?? 0, data!.property.currency || "TZS")}</td>
-            <td className="p-2.5 text-right tabular-nums text-neutral-400"><span className="text-neutral-300">n/a</span></td>
-            <td className="p-2.5 pr-5 text-[10px] leading-4 text-amber-800">{data!.unassignedSales.count} sale{data!.unassignedSales.count === 1 ? "" : "s"} · {cash(data!.unassignedSales.amount, data!.property.currency || "TZS")} total, settled by an owner or manager with no open shift. No cashier is accountable for this cash.</td>
-          </tr>}{!data?.shifts.length && !data?.unassignedSales.count && <tr><td colSpan={12} className="shadow-[inset_0_1px_0_0_#f5f5f5] p-0"><div className="flex min-h-36 flex-col items-center justify-center px-6 py-8 text-center"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-4 w-4" /></span><p className="mb-0 mt-3 text-xs font-bold text-neutral-600">No cashier shift for this business date</p><p className="mb-0 mt-1 max-w-sm text-[10px] leading-4 text-neutral-400">Attendants open their shift from their own Shift &amp; cash page before recording cash receipts.</p></div></td></tr>}</tbody>
-        </table>
+      <div>
+        {data?.shifts.map((shift) => {
+          const missingPhysicalCount = shift.status === "CLOSED" && (shift.declaredCash == null || shift.variance == null);
+          const physicalInput = counted[shift.id] ?? "";
+          const physicalValue = physicalInput === "" ? null : Number(physicalInput);
+          const expectedForControl = shift.status === "OPEN" ? shift.liveExpectedCash : shift.expectedCash;
+          const liveVariance = physicalValue != null && Number.isFinite(physicalValue) ? physicalValue - expectedForControl : null;
+          const needsVarianceNote = liveVariance != null && liveVariance !== 0;
+          const canCloseShift = liveVariance != null && (!needsVarianceNote || Boolean(notes[shift.id]?.trim()));
+          const businessDayOpen = data?.businessDay.status === "OPEN";
+          const canRepairShift = canManage && businessDayOpen && canCloseShift;
+          return <article key={shift.id} className={`grid min-w-0 shadow-[inset_0_1px_0_0_#ededed] lg:grid-cols-[minmax(0,1fr)_300px] ${shiftRowTone(shift)}`}>
+            <div className="min-w-0 px-4 py-4 sm:px-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2"><h4 className="m-0 truncate text-sm font-bold text-neutral-900">{shift.cashierName}</h4><span className={`rounded-full px-2 py-1 text-[11px] font-bold ${shift.status === "OPEN" ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-600"}`}>{shift.status}</span></div>
+                  <p className="mb-0 mt-1 text-xs text-neutral-500">{shift.assignment ? `${serviceLabelForRole(shift.assignment.role)}${shift.assignment.outletName ? ` · ${shift.assignment.outletName}` : ""}` : "Property"} · opened {time(shift.openedAt)}</p>
+                  {shift.handoverFromName && <p className="mb-0 mt-1 text-xs text-neutral-400">Took over from {shift.handoverFromName}</p>}
+                </div>
+              </div>
+
+              <dl className="m-0 mt-4 grid grid-cols-2 gap-y-4 sm:grid-cols-4 sm:[&>div+div]:border-0 sm:[&>div+div]:border-l sm:[&>div+div]:border-solid sm:[&>div+div]:border-neutral-200 sm:[&>div+div]:pl-5">
+                <div className="min-w-0"><dt className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">Opening float</dt><dd className="m-0 mt-1 text-sm font-semibold tabular-nums text-neutral-800">{cash(shift.openingFloat, shift.currency)}</dd></div>
+                <div className="min-w-0"><dt className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">Expected cash</dt><dd className="m-0 mt-1 text-sm font-bold tabular-nums text-neutral-950">{cash(shift.liveExpectedCash, shift.currency)}</dd></div>
+                <div className="min-w-0"><dt className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">Physical count</dt><dd className="m-0 mt-1">{shift.status === "OPEN" || missingPhysicalCount ? <label className="flex h-10 max-w-[190px] items-center overflow-hidden rounded-lg bg-white ring-1 ring-neutral-300 focus-within:ring-2 focus-within:ring-emerald-500"><span className="px-2.5 text-xs font-semibold text-neutral-500">{shift.currency}</span><input type="text" inputMode="decimal" value={physicalInput} onChange={(event) => setCounted((current) => ({ ...current, [shift.id]: event.target.value.replace(/[^0-9.]/g, "") }))} placeholder="0" aria-label={`Physical cash counted by ${shift.cashierName}`} className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-right text-sm font-semibold tabular-nums text-neutral-900 outline-none" /></label> : <span className="text-sm font-semibold tabular-nums text-neutral-800">{cash(shift.declaredCash!, shift.currency)}</span>}</dd></div>
+                <div className="min-w-0"><dt className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">Variance</dt><dd className={`m-0 mt-1 text-sm font-bold tabular-nums ${(shift.status === "OPEN" || missingPhysicalCount ? liveVariance : Number(shift.variance)) ? "text-red-600" : "text-emerald-700"}`}>{shift.status === "OPEN" || missingPhysicalCount ? (liveVariance == null ? <span className="text-xs font-semibold text-amber-700">Enter count</span> : cash(liveVariance, shift.currency)) : cash(shift.variance!, shift.currency)}</dd></div>
+              </dl>
+
+              {shift.status === "OPEN" ? <p className="mb-0 mt-4 text-xs text-neutral-500">Tender totals will be frozen when this shift closes.</p> : <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-500">
+                {[['Cash', 'CASH'], ['Mobile money', 'MOBILE_MONEY'], ['Bank', 'BANK'], ['Card', 'CARD']].map(([label, method]) => <span key={method}>{label} <strong className="font-semibold tabular-nums text-neutral-800">{cash(tenderAmount(shift, method!), shift.currency)}</strong></span>)}
+                <span>Folio <strong className="font-semibold tabular-nums text-neutral-800">{cash(shift.closeSummary?.folioPosted.amount ?? 0, shift.currency)}</strong></span>
+                {otherTenderAmount(shift) > 0 && <span>Other <strong className="font-semibold tabular-nums text-neutral-800">{cash(otherTenderAmount(shift), shift.currency)}</strong></span>}
+              </div>}
+            </div>
+
+            <aside className="min-w-0 bg-neutral-50/70 px-4 py-4 shadow-[inset_1px_0_0_0_#ededed] sm:px-5 lg:flex lg:flex-col lg:justify-center">
+              {shift.status === "OPEN" ? <div className="space-y-2.5">
+                <label className="block text-xs font-semibold text-neutral-700">Variance reason{needsVarianceNote ? " · required" : ""}<input value={notes[shift.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [shift.id]: event.target.value }))} placeholder={needsVarianceNote ? "Explain the cash difference" : "Only needed when cash differs"} className="mt-1.5 h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-500" /></label>
+                <button type="button" onClick={() => closeShift(shift)} disabled={busy || !businessDayOpen || !canCloseShift} className="h-10 w-full rounded-lg border-0 bg-neutral-900 px-4 text-sm font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Close shift</button>
+                {(!businessDayOpen || !canCloseShift) && <p className="m-0 text-xs leading-4 text-neutral-500">{!businessDayOpen ? "This business date is already closing or closed." : liveVariance == null ? "Enter the physical cash count to continue." : "Explain the variance before closing."}</p>}
+              </div> : missingPhysicalCount ? <div className="space-y-2.5">
+                <p className="m-0 text-sm font-bold text-amber-800">Physical count was not recorded</p>
+                <p className="m-0 text-xs leading-5 text-neutral-600">This legacy shift cannot be called matched or signed off until a manager records the missing drawer count.</p>
+                <label className="block text-xs font-semibold text-neutral-700">Reconciliation reason{needsVarianceNote ? " · required" : ""}<input value={notes[shift.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [shift.id]: event.target.value }))} placeholder={needsVarianceNote ? "Explain the cash difference" : "Optional reconciliation note"} className="mt-1.5 h-10 w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-emerald-500" /></label>
+                <button type="button" onClick={() => reconcileShift(shift)} disabled={busy || !canRepairShift} className="h-10 w-full rounded-lg border-0 bg-amber-700 px-4 text-sm font-bold text-white disabled:bg-neutral-200 disabled:text-neutral-400">Record physical count</button>
+                {data?.businessDay.status === "CLOSED" && <p className="m-0 text-xs leading-5 text-red-600">This historical date is locked. Its missing count remains visible for audit review and cannot be replaced with a later count.</p>}
+              </div> : <div>
+                {shift.closeSummary && shift.closeSummary.unpaid.count > 0 && <p className="m-0 text-xs font-semibold text-amber-700">{shift.closeSummary.unpaid.count} unpaid at close · {cash(shift.closeSummary.unpaid.amount, shift.currency)}</p>}
+                <p className="mb-0 mt-1 text-sm font-semibold text-neutral-800">{shift.closeNote || (shift.closeSummary?.unpaid.count ? "Review unpaid orders" : "Cash matched")}</p>
+                <div className="mt-3">{shift.ownerSignedOffAt ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700"><BadgeCheck className="h-4 w-4" />Signed off by {shift.ownerSignedOffByName} · {time(shift.ownerSignedOffAt)}</span> : canManage && businessDayOpen ? <button type="button" onClick={() => signOffShift(shift)} disabled={busy} className="h-10 w-full rounded-lg border border-solid border-emerald-300 bg-white px-4 text-sm font-bold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">Acknowledge and sign off</button> : <span className={`text-xs ${businessDayOpen ? "text-neutral-500" : "font-semibold text-amber-700"}`}>{businessDayOpen ? "Manager sign-off pending" : "Sign-off was not completed before this date was locked"}</span>}</div>
+              </div>}
+            </aside>
+          </article>;
+        })}
+
+        {Boolean(data?.unassignedSales.count) && <article className="grid min-w-0 bg-amber-50/40 shadow-[inset_0_1px_0_0_#ededed] lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 px-4 py-4 sm:px-5"><div className="flex flex-wrap items-center gap-2"><h4 className="m-0 text-sm font-bold text-neutral-900">Other sales</h4><span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-800">OUTSIDE SHIFT</span></div><p className="mb-0 mt-1 text-xs text-neutral-600">{data!.unassignedSales.count} sale{data!.unassignedSales.count === 1 ? "" : "s"} · <strong>{cash(data!.unassignedSales.amount, data!.property.currency || "TZS")}</strong></p><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-neutral-600">{[['Cash', 'CASH'], ['Mobile money', 'MOBILE_MONEY'], ['Bank', 'BANK'], ['Card', 'CARD']].map(([label, method]) => <span key={method}>{label} <strong className="tabular-nums text-neutral-800">{cash(data!.unassignedSales.byMethod.find((row) => row.method === method)?.amount ?? 0, data!.property.currency || "TZS")}</strong></span>)}</div></div>
+          <aside className="bg-amber-50 px-4 py-4 text-xs leading-5 text-amber-900 shadow-[inset_1px_0_0_0_#fde68a] sm:px-5 lg:flex lg:items-center">Settled by an owner or manager with no open shift. No cashier is accountable for this cash.</aside>
+        </article>}
+
+        {!data?.shifts.length && !data?.unassignedSales.count && <div className="flex flex-col items-center justify-center px-6 py-10 text-center shadow-[inset_0_1px_0_0_#ededed]"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-neutral-400"><WalletCards className="h-5 w-5" /></span><p className="mb-0 mt-3 text-sm font-bold text-neutral-700">No cashier activity for {dayLabel(businessDate)}</p><p className="mb-0 mt-1 max-w-lg text-xs leading-5 text-neutral-500">No attendant opened Shift &amp; cash and no receipts were recorded outside a shift. If the property did not take outlet cash on this date, there is nothing to reconcile.</p></div>}
       </div>
     </section>}
 
@@ -540,34 +963,107 @@ export default function FinanceControlPage() {
     {tab === "ledger" && <section className="space-y-4">
       {profitAndLoss.length > 0 && <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
         <h3 className="m-0 text-sm font-bold">Profit and loss</h3>
-        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range, including staff wages recorded on the Expenses tab. Stock cost and depreciation are not tracked yet, so this is not a complete P&amp;L.</p>
+        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Revenue recognized less expenses posted for the selected range, including staff wages recorded on the Expenses tab and, where stock control is in use, the cost of goods sold. Depreciation is not tracked, so this is not a complete P&amp;L.</p>
         <div className="mt-3 space-y-3">{profitAndLoss.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-3">
           <Metric label={`Revenue (${row.currency})`} value={cash(row.revenue, row.currency)} note="Room, restaurant, bar and other service revenue" tone="green" />
           <Metric label={`Expenses (${row.currency})`} value={cash(row.expense, row.currency)} note="Platform fees and other posted costs" tone="amber" />
           <Metric label={`Net (${row.currency})`} value={cash(row.net, row.currency)} note={row.net >= 0 ? "Profit for the range" : "Loss for the range"} tone={row.net >= 0 ? "green" : "amber"} />
         </div>)}</div>
       </div>}
-      <div className="space-y-5">
-        {accountGroups.map((group) => {
-          const style = ACCOUNT_TYPE_STYLE[group.type] ?? { label: group.type, dot: "bg-neutral-400", border: "shadow-[inset_3px_0_0_0_#d4d4d4]" };
-          return (
-            <div key={group.type}>
-              <div className="mb-2.5 flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${style.dot}`} /><p className="m-0 text-[13px] font-bold text-neutral-900">{style.label}</p><span className="text-[11px] text-neutral-400">{group.accounts.length} account{group.accounts.length === 1 ? "" : "s"}</span></div>
-              <div className="grid gap-3 md:grid-cols-3">
-                {group.accounts.map((account) => (
-                  <div key={`${account.accountCode}-${account.currency}`} className={`min-w-0 rounded-xl bg-white p-4 ring-1 ring-neutral-200 ${style.border}`}>
-                    <p className="m-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">{account.accountCode} · {account.accountName}</p>
-                    <p className="mb-0 mt-1 text-xl font-bold tabular-nums text-neutral-950">{cash(Math.abs(account.balance), account.currency)}</p>
-                    <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">{cash(account.debit, account.currency)} debit · {cash(account.credit, account.currency)} credit</p>
+      {(grossProfit.length > 0 || data?.stock?.tracked) && <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
+        <h3 className="m-0 text-sm font-bold">Food and beverage gross profit</h3>
+        <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Restaurant, bar and room service revenue against the cost of the goods sold, valued at what they cost when they left the shelf. Wastage, staff meals, complimentary and count losses are shown after it.</p>
+        <div className="mt-3 space-y-3">
+          {grossProfit.map((row) => <div key={row.currency} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label={`F&B revenue (${row.currency})`} value={cash(row.revenue, row.currency)} note="Restaurant, bar and room service" tone="green" />
+            <Metric label={`Cost of goods sold (${row.currency})`} value={cash(row.cogs, row.currency)} note="Drinks and food taken from stock by sales" tone="amber" />
+            <Metric label={`Gross profit (${row.currency})`} value={cash(row.gross, row.currency)} note={row.margin == null ? "No F&B revenue in the range" : `${row.margin}% of F&B revenue`} tone={row.gross >= 0 ? "green" : "amber"} />
+            <Metric label={`After stock losses (${row.currency})`} value={cash(row.afterLosses, row.currency)} note={`${cash(row.losses, row.currency)} wastage, staff meals, complimentary and count losses`} tone={row.afterLosses >= 0 ? "neutral" : "amber"} />
+          </div>)}
+          {data?.stock?.tracked && <p className="m-0 text-[11px] text-neutral-600">Stock on the shelves today, at average cost: <strong className="tabular-nums text-neutral-900">{cash(data.stock.value, data.property.currency || "TZS")}</strong></p>}
+          {grossProfit.length === 0 && <p className="m-0 text-[11px] text-neutral-500">No stock has posted in this range yet. Cost of goods sold appears after the Night Audit that follows the first stock sale.</p>}
+        </div>
+      </div>}
+      {/* Account cards, grouped by type. Each card reads its balance on the
+          type's normal side (assets and expenses as debit, the rest as credit),
+          shows debit against credit as a split bar, and says in words when the
+          balance sits on the wrong side. The old cards used Math.abs, which made
+          a cash drawer 19M short read as 19M in hand. */}
+      {accountGroups.length > 0 && (() => {
+        const normalBalance = (type: string, debit: number, credit: number) => (DEBIT_NORMAL_TYPES.includes(type) ? debit - credit : credit - debit);
+        return (
+          <div className="space-y-6">
+            {accountGroups.map((group) => {
+              const style = ACCOUNT_TYPE_STYLE[group.type] ?? { label: codeLabel(group.type), dot: "bg-neutral-400", border: "" };
+              const debitNormal = DEBIT_NORMAL_TYPES.includes(group.type);
+              const accounts = group.accounts.map((account) => ({ ...account, normal: normalBalance(group.type, account.debit, account.credit) }));
+              const active = accounts.filter((account) => account.normal !== 0);
+              const settled = accounts.filter((account) => account.normal === 0);
+              const totals = new Map<string, number>();
+              for (const account of accounts) totals.set(account.currency, (totals.get(account.currency) ?? 0) + account.normal);
+              const flagged = accounts.filter((account) => account.normal < 0).length;
+              return (
+                <div key={group.type}>
+                  <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className={`h-2.5 w-2.5 self-center rounded-full ${style.dot}`} />
+                    <h4 className="m-0 text-sm font-bold text-neutral-900">{style.label}</h4>
+                    <span className="text-[11px] text-neutral-400">{accounts.length} account{accounts.length === 1 ? "" : "s"}</span>
+                    {flagged > 0 && <span className="inline-flex items-center gap-1 self-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800"><AlertTriangle className="h-3 w-3" />{flagged} to check</span>}
+                    <span className="ml-auto flex flex-wrap gap-x-3 text-right">
+                      {[...totals.entries()].map(([currency, total]) => <span key={currency} className={`text-sm font-extrabold tabular-nums ${total < 0 ? "text-amber-700" : "text-neutral-900"}`}>{total < 0 ? "-" : ""}{cash(Math.abs(total), currency)}</span>)}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {active.map((account) => {
+                      const wrongSide = account.normal < 0;
+                      const flow = account.debit + account.credit;
+                      const debitShare = flow > 0 ? Math.round((account.debit / flow) * 100) : 50;
+                      return (
+                        <div key={`${account.accountCode}-${account.currency}`} className={`box-border flex min-w-0 flex-col rounded-2xl border border-solid bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)] transition hover:shadow-[0_14px_30px_-22px_rgba(15,23,42,0.45)] ${wrongSide ? "border-amber-300" : "border-neutral-200"}`}>
+                          <div className="flex items-start gap-2">
+                            <span className="shrink-0 rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-500">{account.accountCode}</span>
+                            <p className="m-0 min-w-0 flex-1 truncate text-[13px] font-semibold text-neutral-800" title={account.accountName}>{account.accountName}</p>
+                            {wrongSide ? <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" aria-label="Needs checking" /> : <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-label="Normal balance" />}
+                          </div>
+
+                          <p className={`mb-0 mt-3 truncate text-2xl font-extrabold tabular-nums tracking-tight ${wrongSide ? "text-amber-700" : "text-neutral-950"}`}>{wrongSide ? "-" : ""}{cash(Math.abs(account.normal), account.currency)}</p>
+
+                          {/* Debit against credit, so the direction of money is visible. */}
+                          <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-neutral-100" aria-hidden="true">
+                            <span className="h-full bg-blue-500" style={{ width: `${debitShare}%` }} />
+                            <span className="h-full bg-violet-400" style={{ width: `${100 - debitShare}%` }} />
+                          </div>
+                          <div className="mt-1.5 flex justify-between gap-2 text-[10px] tabular-nums">
+                            <span className="text-blue-700"><span className="font-semibold">Debit</span> {cash(account.debit, account.currency)}</span>
+                            <span className="text-violet-700"><span className="font-semibold">Credit</span> {cash(account.credit, account.currency)}</span>
+                          </div>
+
+                          {wrongSide && (
+                            <p className="mb-0 mt-3 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-4 text-amber-900">
+                              {debitNormal ? "Credits exceed debits. Check the postings on this account." : "Debits exceed credits. Check the postings on this account."}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {settled.map((account) => (
+                      <div key={`${account.accountCode}-${account.currency}`} className="box-border flex min-w-0 items-center gap-2 self-start rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/60 px-4 py-3">
+                        <span className="shrink-0 rounded-md bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-400">{account.accountCode}</span>
+                        <p className="m-0 min-w-0 flex-1 truncate text-xs font-semibold text-neutral-500">{account.accountName}</p>
+                        <span className="shrink-0 text-[10px] font-bold text-neutral-400">Settled · {cash(0, account.currency)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       <div className="overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm">
-        <div className="shadow-[inset_0_-1px_0_0_#e5e5e5] p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction &mdash; that balance is what makes the ledger correct.</p></div>
+        <div className="shadow-[inset_0_-1px_0_0_#e5e5e5] p-4"><h3 className="m-0 text-sm font-bold">Double-entry journal</h3><p className="mb-0 mt-1 text-[10px] text-neutral-500">Entries are generated once by source key and become immutable when the business date closes. Debit and credit match on every transaction. That balance is what makes the ledger correct.</p></div>
         <div className="overflow-x-auto overscroll-x-contain">
           <table className="min-w-[900px] border-collapse text-left text-xs">
             <thead><tr className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">
@@ -578,7 +1074,7 @@ export default function FinanceControlPage() {
               <th className="bg-blue-50/70 p-3 text-right text-blue-800 shadow-[inset_1px_0_0_0_#dbeafe,inset_0_-1px_0_0_#dbeafe]">Debit</th>
               <th className="bg-violet-50/70 p-3 text-right text-violet-800 shadow-[inset_1px_0_0_0_#ede9fe,inset_0_-1px_0_0_#ede9fe]">Credit</th>
             </tr></thead>
-            <tbody>{data?.ledger.transactions.map((transaction) => <tr key={transaction.id} className="group shadow-[inset_0_1px_0_0_#f5f5f5] align-top transition-colors hover:bg-neutral-50/70">
+            <tbody>{(data?.ledger.transactions ?? []).slice((journalPageSafe - 1) * JOURNAL_PAGE_SIZE, journalPageSafe * JOURNAL_PAGE_SIZE).map((transaction) => <tr key={transaction.id} className="group shadow-[inset_0_1px_0_0_#f5f5f5] align-top transition-colors hover:bg-neutral-50/70">
               <td className="sticky left-0 z-10 whitespace-nowrap bg-white p-3 shadow-[inset_-1px_0_0_0_#e5e5e5] font-bold text-neutral-900 transition-colors group-hover:bg-neutral-50">{transaction.transactionNumber}<small className="mt-1 block font-normal text-neutral-400">{time(transaction.occurredAt)}</small></td>
               <td className="whitespace-nowrap p-3 text-neutral-500">{transaction.sourceType.replaceAll("_", " ")}</td>
               <td className="min-w-[180px] max-w-[280px] p-3 text-neutral-700">{transaction.description}</td>
@@ -588,6 +1084,26 @@ export default function FinanceControlPage() {
             </tr>)}{!data?.ledger.transactions.length && <tr><td colSpan={6} className="p-10 text-center text-neutral-400">The ledger is posted when Night Audit closes this business date.</td></tr>}</tbody>
           </table>
         </div>
+        {journalTotal > JOURNAL_PAGE_SIZE && (() => {
+          const first = (journalPageSafe - 1) * JOURNAL_PAGE_SIZE + 1;
+          const last = Math.min(journalPageSafe * JOURNAL_PAGE_SIZE, journalTotal);
+          // Page numbers around the current one, with the ends always shown.
+          const pages = [...new Set([1, journalPageSafe - 1, journalPageSafe, journalPageSafe + 1, journalPageCount])].filter((page) => page >= 1 && page <= journalPageCount).sort((a, b) => a - b);
+          const pageButton = "inline-flex h-8 min-w-8 appearance-none items-center justify-center rounded-lg border-0 px-2 text-xs font-semibold tabular-nums transition disabled:cursor-not-allowed disabled:opacity-40";
+          return (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 shadow-[inset_0_1px_0_0_#e5e5e5]">
+              <p className="m-0 text-xs text-neutral-500">Showing <strong className="font-semibold tabular-nums text-neutral-800">{first} to {last}</strong> of <strong className="font-semibold tabular-nums text-neutral-800">{journalTotal}</strong> transactions</p>
+              <nav aria-label="Journal pages" className="flex items-center gap-1">
+                <button type="button" aria-label="Previous page" disabled={journalPageSafe <= 1} onClick={() => setJournalPage(journalPageSafe - 1)} className={`${pageButton} bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50`}><ChevronLeft className="h-4 w-4" /></button>
+                {pages.map((page, index) => <span key={page} className="flex items-center gap-1">
+                  {index > 0 && page - pages[index - 1]! > 1 && <span className="px-1 text-xs text-neutral-400" aria-hidden="true">…</span>}
+                  <button type="button" aria-current={page === journalPageSafe ? "page" : undefined} onClick={() => setJournalPage(page)} className={`${pageButton} ${page === journalPageSafe ? "bg-[#073c35] text-white" : "bg-transparent text-neutral-600 hover:bg-neutral-100"}`}>{page}</button>
+                </span>)}
+                <button type="button" aria-label="Next page" disabled={journalPageSafe >= journalPageCount} onClick={() => setJournalPage(journalPageSafe + 1)} className={`${pageButton} bg-white text-neutral-600 ring-1 ring-neutral-200 hover:bg-neutral-50`}><ChevronRight className="h-4 w-4" /></button>
+              </nav>
+            </div>
+          );
+        })()}
       </div>
     </section>}
 

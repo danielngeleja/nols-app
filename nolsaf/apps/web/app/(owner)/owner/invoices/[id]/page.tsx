@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, FileText, Send, CheckCircle2, Download, Clock, Loader2, User, Building2, Phone, Mail, MapPin } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
@@ -11,6 +11,7 @@ const api = apiClient;
 export default function InvoiceView() {
   const routeParams = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
+  const router = useRouter();
   const [inv, setInv] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -40,6 +41,9 @@ export default function InvoiceView() {
       .then((r) => {
         if (!mounted) return;
         setInv(r.data);
+        if (/^\d+$/.test(String(idParam)) && r.data?.invoiceReference) {
+          router.replace(`/owner/invoices/${encodeURIComponent(r.data.invoiceReference)}`);
+        }
       })
       .catch((e: any) => {
         if (!mounted) return;
@@ -58,7 +62,7 @@ export default function InvoiceView() {
     return () => {
       mounted = false;
     };
-  }, [idParam]);
+  }, [idParam, router]);
 
   const submit = async () => {
     if (!idParam) {

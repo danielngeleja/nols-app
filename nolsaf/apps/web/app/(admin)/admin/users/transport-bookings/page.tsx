@@ -26,6 +26,7 @@ import {
   ArrowDown,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -34,6 +35,8 @@ function authify() {}
 
 type TransportBooking = {
   id: number;
+  /** Opaque id for the booking URL (individual bookings). */
+  reference?: string;
   groupType: string;
   toRegion: string;
   toLocation: string | null;
@@ -109,6 +112,7 @@ type SortKey = "date" | "pickup" | "created" | "destination" | "customer" | "sta
 type SortDir = "asc" | "desc";
 
 export default function TransportBookingsPage() {
+  useAdminHref();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -172,8 +176,8 @@ export default function TransportBookingsPage() {
 
   const getViewHref = (booking: TransportBooking) =>
     booking.kind === "group"
-      ? `/admin/group-stays/bookings?bookingId=${booking.id}`
-      : `/admin/bookings/${booking.id}`;
+      ? `/admin/group-stays/bookings?bookingId=${adminRefOrId("group-stay", booking.id)}`
+      : `/admin/bookings/${booking.reference ?? booking.id}`;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -337,7 +341,7 @@ export default function TransportBookingsPage() {
   }, [items, markedOnly, markedSet]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       {/* Premium Banner */}
       <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)", padding: "2rem 2rem 1.75rem" }}>
         <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.13, pointerEvents: "none" }} viewBox="0 0 900 160" preserveAspectRatio="xMidYMid slice">

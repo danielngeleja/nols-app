@@ -11,6 +11,7 @@ export type InquiryHoldInput = {
   propertyId: number;
   ownerId: number;
   actorId: number;
+  actorRole: string;
   actorName: string;
   inquiryId: number;
   version: number;
@@ -22,6 +23,7 @@ export type InquiryHoldInput = {
   roomTypeId: number;
   adults: number;
   children: number;
+  negotiatedNightlyRate?: number | null;
 };
 
 export type InquiryHoldFailureCode =
@@ -29,6 +31,7 @@ export type InquiryHoldFailureCode =
   | "VERSION_CONFLICT"
   | "ROOM_TYPE_NOT_FOUND"
   | "ROOM_TYPE_MISMATCH"
+  | "RATE_BELOW_STAFF_FLOOR"
   | "INVALID_DATES"
   | "RESTRICTION_BLOCKED"
   | "NO_AVAILABILITY";
@@ -103,7 +106,7 @@ export async function createInquiryRoomHold(
 
       const roomType = await tx.roomType.findFirst({
         where: { id: input.roomTypeId, propertyId: input.propertyId, status: "ACTIVE", baseRate: { not: null } },
-        select: { id: true, baseRate: true, currency: true },
+        select: { id: true, baseRate: true, staffRateFloor: true, currency: true },
       });
       if (!roomType) return { ok: false, code: "ROOM_TYPE_NOT_FOUND", message: "The selected room type is no longer sellable" } as const;
 
@@ -140,13 +143,25 @@ export async function createInquiryRoomHold(
         return { ok: false, code: "NO_AVAILABILITY", message: "The selected room was just booked. Choose another available room." } as const;
       }
 
-      const { nightly, subtotal } = computeNightlyRates(Number(roomType.baseRate), ratePlan, stayDates);
+      const standardPricing = computeNightlyRates(Number(roomType.baseRate), ratePlan, stayDates);
+      const negotiatedRate = input.negotiatedNightlyRate == null ? null : money(input.negotiatedNightlyRate);
+      if (negotiatedRate != null && input.actorRole !== "OWNER") {
+        const floor = roomType.staffRateFloor == null ? Number(roomType.baseRate) : Number(roomType.staffRateFloor);
+        if (floor > 0 && negotiatedRate < floor) {
+          return {
+            ok: false,
+            code: "RATE_BELOW_STAFF_FLOOR",
+            message: `This booking-only rate is below the staff limit of ${roomType.currency} ${Math.round(floor).toLocaleString("en-US")}. Ask the owner to approve the rate or lower the room's staff limit.`,
+          } as const;
+        }
+      }
+      const subtotal = negotiatedRate == null ? standardPricing.subtotal : money(negotiatedRate * stayNights);
       const taxPolicy = (ratePlan?.taxPolicy && typeof ratePlan.taxPolicy === "object" ? ratePlan.taxPolicy : {}) as Record<string, unknown>;
       const feePolicy = (ratePlan?.feePolicy && typeof ratePlan.feePolicy === "object" ? ratePlan.feePolicy : {}) as Record<string, unknown>;
       const taxAmount = money(subtotal * Math.max(0, Number(taxPolicy.percent || 0)) / 100);
       const fees = money(Number(feePolicy.fixed || 0));
       const totalAmount = money(subtotal + taxAmount + fees);
-      const roomRate = nightly[0]?.rate ?? Number(roomType.baseRate);
+      const roomRate = negotiatedRate ?? standardPricing.nightly[0]?.rate ?? Number(roomType.baseRate);
 
       const phone = sanitizeText(input.guestPhone);
       const existingGuest = await tx.guestProfile.findFirst({ where: { propertyId: input.propertyId, phone } });
@@ -186,7 +201,7 @@ export async function createInquiryRoomHold(
           taxAmount,
           totalAmount,
           depositAmount: 0,
-          notes: `Reception hold created from ${inquiry.channel.toLowerCase()} inquiry ${inquiry.reference}.`,
+          notes: `${input.actorRole === "SALES_EXECUTIVE" ? "Sales" : "Reception"} hold created from ${inquiry.channel.toLowerCase()} inquiry ${inquiry.reference}.${negotiatedRate == null ? "" : ` Booking-only nightly rate: ${roomType.currency} ${roomRate.toLocaleString("en-US")}.`}`,
           createdById: input.actorId,
           allocations: {
             create: {
@@ -201,7 +216,7 @@ export async function createInquiryRoomHold(
             create: {
               type: "CREATED",
               actorId: input.actorId,
-              data: { source: "RECEPTION_INQUIRY", inquiryId: inquiry.id, channel: inquiry.channel },
+              data: { source: "RECEPTION_INQUIRY", inquiryId: inquiry.id, channel: inquiry.channel, negotiatedNightlyRate: negotiatedRate },
             },
           },
         },
@@ -234,7 +249,7 @@ export async function createInquiryRoomHold(
           body: `Room hold ${reservation.id} created for one hour.`,
           senderName: input.actorName,
           sentById: input.actorId,
-          metadata: { reservationId: reservation.id, expiresAt: expiresAt.toISOString(), totalAmount, currency: roomType.currency },
+          metadata: { reservationId: reservation.id, expiresAt: expiresAt.toISOString(), totalAmount, currency: roomType.currency, negotiatedNightlyRate: negotiatedRate },
         },
       });
 

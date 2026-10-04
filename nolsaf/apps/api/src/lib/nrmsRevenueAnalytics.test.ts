@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "./nrmsRevenueAnalytics.js";
+import { resolveAnalyticsMasterFolioStayDate, summarizeAnalyticsGuestFolio, summarizeAnalyticsMasterFolio } from "./nrmsRevenueAnalytics.js";
+
+describe("NRMS master folio analytics date", () => {
+  const createdAt = new Date("2026-09-09T05:00:00.000Z");
+
+  it("uses the group-block arrival date when the folio belongs to a block", () => {
+    const checkIn = new Date("2026-10-01T00:00:00.000Z");
+    expect(resolveAnalyticsMasterFolioStayDate({ block: { checkIn }, agentBookingRequest: null, createdAt })).toBe(checkIn);
+  });
+
+  it("uses the agent-booking arrival date when the folio has no block", () => {
+    const checkIn = new Date("2026-11-01T00:00:00.000Z");
+    expect(resolveAnalyticsMasterFolioStayDate({ block: null, agentBookingRequest: { checkIn }, createdAt })).toBe(checkIn);
+  });
+
+  it("falls back to creation time for a legacy folio with no parent", () => {
+    expect(resolveAnalyticsMasterFolioStayDate({ block: null, agentBookingRequest: null, createdAt })).toBe(createdAt);
+  });
+});
 
 describe("NRMS revenue analytics settlement", () => {
   it("moves agency liability off the guest without counting the transfer as cash", () => {

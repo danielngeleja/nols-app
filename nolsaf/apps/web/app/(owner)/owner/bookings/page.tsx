@@ -24,6 +24,7 @@ const api = apiClient;
 
 type Booking = {
   id: number;
+  bookingReference: string;
   property: string; // Property title from API
   propertyId?: number;
   checkIn: string;
@@ -824,7 +825,7 @@ function BookingRow({
 
   return (
     <Link
-      href={`/owner/bookings/checked-in/${booking.id}`}
+      href={`/owner/bookings/checked-in/${encodeURIComponent(booking.bookingReference)}`}
       className={`group block no-underline transition-colors hover:bg-[#f4faf9] ${alternate ? 'bg-slate-50/55' : 'bg-white'}`}
       style={{ textDecoration: 'none' }}
     >

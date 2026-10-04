@@ -15,6 +15,7 @@ import {
   type SalesAuthedRequest,
 } from "../middleware/salesWorkspace.js";
 import { ATTRIBUTION_STATUSES, COMMISSION_STATUSES, PRODUCT_TYPES } from "../lib/salesPartner.js";
+import { loadOnboarding } from "../lib/salesOnboarding.js";
 
 const router = Router();
 const db = prisma as any;
@@ -155,6 +156,7 @@ router.get("/properties", asyncHandler(async (req: SalesAuthedRequest, res: Resp
             productType: true,
             status: true,
             attributedAt: true,
+            verifiedAt: true,
             commissionStartsAt: true,
             commissionEndsAt: true,
           },
@@ -162,6 +164,7 @@ router.get("/properties", asyncHandler(async (req: SalesAuthedRequest, res: Resp
       },
     }),
   ]);
+  const onboarding = await loadOnboarding(db, partnerId, properties);
   const propertyIds = properties.map((property: any) => property.id);
   const earnings = propertyIds.length
     ? await db.salesCommission.groupBy({
@@ -178,11 +181,23 @@ router.get("/properties", asyncHandler(async (req: SalesAuthedRequest, res: Resp
     total,
     page,
     pageSize,
-    properties: properties.map((property: any) => ({
-      ...property,
-      totalEarnings: earningsByProperty.get(property.id) || 0,
-      currency: "TZS",
-    })),
+    properties: properties.map((property: any) => {
+      const progress = onboarding.get(property.id);
+      return {
+        ...property,
+        totalEarnings: earningsByProperty.get(property.id) || 0,
+        currency: "TZS",
+        onboarding: progress
+          ? {
+              completed: progress.completed,
+              total: progress.total,
+              current: progress.current,
+              currentLabel: progress.stages.find((s) => s.key === progress.current)?.label ?? null,
+              blocked: progress.blocked,
+            }
+          : null,
+      };
+    }),
   });
 }));
 
@@ -195,13 +210,17 @@ router.get("/properties/:propertyId", asyncHandler(async (req: SalesAuthedReques
   const property = await attributedProperty(partnerId, parsed.data!.propertyId);
   if (!property) return res.status(404).json({ error: "Attributed property not found" });
 
-  const totals = await db.salesCommission.aggregate({
-    where: { salesPartnerId: partnerId, propertyId: property.id, status: { notIn: ["CANCELLED", "REVERSED"] } },
-    _sum: { commissionAmount: true, eligibleNetRevenue: true },
-    _count: { id: true },
-  });
+  const [totals, onboarding] = await Promise.all([
+    db.salesCommission.aggregate({
+      where: { salesPartnerId: partnerId, propertyId: property.id, status: { notIn: ["CANCELLED", "REVERSED"] } },
+      _sum: { commissionAmount: true, eligibleNetRevenue: true },
+      _count: { id: true },
+    }),
+    loadOnboarding(db, partnerId, [property]),
+  ]);
   res.json({
     property,
+    onboarding: onboarding.get(property.id) ?? null,
     totals: {
       commissionAmount: Number(totals._sum.commissionAmount || 0),
       eligibleNetRevenue: Number(totals._sum.eligibleNetRevenue || 0),

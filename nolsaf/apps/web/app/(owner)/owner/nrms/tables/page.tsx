@@ -95,17 +95,34 @@ export default function NrmsTablesPage() {
     }
   }, [selectedPropertyId]);
 
+  const loadLiveOrders = useCallback(async () => {
+    if (!selectedPropertyId) return;
+    try {
+      const response = await apiClient.get<{ orders: LiveOrder[] }>(`/api/nrms/operations/property/${selectedPropertyId}/orders?view=live&scope=table&limit=150`);
+      setOrders(response.data.orders);
+      setTender((current) => {
+        const next = { ...current };
+        for (const order of response.data.orders) {
+          if (next[order.id] === undefined && order.status === "SERVING" && order.guestPaymentMethod) next[order.id] = order.guestPaymentMethod;
+        }
+        return next;
+      });
+    } catch { /* keep the last table board; the next refresh retries */ }
+  }, [selectedPropertyId]);
+
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    const id = setInterval(() => void load(true), 20000);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void loadLiveOrders();
+    }, 30_000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [loadLiveOrders]);
 
   const accept = async (order: LiveOrder) => {
     setBusyId(order.id); setError(null);
     try {
       await apiClient.post(`/api/nrms/operations/orders/${order.id}/advance`, {});
-      await load(true);
+      await loadLiveOrders();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not accept the order"); }
     finally { setBusyId(null); }
   };
@@ -117,7 +134,7 @@ export default function NrmsTablesPage() {
     setBusyId(order.id); setError(null);
     try {
       await apiClient.post(`/api/nrms/operations/orders/${order.id}/advance`, step.needsTender ? { settlementMethod: tender[order.id] } : {});
-      await load(true);
+      await loadLiveOrders();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not update the order"); }
     finally { setBusyId(null); }
   };
@@ -128,7 +145,7 @@ export default function NrmsTablesPage() {
     try {
       await apiClient.post(`/api/nrms/operations/orders/${order.id}/cancel`, { reason: reason.trim() });
       setDeclining(null); setReason("");
-      await load(true);
+      await loadLiveOrders();
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not decline the order"); }
     finally { setBusyId(null); }
   };
@@ -164,6 +181,8 @@ export default function NrmsTablesPage() {
         items: orderLines.map((line) => ({ menuItemId: line.item.id, quantity: line.quantity })),
       });
       setOrderModal(false);
+      // Creating an order consumes tracked menu stock, so refresh the static
+      // outlet/menu snapshot once after this mutation as well as the live board.
       await load(true);
     } catch (cause: any) { setError(cause?.response?.data?.error || "Could not create the order"); }
     finally { setCreatingOrder(false); }

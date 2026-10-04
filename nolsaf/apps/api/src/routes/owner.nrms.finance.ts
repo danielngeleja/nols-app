@@ -5,10 +5,11 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { auditOrThrow } from "../lib/audit.js";
 import { lockPropertyInventory } from "../lib/nrmsAvailability.js";
-import { createNightAuditLedgerTransaction } from "../lib/nrmsNightAuditLedger.js";
+import { createNightAuditLedgerTransactions } from "../lib/nrmsNightAuditLedger.js";
 import { loadNrmsPropertyAccess, type NrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
 import { allocateStayValue } from "../lib/nrmsReporting.js";
-import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, NRMS_BUSINESS_DAY_LOCKED, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { assertNrmsBusinessDayWritable, ensureBusinessDay, expectedCashForShift, nextShiftDayKey, nightAuditSchedule, NRMS_BUSINESS_DAY_LOCKED, shiftDayStart, shiftHandoverSummary } from "../lib/nrmsShifts.js";
+import { buildStockPostings } from "../lib/nrmsStockLedger.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -31,11 +32,13 @@ function requireManager(access: FinanceAccess, res: Response): boolean {
   return false;
 }
 
-const openShiftSchema = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), openingFloat: z.number().min(0) });
 const closeShiftSchema = z.object({ declaredCash: z.number().min(0), closeNote: z.string().trim().max(300).optional().nullable() });
 const closeDaySchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   acknowledgeFiscalBacklog: z.boolean().optional().default(false),
+});
+const nightAuditSettingsSchema = z.object({
+  closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
 });
 const classifyTenderSchema = z.object({ method: z.enum(PAYMENT_METHODS) });
 const createExpenseSchema = z.object({
@@ -112,8 +115,16 @@ function personName(user: any): string {
 async function controlIssues(source: any, propertyId: number, key: string, eventWindow?: { start: Date; end: Date }) {
   const serviceWindow = dayRange(key);
   const { start, end } = eventWindow ?? serviceWindow;
-  const [openShifts, openOrders, dueOut, unclassified, missingOrderVoidReasons, missingPaymentVoidReasons, missingChargeVoidReasons] = await Promise.all([
+  const [openShifts, unreconciledShifts, openOrders, dueOut, unclassified, missingOrderVoidReasons, missingPaymentVoidReasons, missingChargeVoidReasons] = await Promise.all([
     source.nrmsCashierShift.count({ where: { propertyId, status: "OPEN", businessDate: dateOnly(key) } }),
+    source.nrmsCashierShift.count({
+      where: {
+        propertyId,
+        status: "CLOSED",
+        businessDate: dateOnly(key),
+        OR: [{ declaredCash: null }, { variance: null }, { ownerSignedOffAt: null }],
+      },
+    }),
     source.nrmsOutletOrder.count({ where: { propertyId, status: { in: ["CONFIRMED", "PREPARING", "SERVING"] } } }),
     source.reservation.count({ where: { propertyId, status: "CHECKED_IN", checkOut: { lte: serviceWindow.end } } }),
     source.nrmsOutletOrder.count({ where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: start, lt: end } } }),
@@ -136,6 +147,7 @@ async function controlIssues(source: any, propertyId: number, key: string, event
   });
   const blockers = [
     openShifts ? { code: "OPEN_CASHIER_SHIFTS", count: openShifts, message: `${openShifts} cashier shift${openShifts === 1 ? " is" : "s are"} still open.` } : null,
+    unreconciledShifts ? { code: "UNRECONCILED_CASHIER_SHIFTS", count: unreconciledShifts, message: `${unreconciledShifts} closed cashier shift${unreconciledShifts === 1 ? " needs" : "s need"} a physical count or manager sign-off.` } : null,
     openOrders ? { code: "OPEN_OUTLET_ORDERS", count: openOrders, message: `${openOrders} restaurant or bar order${openOrders === 1 ? " is" : "s are"} not completed.` } : null,
     dueOut ? { code: "DUE_OUT_GUESTS", count: dueOut, message: `${dueOut} due-out guest${dueOut === 1 ? " is" : "s are"} still checked in.` } : null,
     unclassified ? { code: "UNCLASSIFIED_TENDERS", count: unclassified, message: `${unclassified} outlet settlement${unclassified === 1 ? " needs" : "s need"} a payment method.` } : null,
@@ -157,7 +169,7 @@ type Posting = {
 async function buildPostings(source: any, propertyId: number, key: string, eventWindow?: { start: Date; end: Date }): Promise<Posting[]> {
   const serviceWindow = dayRange(key);
   const { start, end } = eventWindow ?? serviceWindow;
-  const [reservations, payments, masterItems, masterPayments, charges, outlets, tippedOrders, usageEvents, expenses] = await Promise.all([
+  const [reservations, payments, masterItems, masterPayments, charges, outlets, tippedOrders, usageEvents, expenses, supplierPayments] = await Promise.all([
     source.reservation.findMany({
       where: { propertyId, status: { in: activeRevenueStatuses }, checkIn: { lt: serviceWindow.end }, checkOut: { gt: serviceWindow.start } },
       select: { id: true, receiptNumber: true, checkIn: true, checkOut: true, totalAmount: true, taxAmount: true, currency: true },
@@ -178,6 +190,9 @@ async function buildPostings(source: any, propertyId: number, key: string, event
     // Expense recognition follows the operational window in which the record
     // was entered; a later void follows the window in which it was reversed.
     source.nrmsExpense.findMany({ where: { propertyId, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] } }),
+    // Supplier payments (stock milestone 5) follow the expense pattern: entered
+    // in one window, reversed in the window in which they were voided.
+    source.nrmsSupplierPayment.findMany({ where: { propertyId, OR: [{ createdAt: { gte: start, lt: end } }, { voidedAt: { gte: start, lt: end } }] }, include: { supplier: { select: { name: true } } } }),
   ]);
   const postings: Posting[] = [];
   for (const stay of reservations) {
@@ -286,7 +301,120 @@ async function buildPostings(source: any, propertyId: number, key: string, event
       { accountCode: category.code, accountName: category.name, accountType: "EXPENSE", debit: 0, credit: amount },
     ] });
   }
+  for (const payment of supplierPayments) {
+    const tender = accountForPayment(payment.method);
+    const amount = money(payment.amount);
+    const label = `${payment.method.replace(/_/g, " ").toLowerCase()} payment to ${payment.supplier?.name ?? "supplier"} ${payment.paymentNumber}`;
+    if (new Date(payment.createdAt) >= start && new Date(payment.createdAt) < end) postings.push({ sourceKey: `SUPPLIER_PAYMENT:${propertyId}:${payment.id}`, sourceType: "SUPPLIER_PAYMENT", sourceId: payment.id, description: label.charAt(0).toUpperCase() + label.slice(1), currency: payment.currency, occurredAt: payment.paidAt, entries: [
+      { accountCode: "2400", accountName: "Accounts payable", accountType: "LIABILITY", debit: amount, credit: 0 },
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: 0, credit: amount },
+    ] });
+    if (payment.voidedAt && new Date(payment.voidedAt) >= start && new Date(payment.voidedAt) < end) postings.push({ sourceKey: `SUPPLIER_PAYMENT_VOID:${propertyId}:${payment.id}`, sourceType: "SUPPLIER_PAYMENT_REVERSAL", sourceId: payment.id, description: `Reversal: ${label}`, currency: payment.currency, occurredAt: payment.voidedAt, entries: [
+      { accountCode: tender.code, accountName: tender.name, accountType: "ASSET", debit: amount, credit: 0 },
+      { accountCode: "2400", accountName: "Accounts payable", accountType: "LIABILITY", debit: 0, credit: amount },
+    ] });
+  }
   return postings;
+}
+
+function nightAuditEventWindow(key: string, closeTime: string, openedAt: Date | string | null | undefined, through: Date) {
+  const configuredStart = shiftDayStart(key, closeTime);
+  const recordedStart = openedAt ? new Date(openedAt) : configuredStart;
+  return {
+    start: new Date(Math.min(configuredStart.getTime(), recordedStart.getTime())),
+    end: through,
+  };
+}
+
+async function pendingNightAuditPostings(source: any, propertyId: number, key: string, closeTime: string, currency: string, openedAt: Date | string | null | undefined, through: Date, reportNumber: string) {
+  const eventWindow = nightAuditEventWindow(key, closeTime, openedAt, through);
+  const calendarWindow = dayRange(key);
+  const stock = await buildStockPostings(source, {
+    propertyId,
+    reportNumber,
+    currency,
+    occurredAt: calendarWindow.start,
+    closeBoundary: through,
+    window: eventWindow,
+  });
+  const candidates = [...await buildPostings(source, propertyId, key, eventWindow), ...stock.postings];
+  const alreadyPosted = candidates.length
+    ? await source.nrmsLedgerTransaction.findMany({
+      where: { propertyId, sourceKey: { in: candidates.map((posting) => posting.sourceKey) } },
+      select: { sourceKey: true },
+    })
+    : [];
+  const postedKeys = new Set(alreadyPosted.map((posting: any) => posting.sourceKey));
+  return { eventWindow, stock, postings: candidates.filter((posting) => !postedKeys.has(posting.sourceKey)) };
+}
+
+async function buildNightAuditReview(
+  source: any,
+  propertyId: number,
+  key: string,
+  eventWindow: { start: Date; end: Date },
+  issues: { blockers: any[]; warnings: any[] },
+  postings: Posting[],
+  stockMovementsPosted: number,
+) {
+  const [arrivals, departures, reservationsCreated, inHouse, shifts] = await Promise.all([
+    source.reservation.count({ where: { propertyId, checkedInAt: { gte: eventWindow.start, lt: eventWindow.end } } }),
+    source.reservation.count({ where: { propertyId, checkedOutAt: { gte: eventWindow.start, lt: eventWindow.end } } }),
+    source.reservation.count({ where: { propertyId, createdAt: { gte: eventWindow.start, lt: eventWindow.end } } }),
+    source.reservation.count({ where: { propertyId, status: "CHECKED_IN" } }),
+    source.nrmsCashierShift.findMany({
+      where: { propertyId, businessDate: dateOnly(key) },
+      select: { status: true, expectedCash: true, declaredCash: true, variance: true, ownerSignedOffAt: true },
+    }),
+  ]);
+  const debitTotal = money(postings.reduce((total, posting) => total + posting.entries.reduce((sum, entry) => sum + entry.debit, 0), 0));
+  const creditTotal = money(postings.reduce((total, posting) => total + posting.entries.reduce((sum, entry) => sum + entry.credit, 0), 0));
+  const bySourceMap = new Map<string, { sourceType: string; count: number; debit: number; credit: number }>();
+  const activityRows = postings.map((posting) => {
+    const debit = money(posting.entries.reduce((sum, entry) => sum + entry.debit, 0));
+    const credit = money(posting.entries.reduce((sum, entry) => sum + entry.credit, 0));
+    const current = bySourceMap.get(posting.sourceType) ?? { sourceType: posting.sourceType, count: 0, debit: 0, credit: 0 };
+    current.count += 1;
+    current.debit = money(current.debit + debit);
+    current.credit = money(current.credit + credit);
+    bySourceMap.set(posting.sourceType, current);
+    return {
+      sourceType: posting.sourceType,
+      description: posting.description,
+      currency: posting.currency,
+      occurredAt: posting.occurredAt,
+      debit,
+      credit,
+    };
+  });
+  return {
+    generatedAt: eventWindow.end,
+    window: { startedAt: eventWindow.start, through: eventWindow.end },
+    controls: {
+      passed: issues.blockers.length === 0,
+      blockers: issues.blockers,
+      warnings: issues.warnings,
+    },
+    operations: { arrivals, departures, reservationsCreated, inHouseAtReview: inHouse },
+    cashiers: {
+      total: shifts.length,
+      open: shifts.filter((shift: any) => shift.status === "OPEN").length,
+      closed: shifts.filter((shift: any) => shift.status === "CLOSED").length,
+      signedOff: shifts.filter((shift: any) => shift.ownerSignedOffAt != null).length,
+      expectedCash: money(shifts.reduce((sum: number, shift: any) => sum + Number(shift.expectedCash || 0), 0)),
+      declaredCash: money(shifts.reduce((sum: number, shift: any) => sum + Number(shift.declaredCash || 0), 0)),
+      variance: money(shifts.reduce((sum: number, shift: any) => sum + Number(shift.variance || 0), 0)),
+    },
+    ledger: {
+      transactionCount: postings.length,
+      stockMovementsPosted,
+      debitTotal,
+      creditTotal,
+      balanced: debitTotal === creditTotal,
+      bySource: [...bySourceMap.values()],
+      activities: activityRows,
+    },
+  };
 }
 
 function isTanzanian(value: string | null | undefined): boolean {
@@ -336,29 +464,116 @@ async function nbsStatistics(propertyId: number, month: string) {
   };
 }
 
+/**
+ * The open-day Night Audit preview (pending postings, stock, controls, review)
+ * costs about as much as a close. The finance page used to rebuild it on every
+ * load, and loads arrive in bursts (after each close, from several panels), so
+ * a few page loads could keep MySQL busy enough to make a one-posting close take
+ * 25 seconds. The preview is now shared by concurrent requests and kept for a
+ * short time; any write through this router for the property drops it.
+ */
+const NIGHT_AUDIT_PREVIEW_TTL_MS = 20_000;
+const nightAuditPreviewCache = new Map<string, { at: number; value: Promise<{ issues: any; review: any }> }>();
+
+function invalidateNightAuditPreview(propertyId: number) {
+  const prefix = `${propertyId}:`;
+  for (const key of nightAuditPreviewCache.keys()) if (key.startsWith(prefix)) nightAuditPreviewCache.delete(key);
+}
+
+function cachedNightAuditPreview(input: { propertyId: number; businessDate: string; closeTime: string; currency: string; openedAt: Date | null }) {
+  const key = `${input.propertyId}:${input.businessDate}:${input.closeTime}:${input.openedAt ? new Date(input.openedAt).getTime() : 0}`;
+  const hit = nightAuditPreviewCache.get(key);
+  if (hit && Date.now() - hit.at < NIGHT_AUDIT_PREVIEW_TTL_MS) return hit.value;
+  const value = (async () => {
+    const preview = await pendingNightAuditPostings(
+      db,
+      input.propertyId,
+      input.businessDate,
+      input.closeTime,
+      input.currency,
+      input.openedAt,
+      new Date(),
+      `NA-PREVIEW-${input.propertyId}-${input.businessDate.replace(/-/g, "")}`,
+    );
+    const issues = await controlIssues(db, input.propertyId, input.businessDate, preview.eventWindow);
+    const review = await buildNightAuditReview(db, input.propertyId, input.businessDate, preview.eventWindow, issues, preview.postings, preview.stock.movementIds.length);
+    return { issues, review };
+  })();
+  nightAuditPreviewCache.set(key, { at: Date.now(), value });
+  value.catch(() => nightAuditPreviewCache.delete(key));
+  // Bounded: drop the oldest entries if many properties are active at once.
+  while (nightAuditPreviewCache.size > 500) {
+    const oldest = nightAuditPreviewCache.keys().next().value;
+    if (oldest === undefined) break;
+    nightAuditPreviewCache.delete(oldest);
+  }
+  return value;
+}
+
+// Any successful write through this router (close, shift, expense, tender...)
+// drops that property's cached preview, so the next load reflects it at once.
+router.use((req, res, next) => {
+  if (req.method !== "GET") {
+    const match = /^\/property\/(\d+)(\/|$)/.exec(req.path);
+    if (match) {
+      const propertyId = Number(match[1]);
+      res.on("finish", () => {
+        if (res.statusCode < 400) invalidateNightAuditPreview(propertyId);
+      });
+    }
+  }
+  next();
+});
+
 router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
     const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
     if (!active) return;
     const propertyId = active.property.id;
+    const closeTime = active.property.nrmsNightAuditCloseTime;
     const businessDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.businessDate ?? "")) ? String(req.query.businessDate) : dayKey(new Date());
     const month = /^\d{4}-\d{2}$/.test(String(req.query.month ?? "")) ? String(req.query.month) : businessDate.slice(0, 7);
-    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from ?? "")) ? String(req.query.from) : businessDate;
-    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to ?? "")) ? String(req.query.to) : businessDate;
+    // "report" is the Reports page's consolidated export: shifts, ledger, tax
+    // and NBS in one payload. Without it the page fell back to "audit", which
+    // loads none of those, and sealed reports stated "Ledger balanced: No",
+    // "Tax entries: 0" and "Cashier shifts: 0" regardless of the real books.
+    const requestedView = ["audit", "cashiers", "expenses", "ledger", "tax", "nbs", "report"].includes(String(req.query.view ?? "")) ? String(req.query.view) : "audit";
+    // Front desk runs Night Audit and cashier shifts only. The workspace hides
+    // the accounting views from them; this enforces it at the API as well.
+    if (active.role === "FRONT_DESK" && requestedView !== "audit" && requestedView !== "cashiers") {
+      return res.status(403).json({ error: "Only an owner or manager can view the accounting records." });
+    }
+    const needsCashiers = requestedView === "cashiers" || requestedView === "report";
+    const needsAudit = requestedView === "audit";
+    const needsLedger = requestedView === "ledger" || requestedView === "tax" || requestedView === "report";
+    const needsNbs = requestedView === "nbs" || requestedView === "report";
+    const reportMonthRange = monthRange(month);
+    const reportMonthLastDay = dayKey(new Date(reportMonthRange.end.getTime() - 1));
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from ?? "")) ? String(req.query.from) : needsLedger ? `${month}-01` : businessDate;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to ?? "")) ? String(req.query.to) : needsLedger ? reportMonthLastDay : businessDate;
     if (to < from) return res.status(400).json({ error: "Choose a valid financial control date range" });
     const start = dateOnly(businessDate);
     const selectedDayRange = dayRange(businessDate);
-    const [day, shifts, issues, nbs, nightAudits, unclassifiedTenders] = await Promise.all([
-      db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } }),
-      db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }),
-      controlIssues(db, propertyId, businessDate),
-      nbsStatistics(propertyId, month),
-      db.nrmsNightAuditRun.findMany({ where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } }, include: { businessDay: { select: { businessDate: true } } }, orderBy: { startedAt: "desc" } }),
-      db.nrmsOutletOrder.findMany({
+    const emptyNbs = { month, reportingDays: reportMonthRange.days, bedsAvailable: 0, bedNightsAvailable: 0, bedNightsOccupied: 0, domesticBedNights: 0, internationalBedNights: 0, roomNightsOccupied: 0, bedOccupancyRate: 0, missingNationalityBedNights: 0, methodology: "Open NBS statistics to calculate this reporting month." };
+    const [day, shifts, , nbs, unclassifiedTenders, unclosedBusinessDays] = await Promise.all([
+      needsAudit
+        ? db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, include: { nightAudits: { orderBy: { startedAt: "desc" }, take: 5 } } })
+        : db.nrmsBusinessDay.findUnique({ where: { propertyId_businessDate: { propertyId, businessDate: start } }, select: { id: true, status: true, openedAt: true, closedAt: true } }),
+      needsCashiers ? db.nrmsCashierShift.findMany({ where: { propertyId, businessDate: { gte: dateOnly(from), lte: dateOnly(to) } }, include: { user: { select: { fullName: true, name: true, email: true } }, approvedBy: { select: { fullName: true, name: true, email: true } }, ownerSignedOffBy: { select: { fullName: true, name: true, email: true } }, handoverFrom: { select: { user: { select: { fullName: true, name: true, email: true } } } } }, orderBy: { openedAt: "desc" } }) : Promise.resolve([]),
+      // Controls are resolved once below, with the right window for the day's state.
+      Promise.resolve(null),
+      needsNbs ? nbsStatistics(propertyId, month) : Promise.resolve(emptyNbs),
+      needsAudit ? db.nrmsOutletOrder.findMany({
         where: { propertyId, status: "SETTLED", settlementMode: "OUTLET_PAYMENT", settlementMethod: null, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
         select: { id: true, orderNumber: true, customerLabel: true, currency: true, total: true, settledAt: true, outlet: { select: { name: true, type: true } }, reservation: { select: { guestProfile: { select: { fullName: true } }, allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } } } } } } },
         orderBy: { settledAt: "asc" },
-      }),
+      }) : Promise.resolve([]),
+      needsAudit ? db.nrmsBusinessDay.findMany({
+        where: { propertyId, status: { in: ["OPEN", "CLOSING"] } },
+        select: { id: true, businessDate: true, status: true, openedAt: true },
+        orderBy: { businessDate: "asc" },
+        take: 90,
+      }) : Promise.resolve([]),
     ]);
     // Cashier rows are per-user, not per-outlet, so we separately join each
     // shift's user against their outlet/role assignment for display only.
@@ -370,11 +585,11 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
     // Sales settled by someone with no cashier shift (an owner or manager
     // stepping behind the bar) never belong to a shift's own reconciliation.
     // Surface them separately instead of letting them vanish silently.
-    const unassignedByMethod = await db.nrmsOutletOrder.groupBy({
+    const unassignedByMethod = needsCashiers ? await db.nrmsOutletOrder.groupBy({
       by: ["settlementMethod"],
       where: { propertyId, settlementMode: "OUTLET_PAYMENT", status: "SETTLED", voidedAt: null, settledById: { notIn: shiftUserIds }, settledAt: { gte: selectedDayRange.start, lt: selectedDayRange.end } },
       _sum: { total: true }, _count: { _all: true },
-    });
+    }) : [];
     const unassignedTenderRows = unassignedByMethod.map((row: any) => ({ method: row.settlementMethod ?? "UNCLASSIFIED", count: row._count._all, amount: money(row._sum.total) }));
     const unassignedSales = {
       count: unassignedTenderRows.reduce((sum: number, row: any) => sum + row.count, 0),
@@ -391,51 +606,111 @@ router.get("/property/:propertyId", (async (req: AuthedRequest, res: Response) =
       liveExpectedCash: shift.status === "OPEN" ? await expectedCashForShift(db, shift) : money(shift.expectedCash),
     })));
     const reportWindow = { gte: dayRange(from).start, lt: dayRange(to).end };
-    const transactions = await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] });
+    const transactions = needsLedger ? await db.nrmsLedgerTransaction.findMany({ where: { propertyId, occurredAt: reportWindow }, include: { entries: true }, orderBy: [{ occurredAt: "asc" }, { id: "asc" }] }) : [];
     const accountMap = new Map<string, any>();
     for (const transaction of transactions) for (const entry of transaction.entries) {
       const key = `${entry.accountCode}:${transaction.currency}`;
       const row = accountMap.get(key) ?? { accountCode: entry.accountCode, accountName: entry.accountName, accountType: entry.accountType, currency: transaction.currency, debit: 0, credit: 0, balance: 0 };
       row.debit = money(row.debit + money(entry.debit)); row.credit = money(row.credit + money(entry.credit)); row.balance = money(row.debit - row.credit); accountMap.set(key, row);
     }
+    // Stock on hand at today's average cost (milestone 5), for gross profit context.
+    const stockBalances = await db.nrmsStockBalance.findMany({ where: { stockItem: { propertyId, status: "ACTIVE" }, quantity: { gt: 0 } }, select: { quantity: true, stockItem: { select: { averageCost: true, category: true } } } });
+    const stockValue = money(stockBalances.reduce((sum: number, row: any) => sum + Number(row.quantity) * Number(row.stockItem.averageCost), 0));
     const taxRows = transactions.flatMap((transaction: any) => transaction.entries.filter((entry: any) => entry.accountCode === "2200").map((entry: any) => ({ transactionNumber: transaction.transactionNumber, occurredAt: transaction.occurredAt, description: transaction.description, currency: transaction.currency, tax: money(entry.credit) - money(entry.debit) })));
+    const schedule = nightAuditSchedule(new Date(), closeTime);
+    // Business-day states around the selected date for the page's week strip,
+    // so each tile can say Closed / To audit / Trading without a request per day.
+    const businessDayStrip = needsAudit || needsCashiers
+      ? (await db.nrmsBusinessDay.findMany({
+        where: { propertyId, businessDate: { gte: new Date(start.getTime() - 10 * 86_400_000), lte: new Date(start.getTime() + 10 * 86_400_000) } },
+        select: { businessDate: true, status: true },
+        orderBy: { businessDate: "asc" },
+      })).map((row: any) => ({ businessDate: new Date(row.businessDate).toISOString().slice(0, 10), status: row.status }))
+      : [];
+    // The operating timeline: only days NRMS actually recorded, so the page can
+    // show what is closed, what waits for audit and what is trading, instead of
+    // a calendar of dates the hotel never operated.
+    const operatingTimeline = needsAudit || needsCashiers
+      ? await (async () => {
+        const [recent, first, lastClosed, closedCount] = await Promise.all([
+          db.nrmsBusinessDay.findMany({ where: { propertyId }, select: { businessDate: true, status: true }, orderBy: { businessDate: "desc" }, take: 45 }),
+          db.nrmsBusinessDay.findFirst({ where: { propertyId }, select: { businessDate: true }, orderBy: { businessDate: "asc" } }),
+          db.nrmsBusinessDay.findFirst({ where: { propertyId, status: "CLOSED" }, select: { businessDate: true, closedAt: true }, orderBy: { businessDate: "desc" } }),
+          db.nrmsBusinessDay.count({ where: { propertyId, status: "CLOSED" } }),
+        ]);
+        const key = (value: Date) => new Date(value).toISOString().slice(0, 10);
+        return {
+          days: recent.reverse().map((row: any) => ({ businessDate: key(row.businessDate), status: row.status })),
+          firstRecordedDate: first ? key(first.businessDate) : null,
+          lastClosed: lastClosed ? { businessDate: key(lastClosed.businessDate), closedAt: lastClosed.closedAt } : null,
+          closedCount,
+        };
+      })()
+      : null;
+    let resolvedIssues: any = { blockers: [], warnings: [] };
+    let nightAuditReview: any = null;
+    if (needsAudit && day?.status === "CLOSED") {
+      // A closed day reads its sealed review; controls are only recomputed if it has none.
+      nightAuditReview = day.nightAudits?.find((audit: any) => audit.status === "CLOSED")?.summary?.review ?? null;
+      resolvedIssues = nightAuditReview?.controls ?? await controlIssues(db, propertyId, businessDate);
+    } else if (needsAudit && day?.status === "OPEN") {
+      const preview = await cachedNightAuditPreview({
+        propertyId,
+        businessDate,
+        closeTime,
+        currency: (active.property.currency || "TZS").toUpperCase(),
+        openedAt: day.openedAt,
+      });
+      resolvedIssues = preview.issues;
+      nightAuditReview = preview.review;
+    } else if (needsAudit) {
+      resolvedIssues = await controlIssues(db, propertyId, businessDate);
+    }
     res.json({
       property: { id: propertyId, title: active.property.title, currency: active.property.currency }, accessRole: active.role, businessDate, month, range: { from, to },
-      businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits } : { id: null, status: "NOT_OPENED", audits: [] },
-      blockers: issues.blockers, warnings: issues.warnings, shifts: enrichedShifts, unassignedSales,
+      nightAuditPolicy: {
+        closeTime,
+        timezone: schedule.timezone,
+        activeBusinessDate: schedule.activeBusinessDate,
+        latestClosableDate: schedule.latestClosableDate,
+        nextCloseAt: schedule.nextCloseAt,
+        canCloseSelectedDate: businessDate <= schedule.latestClosableDate,
+      },
+      unclosedBusinessDays: unclosedBusinessDays.map((openDay: any) => {
+        const openDate = new Date(openDay.businessDate).toISOString().slice(0, 10);
+        return {
+          id: openDay.id,
+          businessDate: openDate,
+          status: openDay.status,
+          openedAt: openDay.openedAt,
+          canClose: openDate <= schedule.latestClosableDate,
+        };
+      }),
+      businessDayStrip,
+      operatingTimeline,
+      nightAuditReview,
+      businessDay: day ? { id: day.id, status: day.status, openedAt: day.openedAt, closedAt: day.closedAt, audits: day.nightAudits ?? [] } : { id: null, status: "NOT_OPENED", audits: [] },
+      blockers: resolvedIssues.blockers, warnings: resolvedIssues.warnings, shifts: enrichedShifts, unassignedSales,
       unclassifiedTenders: unclassifiedTenders.map((order: any) => ({ id: order.id, orderNumber: order.orderNumber, currency: order.currency, total: money(order.total), settledAt: order.settledAt, outlet: order.outlet, guest: order.reservation?.guestProfile?.fullName || order.customerLabel || "Walk-in", room: order.reservation ? (order.reservation.allocations.map((allocation: any) => allocation.roomUnit?.code).filter(Boolean).join(", ") || "No room") : "Walk-in" })),
-      ledger: { accounts: [...accountMap.values()], transactions, balanced: transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
+      ledger: { loaded: needsLedger, accounts: [...accountMap.values()], transactions, balanced: transactions.length > 0 && transactions.every((transaction: any) => money(transaction.entries.reduce((sum: number, entry: any) => sum + money(entry.debit) - money(entry.credit), 0)) === 0) },
       tax: { rows: taxRows, total: money(taxRows.reduce((sum: number, row: any) => sum + row.tax, 0)), note: "Tax register includes only tax separately captured on reservations. Folio and outlet prices are treated as tax-inclusive only when a future tax rule explicitly splits them." },
-      nightAudits,
+      // The report pack lists every Night Audit run across its whole period,
+      // with the business date each one closed; other views keep the runs of
+      // the selected date only.
+      nightAudits: requestedView === "report"
+        ? await db.nrmsNightAuditRun.findMany({
+          where: { propertyId, businessDay: { businessDate: { gte: dateOnly(from), lte: dateOnly(to) } } },
+          select: { id: true, reportNumber: true, status: true, startedAt: true, completedAt: true, businessDay: { select: { businessDate: true } } },
+          orderBy: [{ startedAt: "asc" }, { id: "asc" }],
+          take: 400,
+        })
+        : day?.nightAudits ?? [],
       nbs,
+      stock: { tracked: stockBalances.length > 0, value: stockValue },
     });
   } catch (error) {
     console.error("Failed to load NRMS financial control", error);
     res.status(500).json({ error: "Unable to load financial control records" });
-  }
-}) as RequestHandler);
-
-router.post("/property/:propertyId/shifts/open", (async (req: AuthedRequest, res: Response) => {
-  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
-  if (!active) return;
-  const parsed = openShiftSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Enter a valid business date and opening float" });
-  const currency = active.property.currency?.toUpperCase();
-  if (!currency) return res.status(409).json({ error: "Set the property currency before opening a cashier shift" });
-  try {
-    const shift = await db.$transaction(async (tx: any) => {
-      const existing = await tx.nrmsCashierShift.findFirst({ where: { propertyId: active.property.id, userId: req.user!.id, status: "OPEN" } });
-      if (existing) throw new Error("SHIFT_ALREADY_OPEN");
-      const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
-      if (day.status === "CLOSED") throw new Error("BUSINESS_DAY_CLOSED");
-      return tx.nrmsCashierShift.create({ data: { propertyId: active.property.id, businessDayId: day.id, userId: req.user!.id, businessDate: day.businessDate, currency, openingFloat: parsed.data.openingFloat } });
-    });
-    res.status(201).json({ shift });
-  } catch (error) {
-    const code = error instanceof Error ? error.message : "";
-    if (code === "SHIFT_ALREADY_OPEN") return res.status(409).json({ error: "Close your current cashier shift before opening another." });
-    if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closed and cannot accept a new shift." });
-    throw error;
   }
 }) as RequestHandler);
 
@@ -444,15 +719,78 @@ router.post("/property/:propertyId/shifts/:shiftId/close", (async (req: AuthedRe
   if (!active) return;
   const parsed = closeShiftSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Enter the cash physically counted at shift close" });
-  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
-  if (!shift) return res.status(404).json({ error: "Open cashier shift not found" });
-  if (shift.userId !== req.user!.id && !requireManager(active, res)) return;
-  const until = new Date();
-  const [expected, summary] = await Promise.all([expectedCashForShift(db, shift, until), shiftHandoverSummary(db, shift, until)]);
-  const variance = money(parsed.data.declaredCash - expected);
-  if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
-  const closed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until } });
-  res.json({ shift: closed });
+  const visibleShift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "OPEN" } });
+  if (!visibleShift) return res.status(404).json({ error: "Open cashier shift not found" });
+  if (visibleShift.userId !== req.user!.id && !requireManager(active, res)) return;
+  try {
+    const closed = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      const shift = await tx.nrmsCashierShift.findFirst({ where: { id: visibleShift.id, propertyId: active.property.id, status: "OPEN" } });
+      if (!shift) throw new Error("SHIFT_NOT_FOUND");
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(shift.businessDate));
+      const until = new Date();
+      const [expected, summary] = await Promise.all([expectedCashForShift(tx, shift, until), shiftHandoverSummary(tx, shift, until)]);
+      const variance = money(parsed.data.declaredCash - expected);
+      if (variance !== 0 && !parsed.data.closeNote) throw new Error("SHIFT_VARIANCE_NOTE_REQUIRED");
+      if (summary.unpaid.count > 0 && !parsed.data.closeNote) throw new Error("SHIFT_OUTSTANDING_NOTE_REQUIRED");
+      return tx.nrmsCashierShift.update({ where: { id: shift.id }, data: { status: "CLOSED", expectedCash: expected, declaredCash: parsed.data.declaredCash, variance, closeNote: parsed.data.closeNote || null, closeSummary: summary, approvedById: req.user!.id, closedAt: until } });
+    }, { maxWait: 10_000, timeout: 15_000 });
+    res.json({ shift: closed });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "SHIFT_NOT_FOUND") return res.status(409).json({ error: "This shift was already closed. Refresh Cashier variance." });
+    if (code === "SHIFT_VARIANCE_NOTE_REQUIRED") return res.status(400).json({ error: "Explain the overage or shortage before closing this shift." });
+    if (code === "SHIFT_OUTSTANDING_NOTE_REQUIRED") return res.status(400).json({ error: "Unsettled orders remain. Note what is outstanding before closing this shift." });
+    if (code === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "Night Audit is closing or has closed this business date. Refresh Cashier variance.", code });
+    throw error;
+  }
+}) as RequestHandler);
+
+/**
+ * Repair a legacy staff-closed shift that predates physical drawer counting.
+ * The business date must still be writable; a sealed Night Audit is never
+ * rewritten. The audit row preserves who supplied the missing count and why.
+ */
+router.post("/property/:propertyId/shifts/:shiftId/reconcile", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const parsed = closeShiftSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter the physical cash count" });
+  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
+  if (!shift) return res.status(404).json({ error: "Closed cashier shift not found" });
+  if (shift.ownerSignedOffAt) return res.status(409).json({ error: "This shift is already signed off and cannot be changed" });
+  const variance = money(parsed.data.declaredCash - Number(shift.expectedCash));
+  if (variance !== 0 && !parsed.data.closeNote) return res.status(400).json({ error: "Explain the cash overage or shortage before saving." });
+  try {
+    const reconciled = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(shift.businessDate));
+      const note = parsed.data.closeNote
+        ? [shift.closeNote, `Reconciliation: ${parsed.data.closeNote}`].filter(Boolean).join(" · ")
+        : shift.closeNote;
+      const updated = await tx.nrmsCashierShift.update({
+        where: { id: shift.id },
+        data: { declaredCash: parsed.data.declaredCash, variance, closeNote: note || null },
+      });
+      await auditOrThrow(tx, req, "NRMS_CASHIER_SHIFT_RECONCILED", "NRMS_CASHIER_SHIFT", {
+        declaredCash: shift.declaredCash == null ? null : Number(shift.declaredCash),
+        variance: shift.variance == null ? null : Number(shift.variance),
+        closeNote: shift.closeNote,
+      }, {
+        businessDate: dayKey(shift.businessDate),
+        expectedCash: Number(shift.expectedCash),
+        declaredCash: parsed.data.declaredCash,
+        variance,
+        reason: parsed.data.closeNote || null,
+      }, shift.id);
+      return updated;
+    }, { maxWait: 10_000, timeout: 15_000 });
+    res.json({ shift: reconciled });
+  } catch (error) {
+    if (error instanceof Error && error.message === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is already closed. Its cashier record requires a controlled correction on an open date.", code: NRMS_BUSINESS_DAY_LOCKED });
+    throw error;
+  }
 }) as RequestHandler);
 
 /**
@@ -465,11 +803,34 @@ router.post("/property/:propertyId/shifts/:shiftId/sign-off", (async (req: Authe
   const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
   if (!active) return;
   if (!requireManager(active, res)) return;
-  const shift = await db.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
-  if (!shift) return res.status(404).json({ error: "Closed cashier shift not found" });
-  if (shift.ownerSignedOffAt) return res.status(409).json({ error: "This shift is already signed off" });
-  const signed = await db.nrmsCashierShift.update({ where: { id: shift.id }, data: { ownerSignedOffAt: new Date(), ownerSignedOffById: req.user!.id } });
-  res.json({ shift: signed });
+  try {
+    const signed = await db.$transaction(async (tx: any) => {
+      await lockPropertyInventory(tx, active.property.id);
+      const shift = await tx.nrmsCashierShift.findFirst({ where: { id: Number(req.params.shiftId), propertyId: active.property.id, status: "CLOSED" } });
+      if (!shift) throw new Error("SHIFT_NOT_FOUND");
+      if (shift.ownerSignedOffAt) throw new Error("SHIFT_ALREADY_SIGNED_OFF");
+      if (shift.declaredCash == null || shift.variance == null) throw new Error("SHIFT_PHYSICAL_COUNT_REQUIRED");
+      await assertNrmsBusinessDayWritable(tx, active.property.id, new Date(shift.businessDate));
+      const signedAt = new Date();
+      const updated = await tx.nrmsCashierShift.update({ where: { id: shift.id }, data: { ownerSignedOffAt: signedAt, ownerSignedOffById: req.user!.id } });
+      await auditOrThrow(tx, req, "NRMS_CASHIER_SHIFT_SIGNED_OFF", "NRMS_CASHIER_SHIFT", null, {
+        businessDate: dayKey(shift.businessDate),
+        expectedCash: Number(shift.expectedCash),
+        declaredCash: Number(shift.declaredCash),
+        variance: Number(shift.variance),
+        signedOffAt: signedAt,
+      }, shift.id);
+      return updated;
+    }, { maxWait: 10_000, timeout: 15_000 });
+    res.json({ shift: signed });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "SHIFT_NOT_FOUND") return res.status(404).json({ error: "Closed cashier shift not found" });
+    if (code === "SHIFT_ALREADY_SIGNED_OFF") return res.status(409).json({ error: "This shift is already signed off" });
+    if (code === "SHIFT_PHYSICAL_COUNT_REQUIRED") return res.status(409).json({ error: "Record the physical cash count before signing off this shift.", code });
+    if (code === NRMS_BUSINESS_DAY_LOCKED) return res.status(409).json({ error: "This business date is closing or closed and cannot accept a new sign-off.", code });
+    throw error;
+  }
 }) as RequestHandler);
 
 router.post("/property/:propertyId/outlet-orders/:orderId/classify", (async (req: AuthedRequest, res: Response) => {
@@ -494,40 +855,93 @@ router.post("/property/:propertyId/outlet-orders/:orderId/classify", (async (req
   }
 }) as RequestHandler);
 
+router.put("/property/:propertyId/night-audit/settings", (async (req: AuthedRequest, res: Response) => {
+  const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
+  if (!active) return;
+  if (!requireManager(active, res)) return;
+  const parsed = nightAuditSettingsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Choose a valid Night Audit time in HH:mm format" });
+  const closeTime = parsed.data.closeTime;
+  const property = await db.$transaction(async (tx: any) => {
+    const updated = await tx.property.update({
+      where: { id: active.property.id },
+      data: { nrmsNightAuditCloseTime: closeTime },
+      select: { nrmsNightAuditCloseTime: true },
+    });
+    await auditOrThrow(tx, req, "NRMS_NIGHT_AUDIT_TIME_UPDATED", "PROPERTY", {
+      closeTime: active.property.nrmsNightAuditCloseTime,
+      timezone: ZONE,
+    }, {
+      closeTime: updated.nrmsNightAuditCloseTime,
+      timezone: ZONE,
+    }, active.property.id);
+    return updated;
+  });
+  const schedule = nightAuditSchedule(new Date(), property.nrmsNightAuditCloseTime);
+  res.json({
+    settings: {
+      closeTime: property.nrmsNightAuditCloseTime,
+      timezone: schedule.timezone,
+      activeBusinessDate: schedule.activeBusinessDate,
+      latestClosableDate: schedule.latestClosableDate,
+      nextCloseAt: schedule.nextCloseAt,
+    },
+  });
+}) as RequestHandler);
+
 router.post("/property/:propertyId/night-audit/close", (async (req: AuthedRequest, res: Response) => {
   const active = await loadFinanceAccess(req, res, Number(req.params.propertyId));
   if (!active) return;
   if (!requireManager(active, res)) return;
   const parsed = closeDaySchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a valid business date" });
-  const today = dayKey(new Date());
-  if (parsed.data.businessDate >= today) {
-    const latestClosable = new Date(`${today}T00:00:00.000Z`);
-    latestClosable.setUTCDate(latestClosable.getUTCDate() - 1);
-    const latestClosableDate = latestClosable.toISOString().slice(0, 10);
+  const closeTime = active.property.nrmsNightAuditCloseTime;
+  const schedule = nightAuditSchedule(new Date(), closeTime);
+  if (parsed.data.businessDate > schedule.latestClosableDate) {
     return res.status(409).json({
-      error: `Night Audit can close only a completed business date. Choose ${latestClosableDate} or an earlier open date; ${parsed.data.businessDate} is still operating.`,
-      code: "BUSINESS_DAY_NOT_COMPLETED",
-      latestClosableDate,
+      error: `This business date remains operational until the property's ${closeTime} EAT Night Audit boundary. The latest closable date is ${schedule.latestClosableDate}.`,
+      code: "NIGHT_AUDIT_NOT_YET_AVAILABLE",
+      latestClosableDate: schedule.latestClosableDate,
+      nextCloseAt: schedule.nextCloseAt,
+      closeTime,
     });
   }
   const reportNumber = `NA-${active.property.id}-${parsed.data.businessDate.replace(/-/g, "")}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+  const closeStartedAt = Date.now();
+  let closePhase = "lock";
+  let phaseStartedAt = closeStartedAt;
+  const phaseDurationsMs: Record<string, number> = {};
+  const startPhase = (next: string) => {
+    phaseDurationsMs[closePhase] = (phaseDurationsMs[closePhase] ?? 0) + Date.now() - phaseStartedAt;
+    closePhase = next;
+    phaseStartedAt = Date.now();
+  };
+  let postingCount = 0;
   try {
     const result = await db.$transaction(async (tx: any) => {
       // The property row is the shared serialization lock used by every NRMS
       // financial writer. Nothing can enter the audit snapshot after this.
       await lockPropertyInventory(tx, active.property.id);
-      const day = await ensureBusinessDay(tx, active.property.id, parsed.data.businessDate, req.user!.id);
+      // Night Audit closes an operating record; it must never manufacture a
+      // historical business day merely because someone browsed to that date.
+      const day = await tx.nrmsBusinessDay.findUnique({
+        where: { propertyId_businessDate: { propertyId: active.property.id, businessDate: dateOnly(parsed.data.businessDate) } },
+      });
+      if (!day) throw new Error("BUSINESS_DAY_NOT_OPENED");
       if (["CLOSING", "CLOSED"].includes(day.status)) throw new Error("BUSINESS_DAY_CLOSED");
+      const earliestOpenDay = await tx.nrmsBusinessDay.findFirst({
+        where: { propertyId: active.property.id, status: { in: ["OPEN", "CLOSING"] } },
+        orderBy: { businessDate: "asc" },
+        select: { businessDate: true },
+      });
+      const earliestOpenKey = earliestOpenDay ? dayKey(earliestOpenDay.businessDate) : null;
+      if (earliestOpenKey && earliestOpenKey !== parsed.data.businessDate) throw new Error(`EARLIER_BUSINESS_DAY_OPEN:${earliestOpenKey}`);
       const closeBoundary = new Date();
       const calendarWindow = dayRange(parsed.data.businessDate);
-      const openedAt = day.openedAt ? new Date(day.openedAt) : calendarWindow.start;
-      const eventWindow = {
-        start: new Date(Math.min(calendarWindow.start.getTime(), openedAt.getTime())),
-        end: closeBoundary,
-      };
+      const eventWindow = nightAuditEventWindow(parsed.data.businessDate, closeTime, day.openedAt, closeBoundary);
       await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSING" } });
 
+      startPhase("controls");
       const issues = await controlIssues(tx, active.property.id, parsed.data.businessDate, eventWindow);
       if (issues.blockers.length) {
         const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "BLOCKED", reportNumber, blockers: issues.blockers, warnings: issues.warnings, startedById: req.user!.id, completedAt: new Date() } });
@@ -576,7 +990,17 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         }
         : { required: false, acknowledged: false, count: 0, receipts: [] };
 
-      const candidates = await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow);
+      startPhase("stock-postings");
+      const stock = await buildStockPostings(tx, {
+        propertyId: active.property.id,
+        reportNumber,
+        currency: (active.property.currency || "TZS").toUpperCase(),
+        occurredAt: calendarWindow.start,
+        closeBoundary,
+        window: eventWindow,
+      });
+      startPhase("financial-postings");
+      const candidates = [...await buildPostings(tx, active.property.id, parsed.data.businessDate, eventWindow), ...stock.postings];
       const alreadyPosted = candidates.length
         ? await tx.nrmsLedgerTransaction.findMany({
           where: { propertyId: active.property.id, sourceKey: { in: candidates.map((posting) => posting.sourceKey) } },
@@ -585,6 +1009,7 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         : [];
       const postedKeys = new Set(alreadyPosted.map((posting: any) => posting.sourceKey));
       const postings = candidates.filter((posting) => !postedKeys.has(posting.sourceKey));
+      postingCount = postings.length;
       for (const posting of postings) {
         const debit = money(posting.entries.reduce((sum, entry) => sum + entry.debit, 0));
         const credit = money(posting.entries.reduce((sum, entry) => sum + entry.credit, 0));
@@ -593,9 +1018,9 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
 
       const audit = await tx.nrmsNightAuditRun.create({ data: { propertyId: active.property.id, businessDayId: day.id, status: "DRAFT", reportNumber, blockers: [], warnings: issues.warnings, startedById: req.user!.id } });
       let debitTotal = 0;
-      for (const [index, posting] of postings.entries()) {
+      const ledgerRows = postings.map((posting, index) => {
         debitTotal += posting.entries.reduce((sum, entry) => sum + entry.debit, 0);
-        await createNightAuditLedgerTransaction(tx, {
+        return {
           propertyId: active.property.id,
           businessDayId: day.id,
           nightAuditRunId: audit.id,
@@ -606,20 +1031,41 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
           description: posting.description,
           currency: posting.currency,
           occurredAt: posting.occurredAt,
-          entries: { create: posting.entries },
-        });
+          entries: posting.entries,
+        };
+      });
+      startPhase("ledger-headers-and-entries");
+      await createNightAuditLedgerTransactions(tx, ledgerRows);
+      // Each stock movement is posted once: stamp it with this run.
+      startPhase("stock-movements");
+      for (let index = 0; index < stock.movementIds.length; index += 1000) {
+        await tx.nrmsStockMovement.updateMany({ where: { id: { in: stock.movementIds.slice(index, index + 1000) }, ledgerRunId: null }, data: { ledgerRunId: audit.id } });
       }
+      startPhase("review");
+      const review = await buildNightAuditReview(tx, active.property.id, parsed.data.businessDate, eventWindow, issues, postings, stock.movementIds.length);
       const summary = {
         transactionCount: postings.length,
+        stockMovementsPosted: stock.movementIds.length,
         debitTotal: money(debitTotal),
         creditTotal: money(debitTotal),
         fiscalBacklogAcknowledgement,
+        closePolicy: { closeTime, timezone: ZONE },
+        review,
       };
       const closedAt = closeBoundary;
+      startPhase("finalize");
       const closedAudit = await tx.nrmsNightAuditRun.update({ where: { id: audit.id }, data: { status: "CLOSED", closedById: req.user!.id, completedAt: closedAt, summary } });
       const closed = await tx.nrmsBusinessDay.update({ where: { id: day.id }, data: { status: "CLOSED", closedById: req.user!.id, closedAt } });
       const nextBusinessDate = nextShiftDayKey(parsed.data.businessDate);
-      const nextBusinessDay = await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
+      // Existing duplicate OPEN rows may predate this invariant. Advance to the
+      // earliest one instead of creating yet another row; repeated closes then
+      // drain the queue. Only create the next calendar day when no later active
+      // business day already exists.
+      const nextExistingBusinessDay = await tx.nrmsBusinessDay.findFirst({
+        where: { propertyId: active.property.id, status: { in: ["OPEN", "CLOSING"] }, businessDate: { gt: day.businessDate } },
+        orderBy: { businessDate: "asc" },
+      });
+      const nextBusinessDay = nextExistingBusinessDay ?? await ensureBusinessDay(tx, active.property.id, nextBusinessDate, req.user!.id);
       if (["CLOSING", "CLOSED"].includes(nextBusinessDay.status)) throw new Error("NEXT_BUSINESS_DAY_LOCKED");
       if (fiscalWarning) {
         await auditOrThrow(tx, req, "NRMS_FISCAL_BACKLOG_ACKNOWLEDGED_AT_NIGHT_AUDIT", "PROPERTY", null, {
@@ -630,7 +1076,11 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
         }, active.property.id);
       }
       return { blocked: false as const, businessDay: closed, nextBusinessDay, audit: closedAudit };
-    }, { maxWait: 10_000, timeout: 30_000 });
+    }, { maxWait: 10_000, timeout: 60_000 });
+
+    startPhase("done");
+    const closeDurationMs = Date.now() - closeStartedAt;
+    if (closeDurationMs > 10_000) console.warn("[NRMS Night Audit] slow close", { propertyId: active.property.id, businessDate: parsed.data.businessDate, closeDurationMs, postingCount, phaseDurationsMs });
 
     if ("acknowledgementRequired" in result && result.acknowledgementRequired) {
       return res.status(409).json({
@@ -643,9 +1093,17 @@ router.post("/property/:propertyId/night-audit/close", (async (req: AuthedReques
     if ("blocked" in result && result.blocked) return res.status(409).json({ error: "Night Audit is blocked. Clear every control issue before closing the business date.", blockers: result.blockers, audit: result.audit });
     res.json({ businessDay: result.businessDay, nextBusinessDay: result.nextBusinessDay, audit: result.audit });
   } catch (error) {
+    const failedPhase = closePhase;
+    startPhase("failed");
     const code = error instanceof Error ? error.message : "";
+    if (code === "BUSINESS_DAY_NOT_OPENED") return res.status(409).json({ error: "This date was never opened for operations, so there is no business day to close.", code });
     if (code === "BUSINESS_DAY_CLOSED") return res.status(409).json({ error: "This business date is already closing or closed.", code: NRMS_BUSINESS_DAY_LOCKED });
+    if (code.startsWith("EARLIER_BUSINESS_DAY_OPEN:")) {
+      const targetBusinessDate = code.slice("EARLIER_BUSINESS_DAY_OPEN:".length);
+      return res.status(409).json({ error: `Close the earlier open business date ${targetBusinessDate} first. Night Audit must follow one chronological sequence.`, code: "EARLIER_BUSINESS_DAY_OPEN", targetBusinessDate });
+    }
     if (code === "NEXT_BUSINESS_DAY_LOCKED") return res.status(409).json({ error: "The next business date is already closing or closed. Review the business-day sequence before continuing.", code });
+    console.error("[NRMS Night Audit] close failed", { propertyId: active.property.id, businessDate: parsed.data.businessDate, phase: failedPhase, postingCount, elapsedMs: Date.now() - closeStartedAt, phaseDurationsMs, prismaCode: (error as { code?: string })?.code, prismaMeta: (error as { meta?: unknown })?.meta });
     if (code.startsWith("UNBALANCED_ACCOUNTING_EVENT:")) return res.status(500).json({ error: `Unbalanced accounting event: ${code.slice("UNBALANCED_ACCOUNTING_EVENT:".length)}` });
     throw error;
   }

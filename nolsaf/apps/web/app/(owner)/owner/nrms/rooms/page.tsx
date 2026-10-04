@@ -2,18 +2,22 @@
 
 // NRMS Rooms and room types (doc 7.1, 10.4): normalized inventory management
 // with roomsSpec reconciliation and one-click import.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import {
   AlertTriangle,
+  BadgeCheck,
   BedDouble,
   DownloadCloud,
   Loader2,
+  PauseCircle,
   Plus,
   Wrench,
   X,
+  XCircle,
 } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
+import { NrmsDirectoryShell, NrmsLifecycleRail } from "../_components/NrmsDirectory";
 
 type RoomUnit = {
   id: number;
@@ -33,6 +37,7 @@ type RoomType = {
   capacityChildren: number;
   bedSetup: string | null;
   baseRate: number | null;
+  staffRateFloor: number | null;
   currency: string;
   status: string;
   units: RoomUnit[];
@@ -75,7 +80,19 @@ export default function NrmsRoomsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [currencyChoice, setCurrencyChoice] = useState("TZS");
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [view, setView] = useState<"cards" | "list">("cards");
   const needsCurrency = !!notice && /property currency/i.test(notice);
+
+  useEffect(() => {
+    try { setView(window.localStorage.getItem("nrms.rooms.view") === "list" ? "list" : "cards"); } catch {}
+  }, []);
+
+  const changeView = (next: "cards" | "list") => {
+    setView(next);
+    try { window.localStorage.setItem("nrms.rooms.view", next); } catch {}
+  };
 
   const setPropertyCurrency = async () => {
     if (!selectedPropertyId) return;
@@ -130,6 +147,19 @@ export default function NrmsRoomsPage() {
   };
 
   const mismatch = recon && !recon.reconciled && recon.spec.length > 0;
+  const units = useMemo(() => roomTypes.flatMap((roomType) => roomType.units.map((unit) => ({ ...unit, roomType }))), [roomTypes]);
+  const statusCounts = useMemo(() => Object.fromEntries(UNIT_STATUSES.map((status) => [status, units.filter((unit) => unit.status === status).length])), [units]);
+  const visibleUnits = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return units.filter((unit) => (!statusFilter || unit.status === statusFilter) && (!term || unit.code.toLowerCase().includes(term) || unit.roomType.name.toLowerCase().includes(term) || String(unit.floor ?? "").includes(term)));
+  }, [query, statusFilter, units]);
+  const visibleTypes = useMemo(() => roomTypes.map((roomType) => ({ ...roomType, units: visibleUnits.filter((unit) => unit.roomTypeId === roomType.id) })).filter((roomType) => roomType.units.length > 0), [roomTypes, visibleUnits]);
+  const roomStages = [
+    { key: "ACTIVE", label: "Ready", hint: "Available for room inventory", count: statusCounts.ACTIVE ?? 0, icon: BadgeCheck, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50" },
+    { key: "MAINTENANCE", label: "Maintenance", hint: "Repair or service in progress", count: statusCounts.MAINTENANCE ?? 0, icon: Wrench, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50" },
+    { key: "OUT_OF_SERVICE", label: "Out of service", hint: "Removed from room inventory", count: statusCounts.OUT_OF_SERVICE ?? 0, icon: XCircle, text: "text-rose-600", bar: "bg-rose-400", soft: "bg-rose-50" },
+    { key: "INACTIVE", label: "Inactive", hint: "Configured but not in use", count: statusCounts.INACTIVE ?? 0, icon: PauseCircle, text: "text-neutral-600", bar: "bg-neutral-400", soft: "bg-neutral-100" },
+  ];
 
   if (!selectedPropertyId) {
     return <p className="text-sm text-neutral-500 py-10 text-center">Add a property first to manage rooms.</p>;
@@ -205,13 +235,20 @@ export default function NrmsRoomsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex gap-3 text-sm">
-          <Stat label="Room types" value={totals?.roomTypes ?? 0} />
-          <Stat label="Rooms" value={totals?.roomUnits ?? 0} />
-          <Stat label="Sellable" value={totals?.sellableUnits ?? 0} />
-        </div>
-        <div className="flex gap-2">
+      <div className="space-y-5">
+        <NrmsLifecycleRail stages={roomStages} selected={statusFilter} onSelect={setStatusFilter} />
+        <NrmsDirectoryShell
+          title={statusFilter ? `${UNIT_STATUS_META[statusFilter]?.label ?? statusFilter} rooms` : "All rooms"}
+          count={visibleUnits.length}
+          loading={loading}
+          query={query}
+          onQueryChange={setQuery}
+          placeholder="Search room, category or floor"
+          view={view}
+          onViewChange={changeView}
+          filter={statusFilter}
+          onClearFilter={() => setStatusFilter("")}
+          toolbar={<div className="flex gap-2">
           <button
             type="button"
             onClick={onImport}
@@ -228,8 +265,8 @@ export default function NrmsRoomsPage() {
           >
             <Plus className="w-4 h-4" /> Add room type
           </button>
-        </div>
-      </div>
+        </div>}
+        >
 
       {loading ? (
         <div className="flex justify-center py-16 text-neutral-400">
@@ -243,10 +280,12 @@ export default function NrmsRoomsPage() {
           <p className="text-sm text-neutral-500 mb-3">No rooms configured yet.</p>
           <p className="text-xs text-neutral-400">Import from your property setup or add a room type manually.</p>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {roomTypes.map((type) => (
-            <div key={type.id} className="bg-white rounded-2xl border border-neutral-200 p-4 sm:p-5">
+      ) : visibleUnits.length === 0 ? (
+        <div className="border-t border-neutral-100 px-6 py-14 text-center text-sm text-neutral-500">No rooms match this search or status.</div>
+      ) : view === "cards" ? (
+        <div className="space-y-4 border-t border-neutral-100 p-3 sm:p-4">
+          {visibleTypes.map((type) => (
+            <div key={type.id} className="bg-white rounded-xl border border-neutral-200 p-4 sm:p-5">
               <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
                 <div>
                   <div className="flex items-center gap-2">
@@ -265,6 +304,7 @@ export default function NrmsRoomsPage() {
                     {type.baseRate != null ? `${type.currency} ${type.baseRate.toLocaleString()}` : "No rate set"}
                   </div>
                   <div className="text-[11px] text-neutral-400">base rate per night</div>
+                  <StaffRateFloorControl roomType={type} onSaved={load} />
                 </div>
               </div>
 
@@ -285,19 +325,28 @@ export default function NrmsRoomsPage() {
                     </button>
                   );
                 })}
-                <button
+                {!query && !statusFilter && <button
                   type="button"
                   onClick={() => setUnitFormType(type)}
                   className="rounded-xl border border-dashed border-neutral-300 hover:border-neutral-400 text-neutral-400 hover:text-neutral-600 px-2 py-2.5 text-center text-sm"
                 >
                   <Plus className="w-4 h-4 mx-auto" />
                   <span className="text-[11px]">Add room</span>
-                </button>
+                </button>}
               </div>
             </div>
           ))}
         </div>
+      ) : (
+        <div className="overflow-x-auto border-t border-neutral-100">
+          <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <thead><tr className="bg-neutral-50/70 text-[11px] font-semibold text-neutral-400"><th className="px-5 py-2.5">Room</th><th className="px-4 py-2.5">Category</th><th className="px-4 py-2.5">Floor</th><th className="px-4 py-2.5">Beds</th><th className="px-4 py-2.5">Status</th><th className="px-5 py-2.5 text-right">Action</th></tr></thead>
+            <tbody>{visibleUnits.map((unit) => { const meta = UNIT_STATUS_META[unit.status] ?? UNIT_STATUS_META.ACTIVE; return <tr key={unit.id} className="border-t border-neutral-100 hover:bg-neutral-50/70"><td className="px-5 py-3 font-bold text-neutral-900">{unit.code}</td><td className="px-4 py-3 text-neutral-700">{unit.roomType.name}</td><td className="px-4 py-3 text-neutral-500">{unit.floor == null ? "Not set" : `Floor ${unit.floor}`}</td><td className="px-4 py-3 text-neutral-500">{unit.bedCount}</td><td className="px-4 py-3"><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${meta.cls}`}>{meta.label}</span></td><td className="px-5 py-3 text-right"><button type="button" onClick={() => setEditUnit(unit)} className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-bold text-neutral-700 hover:border-emerald-200 hover:bg-emerald-50">Edit</button></td></tr>; })}</tbody>
+          </table>
+        </div>
       )}
+        </NrmsDirectoryShell>
+      </div>
 
       {showTypeForm && selectedPropertyId && (
         <TypeFormModal
@@ -362,6 +411,92 @@ function ModalFrame({ title, onClose, children }: { title: string; onClose: () =
 }
 
 const inputCls = "block box-border w-full min-w-0 max-w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm";
+
+/**
+ * The lowest rate a staff member may agree for this room type on a group block.
+ *
+ * A block's nightly rate becomes the guest's rate once the block is picked up,
+ * so whoever agrees the block is exercising discount authority. Only the owner
+ * sees or sets this, and the owner is never bound by it.
+ *
+ * Unset means the base rate above is the limit: discounting is granted, not
+ * assumed. Clearing the field returns to that. Zero removes the limit.
+ */
+function StaffRateFloorControl({ roomType, onSaved }: { roomType: RoomType; onSaved: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(roomType.staffRateFloor == null ? "" : String(roomType.staffRateFloor));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const trimmed = value.trim();
+      await apiClient.patch(`/api/owner/nrms/rooms/types/${roomType.id}`, {
+        staffRateFloor: trimmed === "" ? null : Number(trimmed),
+      });
+      setEditing(false);
+      await onSaved();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || "Could not save the limit");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!editing) {
+    const label = roomType.staffRateFloor == null
+      ? (roomType.baseRate == null ? "No limit, this type has no rate" : "Staff limit: base rate")
+      : roomType.staffRateFloor === 0
+        ? "Staff limit: none"
+        : `Staff limit: ${roomType.currency} ${roomType.staffRateFloor.toLocaleString()}`;
+    return (
+      <button
+        type="button"
+        onClick={() => { setValue(roomType.staffRateFloor == null ? "" : String(roomType.staffRateFloor)); setEditing(true); }}
+        className="mt-1 cursor-pointer appearance-none border-0 bg-transparent p-0 text-[11px] font-semibold text-emerald-700 underline decoration-emerald-200 underline-offset-4 hover:text-emerald-900"
+      >
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 w-52 rounded-lg bg-neutral-50 p-2 text-left ring-1 ring-neutral-200">
+      <p className="m-0 text-[11px] font-bold text-neutral-800">Lowest rate staff may agree</p>
+      <p className="m-0 mt-0.5 text-[10px] leading-4 text-neutral-500">
+        Leave empty to hold them at the base rate. Enter 0 to let them agree any rate. You are never limited.
+      </p>
+      <input
+        type="number"
+        min={0}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={roomType.baseRate != null ? String(roomType.baseRate) : "0"}
+        className="mt-1.5 box-border w-full rounded-lg border border-solid border-neutral-300 px-2 py-1.5 text-xs"
+      />
+      {error && <p className="m-0 mt-1 text-[10px] font-semibold text-red-600">{error}</p>}
+      <div className="mt-1.5 flex gap-1.5">
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy}
+          className="flex-1 cursor-pointer appearance-none rounded-lg border-0 bg-emerald-700 px-2 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-800 disabled:opacity-60"
+        >
+          {busy ? "Saving..." : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setEditing(false); setError(null); }}
+          className="cursor-pointer appearance-none rounded-lg border-0 bg-white px-2 py-1.5 text-[11px] font-bold text-neutral-600 ring-1 ring-neutral-300 hover:bg-neutral-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function TypeFormModal({ propertyId, currency, onClose, onSaved }: { propertyId: number; currency: string | null; onClose: () => void; onSaved: () => Promise<void> }) {
   const [name, setName] = useState("");

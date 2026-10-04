@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -8,29 +8,15 @@ import {
   Bell,
   Building2,
   CalendarClock,
-  CheckCircle2,
-  CircleDollarSign,
-  Layers3,
   Loader2,
   Percent,
   TrendingUp,
   Wallet,
   WalletCards,
 } from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import apiClient from "@/lib/apiClient";
-import { statusTone, type SalesMe } from "@/components/SalesShell";
+import { codeLabel, statusTone, type SalesMe } from "@/components/SalesShell";
 
 type DashboardMe = SalesMe & {
   payout?: {
@@ -110,13 +96,6 @@ function money(value: number, currency = "TZS"): string {
   return `${currency === "TZS" ? "TSh" : currency} ${Math.round(Number(value || 0)).toLocaleString("en-US")}`;
 }
 
-function formatLabel(value: string): string {
-  return String(value || "")
-    .split("_")
-    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
-    .join(" ");
-}
-
 function relativeTime(value: string): string {
   const difference = Date.now() - new Date(value).getTime();
   const minutes = Math.max(1, Math.floor(difference / 60_000));
@@ -126,58 +105,39 @@ function relativeTime(value: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function titleCase(value: string | null | undefined): string {
+  return String(value || "")
+    .replace(/[-_]/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\bEs\b/g, "es");
+}
+
+/** One tile style for every headline number: calm label, strong value, one accent. */
 function KpiCard({
   icon: Icon,
   label,
   value,
   note,
-  tone,
+  children,
 }: {
   icon: typeof Building2;
   label: string;
   value: string | number;
-  note: string;
-  tone: "green" | "blue" | "violet" | "amber" | "teal";
+  note?: string;
+  children?: ReactNode;
 }) {
-  const tones = {
-    green: {
-      icon: "bg-emerald-50 text-emerald-700 ring-emerald-100",
-      dot: "bg-emerald-500",
-    },
-    blue: {
-      icon: "bg-sky-50 text-sky-700 ring-sky-100",
-      dot: "bg-sky-500",
-    },
-    violet: {
-      icon: "bg-violet-50 text-violet-700 ring-violet-100",
-      dot: "bg-violet-500",
-    },
-    amber: {
-      icon: "bg-amber-50 text-amber-700 ring-amber-100",
-      dot: "bg-amber-500",
-    },
-    teal: {
-      icon: "bg-teal-50 text-teal-700 ring-teal-100",
-      dot: "bg-teal-500",
-    },
-  };
-  const style = tones[tone];
-
   return (
-    <article className="group min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-[0_18px_38px_-30px_rgba(8,127,104,0.35)] sm:rounded-2xl sm:p-4">
-      <div className="flex items-start justify-between gap-2 sm:gap-3">
-        <div className="min-w-0">
-          <p className="m-0 min-h-6 text-[9px] font-black uppercase leading-3 tracking-[0.08em] text-slate-400 sm:min-h-0 sm:truncate sm:text-[10px] sm:leading-normal sm:tracking-[0.1em]">{label}</p>
-          <p className="mb-0 mt-1.5 truncate text-base font-black tracking-[-0.035em] text-slate-950 sm:mt-2 sm:text-[clamp(1.1rem,1.7vw,1.4rem)]">{value}</p>
-        </div>
-        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1 sm:h-9 sm:w-9 sm:rounded-xl ${style.icon}`}>
-          <Icon className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
+    <article className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_14px_34px_-30px_rgba(15,23,42,0.45)]">
+      <div className="flex items-center justify-between gap-3">
+        <p className="m-0 truncate text-[13px] font-medium text-slate-500">{label}</p>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
+          <Icon className="h-4 w-4" aria-hidden />
         </span>
       </div>
-      <div className="mt-2.5 flex min-w-0 items-center gap-1.5 border-t border-slate-100 pt-2 sm:mt-3 sm:gap-2 sm:pt-2.5">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${style.dot}`} />
-        <p className="m-0 line-clamp-2 text-[9px] font-medium leading-3.5 text-slate-500 sm:truncate sm:text-[10px] sm:leading-normal">{note}</p>
-      </div>
+      <p className="m-0 mt-1 truncate text-2xl font-bold tracking-tight tabular-nums text-slate-900">{value}</p>
+      {note ? <p className="m-0 mt-1 truncate text-xs text-slate-500">{note}</p> : null}
+      {children}
     </article>
   );
 }
@@ -287,250 +247,256 @@ export default function SalesOverviewDashboard() {
 
   const { me, summary, properties, notifications } = data;
   const conversionRate = data.totalLeads > 0 ? Math.round((data.convertedLeads / data.totalLeads) * 100) : 0;
-  const averageEarnings = data.totalProperties > 0 ? summary.totalEarned / data.totalProperties : 0;
   const otherEarnings =
     Number(summary.byStream?.PERFORMANCE_BONUS || 0) +
     Number(summary.byStream?.MANUAL_ADJUSTMENT || 0);
-  const pieData = STREAMS.map((stream) => ({
+  const streams = STREAMS.map((stream) => ({
     ...stream,
-    value:
-      stream.key === "OTHER"
-        ? otherEarnings
-        : Number(summary.byStream?.[stream.key] || 0),
-  })).filter((stream) => stream.value > 0);
+    value: stream.key === "OTHER" ? otherEarnings : Number(summary.byStream?.[stream.key] || 0),
+  }));
+  const streamTotal = streams.reduce((sum, s) => sum + s.value, 0);
+  const canWithdraw = Number(summary.available || 0) > 0;
+  const card = "min-w-0 rounded-2xl border border-slate-200 bg-white shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]";
+  const productMix = [
+    data.nrmsProperties ? `NRMS ${data.nrmsProperties}` : null,
+    data.marketplaceProperties ? `Marketplace ${data.marketplaceProperties}` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <div id="sales-overview-dashboard" className="space-y-4">
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        <KpiCard icon={Building2} label="Total properties" value={data.totalProperties} note="Verified portfolio" tone="green" />
-        <KpiCard icon={Layers3} label="NRMS properties" value={data.nrmsProperties} note="Active NRMS attribution" tone="blue" />
-        <KpiCard icon={TrendingUp} label="Marketplace properties" value={data.marketplaceProperties} note="Marketplace attribution" tone="violet" />
-        <KpiCard icon={CalendarClock} label="Conversion requests" value={data.conversionRequests} note="Pending admin review" tone="amber" />
-        <KpiCard icon={WalletCards} label="Total earnings" value={money(summary.totalEarned, summary.currency)} note="Verified commission ledger" tone="teal" />
-        <KpiCard icon={Wallet} label="Available payout" value={money(summary.available, summary.currency)} note="Eligible to request" tone="green" />
+      {/* Headline numbers: one per question a partner asks */}
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard icon={Building2} label="Properties" value={data.totalProperties} note={productMix || "None attributed yet"} />
+        <KpiCard
+          icon={CalendarClock}
+          label="Conversion requests"
+          value={data.conversionRequests}
+          note={data.conversionRequests ? "Waiting for NoLSAF review" : "Nothing waiting for review"}
+        />
+        <KpiCard
+          icon={WalletCards}
+          label="Total earned"
+          value={money(summary.totalEarned, summary.currency)}
+          note={summary.pending ? `${money(summary.pending, summary.currency)} still validating` : "Verified commission"}
+        />
+        <KpiCard icon={Wallet} label="Available to withdraw" value={money(summary.available, summary.currency)}>
+          {canWithdraw ? (
+            <Link
+              href="/sales/payouts"
+              className="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-[#087f68] px-3 text-sm font-semibold text-white no-underline transition hover:bg-[#066b59]"
+            >
+              Request payout
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          ) : (
+            <p className="m-0 mt-1 text-xs text-slate-500">Nothing to withdraw yet</p>
+          )}
+        </KpiCard>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.8fr)_minmax(290px,0.72fr)]">
-        <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-50 text-amber-700 ring-1 ring-amber-100">
-                  <TrendingUp className="h-4 w-4" />
-                </span>
-                <h2 className="m-0 text-sm font-black text-slate-900">Earnings overview</h2>
-              </div>
-              <p className="mb-0 mt-2 text-[11px] text-slate-400">Cumulative verified earnings</p>
-            </div>
-            <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-[10px] font-bold text-slate-600">This month</span>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
+        {/* Earnings: the chart and where the money comes from, in one place */}
+        <article className={`${card} p-5`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="m-0 text-base font-semibold text-slate-900">Earnings</h2>
+            <p className="m-0 text-xs text-slate-500">
+              This month <span className="font-semibold text-slate-800">{money(summary.thisMonth, summary.currency)}</span>
+            </p>
           </div>
-          <div className="mt-4 h-52">
-            {cumulativeChart.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={cumulativeChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="salesTotalFill" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f5b700" stopOpacity={0.22} /><stop offset="95%" stopColor="#f5b700" stopOpacity={0} /></linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#e8eeec" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => `TSh ${Math.round(Number(value) / 1000)}K`} width={62} />
-                  <Tooltip formatter={(value: any) => money(Number(value), summary.currency)} />
-                  <Area type="monotone" dataKey="total" name="Total earnings" stroke="#f5b700" strokeWidth={2.2} fill="url(#salesTotalFill)" />
-                  <Area type="monotone" dataKey="marketplace" name="Marketplace share" stroke="#087f68" strokeWidth={2} fill="transparent" />
-                  <Area type="monotone" dataKey="nrms" name="NRMS commission" stroke="#22c55e" strokeWidth={2} fill="transparent" />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="grid h-full place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 text-center">
-                <div>
-                  <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-white text-slate-300 shadow-sm">
-                    <TrendingUp className="h-5 w-5" />
-                  </span>
-                  <p className="mb-0 mt-3 text-xs font-bold text-slate-600">No earnings this month</p>
-                  <p className="mb-0 mt-1 text-[10px] text-slate-400">Verified transactions will appear here.</p>
+
+          <div className="mt-4 grid gap-5 md:grid-cols-[minmax(0,1.4fr)_minmax(200px,1fr)]">
+            <div className="min-w-0">
+              {cumulativeChart.length ? (
+                <div className="h-44">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={cumulativeChart} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="salesTotalFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#087f68" stopOpacity={0.18} />
+                          <stop offset="95%" stopColor="#087f68" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#eef2f1" strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${Math.round(Number(value) / 1000)}K`} width={40} />
+                      <Tooltip formatter={(value: any) => money(Number(value), summary.currency)} />
+                      <Area type="monotone" dataKey="total" name="Total" stroke="#087f68" strokeWidth={2} fill="url(#salesTotalFill)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 </div>
+              ) : (
+                <div className="flex h-full min-h-[120px] items-center gap-3 rounded-xl bg-slate-50 px-4 py-5">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-400 shadow-sm">
+                    <TrendingUp className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div>
+                    <p className="m-0 text-sm font-medium text-slate-700">No earnings this month yet</p>
+                    <p className="m-0 mt-0.5 text-xs text-slate-500">The chart fills in as your properties bring in revenue.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <p className="m-0 text-xs font-medium text-slate-500">By stream</p>
+              <ul className="m-0 mt-2 list-none space-y-2.5 p-0">
+                {streams.map((stream) => {
+                  const share = streamTotal > 0 ? (stream.value / streamTotal) * 100 : 0;
+                  return (
+                    <li key={stream.key}>
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="flex min-w-0 items-center gap-2 text-slate-600">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stream.color }} />
+                          <span className="truncate">{stream.label}</span>
+                        </span>
+                        <span className="shrink-0 font-semibold tabular-nums text-slate-900">{money(stream.value, summary.currency)}</span>
+                      </div>
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full" style={{ width: `${share}%`, backgroundColor: stream.color }} />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="mt-3 flex items-center justify-between border-0 border-t border-solid border-slate-100 pt-3 text-sm">
+                <span className="text-slate-500">Paid out so far</span>
+                <span className="font-semibold tabular-nums text-slate-900">{money(summary.paid, summary.currency)}</span>
               </div>
-            )}
+            </div>
           </div>
         </article>
 
-        <article className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100">
-                  <CircleDollarSign className="h-4 w-4" />
-                </span>
-                <h2 className="m-0 text-sm font-black text-slate-900">Earnings breakdown</h2>
-              </div>
-              <p className="mb-0 mt-2 text-[11px] text-slate-400">Verified earning streams</p>
-            </div>
-            <span className="text-right">
-              <span className="block text-[9px] font-bold uppercase tracking-wide text-slate-400">Total</span>
-              <span className="mt-1 block text-xs font-black text-slate-900">{money(summary.totalEarned, summary.currency)}</span>
-            </span>
-          </div>
-
-          {pieData.length ? (
-            <div className="relative mx-auto mt-3 h-32 max-w-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={pieData} dataKey="value" nameKey="label" innerRadius={38} outerRadius={56} strokeWidth={0}>
-                    {pieData.map((item) => <Cell key={item.key} fill={item.color} />)}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
-                <span className="text-[10px] font-bold text-slate-500">{pieData.length} streams</span>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 flex items-center gap-3 rounded-xl bg-slate-50 p-3.5">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-300 shadow-sm">
-                <CircleDollarSign className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="m-0 text-xs font-bold text-slate-600">No verified earnings yet</p>
-                <p className="mb-0 mt-1 text-[10px] text-slate-400">Streams will populate automatically.</p>
-              </div>
-            </div>
-          )}
-
-          <div className={`${pieData.length ? "mt-2" : "mt-4"} divide-y divide-slate-100`}>
-            {STREAMS.map((stream) => {
-              const value = stream.key === "OTHER" ? otherEarnings : Number(summary.byStream?.[stream.key] || 0);
-              return (
-                <div key={stream.key} className="flex items-center justify-between gap-3 py-2.5">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: stream.color }} />
-                    <span className="truncate text-[11px] font-bold text-slate-600">{stream.label}</span>
-                  </span>
-                  <span className="shrink-0 text-[11px] font-black text-slate-900">{money(value, summary.currency)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_16px_40px_-34px_rgba(15,23,42,0.45)]">
-          <div className="flex items-center gap-2">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-violet-50 text-violet-700 ring-1 ring-violet-100">
-              <Activity className="h-4 w-4" />
-            </span>
-            <div>
-              <h2 className="m-0 text-sm font-black text-slate-900">Performance snapshot</h2>
-              <p className="mb-0 mt-1 text-[10px] text-slate-400">Live workspace totals</p>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-2">
+        {/* Performance: only what is not already shown above */}
+        <article className={`${card} p-5`}>
+          <h2 className="m-0 text-base font-semibold text-slate-900">Performance</h2>
+          <dl className="m-0 mt-4 space-y-4">
             {[
-              { label: "Conversion rate", value: `${conversionRate}%`, note: `${data.convertedLeads} of ${data.totalLeads} leads`, Icon: Percent, tone: "bg-violet-50 text-violet-700" },
-              { label: "Average / property", value: money(averageEarnings, summary.currency), note: "Verified portfolio", Icon: WalletCards, tone: "bg-teal-50 text-teal-700" },
-              { label: "Earning events", value: summary.count.toLocaleString(), note: "Commission entries", Icon: Activity, tone: "bg-amber-50 text-amber-700" },
-              { label: "Active attributions", value: me.level.activeProperties.toLocaleString(), note: "Currently earning", Icon: Building2, tone: "bg-emerald-50 text-emerald-700" },
-            ].map(({ label, value, note, Icon, tone }) => (
-              <div key={label} className="flex items-center gap-3 rounded-xl bg-slate-50/75 px-3 py-2.5">
-                <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${tone}`}>
-                  <Icon className="h-3.5 w-3.5" />
+              { label: "Conversion rate", value: `${conversionRate}%`, note: `${data.convertedLeads} of ${data.totalLeads} leads converted`, Icon: Percent },
+              { label: "Earning properties", value: me.level.activeProperties.toLocaleString(), note: "Attributions currently earning", Icon: Building2 },
+              { label: "Earning events", value: summary.count.toLocaleString(), note: "Commission entries recorded", Icon: Activity },
+            ].map(({ label, value, note, Icon }) => (
+              <div key={label} className="flex items-center gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-50 text-slate-500">
+                  <Icon className="h-4 w-4" aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="m-0 truncate text-[11px] font-bold text-slate-700">{label}</p>
-                  <p className="mb-0 mt-0.5 truncate text-[9px] text-slate-400">{note}</p>
+                  <dt className="truncate text-sm font-medium text-slate-800">{label}</dt>
+                  <dd className="m-0 mt-0.5 truncate text-xs text-slate-500">{note}</dd>
                 </div>
-                <span className="shrink-0 text-xs font-black text-slate-950">{value}</span>
+                <span className="shrink-0 text-lg font-semibold tabular-nums text-slate-900">{value}</span>
               </div>
             ))}
-          </div>
+          </dl>
         </article>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(330px,0.75fr)_minmax(280px,0.55fr)]">
-        <article className="min-w-0 overflow-hidden border border-slate-200 bg-white shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3.5"><h2 className="m-0 text-sm font-black text-slate-900">Attributed properties</h2><Link href="/sales/properties" className="text-[11px] font-bold text-emerald-700 no-underline hover:underline">View all properties</Link></div>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)]">
+        <article className={`${card} overflow-hidden`}>
+          <div className="flex items-center justify-between gap-3 px-5 py-4">
+            <h2 className="m-0 text-base font-semibold text-slate-900">Attributed properties</h2>
+            <Link href="/sales/properties" className="text-sm font-medium text-emerald-700 no-underline hover:underline">View all</Link>
+          </div>
           {properties.length ? (
             <>
-              <div className="divide-y divide-slate-100 md:hidden">
+              <div className="border-0 border-t border-solid border-slate-100 md:hidden">
                 {properties.slice(0, 5).map((property) => {
-                  const location = property.city || property.district || property.regionName || "Location not recorded";
-                  const products = property.salesAttributions.map((item) => formatLabel(item.productType)).join(" + ");
+                  const location = titleCase(property.city || property.district || property.regionName) || "Location not recorded";
+                  const products = property.salesAttributions.map((item) => codeLabel(item.productType)).join(" + ");
                   return (
                     <Link
                       key={property.id}
                       href={`/sales/properties/${property.id}`}
-                      className="group block px-4 py-3.5 no-underline transition hover:bg-emerald-50/40 hover:no-underline"
+                      className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-3.5 no-underline last:border-b-0 hover:bg-slate-50"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="m-0 truncate text-xs font-black text-slate-900">{property.title}</p>
-                          <p className="mb-0 mt-1 truncate text-[10px] text-slate-400">
-                            {location}{products ? ` · ${products}` : ""}
-                          </p>
-                        </div>
-                        <span className="max-w-[45%] shrink-0 text-right text-[11px] font-black leading-4 text-slate-950">
-                          {money(property.totalEarnings, property.currency)}
-                        </span>
+                      <div className="min-w-0">
+                        <p className="m-0 truncate text-sm font-semibold text-slate-900">{titleCase(property.title)}</p>
+                        <p className="m-0 mt-0.5 truncate text-xs text-slate-500">{location}{products ? ` · ${products}` : ""}</p>
                       </div>
-                      <div className="mt-2.5 flex items-center justify-between gap-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone(property.status)}`}>
-                          {formatLabel(property.status)}
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700">
-                          Open
-                          <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </div>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">{money(property.totalEarnings, property.currency)}</span>
                     </Link>
                   );
                 })}
               </div>
 
               <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[660px] border-collapse text-left">
-                <thead className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-2.5">Property</th><th className="px-3 py-2.5">Location</th><th className="px-3 py-2.5">Products</th><th className="px-3 py-2.5">Status</th><th className="px-3 py-2.5 text-right">Earnings</th><th className="w-8" /></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {properties.map((property) => (
-                    <tr key={property.id} className="text-xs">
-                      <td className="px-4 py-3 font-bold text-slate-900">{property.title}</td>
-                      <td className="px-3 py-3 text-slate-500">{property.city || property.district || property.regionName || "—"}</td>
-                      <td className="px-3 py-3"><div className="flex gap-1">{property.salesAttributions.map((item) => <span key={item.id} className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">{item.productType}</span>)}</div></td>
-                      <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${statusTone(property.status)}`}>{property.status}</span></td>
-                      <td className="px-3 py-3 text-right font-black text-slate-900">{money(property.totalEarnings, property.currency)}</td>
-                      <td className="pr-3"><Link href={`/sales/properties/${property.id}`} aria-label={`Open ${property.title}`}><ArrowRight className="h-3.5 w-3.5 text-slate-300" /></Link></td>
+                <table className="w-full min-w-[620px] border-collapse text-left text-sm">
+                  <thead className="bg-slate-50 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-5 py-2.5 font-medium">Property</th>
+                      <th className="px-3 py-2.5 font-medium">Location</th>
+                      <th className="px-3 py-2.5 font-medium">Products</th>
+                      <th className="px-3 py-2.5 font-medium">Status</th>
+                      <th className="px-3 py-2.5 text-right font-medium">Earnings</th>
+                      <th className="w-10" />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {properties.map((property) => (
+                      <tr key={property.id} className="border-0 border-t border-solid border-slate-100 hover:bg-slate-50/60">
+                        <td className="px-5 py-3 font-medium text-slate-900">{titleCase(property.title)}</td>
+                        <td className="px-3 py-3 text-slate-500">{titleCase(property.city || property.district || property.regionName) || "Not recorded"}</td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {property.salesAttributions.map((item) => (
+                              <span key={item.id} className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">{codeLabel(item.productType)}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusTone(property.status)}`}>{codeLabel(property.status)}</span></td>
+                        <td className="px-3 py-3 text-right font-semibold tabular-nums text-slate-900">{money(property.totalEarnings, property.currency)}</td>
+                        <td className="pr-4 text-right">
+                          <Link href={`/sales/properties/${property.id}`} aria-label={`Open ${property.title}`} className="inline-grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                            <ArrowRight className="h-4 w-4" aria-hidden />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </>
-          ) : <div className="grid min-h-48 place-items-center text-center"><div><Building2 className="mx-auto h-7 w-7 text-slate-200" /><p className="mb-0 mt-2 text-xs font-bold text-slate-500">No attributed properties yet</p></div></div>}
+          ) : (
+            <div className="flex items-center gap-3 border-0 border-t border-solid border-slate-100 px-5 py-6">
+              <Building2 className="h-5 w-5 text-slate-300" aria-hidden />
+              <p className="m-0 text-sm text-slate-500">No attributed properties yet. Converted leads appear here once NoLSAF verifies them.</p>
+            </div>
+          )}
         </article>
 
-        <article className="border border-slate-200 bg-white p-4 shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
-          <div className="flex items-center justify-between"><h2 className="m-0 text-sm font-black text-slate-900">Earnings summary</h2><span className="text-[10px] font-bold text-slate-400">All time</span></div>
-          <div className="mt-3 divide-y divide-slate-100 border border-slate-100">
-            {[
-              ["NRMS commission", Number(summary.byStream?.NRMS_USAGE || 0), "text-emerald-700"],
-              ["Marketplace share", Number(summary.byStream?.MARKETPLACE_BOOKING || 0), "text-teal-700"],
-              ["Pending earnings", summary.pending, "text-amber-600"],
-              ["Total earnings", summary.totalEarned, "text-slate-950"],
-            ].map(([label, value, tone]) => <div key={String(label)} className="flex items-center justify-between gap-3 px-3 py-3"><span className="text-[11px] text-slate-600">{label}</span><span className={`text-xs font-black ${tone}`}>{money(Number(value), summary.currency)}</span></div>)}
+        <article className={`${card} overflow-hidden`}>
+          <div className="flex items-center justify-between gap-3 px-5 py-4">
+            <h2 className="m-0 flex items-center gap-2 text-base font-semibold text-slate-900">
+              Notifications
+              {data.totalUnread ? <span className="rounded-full bg-emerald-600 px-1.5 py-px text-[11px] font-semibold text-white">{data.totalUnread}</span> : null}
+            </h2>
+            <Link href="/sales/notifications" className="text-sm font-medium text-emerald-700 no-underline hover:underline">View all</Link>
           </div>
-          <Link href="/sales/payouts" className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#087f68] text-sm font-bold text-white no-underline hover:bg-[#066b59]"><Wallet className="h-4 w-4" />Request payout</Link>
-        </article>
-
-        <article className="border border-slate-200 bg-white p-4 shadow-[0_16px_40px_-36px_rgba(15,23,42,0.5)]">
-          <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Bell className="h-4 w-4 text-emerald-700" /><h2 className="m-0 text-sm font-black text-slate-900">Recent notifications</h2></div><Link href="/sales/notifications" className="text-[10px] font-bold text-emerald-700 no-underline">View all</Link></div>
-          <div className="mt-3 divide-y divide-slate-100 border border-slate-100">
+          <div className="border-0 border-t border-solid border-slate-100">
             {notifications.length ? notifications.map((item) => {
-              const content = <div className="flex items-start gap-2.5 px-3 py-3"><span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /></span><span className="min-w-0 flex-1"><span className="line-clamp-2 block text-[11px] font-bold leading-4 text-slate-800">{item.title}</span><span className="mt-1 block text-[9px] text-slate-400">{relativeTime(item.createdAt)}</span></span><ArrowRight className="mt-1 h-3 w-3 shrink-0 text-slate-300" /></div>;
-              return item.meta?.actionPath?.startsWith("/sales") ? <Link key={String(item.id)} href={item.meta.actionPath} className="block no-underline hover:bg-slate-50">{content}</Link> : <div key={String(item.id)}>{content}</div>;
-            }) : <div className="px-4 py-10 text-center"><Bell className="mx-auto h-6 w-6 text-slate-200" /><p className="mb-0 mt-2 text-[11px] text-slate-400">No unread updates</p></div>}
+              const content = (
+                <div className="flex items-start gap-3 px-5 py-3">
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 block text-sm font-medium leading-5 text-slate-800">{item.title}</span>
+                    <span className="mt-0.5 block text-xs text-slate-400">{relativeTime(item.createdAt)}</span>
+                  </span>
+                </div>
+              );
+              return item.meta?.actionPath?.startsWith("/sales")
+                ? <Link key={String(item.id)} href={item.meta.actionPath} className="block border-0 border-b border-solid border-slate-100 no-underline last:border-b-0 hover:bg-slate-50">{content}</Link>
+                : <div key={String(item.id)} className="border-0 border-b border-solid border-slate-100 last:border-b-0">{content}</div>;
+            }) : (
+              <div className="flex items-center gap-3 px-5 py-6">
+                <Bell className="h-5 w-5 text-slate-300" aria-hidden />
+                <p className="m-0 text-sm text-slate-500">You are all caught up.</p>
+              </div>
+            )}
           </div>
-          {data.totalUnread > notifications.length ? <p className="mb-0 mt-2 text-center text-[10px] text-slate-400">{data.totalUnread - notifications.length} more unread</p> : null}
+          {data.totalUnread > notifications.length ? (
+            <p className="m-0 border-0 border-t border-solid border-slate-100 px-5 py-2.5 text-xs text-slate-500">{data.totalUnread - notifications.length} more unread</p>
+          ) : null}
         </article>
       </section>
     </div>
   );
 }
-

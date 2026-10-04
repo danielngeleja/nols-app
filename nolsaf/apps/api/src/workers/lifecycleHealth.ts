@@ -113,15 +113,26 @@ export async function runLifecycleHealthSweep(options: SweepOptions = {}): Promi
 export function startLifecycleHealthWorker(): void {
   const intervalMs = Math.max(60_000, positiveInt(process.env.LIFECYCLE_HEALTH_INTERVAL_MS, 300_000));
   let lastSweepStartedAt: Date | undefined;
+  let running = false;
   const run = async () => {
+    if (running) {
+      console.warn("[lifecycle-health] previous sweep is still running; skipping overlapping tick");
+      return;
+    }
+    running = true;
     const startedAt = new Date();
     const incremental = Boolean(lastSweepStartedAt);
     try {
       const result = await runLifecycleHealthSweep({ updatedSince: lastSweepStartedAt });
-      lastSweepStartedAt = startedAt;
+      // A failed record must remain inside the next query window. Advancing the
+      // cursor here used to strand it until the source booking changed again.
+      if (result.failed === 0) lastSweepStartedAt = startedAt;
       console.log(`[lifecycle-health] sweep complete processed=${result.processed} failed=${result.failed}${incremental ? " (changed records only)" : " (initial backfill)"}`);
+      if (result.failed > 0) console.warn("[lifecycle-health] cursor preserved so failed observations retry on the next sweep");
     } catch (error) {
       console.error("[lifecycle-health] sweep failed", error);
+    } finally {
+      running = false;
     }
   };
   run();

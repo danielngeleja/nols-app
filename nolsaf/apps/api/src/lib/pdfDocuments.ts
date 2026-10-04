@@ -6,6 +6,7 @@
  *   2. generatePaymentReceiptPdf  — customer payment receipt (invoice PAID)
  *   3. generateOwnerDisbursementPdf — owner disbursement notice
  */
+import { CODE128_PATTERNS, code128BValues } from "./code128.js";
 import PDFDocument from "pdfkit";
 import { randomInt } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -37,7 +38,7 @@ const RCPT_OUTER  = "#e2eae9";
 function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("en-GB", {
-    weekday: "short", day: "numeric", month: "long", year: "numeric",
+    weekday: "short", day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Dar_es_Salaam",
   });
 }
 
@@ -127,33 +128,8 @@ export function generateNrmsRandomCode(): string {
   return Array.from({ length: 3 }, () => NRMS_RANDOM_CHARACTERS[randomInt(NRMS_RANDOM_CHARACTERS.length)]).join("");
 }
 
-// ISO/IEC 15417 Code 128 symbol patterns. Each digit is the width, in modules,
-// of alternating bars and spaces. Index 106 is the stop symbol.
-const CODE128_PATTERNS = [
-  "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213", "221312", "231212",
-  "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132", "221231", "213212", "223112", "312131",
-  "311222", "321122", "321221", "312212", "322112", "322211", "212123", "212321", "232121", "111323", "131123", "131321",
-  "112313", "132113", "132311", "211313", "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121",
-  "313121", "211331", "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111",
-  "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214", "112412", "122114",
-  "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111", "111242", "121142", "121241", "114212",
-  "124112", "124211", "411212", "421112", "421211", "212141", "214121", "412121", "111143", "111341", "131141", "114113",
-  "114311", "411113", "411311", "113141", "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
-] as const;
-
-function code128BValues(value: string): number[] {
-  const normalized = value.toUpperCase();
-  if (!/^[\x20-\x7e]+$/.test(normalized)) {
-    throw new Error("Code 128 receipt references must contain printable ASCII characters only");
-  }
-
-  const startCodeB = 104;
-  const data = Array.from(normalized, (char) => char.charCodeAt(0) - 32);
-  const checksum = (startCodeB + data.reduce((sum, code, index) => sum + code * (index + 1), 0)) % 103;
-  return [startCodeB, ...data, checksum, 106];
-}
-
-function drawCode128Barcode(
+// Code 128 symbol tables live in code128.ts, shared with the HTML documents.
+export function drawCode128Barcode(
   doc: PDFKit.PDFDocument,
   value: string,
   x: number,
@@ -182,9 +158,9 @@ function drawCode128Barcode(
   doc.restore();
 }
 
-type NrmsFonts = { regular: string; bold: string };
+export type NrmsFonts = { regular: string; bold: string };
 
-function registerNrmsFonts(doc: PDFKit.PDFDocument): NrmsFonts {
+export function registerNrmsFonts(doc: PDFKit.PDFDocument): NrmsFonts {
   const regularCandidates = [
     process.env.TREBUCHET_MS_REGULAR_PATH,
     "C:\\Windows\\Fonts\\trebuc.ttf",
@@ -410,6 +386,160 @@ export async function generateBookingTicketPdf(data: BookingTicketData): Promise
   });
 }
 
+export interface CustomerBookingReceiptData {
+  receiptNumber: string;
+  invoiceNumber?: string | null;
+  bookingCode: string;
+  paidAt?: Date | string | null;
+  guestName: string;
+  guestPhone?: string | null;
+  propertyName: string;
+  propertyLocation?: string | null;
+  roomDescription?: string | null;
+  checkIn: Date | string;
+  checkOut: Date | string;
+  totalAmount: number | string;
+  currency?: string;
+  qrPng?: Buffer | null;
+  /**
+   * Wording for receipts that are not a plain stay (e.g. a group stay deposit).
+   * All optional; when absent the booking receipt renders exactly as before.
+   */
+  document?: {
+    title?: string;
+    reservationLabel?: string;
+    periodLabel?: string;
+    periodText?: string;
+    lineTitle?: string;
+    lineSub?: string;
+    /** What is still owed after this payment. Defaults to 0. */
+    balanceDue?: number;
+    confirmationTitle?: string;
+    confirmationCopy?: string;
+  };
+}
+
+/** A5 vector receipt using the same PDFKit and Trebuchet document system as NRMS. */
+export async function generateCustomerBookingReceiptPdf(data: CustomerBookingReceiptData): Promise<Buffer> {
+  const A5_W = 419.53;
+  const A5_H = 595.28;
+  const M = 34;
+  const W = A5_W - M * 2;
+  const currency = data.currency || "TZS";
+  const nights = Math.max(1, Math.ceil(
+    (new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000,
+  ));
+  const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Africa/Dar_es_Salaam",
+  });
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = M;
+
+    doc.font(fonts.bold).fontSize(15).fillColor(TEXT_MAIN).text("NoLSAF", M, y, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text("Quality Stay for Every Wallet", M, y + 19, { lineBreak: false });
+    const d = data.document ?? {};
+    const balanceDue = Math.max(0, Number(d.balanceDue || 0));
+    doc.font(fonts.bold).fontSize(17).fillColor(TEAL)
+      .text(d.title || "BOOKING RECEIPT", M, y, { width: W, align: "right", lineBreak: false });
+    doc.font("Courier-Bold").fontSize(7.5).fillColor(TEXT_MAIN)
+      .text(data.receiptNumber, M, y + 23, { width: W, align: "right", lineBreak: false });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text(data.paidAt ? `Paid ${dateOnly(data.paidAt)}` : "Payment confirmed", M, y + 35, { width: W, align: "right", lineBreak: false });
+    y += 58;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y + 3).lineTo(M + W, y + 3).stroke();
+    y += 18;
+
+    const rightX = M + W * 0.54;
+    const leftW = W * 0.44;
+    const rightW = M + W - rightX;
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
+      .text("ISSUED TO", M, y, { characterSpacing: 0.8, lineBreak: false })
+      .text(d.reservationLabel || "RESERVATION", rightX, y, { characterSpacing: 0.8, lineBreak: false });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEXT_MAIN)
+      .text(data.guestName, M, y + 14, { width: leftW, ellipsis: true })
+      .text(data.propertyName, rightX, y + 14, { width: rightW, ellipsis: true });
+    if (data.guestPhone) {
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+        .text(data.guestPhone, M, y + 30, { width: leftW, ellipsis: true });
+    }
+    const reservationMeta = [
+      data.propertyLocation,
+      `Code ${data.bookingCode}`,
+      data.invoiceNumber ? `Invoice ${data.invoiceNumber}` : null,
+    ].filter(Boolean).join(" | ");
+    doc.font(fonts.regular).fontSize(7.2).fillColor(TEXT_MUTED)
+      .text(reservationMeta, rightX, y + 30, { width: rightW, height: 22, ellipsis: true });
+    y += 61;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    y += 18;
+
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEAL)
+      .text("TRANSACTION", M, y, { characterSpacing: 0.8, lineBreak: false });
+    y += 14;
+    const dateW = 94;
+    const amountW = 92;
+    const descW = W - dateW - amountW;
+    doc.rect(M, y, W, 18).fill(TEAL);
+    doc.font(fonts.bold).fontSize(6.3).fillColor("#ffffff")
+      .text(d.periodLabel || "STAY", M + 7, y + 6, { width: dateW - 8, lineBreak: false })
+      .text("DESCRIPTION", M + dateW + 7, y + 6, { width: descW - 8, lineBreak: false })
+      .text("AMOUNT", M + dateW + descW, y + 6, { width: amountW - 7, align: "right", lineBreak: false });
+    y += 18;
+    doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN)
+      .text(d.periodText || `${dateOnly(data.checkIn)} - ${dateOnly(data.checkOut)}`, M + 7, y + 7, { width: dateW - 8, height: 22, ellipsis: true })
+      .text(d.lineTitle || data.roomDescription || "Accommodation", M + dateW + 7, y + 7, { width: descW - 8, ellipsis: true })
+      .text(fmtMoney(data.totalAmount, currency), M + dateW + descW, y + 7, { width: amountW - 7, align: "right", lineBreak: false });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text(d.lineSub ?? `${nights} night${nights === 1 ? "" : "s"}`, M + dateW + 7, y + 21, { width: descW - 8, height: 10, ellipsis: true });
+    y += 39;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, y).lineTo(M + W, y).stroke();
+    y += 18;
+
+    const totalsW = 190;
+    const totalsX = M + W - totalsW;
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+      .text("Amount received", totalsX, y, { width: 98, lineBreak: false });
+    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+      .text(fmtMoney(data.totalAmount, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+    y += 17;
+    doc.strokeColor(BORDER).lineWidth(0.7).moveTo(totalsX, y).lineTo(M + W, y).stroke();
+    y += 8;
+    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+      .text("BALANCE", totalsX, y, { width: 98, lineBreak: false });
+    doc.font(fonts.bold).fontSize(9).fillColor(TEAL)
+      .text(fmtMoney(balanceDue, currency), totalsX + 98, y, { width: totalsW - 98, align: "right", lineBreak: false });
+    y += 34;
+
+    doc.strokeColor(TEAL).lineWidth(0.8).moveTo(M, y).lineTo(M + W, y).stroke();
+    y += 13;
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL)
+      .text(d.confirmationTitle || (balanceDue > 0 ? "DEPOSIT RECEIVED" : "PAYMENT RECEIVED IN FULL"), M, y, { characterSpacing: 0.6, lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+      .text(d.confirmationCopy || "The reservation is confirmed. Present the booking code at check-in. This document is not a fiscal tax receipt.", M, y + 16, { width: W - (data.qrPng ? 82 : 0), lineGap: 1.5 });
+    if (data.qrPng) {
+      try {
+        doc.image(data.qrPng, M + W - 68, y - 2, { fit: [62, 62] });
+        doc.font(fonts.bold).fontSize(5.5).fillColor(TEXT_MUTED)
+          .text("VERIFY", M + W - 68, y + 62, { width: 62, align: "center", lineBreak: false });
+      } catch { /* QR remains optional. */ }
+    }
+
+    doc.page.margins.bottom = 0;
+    const footerY = A5_H - 34;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(M, footerY - 6).lineTo(M + W, footerY - 6).stroke();
+    doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text("payments@nolsaf.com | nolsaf.com", M, footerY, { width: W, align: "center", lineBreak: false });
+    doc.page.margins.bottom = M;
+  }, { size: "A5", margin: M });
+}
+
 // ─── 1b. Agent Booking Voucher (NRMS Agent B2B) ───────────────────────────────
 
 export interface AgentVoucherData {
@@ -447,7 +577,7 @@ export async function generateNrmsAgentVoucherPdf(data: AgentVoucherData): Promi
     const fonts = registerNrmsFonts(doc);
     const left = M;
     let y = M;
-    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
 
     // ── Masthead, matching the invoice construction at voucher scale ───────
     doc.font(fonts.bold).fontSize(12).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: W * 0.5, ellipsis: true });
@@ -572,7 +702,7 @@ export async function generatePaymentReceiptPdf(data: PaymentReceiptData): Promi
     const left = MARGIN;
     const width = COL_W;
     let y = MARGIN;
-    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "Not recorded");
+    const dateOnly = (value: Date | string | null) => (value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" }) : "Not recorded");
     const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
       doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
       doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "Not provided", x, rowY + 11, { width: rowW, ellipsis: true });
@@ -673,6 +803,96 @@ export async function generatePaymentReceiptPdf(data: PaymentReceiptData): Promi
       .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
       .text(data.receiptNumber, left + width * 0.55, y + 10, { width: width * 0.45, align: "right", ellipsis: true });
   }, { size: "A4", margin: MARGIN });
+}
+
+export interface NrmsBillingReceiptData {
+  reference: string;
+  settlementReference: string;
+  statementId: number;
+  propertyTitle: string;
+  amount: number;
+  currency: string;
+  method: string | null;
+  manual: boolean;
+  paidAt: Date | string | null;
+  verifiedAt: Date | string | null;
+  providerReference: string | null;
+}
+
+/** An A5, vector-text receipt in the same family as the NRMS folio receipt. */
+export async function generateNrmsBillingReceiptPdf(data: NrmsBillingReceiptData): Promise<Buffer> {
+  const pageWidth = 419.53;
+  const pageHeight = 595.28;
+  const margin = 34;
+  const width = pageWidth - margin * 2;
+  const method = data.method
+    ? data.method.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase())
+    : "Not recorded";
+  const dateTime = (value: Date | string | null) => value ? fmtDateTime(value) : "Not recorded";
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = margin;
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text("NoLSAF", margin, y, { width: 150, lineBreak: false });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN).text("NoLS Africa Co LTD", margin, y + 22, { lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text("Quality Stay For Every Wallet", margin, y + 35, { lineBreak: false });
+    doc.font(fonts.bold).fontSize(16).fillColor(TEAL).text("PAYMENT RECEIPT", margin, y, { width, align: "right", lineBreak: false });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.reference, margin, y + 24, { width, align: "right", lineBreak: false });
+    y += 58;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+    y += 14;
+
+    doc.roundedRect(margin, y, width, 67, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL)
+      .text("NRMS STATEMENT SETTLEMENT", margin + 12, y + 11, { characterSpacing: 0.8, lineBreak: false });
+    doc.font(fonts.bold).fontSize(22).fillColor(TEXT_MAIN)
+      .text(`${data.currency} ${Number(data.amount).toLocaleString("en-US", { maximumFractionDigits: 2 })}`, margin + 12, y + 29, { width: width - 90, lineBreak: false });
+    doc.roundedRect(margin + width - 65, y + 22, 52, 21, 4).fill("#dcfce7");
+    doc.font(fonts.bold).fontSize(9).fillColor("#166534")
+      .text("PAID", margin + width - 65, y + 29, { width: 52, align: "center", lineBreak: false });
+    y += 83;
+
+    const section = (title: string) => {
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL)
+        .text(title, margin, y, { characterSpacing: 0.8, lineBreak: false });
+      y += 18;
+    };
+    const row = (label: string, value: string) => {
+      doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+      doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED)
+        .text(label, margin + 2, y + 7, { width: 125, lineBreak: false });
+      doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MAIN)
+        .text(value, margin + 132, y + 6, { width: width - 134, height: 20, ellipsis: true });
+      y += 27;
+    };
+
+    section("PAYMENT INFORMATION");
+    row("Receipt number", data.reference);
+    row("Settlement reference", data.settlementReference);
+    row("Payment method", method);
+    row("Verification", data.manual ? "Manually reconciled" : "Provider verified");
+    row("Paid at", data.manual ? "Not recorded independently" : dateTime(data.paidAt));
+    row("Verified at", dateTime(data.verifiedAt));
+    if (data.providerReference) row("Provider reference", data.providerReference);
+    y += 12;
+    section("STATEMENT DETAILS");
+    row("Statement number", `#${data.statementId}`);
+    row("Property", data.propertyTitle);
+
+    // The barcode and footer occupy the page margin, as on the folio receipt.
+    doc.page.margins.bottom = 0;
+    const noteY = Math.max(y + 16, pageHeight - 112);
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+      .text("Confirms NRMS statement settlement, not owner payout. This is not a fiscal tax receipt.", margin, noteY, { width, align: "center" });
+    const barcodeY = pageHeight - 71;
+    drawCode128Barcode(doc, data.reference, margin + 91, barcodeY, width - 182, 23);
+    doc.font("Courier-Bold").fontSize(7).fillColor(TEXT_MAIN)
+      .text(data.reference, margin, barcodeY + 27, { width, align: "center", lineBreak: false });
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, pageHeight - 31).lineTo(margin + width, pageHeight - 31).stroke();
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text("NoLSAF  |  payments@nolsaf.com  |  nolsaf.com", margin, pageHeight - 24, { width, align: "center", lineBreak: false });
+    doc.page.margins.bottom = margin;
+  }, { size: "A5", margin });
 }
 
 // ─── 3. Owner Disbursement Notice ─────────────────────────────────────────────
@@ -1271,7 +1491,7 @@ export async function generateNrmsProFormaPdf(data: NrmsProFormaPdfData): Promis
     const left = MARGIN;
     const width = COL_W;
     let y = MARGIN;
-    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
     const addPage = () => {
       doc.addPage({ size: "A4", margin: MARGIN });
       y = MARGIN;
@@ -1608,4 +1828,268 @@ export async function generateNrmsBreakfastListPdf(data: BreakfastListPdfData): 
       .text(`${data.documentNumber} | generated ${fmtDateTime(data.generatedAt)} | Powered by NoLSAF`, M, footerY, { width: W, align: "center" });
     doc.page.margins.bottom = M;
   }, { size: "A4", margin: M });
+}
+
+// ─── NRMS purchase order ──────────────────────────────────────
+
+export interface NrmsPurchaseOrderPdfData {
+  orderNumber: string;
+  statusLabel: string;
+  issuedAt: Date | string;
+  expectedDate?: Date | string | null;
+  currency: string;
+  propertyName: string;
+  propertyLocation?: string | null;
+  deliverTo: string;
+  paymentTerms: string;
+  issuedBy?: string | null;
+  supplier: { name: string; contactName?: string | null; phone?: string | null; email?: string | null; tin?: string | null; location?: string | null };
+  lines: Array<{ description: string; detail?: string | null; quantity: string; unitPrice: number; amount: number }>;
+  total: number;
+  note?: string | null;
+  supplierUrl?: string | null;
+  qrPng?: Buffer | null;
+}
+
+/**
+ * A4 purchase order a property sends to its supplier. Prices are what the
+ * property expects to pay; the goods received note records what actually
+ * arrived. The QR opens the supplier's no-login confirmation page.
+ */
+export async function generateNrmsPurchaseOrderPdf(data: NrmsPurchaseOrderPdfData): Promise<Buffer> {
+  const pageHeight = 841.89;
+  const cur = data.currency;
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const dateOnly = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+    const addPage = () => {
+      doc.addPage({ size: "A4", margin: MARGIN });
+      y = MARGIN;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(`${data.orderNumber} · ${data.propertyName}`, left, y, { width, align: "right" });
+      y += 22;
+    };
+    const ensure = (height: number) => { if (y + height > pageHeight - 72) addPage(); };
+    const keyValue = (label: string, value: string, x: number, rowY: number, rowW: number) => {
+      doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x, rowY, { width: rowW, characterSpacing: 0.7 });
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MAIN).text(value || "-", x, rowY + 11, { width: rowW, ellipsis: true });
+    };
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(21).fillColor(TEAL).text("PURCHASE ORDER", left, y, { width, align: "right" });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.orderNumber, left, y + 29, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED).text(data.statusLabel, left, y + 42, { width, align: "right" });
+    y += 66;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 16;
+
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 100, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("SUPPLIER", left + 12, y + 11, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.supplier.name, left + 12, y + 27, { width: cardW - 24, ellipsis: true });
+    const supplierLines = [
+      data.supplier.contactName,
+      [data.supplier.phone, data.supplier.email].filter(Boolean).join(" · ") || null,
+      data.supplier.tin ? `TIN ${data.supplier.tin}` : null,
+      data.supplier.location,
+    ].filter((line): line is string => Boolean(line)).slice(0, 3);
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED);
+    supplierLines.forEach((line, index) => doc.text(line, left + 12, y + 47 + index * 14, { width: cardW - 24, ellipsis: true }));
+    const rightX = left + cardW + cardGap + 12;
+    keyValue("Order date", dateOnly(data.issuedAt), rightX, y + 11, 105);
+    keyValue("Deliver by", data.expectedDate ? dateOnly(data.expectedDate) : "As agreed", rightX + 112, y + 11, 105);
+    keyValue("Deliver to", data.deliverTo, rightX, y + 52, 105);
+    keyValue("Payment terms", data.paymentTerms, rightX + 112, y + 52, 105);
+    y += 118;
+
+    const cols = { description: 250, qty: 78, rate: 80, amount: width - 408 };
+    const tableHeader = () => {
+      doc.rect(left, y, width, 22).fill(TEAL);
+      doc.font(fonts.bold).fontSize(7).fillColor("#ffffff")
+        .text("GOODS", left + 8, y + 7, { width: cols.description - 8 })
+        .text("QUANTITY", left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text("UNIT PRICE", left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text("AMOUNT", left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      y += 22;
+    };
+    tableHeader();
+    for (const line of data.lines) {
+      if (y + 42 > pageHeight - 72) { addPage(); tableHeader(); }
+      const rowH = line.detail ? 34 : 25;
+      doc.font(fonts.bold).fontSize(8).fillColor(TEXT_MAIN).text(line.description, left + 8, y + 6, { width: cols.description - 16, ellipsis: true });
+      if (line.detail) doc.font(fonts.regular).fontSize(6.8).fillColor(TEXT_MUTED).text(line.detail, left + 8, y + 19, { width: cols.description - 16, ellipsis: true });
+      doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+        .text(line.quantity, left + cols.description, y + 7, { width: cols.qty, align: "center" })
+        .text(fmtMoney(line.unitPrice, cur), left + cols.description + cols.qty, y + 7, { width: cols.rate, align: "right" })
+        .text(fmtMoney(line.amount, cur), left + cols.description + cols.qty + cols.rate, y + 7, { width: cols.amount - 8, align: "right" });
+      doc.strokeColor(BORDER).lineWidth(0.5).moveTo(left, y + rowH).lineTo(left + width, y + rowH).stroke();
+      y += rowH;
+    }
+
+    ensure(60);
+    y += 12;
+    const totalsX = left + width - 230;
+    doc.font(fonts.bold).fontSize(8.5).fillColor(TEXT_MUTED).text("ORDER TOTAL", totalsX, y, { width: 120 });
+    doc.font(fonts.bold).fontSize(10).fillColor(TEAL).text(fmtMoney(data.total, cur), totalsX + 110, y - 1, { width: 120, align: "right" });
+    y += 26;
+
+    if (data.note) {
+      ensure(60);
+      doc.font(fonts.bold).fontSize(7).fillColor(TEXT_MUTED).text("NOTES", left, y);
+      doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN).text(data.note, left, y + 12, { width });
+      y += Math.min(50, doc.heightOfString(data.note, { width })) + 20;
+    }
+
+    const cardH = 96;
+    ensure(cardH + 40);
+    doc.roundedRect(left, y, width, cardH, 8).fillAndStroke(LIGHT_TEAL, BORDER);
+    doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text("FOR THE SUPPLIER", left + 14, y + 12, { characterSpacing: 0.8 });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MAIN)
+      .text("Please quote the order number on your delivery note and invoice.", left + 14, y + 30, { width: width - 130 })
+      .text("Goods are counted and weighed on arrival. Only what is accepted at the door is paid for.", left + 14, y + 44, { width: width - 130 })
+      .text(data.qrPng ? "Scan the code to confirm this order and your delivery date. No login needed." : "Confirm this order and your delivery date with the person who sent it.", left + 14, y + 58, { width: width - 130 });
+    if (data.issuedBy) doc.font(fonts.bold).fontSize(7.5).fillColor(TEXT_MUTED).text(`Issued by ${data.issuedBy}`, left + 14, y + 76, { width: width - 130 });
+    if (data.qrPng) {
+      doc.image(data.qrPng, left + width - 88, y + 8, { fit: [72, 72], align: "center", valign: "center" });
+      doc.font(fonts.bold).fontSize(5.8).fillColor(TEXT_MUTED).text("SCAN TO CONFIRM", left + width - 93, y + 82, { width: 86, align: "center" });
+    }
+    y += cardH + 14;
+
+    ensure(32);
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(`${data.orderNumber} · Powered by NoLSAF`, left + width * 0.55, y + 10, { width: width * 0.45, align: "right", ellipsis: true });
+  }, { size: "A4", margin: MARGIN });
+}
+
+// ─── NRMS supplier statement ──────────────────────────────────
+
+export interface NrmsSupplierStatementPdfData {
+  propertyName: string;
+  propertyLocation?: string | null;
+  supplier: { name: string; contactName?: string | null; phone?: string | null; tin?: string | null; paymentTerms: string };
+  currency: string;
+  from: string | null;
+  to: string | null;
+  generatedAt: Date;
+  summary: { opening: number; goods: number; paid: number; adjustments: number; closing: number };
+  ageing: { CURRENT: number; DAYS_1_30: number; DAYS_31_60: number; DAYS_OVER_60: number };
+  lines: Array<{ date: Date | string; reference: string; description: string; charge: number; payment: number; balance: number }>;
+}
+
+/**
+ * A4 statement of what a property owes one supplier: every delivery on credit,
+ * payment and void in date order with a running balance, plus the ageing.
+ * Sent to the supplier to agree the balance, the way paper statements are.
+ */
+export async function generateNrmsSupplierStatementPdf(data: NrmsSupplierStatementPdfData): Promise<Buffer> {
+  const pageHeight = 841.89;
+  const cur = data.currency;
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    const left = MARGIN;
+    const width = COL_W;
+    let y = MARGIN;
+    const day = (value: Date | string) => new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Dar_es_Salaam" });
+    const period = data.from || data.to
+      ? `${data.from ? day(`${data.from}T12:00:00Z`) : "Start"} to ${data.to ? day(`${data.to}T12:00:00Z`) : "today"}`
+      : "All activity";
+
+    doc.font(fonts.bold).fontSize(17).fillColor(TEXT_MAIN).text(data.propertyName, left, y, { width: width * 0.55, ellipsis: true });
+    if (data.propertyLocation) doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(data.propertyLocation, left, y + 24, { width: width * 0.55 });
+    doc.font(fonts.bold).fontSize(19).fillColor(TEAL).text("SUPPLIER STATEMENT", left, y, { width, align: "right" });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED).text(period, left, y + 27, { width, align: "right" });
+    y += 56;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(left, y).lineTo(left + width, y).stroke();
+    y += 14;
+
+    const cardGap = 12;
+    const cardW = (width - cardGap) / 2;
+    doc.roundedRect(left, y, cardW, 82, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.roundedRect(left + cardW + cardGap, y, cardW, 82, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("SUPPLIER", left + 12, y + 10, { characterSpacing: 1 });
+    doc.font(fonts.bold).fontSize(11).fillColor(TEXT_MAIN).text(data.supplier.name, left + 12, y + 24, { width: cardW - 24, ellipsis: true });
+    doc.font(fonts.regular).fontSize(8).fillColor(TEXT_MUTED);
+    [data.supplier.contactName, data.supplier.phone, data.supplier.tin ? `TIN ${data.supplier.tin}` : null, `Terms: ${data.supplier.paymentTerms}`]
+      .filter((line): line is string => Boolean(line)).slice(0, 3)
+      .forEach((line, index) => doc.text(line, left + 12, y + 42 + index * 12, { width: cardW - 24, ellipsis: true }));
+    const rx = left + cardW + cardGap + 12;
+    const summaryRow = (label: string, value: number, rowY: number, bold = false) => {
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(8).fillColor(bold ? TEXT_MAIN : TEXT_MUTED).text(label, rx, rowY, { width: 110 });
+      doc.font(bold ? fonts.bold : fonts.regular).fontSize(bold ? 9.5 : 8).fillColor(bold ? TEAL : TEXT_MAIN).text(fmtMoney(value, cur), rx + 110, rowY, { width: cardW - 134, align: "right" });
+    };
+    summaryRow("Opening balance", data.summary.opening, y + 10);
+    summaryRow("Goods on credit", data.summary.goods, y + 23);
+    summaryRow("Payments", -data.summary.paid, y + 36);
+    if (data.summary.adjustments !== 0) summaryRow("Voids and corrections", data.summary.adjustments, y + 49);
+    summaryRow("Balance owed", data.summary.closing, y + 64, true);
+    y += 96;
+
+    // Ageing strip.
+    const buckets: Array<[string, number]> = [["Not yet due", data.ageing.CURRENT], ["1 to 30 days late", data.ageing.DAYS_1_30], ["31 to 60 days late", data.ageing.DAYS_31_60], ["Over 60 days late", data.ageing.DAYS_OVER_60]];
+    const cellW = width / buckets.length;
+    doc.roundedRect(left, y, width, 40, 6).fillAndStroke(LIGHT_TEAL, BORDER);
+    buckets.forEach(([label, value], index) => {
+      const x = left + cellW * index;
+      doc.font(fonts.regular).fontSize(6.5).fillColor(TEXT_MUTED).text(label.toUpperCase(), x + 6, y + 8, { width: cellW - 12, align: "center", characterSpacing: 0.4 });
+      doc.font(fonts.bold).fontSize(9.5).fillColor(index >= 2 && value > 0 ? RED : index === 1 && value > 0 ? AMBER : TEXT_MAIN).text(fmtMoney(value, cur), x + 6, y + 21, { width: cellW - 12, align: "center" });
+    });
+    y += 54;
+
+    const cols = { date: 58, ref: 86, desc: width - 58 - 86 - 3 * 72, money: 72 };
+    const header = () => {
+      doc.rect(left, y, width, 20).fill(TEAL);
+      let x = left;
+      doc.font(fonts.bold).fontSize(6.8).fillColor("#ffffff");
+      doc.text("DATE", x + 6, y + 7, { width: cols.date - 8 }); x += cols.date;
+      doc.text("REFERENCE", x + 4, y + 7, { width: cols.ref - 8 }); x += cols.ref;
+      doc.text("DETAIL", x + 4, y + 7, { width: cols.desc - 8 }); x += cols.desc;
+      doc.text("GOODS", x, y + 7, { width: cols.money - 6, align: "right" }); x += cols.money;
+      doc.text("PAID", x, y + 7, { width: cols.money - 6, align: "right" }); x += cols.money;
+      doc.text("BALANCE", x, y + 7, { width: cols.money - 6, align: "right" });
+      y += 20;
+    };
+    header();
+    if (data.lines.length === 0) {
+      doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text("No activity in this period.", left, y + 14, { width, align: "center" });
+      y += 36;
+    }
+    data.lines.forEach((line, index) => {
+      if (y + 22 > pageHeight - 70) {
+        doc.addPage({ size: "A4", margin: MARGIN });
+        y = MARGIN;
+        doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(`${data.supplier.name} · statement continued`, left, y, { width, align: "right" });
+        y += 18;
+        header();
+      }
+      if (index % 2 === 1) doc.rect(left, y, width, 20).fill("#fafcfb");
+      let x = left;
+      doc.font(fonts.regular).fontSize(7.3).fillColor(TEXT_MAIN);
+      doc.text(day(line.date), x + 6, y + 6, { width: cols.date - 8, lineBreak: false }); x += cols.date;
+      doc.font("Courier").fontSize(6.8).text(line.reference, x + 4, y + 6.5, { width: cols.ref - 8, height: 9, lineBreak: false, ellipsis: true }); x += cols.ref;
+      // A fixed height keeps long details to one clipped line inside the row.
+      doc.font(fonts.regular).fontSize(7.3).fillColor(TEXT_MUTED).text(line.description, x + 4, y + 6, { width: cols.desc - 8, height: 9, ellipsis: true }); x += cols.desc;
+      doc.fillColor(TEXT_MAIN).text(line.charge ? fmtMoney(line.charge, cur) : "", x, y + 6, { width: cols.money - 6, align: "right", lineBreak: false }); x += cols.money;
+      doc.text(line.payment ? fmtMoney(line.payment, cur) : "", x, y + 6, { width: cols.money - 6, align: "right", lineBreak: false }); x += cols.money;
+      doc.font(fonts.bold).text(fmtMoney(line.balance, cur), x, y + 6, { width: cols.money - 6, align: "right", lineBreak: false });
+      doc.strokeColor(BORDER).lineWidth(0.4).moveTo(left, y + 20).lineTo(left + width, y + 20).stroke();
+      y += 20;
+    });
+
+    if (y + 60 > pageHeight - 50) { doc.addPage({ size: "A4", margin: MARGIN }); y = MARGIN; }
+    y += 14;
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+      .text("Goods are the value accepted at our door, not the value on the delivery note. If your records differ, reply with the delivery or payment reference.", left, y, { width });
+    y += 26;
+    doc.strokeColor(BORDER).lineWidth(0.6).moveTo(left, y).lineTo(left + width, y).stroke();
+    doc.font(fonts.bold).fontSize(6.5).fillColor(TEXT_MUTED)
+      .text(data.propertyName, left, y + 10, { width: width * 0.55, ellipsis: true })
+      .text(`Generated ${fmtDateTime(data.generatedAt)} · Powered by NoLSAF`, left + width * 0.45, y + 10, { width: width * 0.55, align: "right" });
+  }, { size: "A4", margin: MARGIN });
 }

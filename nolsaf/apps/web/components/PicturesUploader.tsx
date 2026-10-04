@@ -11,6 +11,8 @@ export type PicturesUploaderProps = {
 	onSave?: (index: number) => void;
 	uploading?: boolean[];
 	inputId?: string;
+	/** "dark" for the listing builder's black cards */
+	tone?: "light" | "dark";
 };
 
 export default function PicturesUploader({
@@ -23,7 +25,9 @@ export default function PicturesUploader({
 	onSave,
 	uploading,
 	inputId = "picturesUploaderInput",
+	tone = "light",
 }: PicturesUploaderProps) {
+	const dark = tone === "dark";
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	const uploadedCount = images.length;
@@ -32,24 +36,40 @@ export default function PicturesUploader({
 		<div className="grid gap-3">
 			<div>
 				<div className="flex items-center justify-between gap-3">
-					<label className="text-sm font-bold text-gray-900">{title} <span className="text-red-600">*</span></label>
-					<span className={`rounded-full px-2.5 py-1 text-xs font-bold ${uploadedCount >= minRequired ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
+					<label className={`text-sm font-bold ${dark ? "text-white" : "text-gray-900"}`}>{title} <span className={dark ? "text-red-300" : "text-red-600"}>*</span></label>
+					<span
+						className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+							dark
+								? uploadedCount >= minRequired
+									? "bg-[#02665e] text-white"
+									: "bg-transparent text-white/60 ring-1 ring-inset ring-white/20"
+								: uploadedCount >= minRequired
+									? "bg-emerald-100 text-emerald-700"
+									: "bg-gray-100 text-gray-600"
+						}`}
+					>
 						{uploadedCount} / {minRequired} added
 					</span>
 				</div>
-				<p className="mt-1 text-xs text-gray-500">
+				<p className={`m-0 mt-1 text-xs ${dark ? "text-white/55" : "text-gray-500"}`}>
 					{uploadedCount >= minRequired ? "Minimum reached. You can add more photos." : "Add clear photos showing the bed, room space, and bathroom."}
 				</p>
-				<div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-200">
-					<div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${requiredProgress}%` }} />
+				<div className={`mt-2 h-1.5 overflow-hidden rounded-full ${dark ? "bg-white/10" : "bg-gray-200"}`}>
+					<div className={`h-full rounded-full transition-all ${dark ? "bg-[#02665e]" : "bg-emerald-500"}`} style={{ width: `${requiredProgress}%` }} />
 				</div>
 			</div>
 
 			<div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-				<label className="h-48 w-48 shrink-0 snap-start border-2 border-dashed border-emerald-300 bg-emerald-50/40 rounded-xl flex flex-col items-center justify-center text-sm cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-all gap-2 shadow-inner">
-					<div className="w-10 h-10 rounded-full bg-white shadow flex items-center justify-center text-emerald-600 text-lg font-semibold">+</div>
-					<span className="text-gray-700 font-semibold">Browse & Upload</span>
-					<span className="text-[11px] text-gray-500">JPG, PNG, WEBP</span>
+				<label
+					className={
+						dark
+							? "box-border h-40 w-40 shrink-0 snap-start border border-dashed border-white/25 bg-white/[0.03] rounded-lg flex flex-col items-center justify-center text-sm cursor-pointer hover:border-white/45 hover:bg-white/[0.06] transition-colors gap-2"
+							: "h-48 w-48 shrink-0 snap-start border-2 border-dashed border-emerald-300 bg-emerald-50/40 rounded-xl flex flex-col items-center justify-center text-sm cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-all gap-2 shadow-inner"
+					}
+				>
+					<div className={dark ? "w-9 h-9 rounded-full bg-[#02665e] flex items-center justify-center text-white text-lg font-semibold" : "w-10 h-10 rounded-full bg-white shadow flex items-center justify-center text-emerald-600 text-lg font-semibold"}>+</div>
+					<span className={dark ? "text-white font-semibold" : "text-gray-700 font-semibold"}>{dark ? "Add photos" : "Browse & Upload"}</span>
+					<span className={`text-[11px] ${dark ? "text-white/50" : "text-gray-500"}`}>JPG, PNG, WEBP</span>
 					<input
 						id={inputId}
 						ref={inputRef}
@@ -65,7 +85,11 @@ export default function PicturesUploader({
 				{images.map((u, i) => (
 					<div
 						key={i}
-						className={`h-48 w-48 shrink-0 snap-start border-2 rounded-lg relative overflow-hidden group transition-colors ${saved?.[i] ? "border-green-500" : "border-gray-200 hover:border-blue-400"}`}
+						className={
+							dark
+								? `box-border h-40 w-40 shrink-0 snap-start border border-solid rounded-lg relative overflow-hidden group transition-colors ${saved?.[i] ? "border-[#02665e]" : "border-white/15 hover:border-white/40"}`
+								: `h-48 w-48 shrink-0 snap-start border-2 rounded-lg relative overflow-hidden group transition-colors ${saved?.[i] ? "border-green-500" : "border-gray-200 hover:border-blue-400"}`
+						}
 					>
 						{uploading?.[i] && (
 							<div className="absolute inset-0 bg-black/30 flex items-center justify-center z-10">
@@ -101,7 +125,7 @@ export default function PicturesUploader({
 							</button>
 						)}
 						{!onSave && saved?.[i] && !uploading?.[i] && (
-							<span className="absolute bottom-1.5 right-1.5 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white shadow-sm">
+							<span className={`absolute bottom-1.5 right-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-sm ${dark ? "bg-[#02665e]" : "bg-emerald-600"}`}>
 								Uploaded
 							</span>
 						)}

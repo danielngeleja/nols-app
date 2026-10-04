@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Building2, CalendarDays, Car, CarFront, CheckCircle2, ExternalLink, Heart, MapPin, Phone, Plane, Sparkles, TrendingUp, Users } from "lucide-react";
+import { motion } from "framer-motion";
+import { Building2, Clock3, MapPin, Star } from "lucide-react";
+import VerifiedIcon from "./VerifiedIcon";
 import { slugifyProfile } from "@/lib/profileSlug";
 
 export type PublicTourPackageItem = {
@@ -57,258 +58,179 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function serviceIcon(service: string) {
-  const s = service.toLowerCase();
-  if (s.includes("airport") || s.includes("flight") || s.includes("air")) return Plane;
-  if (s.includes("transfer") || s.includes("hotel") || s.includes("lodge") || s.includes("pickup")) return CarFront;
-  if (s.includes("meet") || s.includes("greet") || s.includes("guide") || s.includes("group")) return Users;
-  if (s.includes("drive") || s.includes("game") || s.includes("safari") || s.includes("vehicle")) return Car;
-  return Sparkles;
+/** "ARUSHA / MONDULI" and "arusha" both read as "Arusha". */
+function tidyPlace(value: string): string {
+  return value
+    .split(/\s*\/\s*/)[0]
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * Marketplace card for one verified tour operator.
+ *
+ * Deliberately the twin of the stay card (PublicApprovedPropertyCard): title
+ * on top, an inset square photo with the shared verified badge, one info row
+ * (where on the left, price on the right) and one full-width action. The whole
+ * card is a single link, so a visitor has exactly one decision to make.
+ */
 export default function PublicTourOperatorCard({
   agentId,
+  agentPublicKey,
   profile,
   packages,
   commissionPercent,
 }: {
   agentId: number;
+  agentPublicKey: string;
   profile: PublicTourOperatorProfile;
   packages: PublicTourPackageItem[];
   commissionPercent?: number;
 }) {
   const numericAgentId = Number(agentId);
   const hasValidAgentId = Number.isFinite(numericAgentId) && numericAgentId > 0;
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedPackageIndex, setSelectedPackageIndex] = useState(0);
-  const [favorited, setFavorited] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const companyName = profile.companyName || "Approved Tour Operator";
 
-  function handleScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    const index = Math.round(el.scrollLeft / el.offsetWidth);
-    setActiveIndex(index);
-  }
+  // Lead with a photo that sells the trip: attractions, then the gallery,
+  // then vehicles; office and verification-proof shots only as a last resort.
   const classified = profile.classifiedPhotos || {};
-  const photos = [
+  const photo = [
     ...(classified.attractions || []),
-    ...(classified.proof || []),
-    ...(classified.office || []),
-    ...(classified.vehicles || []),
     ...(profile.gallery || []),
-  ]
-    .filter(Boolean)
-    .slice(0, 6);
-  const services = [
-    ...(profile.services || []),
-    ...(profile.addOns || []),
-    ...(profile.tourismTypes || []),
-    ...(profile.specializations || []),
-  ].filter((item, index, arr) => item && arr.indexOf(item) === index);
+    ...(classified.vehicles || []),
+    ...(classified.office || []),
+    ...(classified.proof || []),
+  ].find(Boolean) || null;
 
   const profileCommission = toFiniteNumber((profile as any)?.commissionPercent);
   const effectiveCommissionPercent = Math.max(0, profileCommission ?? toFiniteNumber(commissionPercent) ?? 0);
 
-  const selectedPackage = packages[selectedPackageIndex] || packages[0] || null;
-  const selectedPackagePrice = selectedPackage
-    ? {
-        currency: String(selectedPackage.currency || "USD").toUpperCase(),
-        price: Number(selectedPackage.pricePerPerson || selectedPackage.price || 0) * (1 + effectiveCommissionPercent / 100),
-      }
+  // The price a traveller pays (package price plus the NoLSAF commission).
+  const priced = packages
+    .map((pkg) => ({
+      pkg,
+      currency: String(pkg.currency || "USD").toUpperCase(),
+      price: Number(pkg.pricePerPerson || pkg.price || 0) * (1 + effectiveCommissionPercent / 100),
+    }))
+    .filter((entry) => Number.isFinite(entry.price) && entry.price > 0);
+  const cheapest = priced.reduce<(typeof priced)[number] | null>((low, entry) => (!low || entry.price < low.price ? entry : low), null);
+  const leadPackage = cheapest?.pkg || packages[0] || null;
+  const leadDays = leadPackage?.durationDays
+    ? `${leadPackage.durationDays} day${leadPackage.durationDays === 1 ? "" : "s"}`
+    : leadPackage?.duration || null;
+  const packageCount = packages.length;
+
+  const regions = (profile.operatingRegions || []).filter(Boolean).map(tidyPlace);
+  const where = Array.from(new Set(regions)).slice(0, 2).join(", ")
+    || (leadPackage?.destination ? tidyPlace(leadPackage.destination) : "")
+    || tidyPlace(profile.physicalLocation || profile.businessAddress || "Tanzania");
+
+  const hasPublicKey = /^[a-z0-9]{20,40}$/.test(agentPublicKey);
+  const href = hasValidAgentId && hasPublicKey
+    ? `/public/tour-packages/operators/${agentPublicKey}/submitted-profile/${slugifyProfile(companyName)}`
     : null;
-  const selectedPackageDuration = selectedPackage?.duration
-    || (selectedPackage?.durationDays ? `${selectedPackage.durationDays} days${selectedPackage.nights ? ` · ${selectedPackage.nights} nights` : ""}` : null);
-  const location = profile.physicalLocation || profile.businessAddress || profile.operatingRegions?.[0] || "Location not set";
-  const companyName = profile.companyName || "Approved Tour Operator";
-  const profileSlug = slugifyProfile(companyName, numericAgentId);
-  const reviewHref = hasValidAgentId ? `/public/tour-packages/operators/${numericAgentId}/submitted-profile/${profileSlug}` : "/public/tour-packages";
-  const confidence = profile.tripConfidence;
-  const confidenceScore = Number(confidence?.score || 0);
-  const hasConfidence = confidenceScore > 0 && Number(confidence?.totalRatings || 0) > 0;
 
-  return (
-    <div className="min-w-0">
-      <div className="px-2 pb-3">
-        <h3 className="text-xl font-black leading-tight tracking-tight text-slate-950 sm:text-2xl">{companyName}</h3>
+  const rating = Number(profile.tripConfidence?.averageRating || 0);
+  const ratingCount = Number(profile.tripConfidence?.totalRatings || 0);
+  const hasRating = rating > 0 && ratingCount > 0;
+
+  const card = (
+    <motion.div
+      className="flex h-full flex-col rounded-2xl border border-solid border-slate-200 bg-white shadow-sm"
+      whileHover={href ? { y: -5, boxShadow: "0 16px 40px rgba(2,6,23,0.13)" } : undefined}
+      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+    >
+      {/* Title at top, rating beside it */}
+      <div className="flex items-center justify-between gap-2 px-3 pt-3 sm:px-4 sm:pt-4">
+        <div className="min-w-0 truncate text-sm font-bold text-slate-900 sm:text-base">{companyName}</div>
+        {hasRating ? (
+          <span className="inline-flex flex-shrink-0 items-center gap-0.5 text-xs font-bold text-slate-800" aria-label={`Rated ${rating.toFixed(1)} of 5 from ${ratingCount} ratings`}>
+            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" aria-hidden />
+            {rating.toFixed(1)}
+          </span>
+        ) : null}
       </div>
-      <article className="min-w-0 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-[0_20px_40px_rgba(15,23,42,0.09)] transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_28px_52px_rgba(2,102,94,0.16)]">
 
-        {/* ── Photo area ── */}
-        <div className="relative mx-4 mt-4 overflow-hidden rounded-xl bg-slate-100">
-          {photos.length > 0 ? (
-            <div
-              ref={scrollRef}
-              onScroll={handleScroll}
-              className="flex h-64 snap-x snap-mandatory overflow-x-auto sm:h-72"
-              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-            >
-              {photos.map((url, index) => (
-                <div key={`${url}-${index}`} className="group relative h-64 w-full flex-none snap-start overflow-hidden bg-slate-100 sm:h-72">
-                  <Image src={url} alt={`${companyName} photo ${index + 1}`} fill sizes="(max-width: 768px) 100vw, 420px" className="object-cover transition-transform duration-500 ease-out group-hover:scale-110" unoptimized />
-                </div>
-              ))}
-            </div>
+      {/* Inset square photo with the shared verified badge */}
+      <div className="mt-2 px-3 sm:mt-3 sm:px-4">
+        <div className="relative aspect-square overflow-hidden rounded-2xl bg-slate-100">
+          {photo ? (
+            <Image
+              src={photo}
+              alt={companyName}
+              fill
+              sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
+              className="object-cover transition-transform duration-500 ease-out group-hover:scale-[1.08]"
+              unoptimized
+            />
           ) : (
-            <div className="flex h-64 items-center justify-center sm:h-72" style={{ background: "linear-gradient(135deg, #02665e 0%, #0b6f68 100%)" }}>
-              <Building2 className="h-16 w-16 text-white/30" aria-hidden />
+            <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_30%_20%,rgba(2,102,94,0.18),transparent_55%),linear-gradient(135deg,#f8fafc,#e2e8f0)]">
+              <Building2 className="h-10 w-10 text-slate-400" aria-hidden />
             </div>
           )}
-
-          <span className="absolute right-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2.5 py-1 text-[10px] font-bold text-white shadow-md sm:px-3 sm:text-xs">
-            <CheckCircle2 className="h-3 w-3" aria-hidden />
-            Verified
-          </span>
-
-          {photos.length > 1 ? (
-            <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">
-              {photos.map((_, index) => (
-                <span
-                  key={index}
-                  className={`h-1 w-4 rounded-sm transition-all duration-300 ${
-                    index === activeIndex
-                      ? "bg-white"
-                      : "bg-white/45"
-                  }`}
-                />
-              ))}
-            </div>
+          <VerifiedIcon />
+          {packageCount > 1 ? (
+            <span className="absolute bottom-2.5 left-2.5 rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-slate-800 shadow-sm">
+              {packageCount} tours
+            </span>
           ) : null}
         </div>
+      </div>
 
-        {/* ── Body ── */}
-        <div className="px-6 pb-4 pt-5">
-          {packages.length > 0 ? (
-            <div className="mb-3">
-              <div className="mb-2">
-                <span className="text-lg font-black tracking-tight text-slate-900">Packages ({packages.length})</span>
-              </div>
-              <div
-                className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1"
-                style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-              >
-                {packages.map((pkg, index) => {
-                  const label = pkg.name || pkg.title || `Package ${index + 1}`;
-                  const selected = index === selectedPackageIndex;
-                  return (
-                    <button
-                      key={`${pkg.id || label}-${index}`}
-                      type="button"
-                      onClick={() => setSelectedPackageIndex(index)}
-                      className={`flex ${packages.length > 1 ? "w-[72%]" : "w-full"} flex-none snap-start items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-bold transition ${selected ? "border-[#02665e] bg-[#02665e]/5 text-slate-900 shadow-md shadow-[#02665e]/10" : "border-slate-200 bg-white text-slate-500 hover:border-[#02665e]/40 hover:text-[#02665e]"}`}
-                      aria-pressed={selected}
-                    >
-                      {selected ? (
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#02665e]">
-                          <CheckCircle2 className="h-3 w-3 text-white" aria-hidden />
-                        </span>
-                      ) : null}
-                      <span className="truncate">{label}</span>
-                    </button>
-                  );
-                })}
-              </div>
+      {/* Where + price, then the one action */}
+      <div className="mt-2 flex flex-1 flex-col px-3 pb-3 sm:mt-3 sm:px-4 sm:pb-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600">
+              <MapPin className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+              <span className="truncate">{where}</span>
             </div>
-          ) : null}
-
-          {/* Location + Price row */}
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#02665e]/15 bg-[#02665e]/5 px-4 py-3.5 ring-1 ring-[#02665e]/5">
-            <div className="min-w-0 space-y-1">
-              <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-slate-600">
-                <MapPin className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
-                <span className="truncate">{location}</span>
-              </div>
-              {selectedPackageDuration ? (
-                <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-                  <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
-                  <span className="truncate">{selectedPackageDuration}</span>
-                </div>
-              ) : null}
-            </div>
-            {selectedPackagePrice && Number.isFinite(selectedPackagePrice.price) && selectedPackagePrice.price > 0 ? (
-              <div className="flex shrink-0 items-baseline gap-0.5">
-                <span className="text-xl font-black leading-none text-[#02665e] sm:text-2xl">
-                  {selectedPackagePrice.currency} {Math.round(selectedPackagePrice.price).toLocaleString()}
-                </span>
-                <span className="ml-0.5 text-[10px] text-slate-400">/ person</span>
-              </div>
-            ) : profile.contactPhone ? (
-              <div className="flex shrink-0 items-center gap-1 text-xs font-semibold text-[#02665e]">
-                <Phone className="h-3.5 w-3.5" aria-hidden />
-                {profile.contactPhone}
+            {leadDays ? (
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                <Clock3 className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                <span className="truncate">{packageCount > 1 ? `From ${leadDays}` : leadDays}</span>
               </div>
             ) : null}
           </div>
-
-          {hasConfidence ? (
-            <div className="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 shadow-sm">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-[#02665e] text-base font-black text-white">
-                {confidenceScore}%
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 text-sm font-black text-slate-950">
-                  <TrendingUp className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
-                  <span className="whitespace-nowrap">Trip confidence</span>
+          <div className="flex-shrink-0 sm:text-right">
+            {cheapest ? (
+              <>
+                <div className="text-sm font-bold text-slate-900">
+                  {packageCount > 1 ? <span className="mr-1 text-[11px] font-semibold text-slate-500">from</span> : null}
+                  {cheapest.currency} {Math.round(cheapest.price).toLocaleString("en-US")}
                 </div>
-                <div className="mt-0.5 whitespace-nowrap text-xs font-medium text-slate-500">
-                  {Number(confidence?.averageRating || 0).toFixed(1)}/5 from {confidence?.totalRatings || 0} ratings
-                </div>
-              </div>
-              {confidence?.topFeeling ? (
-                <span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-[#02665e]">
-                  <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
-                  {confidence.topFeeling}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* Service chips */}
-          {services.length > 0 && (
-            <div
-              className="mt-3 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1"
-              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-            >
-              {services.map((service) => {
-                const Icon = serviceIcon(service);
-                return (
-                  <span key={service} className="flex flex-none snap-start items-center gap-2 whitespace-nowrap rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-[11px] font-semibold text-slate-700 shadow-sm">
-                    <Icon className="h-5 w-5 shrink-0 text-slate-800" aria-hidden />
-                    <span>{service}</span>
-                  </span>
-                );
-              })}
-            </div>
-          )}
+                <div className="text-[11px] text-slate-500">per person</div>
+              </>
+            ) : (
+              <div className="text-xs font-semibold text-slate-600">Price on request</div>
+            )}
+          </div>
         </div>
 
-        {/* ── CTA ── */}
-        <div className="flex items-stretch gap-2 px-6 pb-6 pt-4">
-          {hasValidAgentId ? (
-            <Link
-              href={reviewHref}
-              className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white no-underline transition-all duration-200 hover:shadow-lg hover:shadow-[#02665e]/30"
-              style={{ background: "linear-gradient(135deg, #02665e 0%, #028a7e 100%)" }}
-            >
-              Preview &amp; Book
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </Link>
-          ) : (
-            <span className="flex min-w-0 flex-1 cursor-not-allowed items-center justify-center rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-400">
-              Profile unavailable
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setFavorited((v) => !v)}
-            aria-label={favorited ? "Remove from saved" : "Save operator"}
-            aria-pressed={favorited}
-            className={`flex w-12 shrink-0 items-center justify-center rounded-xl border transition ${favorited ? "border-[#02665e] bg-[#02665e]/5 text-[#02665e]" : "border-slate-200 bg-white text-slate-500 hover:border-[#02665e]/40 hover:text-[#02665e]"}`}
+        <div className="mt-auto pt-3">
+          <span
+            className={`inline-flex w-full items-center justify-center rounded-xl py-2 text-xs font-semibold transition-colors sm:py-2.5 sm:text-sm ${
+              href ? "bg-[#02665e] text-white group-hover:bg-[#014e47]" : "bg-slate-100 text-slate-400"
+            }`}
           >
-            <Heart className={`h-5 w-5 ${favorited ? "fill-[#02665e]" : ""}`} aria-hidden />
-          </button>
+            {/* An action, not a peek: the operator page is where the tour is booked */}
+            {href ? "Book & Pay" : "Not available"}
+          </span>
         </div>
-      </article>
-    </div>
+      </div>
+    </motion.div>
+  );
+
+  return href ? (
+    <Link
+      href={href}
+      className="group block h-full text-slate-900 no-underline"
+      aria-label={`Book a tour with ${companyName}${cheapest ? `, from ${cheapest.currency} ${Math.round(cheapest.price).toLocaleString("en-US")} per person` : ""}`}
+    >
+      {card}
+    </Link>
+  ) : (
+    <div className="h-full">{card}</div>
   );
 }

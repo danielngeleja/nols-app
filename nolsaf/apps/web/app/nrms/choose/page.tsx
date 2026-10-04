@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BedDouble, Building2, ChevronRight, Clock8, Coffee, GlassWater, Loader2, Receipt, ShieldCheck, Sparkles, User, UtensilsCrossed, Wallet } from "lucide-react";
+import { BedDouble, Building2, ChevronRight, Clock8, Coffee, GlassWater, Loader2, Package, Receipt, ShieldCheck, Sparkles, User, UsersRound, UtensilsCrossed, Wallet } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
 type StaffProperty = {
@@ -16,12 +16,20 @@ type RoleMeta = { label: string; Icon: typeof BedDouble };
 
 const ROLE_META: Record<string, RoleMeta> = {
   MANAGER: { label: "NRMS manager", Icon: ShieldCheck },
+  SALES_EXECUTIVE: { label: "Sales executive", Icon: Receipt },
   FRONT_DESK: { label: "Front desk", Icon: BedDouble },
-  HOUSEKEEPER: { label: "Housekeeper", Icon: Sparkles },
   RESTAURANT: { label: "Restaurant staff", Icon: UtensilsCrossed },
   BAR: { label: "Bar staff", Icon: GlassWater },
   OUTLET_SUPERVISOR: { label: "Outlet supervisor", Icon: Coffee },
+  STOREKEEPER: { label: "Storekeeper", Icon: Package },
 };
+
+/** Where a staff member's workspace opens: the role's own first screen. */
+function staffLanding(list: StaffProperty[]): string {
+  if (list.length && list.every((property) => property.nrmsAccessRole === "SALES_EXECUTIVE")) return "/owner/nrms/inquiries";
+  if (list.length && list.every((property) => property.nrmsAccessRole === "STOREKEEPER")) return "/owner/nrms/stock";
+  return "/owner/nrms/orders";
+}
 
 const roleMeta = (role?: string): RoleMeta => ROLE_META[role ?? ""] ?? { label: role ? role.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "Staff", Icon: Building2 };
 
@@ -34,12 +42,9 @@ export default function NrmsWorkspaceChoicePage() {
   const [firstName, setFirstName] = useState<string | null>(null);
   const [remember, setRemember] = useState(false);
 
-  // Every role except pure housekeeping lands on the operations desk; a
-  // housekeeper-only assignment goes straight to housekeeping. Kept in sync
-  // with the footer chips so nobody is shown a door their role cannot open.
-  const staffHref = properties.length && properties.every((property) => property.nrmsAccessRole === "HOUSEKEEPER")
-    ? "/owner/nrms/housekeeping"
-    : "/owner/nrms/orders";
+  // The length guard matters: an empty list is still in flight, and every() on
+  // it would send a mixed-role staff member to the sales desk.
+  const staffHref = staffLanding(properties);
 
   useEffect(() => {
     (async () => {
@@ -56,7 +61,7 @@ export default function NrmsWorkspaceChoicePage() {
         if (forceChooser && typeof window !== "undefined") localStorage.removeItem(REMEMBER_KEY);
         const remembered = !forceChooser && typeof window !== "undefined" ? localStorage.getItem(REMEMBER_KEY) : null;
         if (remembered === "staff") {
-          router.replace(list.every((property) => property.nrmsAccessRole === "HOUSEKEEPER") ? "/owner/nrms/housekeeping" : "/owner/nrms/orders");
+          router.replace(staffLanding(list));
           return;
         }
         if (remembered === "personal") {
@@ -81,7 +86,7 @@ export default function NrmsWorkspaceChoicePage() {
     return <div className="flex min-h-screen items-center justify-center text-neutral-400"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   }
 
-  const housekeepingOnly = properties.every((property) => property.nrmsAccessRole === "HOUSEKEEPER");
+  const salesOnly = properties.every((property) => property.nrmsAccessRole === "SALES_EXECUTIVE");
   const primaryProperty = properties[0];
   const primaryRole = roleMeta(primaryProperty?.nrmsAccessRole);
   const extraCount = properties.length - 1;
@@ -114,8 +119,8 @@ export default function NrmsWorkspaceChoicePage() {
             <ChevronRight className="h-4 w-4 shrink-0 text-emerald-200" />
           </div>
           <div className="flex items-center gap-4 border-t border-white/10 px-4 py-2.5">
-            {(housekeepingOnly
-              ? [[BedDouble, "Rooms"], [Sparkles, "Housekeeping"], [Clock8, "Your tasks"]]
+            {(salesOnly
+              ? [[Receipt, "Enquiries"], [UsersRound, "Pipeline"], [Clock8, "Follow-ups"]]
               : [[Receipt, "Orders"], [Wallet, "Take payments"], [Clock8, "Your shift"]]
             ).map(([Icon, label]: any, index) => (
               <span key={index} className="inline-flex items-center gap-1.5 text-[11px] text-emerald-100/75"><Icon className="h-3.5 w-3.5" />{label}</span>

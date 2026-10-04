@@ -113,7 +113,7 @@ describe("NRMS public menu stay-token resolution", () => {
     expect(response.status).toBe(404);
     expect(response.body.code).toBe("STAY_LINK_CLOSED");
     expect(mocks.reservationFindFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 41, status: "CHECKED_IN" },
+      where: expect.objectContaining({ id: 41, status: "CHECKED_IN", checkedOutAt: null }),
     }));
     expect(mocks.pointFindUnique).not.toHaveBeenCalled();
     expect(mocks.allocationFindFirst).not.toHaveBeenCalled();
@@ -174,7 +174,16 @@ describe("NRMS public menu stay-token resolution", () => {
       where: expect.objectContaining({
         roomUnitId: 204,
         status: "ACTIVE",
-        reservation: { propertyId: 7, status: "CHECKED_IN", id: 41 },
+        reservation: expect.objectContaining({
+          propertyId: 7,
+          status: "CHECKED_IN",
+          checkedOutAt: null,
+          id: 41,
+          OR: [
+            { bookingId: null },
+            { booking: { is: { status: "CHECKED_IN" } } },
+          ],
+        }),
       }),
     }));
   });

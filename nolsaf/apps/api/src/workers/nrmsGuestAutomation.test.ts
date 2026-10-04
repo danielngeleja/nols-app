@@ -37,6 +37,7 @@ describe("NRMS guest automation", () => {
   it("expires unpaid direct holds and cancels their payment request", async () => {
     mocks.reservationFind.mockResolvedValue([{ id: 9 }]); mocks.reservationUpdateMany.mockResolvedValue({ count: 1 });
     const result = await processNrmsGuestAutomation(new Date("2026-07-22T10:00:00Z"));
+    expect(mocks.reservationFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ paymentRequests: { none: { status: "PROCESSING" } } }) }));
     expect(result.expiredHolds).toBe(1); expect(mocks.paymentUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { reservationId: 9, status: "PENDING" } }));
     expect(mocks.reservationEventCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ reservationId: 9, type: "EXPIRED" }) }));
   });

@@ -62,11 +62,11 @@ describe("public direct hold route idempotency", () => {
   it("creates once and replays the original hold on a repeated request", async () => {
     const app = express(); app.use(express.json()); app.use("/api/public/nrms/guest", router);
     const body = {
-      clientRequestId: "71cff681-6fca-4384-b683-b12f487d560d", checkIn: "2026-09-12", checkOut: "2026-09-14", adults: 2, children: 0, source: "INSTAGRAM",
+      clientRequestId: "71cff681-6fca-4384-b683-b12f487d560d", checkIn: "2026-10-12", checkOut: "2026-10-14", adults: 2, children: 0, source: "INSTAGRAM",
       roomTypeId: 12, ratePlanId: null, guest: { fullName: "Amina Hassan", phone: "+255700000001", email: "amina@example.com", nationality: "TZ" }, termsAccepted: true,
     };
-    const first = await request(app).post("/api/public/nrms/guest/direct/19/hold").send(body).expect(201);
-    const retry = await request(app).post("/api/public/nrms/guest/direct/19/hold").send(body).expect(200);
+    const first = await request(app).post("/api/public/nrms/guest/direct/cktesthotelpublickey12345/hold").send(body).expect(201);
+    const retry = await request(app).post("/api/public/nrms/guest/direct/cktesthotelpublickey12345/hold").send(body).expect(200);
 
     expect(retry.body.replayed).toBe(true);
     expect(retry.body.hold.reference).toBe(first.body.hold.reference);
@@ -75,5 +75,19 @@ describe("public direct hold route idempotency", () => {
     expect(mocks.tx.reservation.create).toHaveBeenCalledTimes(1);
     expect(mocks.tx.nrmsGuestPaymentRequest.create).toHaveBeenCalledTimes(1);
     expect(mocks.prisma.nrmsPublicMetric.upsert).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.property.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ nrmsBookingKey: "cktesthotelpublickey12345" }),
+    }));
+  });
+
+  it("does not accept a sequential property id as a public booking key", async () => {
+    const app = express(); app.use(express.json()); app.use("/api/public/nrms/guest", router);
+    const body = {
+      clientRequestId: "71cff681-6fca-4384-b683-b12f487d560d", checkIn: "2026-10-12", checkOut: "2026-10-14", adults: 2, children: 0, source: "DIRECT",
+      roomTypeId: 12, ratePlanId: null, guest: { fullName: "Amina Hassan", phone: "+255700000001", email: "amina@example.com", nationality: "TZ" }, termsAccepted: true,
+    };
+
+    await request(app).post("/api/public/nrms/guest/direct/19/hold").send(body).expect(404);
+    expect(mocks.prisma.property.findFirst).not.toHaveBeenCalled();
   });
 });

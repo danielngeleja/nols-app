@@ -18,8 +18,16 @@ import { prisma } from "@nolsaf/prisma";
 // Value import, not `import type`: confirmedCustomerPayment constructs a
 // Prisma.Decimal at runtime when an invoice has no settled payment events.
 import { Prisma } from "@prisma/client";
+import { isAdvanceRow, loadAdvanceTotalsFor } from "../../lib/tourPayouts.js";
+import { ADVANCE_MAX_PERCENT, balanceAfterAdvances } from "../../lib/tourPayoutPolicy.js";
 
-export type PayoutSourceType = "OWNER_INVOICE" | "TOUR_BOOKING" | "DRIVER_TRIP" | "SALES_PAYOUT";
+/**
+ * TOUR_BOOKING pays a tour's balance after the trip; TOUR_ADVANCE pays one
+ * pre-trip advance tranche (sourceId = TourFinancialTransaction.id). Keeping
+ * the advance its own source lets a booking carry two disbursements without
+ * breaking the "one live payout per source" guarantee (activeSourceKey).
+ */
+export type PayoutSourceType = "OWNER_INVOICE" | "TOUR_BOOKING" | "TOUR_ADVANCE" | "DRIVER_TRIP" | "SALES_PAYOUT";
 
 export class PayoutIneligibleError extends Error {
   constructor(
@@ -44,42 +52,31 @@ export interface EligiblePayoutSource {
 /** Decimal comparison tolerance, matching the callback amount check in azampay/disbursement/contract.ts. */
 const AMOUNT_TOLERANCE = 0.01;
 const OWNER_INVOICE_PAYOUT_CURRENCY = "TZS";
+const CUSTOMER_INVOICE_PREFIX = "INV-";
 
 export class PaymentCurrencyMismatchError extends Error {
   constructor(
-    readonly invoiceId: number,
+    readonly paymentSource: string,
     readonly expectedCurrency: string,
     readonly receivedCurrencies: readonly string[]
   ) {
     super(
-      `Invoice ${invoiceId} has successful payment events in ${receivedCurrencies.join(", ")}, ` +
+      `${paymentSource} has successful payment events in ${receivedCurrencies.join(", ")}, ` +
         `but its payout currency is ${expectedCurrency}`
     );
     this.name = "PaymentCurrencyMismatchError";
   }
 }
 
-/**
- * How much confirmed customer money NoLSAF holds against one invoice.
- *
- * Reads PaymentEvent, not Invoice.status. Invoice.status is not evidence of
- * collection: POST /admin/invoices/:id/pay sets it to PAID with an
- * admin-supplied paymentRef and no provider confirmation, and the same PAID
- * value is also written at the END of the owner payout by
- * ledger.writeBackSourcePaid, so the column carries two opposite meanings.
- *
- * PaymentEvent rows are written only by the provider webhook and carry a
- * unique provider eventId, so no admin route can mint one. That is the
- * property this gate depends on.
- */
-export async function confirmedCustomerPayment(
-  invoiceId: number,
-  expectedCurrency: string
+async function sumConfirmedCustomerPayment(
+  where: Prisma.PaymentEventWhereInput,
+  expectedCurrency: string,
+  paymentSource: string
 ): Promise<Prisma.Decimal> {
   const normalizedExpected = expectedCurrency.trim().toUpperCase();
   const settledByCurrency = await prisma.paymentEvent.groupBy({
     by: ["currency"],
-    where: { invoiceId, status: "SUCCESS" },
+    where: { ...where, status: "SUCCESS" },
     _sum: { amount: true },
   });
 
@@ -88,7 +85,7 @@ export async function confirmedCustomerPayment(
     .filter((currency: string) => currency !== normalizedExpected);
   if (unexpectedCurrencies.length > 0) {
     throw new PaymentCurrencyMismatchError(
-      invoiceId,
+      paymentSource,
       normalizedExpected,
       [...new Set(unexpectedCurrencies)]
     );
@@ -102,10 +99,54 @@ export async function confirmedCustomerPayment(
     );
 }
 
+/**
+ * How much provider-confirmed customer money NoLSAF holds against one invoice.
+ *
+ * Reads PaymentEvent, not Invoice.status. PaymentEvent rows are written by the
+ * provider webhook and carry a unique provider eventId, so a mutable invoice
+ * status or an admin-supplied reference cannot manufacture collection evidence.
+ */
+export async function confirmedCustomerPayment(
+  invoiceId: number,
+  expectedCurrency: string
+): Promise<Prisma.Decimal> {
+  return sumConfirmedCustomerPayment(
+    { invoiceId },
+    expectedCurrency,
+    `Invoice ${invoiceId}`
+  );
+}
+
+/**
+ * How much customer money was confirmed for a marketplace accommodation
+ * booking. Customer checkout and owner payout intentionally use two different
+ * Invoice rows: INV-* receives the provider PaymentEvent, while OINV-* is the
+ * owner's claim and later becomes the OWNER_INVOICE disbursement source.
+ * Therefore an owner payout must resolve collection through bookingId rather
+ * than looking for a PaymentEvent on the OINV-* row itself.
+ */
+export async function confirmedCustomerPaymentForBooking(
+  bookingId: number,
+  expectedCurrency: string
+): Promise<Prisma.Decimal> {
+  return sumConfirmedCustomerPayment(
+    {
+      invoice: {
+        is: {
+          bookingId,
+          invoiceNumber: { startsWith: CUSTOMER_INVOICE_PREFIX },
+        },
+      },
+    },
+    expectedCurrency,
+    `Booking ${bookingId}`
+  );
+}
+
 async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: sourceId },
-    select: { id: true, ownerId: true, status: true, netPayable: true, total: true },
+    select: { id: true, ownerId: true, bookingId: true, status: true, netPayable: true, total: true },
   });
   if (!invoice) throw new PayoutIneligibleError("OWNER_INVOICE", sourceId, "invoice not found");
   if (invoice.status !== "APPROVED") {
@@ -129,14 +170,13 @@ async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource>
   }
 
   // Solvency gate: never pay out more than was actually collected for this
-  // booking. Approval alone is not evidence of payment — the invoice approve
-  // action is gated on the owner having validated a check-in code, which is a
-  // guest-arrival signal, and codes can be issued by an admin outside the
-  // payment path. Without this check an unpaid booking could be walked to an
-  // APPROVED invoice and settled out of NoLSAF's own float.
+  // booking. The owner claim is OINV-* while the provider-confirmed customer
+  // payment belongs to the separate INV-* row for the same booking. Following
+  // bookingId keeps the gate fail-closed without falsely reporting zero merely
+  // because the two legitimate records have different invoice IDs.
   let collected: Prisma.Decimal;
   try {
-    collected = await confirmedCustomerPayment(sourceId, OWNER_INVOICE_PAYOUT_CURRENCY);
+    collected = await confirmedCustomerPaymentForBooking(invoice.bookingId, OWNER_INVOICE_PAYOUT_CURRENCY);
   } catch (error) {
     if (error instanceof PaymentCurrencyMismatchError) {
       throw new PayoutIneligibleError("OWNER_INVOICE", sourceId, error.message);
@@ -196,12 +236,92 @@ async function loadTourBooking(sourceId: number): Promise<EligiblePayoutSource> 
     );
   }
 
+  // The balance is the net share minus every advance already paid, and it
+  // waits for any advance still moving through finance so the two can never
+  // be paid against the same money twice.
+  const advances = await loadAdvanceTotalsFor(sourceId);
+  if (advances.inFlight > 0) {
+    throw new PayoutIneligibleError("TOUR_BOOKING", sourceId, "an advance for this booking is still being processed, pay or reject it first");
+  }
+  const balance = balanceAfterAdvances(Number(booking.operatorPayoutAmount), advances.paid);
+  if (balance <= 0) {
+    throw new PayoutIneligibleError("TOUR_BOOKING", sourceId, "advances already cover the full operator share, there is no balance to pay");
+  }
+
   return {
     sourceType: "TOUR_BOOKING",
     sourceId,
     payeeUserId: booking.operator.userId,
-    amount: booking.operatorPayoutAmount,
+    amount: new Prisma.Decimal(balance),
     currency: booking.currency,
+  };
+}
+
+/**
+ * A pre-trip advance tranche. Eligible when NoLSAF finance approved the
+ * advance row, the booking is still live, no case is open, and the advances
+ * paid plus this one stay within the policy cap of the operator's net share.
+ */
+async function loadTourAdvance(sourceId: number): Promise<EligiblePayoutSource> {
+  const row = await prisma.tourFinancialTransaction.findUnique({
+    where: { id: sourceId },
+    select: {
+      id: true,
+      kind: true,
+      status: true,
+      amount: true,
+      currency: true,
+      metadata: true,
+      booking: {
+        select: {
+          id: true,
+          status: true,
+          operatorPayoutAmount: true,
+          operator: { select: { userId: true } },
+        },
+      },
+    },
+  });
+  if (!row || row.kind !== "PAYOUT" || !isAdvanceRow(row.metadata)) {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, "advance record not found");
+  }
+  if (row.status !== "APPROVED") {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, `advance status is ${row.status}, expected APPROVED`);
+  }
+  const bookingStatus = String(row.booking.status || "").toUpperCase();
+  if (["CANCELED", "CANCELLED", "REFUNDED"].includes(bookingStatus)) {
+    throw new PayoutIneligibleError("TOUR_ADVANCE", sourceId, `booking is ${bookingStatus}, an advance can no longer be paid`);
+  }
+  const openCase = await prisma.tourCase.findFirst({
+    where: {
+      tourBookingId: row.booking.id,
+      status: { in: ["OPEN", "ACKNOWLEDGED", "ESCALATED", "UNDER_REVIEW", "ELIGIBLE", "APPROVED"] },
+    },
+    select: { id: true, type: true },
+  });
+  if (openCase) {
+    throw new PayoutIneligibleError(
+      "TOUR_ADVANCE",
+      sourceId,
+      `case #${openCase.id} (${String(openCase.type).toLowerCase()}) is open for this booking, resolve it first`
+    );
+  }
+  const advances = await loadAdvanceTotalsFor(row.booking.id);
+  const cap = (Number(row.booking.operatorPayoutAmount) * ADVANCE_MAX_PERCENT) / 100;
+  if (advances.paid + Number(row.amount) > cap + AMOUNT_TOLERANCE) {
+    throw new PayoutIneligibleError(
+      "TOUR_ADVANCE",
+      sourceId,
+      `advances would reach ${advances.paid + Number(row.amount)}, above the ${ADVANCE_MAX_PERCENT}% cap of ${cap}`
+    );
+  }
+
+  return {
+    sourceType: "TOUR_ADVANCE",
+    sourceId,
+    payeeUserId: row.booking.operator.userId,
+    amount: row.amount,
+    currency: row.currency,
   };
 }
 
@@ -225,6 +345,7 @@ async function loadSalesPayout(sourceId: number): Promise<EligiblePayoutSource> 
       status: true,
       approvedAmount: true,
       deductionAmount: true,
+      withholdingTaxAmount: true,
       netPaidAmount: true,
       requestedAmount: true,
       currency: true,
@@ -257,13 +378,17 @@ async function loadSalesPayout(sourceId: number): Promise<EligiblePayoutSource> 
   // approved minus deduction was edited outside the approval path, which is
   // the one thing a stored-total design cannot otherwise detect.
   if (request.approvedAmount != null) {
-    const expected = Number(request.approvedAmount) - Number(request.deductionAmount ?? 0);
+    // Withholding tax is part of the approval arithmetic (it stays with NoLSAF
+    // for remittance to TRA), so it must be subtracted here too.
+    const expected =
+      Number(request.approvedAmount) - Number(request.deductionAmount ?? 0) - Number(request.withholdingTaxAmount ?? 0);
     if (Math.abs(expected - Number(request.netPaidAmount)) > AMOUNT_TOLERANCE) {
       throw new PayoutIneligibleError(
         "SALES_PAYOUT",
         sourceId,
         `amounts do not reconcile: approved ${request.approvedAmount.toString()} minus deduction ` +
-          `${request.deductionAmount?.toString() ?? "0"} is ${expected}, but netPaidAmount is ${request.netPaidAmount.toString()}`
+          `${request.deductionAmount?.toString() ?? "0"} minus withholding tax ${request.withholdingTaxAmount?.toString() ?? "0"} ` +
+          `is ${expected}, but netPaidAmount is ${request.netPaidAmount.toString()}`
       );
     }
   }
@@ -287,6 +412,8 @@ export async function loadEligiblePayoutSource(
       return loadOwnerInvoice(sourceId);
     case "TOUR_BOOKING":
       return loadTourBooking(sourceId);
+    case "TOUR_ADVANCE":
+      return loadTourAdvance(sourceId);
     case "DRIVER_TRIP":
       return loadDriverTrip(sourceId);
     case "SALES_PAYOUT":

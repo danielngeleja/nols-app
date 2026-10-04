@@ -6,6 +6,7 @@ import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import Chart from "@/components/Chart";
 import type { ChartData } from "chart.js";
+import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 function authify() {}
@@ -40,6 +41,7 @@ type SummaryData = {
 };
 
 export default function UsersDashboardPage() {
+  const recordHref = useAdminHref();
   const [summary, setSummary] = useState<SummaryData>({});
   const [loading, setLoading] = useState(true);
 
@@ -113,7 +115,7 @@ export default function UsersDashboardPage() {
   }, [summary]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-6 w-full min-w-0">
       {/* Premium Banner */}
       <div style={{ position: "relative", borderRadius: "1.25rem", overflow: "hidden", background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)", boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)", padding: "2rem 2rem 1.75rem" }}>
         <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.13, pointerEvents: "none" }} viewBox="0 0 900 160" preserveAspectRatio="xMidYMid slice">
@@ -310,7 +312,7 @@ export default function UsersDashboardPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <Link
-                        href={`/admin/users/${customer.id}`}
+                        href={recordHref("user", customer.id)}
                         className="inline-flex items-center justify-center transition-colors no-underline"
                         style={{ color: "#6ee7b7" }}
                         title="View user details"

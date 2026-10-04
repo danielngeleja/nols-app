@@ -258,7 +258,7 @@ export default function HelpGettingStartedPage() {
               <ul className="space-y-1">
                 {[
                   "The cancellation window - you have 24 hrs free cancellation if done 72+ hrs before check-in.",
-                  "The payment type - standard bookings are paid in full now; Group Stay and Plan with Us use a deposit model.",
+                  "The payment type - standard bookings are paid in full now; Group Stay uses a deposit model.",
                   "House rules and max guest count - violations can result in early eviction with no refund.",
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-2">

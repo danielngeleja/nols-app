@@ -5,6 +5,7 @@
 // renders nothing. Hairlines here are ring-* utilities for that reason.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   BarChart3,
@@ -76,6 +77,11 @@ const STAGES: Array<{ key: "accept" | "prepare" | "serve"; label: string; target
 
 const ON_TIME_MINUTES = 15;
 const EMPTY = "n/a";
+const OUTLET_ROLE_LABEL: Record<string, string> = {
+  BAR: "Bar",
+  RESTAURANT: "Restaurant",
+  OUTLET_SUPERVISOR: "Outlet supervisor",
+};
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
@@ -92,6 +98,7 @@ const BUCKET_NOUN = { hour: "hour", day: "day", month: "month" } as const;
 
 export default function NrmsPerformancePage() {
   const { selectedPropertyId, selectedProperty } = useNrms();
+  const accessRole = selectedProperty?.nrmsAccessRole ?? "OWNER";
   const [period, setPeriod] = useState<Period>("day");
   const [rangeMode, setRangeMode] = useState(false);
   const [rangeFrom, setRangeFrom] = useState(todayKey());
@@ -165,6 +172,12 @@ export default function NrmsPerformancePage() {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+          {["OWNER", "MANAGER"].includes(accessRole) && (
+            <nav aria-label="Performance view" className="inline-flex h-10 items-center rounded-xl bg-neutral-100 p-1 ring-1 ring-neutral-200">
+              <span aria-current="page" className="inline-flex h-8 items-center rounded-lg bg-white px-3 text-xs font-bold text-emerald-800 shadow-sm">Outlet team</span>
+              <Link href="/owner/nrms/sales-performance" className="inline-flex h-8 items-center rounded-lg px-3 text-xs font-bold text-neutral-500 no-underline transition hover:bg-white hover:text-neutral-900">Sales team</Link>
+            </nav>
+          )}
           {(data?.canFilterOutlet && data.outlets.length > 1) || (data?.canFilterAttendant && data.staff.length > 0) ? (
             <div className="flex flex-wrap items-center gap-2">
               {data?.canFilterOutlet && data.outlets.length > 1 && (
@@ -182,8 +195,8 @@ export default function NrmsPerformancePage() {
                   <UsersRound className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                   <span className="sr-only">Staff member</span>
                   <select value={attendantId} onChange={(event) => setAttendantId(event.target.value === "" ? "" : Number(event.target.value))} className="min-w-0 flex-1 appearance-none border-0 bg-transparent py-2 text-xs font-bold outline-none">
-                    <option value="">All staff</option>
-                    {data.staff.filter((member) => outletId === "" || member.outletId == null || member.outletId === outletId).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                    <option value="">All outlet staff</option>
+                    {data.staff.filter((member) => outletId === "" || member.outletId == null || member.outletId === outletId).map((member) => <option key={member.id} value={member.id}>{member.name} · {OUTLET_ROLE_LABEL[member.role] ?? member.role}</option>)}
                   </select>
                 </label>
               )}

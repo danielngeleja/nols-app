@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { ChevronDown, ChevronRight, MapPin, Menu, X } from 'lucide-react';
+import { BarChart3, Building2, Calculator, ChevronDown, ChevronRight, Compass, Home, MapPin, Menu, PlusSquare, Users, X } from 'lucide-react';
 import { REGIONS } from '@/lib/tzRegions';
 import UserMenu from '@/components/UserMenu';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
@@ -30,6 +30,7 @@ export default function PublicHeader({
   const [scrollAmount, setScrollAmount] = useState<number>(0);
   const [isMobile, setIsMobile] = useState<boolean>(false);
   const headerRef = useRef<HTMLElement>(null);
+  const phoneMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -240,6 +241,27 @@ export default function PublicHeader({
 
   const useOwnerLikeMobileHeader = isMobile && isPublicPath;
 
+  // Phones inside the account area get an app-style bar instead of the marketing header:
+  // where you are and the tools, in the brand colours, without the marketing chrome.
+  const mobileAccountBar = isMobile && (useFlowHeader || pathname === "/account");
+  // Phones have no footer (the bottom nav covers navigation), so its essentials live in the menu.
+  const footerEssentials = [
+    { href: "/help", label: "Help Center" },
+    { href: "/verify", label: "Verify NoLSAF" },
+    { href: "/about/who", label: "About us" },
+    { href: "/terms", label: "Terms" },
+    { href: "/privacy", label: "Privacy" },
+    { href: "/cancellation-policy", label: "Cancellation" },
+  ];
+  const menuIcons: Record<string, React.ComponentType<{ className?: string }>> = {
+    "/public": Home,
+    "/public/properties": Building2,
+    "/public/tour-packages": Compass,
+    "/public/group-stays": Users,
+    "/public/nolscope": Calculator,
+    "/public/nrms": BarChart3,
+  };
+
   // Logo handling:
   // - Always use the icon-only logo (no names), same as the footer.
   // - On dark/green header, adjust the icon so it's visible.
@@ -249,7 +271,7 @@ export default function PublicHeader({
   // Close mobile menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (mobileMenuOpen && headerRef.current && !headerRef.current.contains(e.target as Node)) {
+      if (mobileMenuOpen && headerRef.current && !headerRef.current.contains(e.target as Node) && !phoneMenuRef.current?.contains(e.target as Node)) {
         setMobileMenuOpen(false);
       }
     };
@@ -259,6 +281,19 @@ export default function PublicHeader({
     }
   }, [mobileMenuOpen]);
 
+
+  const phoneMenuSheet = isMobile && !mobileAccountBar && mobileMenuOpen;
+  useEffect(() => {
+    if (!phoneMenuSheet) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileMenuOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [phoneMenuSheet]);
 
   // Memoized navigation links for performance
   const navLinks = useMemo(() => [
@@ -298,6 +333,114 @@ export default function PublicHeader({
 
   return (
     <>
+      {mobileAccountBar ? (
+        <header ref={headerRef} className="sticky top-0 z-50 box-border w-full max-w-full px-2 pt-2">
+          <div
+            className="relative overflow-hidden rounded-2xl text-white shadow-[0_12px_28px_-14px_rgba(1,40,36,0.85)] ring-1 ring-inset ring-white/10"
+            style={{ background: "linear-gradient(135deg, #011a18 0%, #023a35 50%, #02665e 100%)" }}
+          >
+            {/* Same texture as the account hero: soft emerald light and a faint dot grid */}
+            <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+              <div className="absolute inset-0" style={{ background: "radial-gradient(260px circle at 100% 0%, rgba(52,211,153,0.28), transparent 65%)" }} />
+              <div
+                className="absolute inset-0 opacity-[0.16]"
+                style={{
+                  backgroundImage: "radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)",
+                  backgroundSize: "16px 16px",
+                  WebkitMaskImage: "linear-gradient(90deg, transparent 0%, #000 70%)",
+                  maskImage: "linear-gradient(90deg, transparent 0%, #000 70%)",
+                }}
+              />
+            </div>
+
+            <div className="relative flex h-14 items-center gap-3 px-3.5">
+              <Link
+                href="/"
+                aria-label="NoLSAF home"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10 no-underline ring-1 ring-inset ring-white/15"
+              >
+                <Image src={logoSrc} alt="" width={24} height={24} className="h-[22px] w-[22px] object-contain" style={{ filter: "brightness(0) invert(1)" }} />
+              </Link>
+
+              <div className="min-w-0 flex-1">
+                <span className="text-[16px] font-bold tracking-tight text-white">NoLSAF</span>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 ring-1 ring-inset ring-white/15">
+                  <GlobalPicker variant="dark" />
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+                  aria-expanded={mobileMenuOpen}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border-0 ring-1 ring-inset transition active:scale-95 ${mobileMenuOpen ? "bg-white text-[#02665e] ring-white" : "bg-white/10 text-white ring-white/15"}`}
+                >
+                  {mobileMenuOpen ? <X className="h-[18px] w-[18px]" /> : <Menu className="h-[18px] w-[18px]" />}
+                </button>
+              </div>
+            </div>
+          </div>
+          {/* Menu: a card that drops from the bar, grid of destinations first */}
+          <div
+            className={`absolute inset-x-2 top-full z-50 mt-2 origin-top overflow-hidden rounded-2xl border border-solid border-[#02665e]/15 bg-[#f3faf8] shadow-[0_24px_48px_-16px_rgba(2,40,36,0.45)] transition-all duration-200 ${
+              mobileMenuOpen ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-[0.98] opacity-0"
+            }`}
+          >
+            <nav className="grid grid-cols-3 gap-1.5 p-3" aria-label="Explore NoLSAF">
+              {navLinks.map((link) => {
+                const Icon = menuIcons[link.href] ?? Home;
+                const active = pathname === link.href;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl px-1 py-3 text-center no-underline ring-1 ring-inset transition active:scale-95 ${active ? "bg-[#02665e] ring-[#02665e]" : "bg-white ring-[#02665e]/10 hover:ring-[#02665e]/25"}`}
+                  >
+                    <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${active ? "bg-white/15 text-white" : "text-white"}`} style={active ? undefined : { background: "linear-gradient(135deg, #014e47, #02665e)" }}>
+                      <Icon className="h-[18px] w-[18px]" />
+                    </span>
+                    <span className={`text-[11.5px] font-semibold leading-tight ${active ? "text-white" : "text-slate-700"}`}>{link.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="grid grid-cols-2 gap-x-1 border-0 border-t border-solid border-[#02665e]/10 px-2 py-1.5">
+              {footerEssentials.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="truncate rounded-xl px-3 py-2 text-[12.5px] font-medium text-slate-500 no-underline transition-colors hover:bg-white hover:text-[#02665e]"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+            <div className="border-0 border-t border-solid border-[#02665e]/10 p-2">
+              <button
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); setMobileRegionsOpen(true); }}
+                className="flex w-full items-center gap-3 rounded-xl border-0 bg-transparent px-3 py-2.5 text-left text-[13.5px] font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <MapPin className="h-4 w-4 text-[#02665e]" />
+                <span className="flex-1">Browse by region</span>
+                <ChevronRight className="h-4 w-4 text-slate-300" />
+              </button>
+              {authed ? (
+                <WorkspaceSwitcher currentWorkspace="NORMAL" onSwitchStart={() => setMobileMenuOpen(false)} />
+              ) : (
+                <div className="mt-1 grid grid-cols-2 gap-2 px-1 pb-1">
+                  <Link href="/account/login" onClick={() => setMobileMenuOpen(false)} className="inline-flex h-10 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white text-[13.5px] font-semibold text-slate-800 no-underline">Sign in</Link>
+                  <Link href="/account/register" onClick={() => setMobileMenuOpen(false)} className="inline-flex h-10 items-center justify-center rounded-xl bg-[#02665e] text-[13.5px] font-semibold text-white no-underline">Register</Link>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+      ) : (
       <header 
         ref={headerRef}
         className={`${useFlowHeader ? "sticky top-0" : "fixed"} z-50 text-white ${
@@ -580,7 +723,7 @@ export default function PublicHeader({
 
         {/* Mobile Menu — compact left-anchored panel */}
         <div
-          className={`xl:hidden absolute top-full left-2 sm:left-3 z-50 transition-all duration-300 ease-out overflow-hidden ${
+          className={`${isMobile ? "hidden" : "xl:hidden"} absolute top-full left-2 sm:left-3 z-50 transition-all duration-300 ease-out overflow-hidden ${
             mobileMenuOpen
               ? 'max-h-[90vh] opacity-100 translate-y-0 pointer-events-auto overflow-y-auto'
               : 'max-h-0 opacity-0 -translate-y-2 pointer-events-none'
@@ -629,6 +772,18 @@ export default function PublicHeader({
                 <ChevronRight className="w-3.5 h-3.5 text-white/35" />
               </button>
             </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-x-1 border-t border-white/[0.07] pt-1.5">
+              {footerEssentials.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="truncate rounded-2xl px-3 py-2 text-[12.5px] font-medium text-white/60 no-underline transition-colors hover:bg-white/[0.06] hover:text-white"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
             {authed && (
               <WorkspaceSwitcher
                 currentWorkspace="NORMAL"
@@ -660,6 +815,7 @@ export default function PublicHeader({
           </div>
         </div>
       </header>
+      )}
 
       {/* Spacer to prevent content from going under fixed header */}
       <div 
@@ -674,6 +830,140 @@ export default function PublicHeader({
           transition: 'height 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       />
+
+      {/* ── Phone menu: solid bottom sheet above the bottom nav ── */}
+      {phoneMenuSheet && (
+        <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true" aria-label="Menu">
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setMobileMenuOpen(false)}
+            className="absolute inset-0 border-0 bg-black/50 backdrop-blur-[2px]"
+          />
+          <div
+            ref={phoneMenuRef}
+            className="absolute inset-x-0 bottom-0 max-h-[88dvh] overflow-y-auto rounded-t-3xl bg-[#f3faf8] shadow-[0_-20px_50px_rgba(0,0,0,0.35)]"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)" }}
+          >
+            <div className="sticky top-0 z-10 mb-4 border-0 border-b border-solid border-[#02665e]/10 bg-[#f3faf8] px-4 pb-3 pt-2.5">
+              <span className="mx-auto block h-1 w-10 rounded-full bg-slate-300" aria-hidden="true" />
+              <div className="mt-3 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: "linear-gradient(135deg, #011a18, #02665e)" }}>
+                    <Image src={logoSrc} alt="" width={22} height={22} className="h-[20px] w-[20px] object-contain" style={{ filter: "brightness(0) invert(1)" }} />
+                  </span>
+                  <span className="text-[16px] font-bold tracking-tight text-slate-900">Explore NoLSAF</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Close menu"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-0 bg-white text-slate-600 ring-1 ring-inset ring-slate-200"
+                >
+                  <X className="h-[18px] w-[18px]" />
+                </button>
+              </div>
+            </div>
+
+            {/* Section rhythm: label, then one card. Same inset, same gap, every time. */}
+            <div className="space-y-5 px-4 pb-2 pt-1">
+              <section aria-labelledby="phone-menu-explore">
+                <h2 id="phone-menu-explore" className="m-0 mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Explore</h2>
+                <nav className="grid grid-cols-3 overflow-hidden rounded-2xl bg-white ring-1 ring-inset ring-[#02665e]/10" aria-label="Explore NoLSAF">
+                  {navLinks.map((link, index) => {
+                    const Icon = menuIcons[link.href] ?? Home;
+                    const active = pathname === link.href;
+                    return (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={[
+                          "flex flex-col items-center gap-2 px-1 py-3.5 text-center no-underline transition active:bg-[#02665e]/[0.06]",
+                          // Hairline grid inside one card instead of six separate boxes
+                          index % 3 !== 2 ? "border-0 border-r border-solid border-slate-100" : "",
+                          index < 3 ? "border-0 border-b border-solid border-slate-100" : "",
+                          active ? "bg-[#02665e]/[0.06]" : "",
+                        ].join(" ")}
+                        aria-current={active ? "page" : undefined}
+                      >
+                        <span
+                          className="flex h-9 w-9 items-center justify-center rounded-xl text-white"
+                          style={{ background: "linear-gradient(135deg, #014e47, #02665e)" }}
+                        >
+                          <Icon className="h-[17px] w-[17px]" />
+                        </span>
+                        <span className={`text-[12px] font-semibold leading-tight ${active ? "text-[#02665e]" : "text-slate-700"}`}>{link.label}</span>
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </section>
+
+              <section aria-labelledby="phone-menu-shortcuts">
+                <h2 id="phone-menu-shortcuts" className="m-0 mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Shortcuts</h2>
+                <div className="overflow-hidden rounded-2xl bg-white ring-1 ring-inset ring-[#02665e]/10">
+                  <button
+                    type="button"
+                    onClick={() => { setMobileMenuOpen(false); setMobileRegionsOpen(true); }}
+                    className="flex w-full items-center gap-3 border-0 bg-transparent px-4 py-3 text-left text-[14px] font-semibold text-slate-800 active:bg-slate-50"
+                  >
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#02665e]/[0.08] text-[#02665e]">
+                      <MapPin className="h-4 w-4" />
+                    </span>
+                    <span className="flex-1">Browse by region</span>
+                    <ChevronRight className="h-4 w-4 text-slate-300" />
+                  </button>
+                  {/* Moved here from the bottom nav, which is now for travellers */}
+                  <Link
+                    href="/account/register?role=owner"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex w-full items-center gap-3 border-0 border-t border-solid border-slate-100 px-4 py-3 text-[14px] font-semibold text-slate-800 no-underline active:bg-slate-50"
+                  >
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#02665e]/[0.08] text-[#02665e]">
+                      <PlusSquare className="h-4 w-4" />
+                    </span>
+                    <span className="flex-1">List your property</span>
+                    <ChevronRight className="h-4 w-4 text-slate-300" />
+                  </Link>
+                  {authed && (
+                    <div className="border-0 border-t border-solid border-slate-100">
+                      <WorkspaceSwitcher currentWorkspace="NORMAL" onSwitchStart={() => setMobileMenuOpen(false)} />
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section aria-labelledby="phone-menu-help">
+                <h2 id="phone-menu-help" className="m-0 mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Help &amp; policies</h2>
+                <div className="grid grid-cols-2 overflow-hidden rounded-2xl bg-white ring-1 ring-inset ring-[#02665e]/10">
+                  {footerEssentials.map((item, index) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={[
+                        "flex items-center justify-between gap-2 px-4 py-3 text-[13px] font-medium text-slate-600 no-underline active:bg-slate-50",
+                        index % 2 === 0 ? "border-0 border-r border-solid border-slate-100" : "",
+                        index < footerEssentials.length - 2 ? "border-0 border-b border-solid border-slate-100" : "",
+                      ].join(" ")}
+                    >
+                      <span className="truncate">{item.label}</span>
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" aria-hidden="true" />
+                    </Link>
+                  ))}
+                </div>
+              </section>
+
+              {!authed && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Link href="/account/login" onClick={() => setMobileMenuOpen(false)} className="inline-flex h-11 items-center justify-center rounded-xl bg-white text-[14px] font-semibold text-slate-800 no-underline ring-1 ring-inset ring-slate-200">Sign in</Link>
+                  <Link href="/account/register" onClick={() => setMobileMenuOpen(false)} className="inline-flex h-11 items-center justify-center rounded-xl text-[14px] font-semibold text-white no-underline" style={{ background: "linear-gradient(135deg, #011a18, #02665e)" }}>Register</Link>
+                </div>
+              )}
+            </div>          </div>
+        </div>
+      )}
 
       {/* ── Mobile Regions Full-Screen Overlay ── */}
       <div

@@ -189,11 +189,11 @@ export default function DriverReferral() {
       if (err.response?.status === 401) {
         setError("Please log in to view your referral information");
       } else if (err.response?.status === 404) {
-        // If no referral data exists, create default structure
-        const id = userId ?? null;
+        // No referral data yet. Codes are issued by the server only (they are
+        // opaque and cannot be derived here), so show an empty state, never a guess.
         setReferralData({
-          referralCode: id ? `DRIVER-${id.toString().slice(-6).toUpperCase()}` : 'DRIVER-XXXXXX',
-          referralLink: typeof window !== 'undefined' ? `${window.location.origin}/register?ref=${id ? `DRIVER-${id.toString().slice(-6).toUpperCase()}` : 'XXXXXX'}` : '',
+          referralCode: '',
+          referralLink: '',
           totalReferrals: 0,
           activeReferrals: 0,
           totalCredits: 0,

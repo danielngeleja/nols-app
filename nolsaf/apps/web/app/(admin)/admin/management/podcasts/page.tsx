@@ -1,24 +1,25 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
-  Play,
-  Plus,
-  Pencil,
-  Trash2,
+  CheckCircle2,
+  ExternalLink,
   Eye,
   EyeOff,
+  FileText,
   Loader2,
-  X,
-  ExternalLink,
-  Radio,
-  Search,
-  Youtube,
-  MoreHorizontal,
-  CheckCircle2,
-  User,
   Monitor,
+  Pencil,
+  Play,
+  Plus,
+  Radio,
+  RefreshCw,
+  Search,
+  Trash2,
+  User,
+  X,
+  Youtube,
 } from "lucide-react";
 
 const api = axios.create({ baseURL: "" });
@@ -50,57 +51,58 @@ const EMPTY_FORM = {
   published: false,
 };
 
-type FilterTab = "all" | "published" | "draft";
+type StatusFilter = "published" | "draft";
+
+const STAGES: Array<{ key: StatusFilter; label: string; hint: string; icon: typeof Eye; text: string; bar: string; soft: string }> = [
+  { key: "published", label: "Published", hint: "Live on the public homepage", icon: Eye, text: "text-emerald-700", bar: "bg-emerald-500", soft: "bg-emerald-50/70" },
+  { key: "draft", label: "Drafts", hint: "Saved but hidden from users", icon: FileText, text: "text-amber-700", bar: "bg-amber-400", soft: "bg-amber-50/70" },
+];
+
+const heroButton =
+  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
+const fieldClass =
+  "box-border w-full min-w-0 rounded-lg border border-solid border-neutral-300 bg-white px-3 text-sm text-neutral-900 outline-none transition-colors placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15";
+const sectionLabel = "m-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400";
 
 function extractYouTubeId(url: string): string | null {
-  try {
-    const m = url.match(
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
-    );
-    return m ? m[1] : null;
-  } catch {
-    return null;
-  }
+  const m = String(url || "").match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function thumbOf(ep: Pick<Episode, "thumbnailUrl" | "youtubeUrl">, size: "mq" | "hq" = "mq") {
+  if (ep.thumbnailUrl) return ep.thumbnailUrl;
+  const id = extractYouTubeId(ep.youtubeUrl);
+  return id ? `https://img.youtube.com/vi/${id}/${size}default.jpg` : null;
 }
 
-/* ——— Toggle switch ——— */
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  label: string;
-}) {
+function ago(iso: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (minutes < 60) return minutes < 1 ? "Just now" : `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 31) return days === 1 ? "Yesterday" : `${days} days ago`;
+  const months = Math.floor(days / 30.4);
+  return months < 12 ? `${months} mo ago` : `${Math.floor(days / 365)} y ago`;
+}
+
+function eat(iso: string) {
+  return `${new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
+}
+
+function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <label className="flex items-center gap-3 cursor-pointer select-none group">
+    <label className="flex cursor-pointer select-none items-center gap-2.5">
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/40 ${
-          checked ? "bg-[#02665e]" : "bg-slate-200"
-        }`}
+        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-0 p-0.5 transition-colors ${checked ? "bg-[#02665e]" : "bg-neutral-300"}`}
       >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            checked ? "translate-x-5" : "translate-x-0"
-          }`}
-        />
+        <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "translate-x-5" : "translate-x-0"}`} />
       </button>
-      <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors">
-        {label}
-      </span>
+      <span className="text-xs font-semibold text-neutral-700">{label}</span>
     </label>
   );
 }
@@ -112,26 +114,31 @@ export default function AdminPodcastsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [filterTab, setFilterTab] = useState<FilterTab>("all");
+  const [status, setStatus] = useState<StatusFilter | null>(null);
   const [search, setSearch] = useState("");
-  const [actionsOpen, setActionsOpen] = useState<string | null>(null);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
-    loadEpisodes();
+    void loadEpisodes();
   }, []);
 
-  // Close dropdown on outside click
   useEffect(() => {
-    if (!actionsOpen) return;
-    const handler = () => setActionsOpen(null);
-    document.addEventListener("click", handler);
-    return () => document.removeEventListener("click", handler);
-  }, [actionsOpen]);
+    if (!showForm && !deleteConfirmId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (deleteConfirmId) setDeleteConfirmId(null);
+      else if (!saving) closeForm();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // closeForm only resets local state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showForm, deleteConfirmId, saving]);
 
   const loadEpisodes = async () => {
     try {
@@ -145,38 +152,46 @@ export default function AdminPodcastsPage() {
     }
   };
 
-  const filteredEpisodes = useMemo(() => {
-    let list = episodes;
-    if (filterTab === "published") list = list.filter((e) => e.published);
-    if (filterTab === "draft") list = list.filter((e) => !e.published);
-    if (search.trim()) {
-      const q = search.toLowerCase();
+  const stats = useMemo(() => {
+    const published = episodes.filter((e) => e.published);
+    const latest = [...published].sort((a, b) => ((a.publishedAt || a.createdAt) < (b.publishedAt || b.createdAt) ? 1 : -1))[0];
+    const guests = new Set(episodes.map((e) => (e.guestName || "").trim().toLowerCase()).filter(Boolean));
+    return { total: episodes.length, published: published.length, drafts: episodes.length - published.length, latest, guests: guests.size };
+  }, [episodes]);
+
+  const filtered = useMemo(() => {
+    let list = [...episodes].sort((a, b) => ((a.publishedAt || a.createdAt) < (b.publishedAt || b.createdAt) ? 1 : -1));
+    if (status === "published") list = list.filter((e) => e.published);
+    if (status === "draft") list = list.filter((e) => !e.published);
+    const q = search.trim().toLowerCase();
+    if (q) {
       list = list.filter(
         (e) =>
           e.title.toLowerCase().includes(q) ||
           e.description?.toLowerCase().includes(q) ||
           e.guestName?.toLowerCase().includes(q) ||
-          (e.tags || []).some((t) => t.toLowerCase().includes(q))
+          (e.tags || []).some((t) => t.toLowerCase().includes(q)),
       );
     }
     return list;
-  }, [episodes, filterTab, search]);
+  }, [episodes, status, search]);
 
-  const stats = useMemo(
-    () => ({
-      total: episodes.length,
-      published: episodes.filter((e) => e.published).length,
-      drafts: episodes.filter((e) => !e.published).length,
-    }),
-    [episodes]
-  );
+  const flash = (message: string) => {
+    setSuccess(message);
+    window.setTimeout(() => setSuccess((current) => (current === message ? null : current)), 4000);
+  };
 
-  const resetForm = () => {
+  const closeForm = () => {
     setForm(EMPTY_FORM);
     setEditingId(null);
     setShowForm(false);
     setShowPreview(false);
-    setError(null);
+    setFormError(null);
+  };
+
+  const openNew = () => {
+    closeForm();
+    setShowForm(true);
   };
 
   const openEdit = (ep: Episode) => {
@@ -191,17 +206,18 @@ export default function AdminPodcastsPage() {
       published: ep.published,
     });
     setEditingId(ep.id);
+    setShowPreview(false);
+    setFormError(null);
     setShowForm(true);
-    setError(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSubmit = async () => {
-    if (!form.title.trim()) return setError("Title is required");
-    if (!form.youtubeUrl.trim()) return setError("YouTube URL is required");
+    if (!form.title.trim()) return setFormError("Give the episode a title.");
+    if (!form.youtubeUrl.trim()) return setFormError("Paste the episode's YouTube link.");
+    if (!extractYouTubeId(form.youtubeUrl)) return setFormError("That does not look like a YouTube video link.");
 
     setSaving(true);
-    setError(null);
+    setFormError(null);
     try {
       const payload = {
         title: form.title.trim(),
@@ -210,43 +226,32 @@ export default function AdminPodcastsPage() {
         guestName: form.guestName.trim() || null,
         guestRole: form.guestRole.trim() || null,
         duration: form.duration.trim() || null,
-        tags: form.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
         published: form.published,
       };
-
-      if (editingId) {
-        await api.put(`/api/admin/podcasts/${editingId}`, payload, { withCredentials: true });
-        setSuccess("Episode updated successfully");
-      } else {
-        await api.post("/api/admin/podcasts", payload, { withCredentials: true });
-        setSuccess("Episode created successfully");
-      }
-
-      resetForm();
-      loadEpisodes();
-      setTimeout(() => setSuccess(null), 4000);
+      const wasEditing = Boolean(editingId);
+      if (editingId) await api.put(`/api/admin/podcasts/${editingId}`, payload, { withCredentials: true });
+      else await api.post("/api/admin/podcasts", payload, { withCredentials: true });
+      closeForm();
+      flash(wasEditing ? "Episode saved." : form.published ? "Episode published." : "Episode saved as a draft.");
+      void loadEpisodes();
     } catch (err: any) {
-      setError(err.response?.data?.error || "Failed to save episode");
+      setFormError(err.response?.data?.error || "Failed to save episode");
     } finally {
       setSaving(false);
     }
   };
 
   const togglePublish = async (ep: Episode) => {
+    setBusyId(ep.id);
     try {
-      await api.put(
-        `/api/admin/podcasts/${ep.id}`,
-        { published: !ep.published },
-        { withCredentials: true }
-      );
-      loadEpisodes();
-      setSuccess(ep.published ? "Episode moved to drafts" : "Episode is now live");
-      setTimeout(() => setSuccess(null), 4000);
+      await api.put(`/api/admin/podcasts/${ep.id}`, { published: !ep.published }, { withCredentials: true });
+      flash(ep.published ? "Episode moved to drafts." : "Episode is now live.");
+      await loadEpisodes();
     } catch {
       setError("Failed to update publish status");
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -254,633 +259,384 @@ export default function AdminPodcastsPage() {
     try {
       await api.delete(`/api/admin/podcasts/${id}`, { withCredentials: true });
       setDeleteConfirmId(null);
-      setActionsOpen(null);
-      loadEpisodes();
-      setSuccess("Episode deleted");
-      setTimeout(() => setSuccess(null), 4000);
+      flash("Episode deleted.");
+      void loadEpisodes();
     } catch {
+      setDeleteConfirmId(null);
       setError("Failed to delete episode");
     }
   };
 
-  const previewVideoId = extractYouTubeId(form.youtubeUrl);
-  const previewThumb = previewVideoId
-    ? `https://img.youtube.com/vi/${previewVideoId}/hqdefault.jpg`
-    : null;
+  const previewThumb = thumbOf({ thumbnailUrl: null, youtubeUrl: form.youtubeUrl }, "hq");
+  const deleteTarget = deleteConfirmId ? episodes.find((e) => e.id === deleteConfirmId) : null;
+  const linkLooksWrong = form.youtubeUrl.trim().length > 0 && !extractYouTubeId(form.youtubeUrl);
 
-  const deleteTarget = deleteConfirmId ? episodes.find(e => e.id === deleteConfirmId) : null;
-  const actionsTarget = actionsOpen ? episodes.find(e => e.id === actionsOpen) : null;
+  const facts = [
+    { label: "Episodes", value: loading ? "..." : String(stats.total), detail: `${stats.guests} ${stats.guests === 1 ? "guest" : "guests"} featured`, tone: "text-white" },
+    { label: "Live on homepage", value: loading ? "..." : String(stats.published), detail: stats.total ? `${Math.round((stats.published / stats.total) * 100)}% of all episodes` : "nothing live yet", tone: stats.published ? "text-emerald-300" : "text-white" },
+    { label: "Drafts", value: loading ? "..." : String(stats.drafts), detail: stats.drafts ? "waiting to be published" : "no drafts", tone: stats.drafts ? "text-amber-300" : "text-white" },
+    { label: "Latest episode", value: loading ? "..." : stats.latest ? ago(stats.latest.publishedAt || stats.latest.createdAt) : "None", detail: stats.latest ? stats.latest.title : "publish the first one", tone: "text-white" },
+  ];
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-
-      {/* ─── Fixed actions dropdown popup ─── */}
-      {actionsOpen && actionsTarget && dropdownPos && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setActionsOpen(null)} />
-          <div
-            className="fixed z-50 w-48 rounded-xl bg-white border border-slate-200 shadow-xl shadow-slate-200/50 py-1.5 animate-in fade-in slide-in-from-top-1 duration-150"
-            style={{ top: dropdownPos.top, right: dropdownPos.right }}
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              onClick={() => { openEdit(actionsTarget); setActionsOpen(null); }}
-              className="flex items-center gap-2.5 w-full px-4 py-2 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition"
-            >
-              <Pencil className="h-3.5 w-3.5 text-slate-400" />
-              Edit Episode
-            </button>
-            <button
-              onClick={() => { togglePublish(actionsTarget); setActionsOpen(null); }}
-              className="flex items-center gap-2.5 w-full px-4 py-2 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition"
-            >
-              {actionsTarget.published ? (
-                <><EyeOff className="h-3.5 w-3.5 text-slate-400" />Move to Drafts</>
-              ) : (
-                <><Eye className="h-3.5 w-3.5 text-slate-400" />Publish Now</>
-              )}
-            </button>
-            <a
-              href={actionsTarget.youtubeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 w-full px-4 py-2 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition no-underline"
-              onClick={() => setActionsOpen(null)}
-            >
-              <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
-              View on YouTube
-            </a>
-            <div className="my-1.5 border-t border-slate-100" />
-            <button
-              onClick={() => { setDeleteConfirmId(actionsTarget.id); setActionsOpen(null); }}
-              className="flex items-center gap-2.5 w-full px-4 py-2 text-[13px] font-medium text-red-600 hover:bg-red-50 transition"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete Episode
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* ─── Delete confirmation modal ─── */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setDeleteConfirmId(null)}>
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-          {/* Dialog */}
-          <div
-            className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in fade-in zoom-in-95 duration-200"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Icon */}
-            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-red-50 flex items-center justify-center">
-              <Trash2 className="h-5 w-5 text-red-500" />
+    <div className="w-full min-w-0 space-y-5">
+      {/* Header */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.22)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Homepage media</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Podcast and media</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">YouTube episodes shown on the public homepage. Drafts stay hidden until you publish them.</p>
             </div>
-            <h2 className="text-center text-[15px] font-bold text-slate-900 mb-1">Delete this episode?</h2>
-            {deleteTarget && (
-              <p className="text-center text-[13px] text-slate-500 mb-5 line-clamp-2">
-                &ldquo;{deleteTarget.title}&rdquo;
-              </p>
-            )}
-            <p className="text-center text-[12px] text-slate-400 mb-6">This action cannot be undone.</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirmId(null)}
-                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
-              >
-                Cancel
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={openNew} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-emerald-400 px-3 text-xs font-semibold text-[#0b2420] transition-colors hover:bg-emerald-300">
+                <Plus className="h-3.5 w-3.5" /> New episode
               </button>
-              <button
-                onClick={() => handleDelete(deleteConfirmId)}
-                className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-700 transition active:scale-[0.98]"
-              >
-                Yes, delete
+              <button type="button" onClick={() => void loadEpisodes()} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ─── Page header ─── */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-3.5">
-          <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[#02b4f5] to-[#02665e] flex items-center justify-center shadow-lg shadow-[#02665e]/20">
-            <Radio className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Podcast & Media</h1>
-            <p className="text-[13px] text-slate-500">Manage episodes on the public homepage</p>
-          </div>
+          <dl className="m-0 mt-5 grid grid-cols-2 gap-y-4 border-0 border-t border-solid border-white/10 pt-4 lg:grid-cols-4 lg:gap-y-0">
+            {facts.map((fact, index) => (
+              <div key={fact.label} className={`min-w-0 pr-4 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10 pl-4 sm:pl-5" : ""} ${index === 2 ? "lg:border-0 lg:border-l lg:border-solid lg:border-white/10 lg:pl-5" : ""}`}>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">{fact.label}</dt>
+                <dd className={`m-0 mt-1.5 truncate text-xl font-bold leading-tight tabular-nums ${fact.tone}`}>{fact.value}</dd>
+                <dd className="m-0 mt-1 truncate text-xs text-white/50">{fact.detail}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
-        <button
-          onClick={() => { resetForm(); setShowForm(true); }}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#025550] active:scale-[0.98]"
-        >
-          <Plus className="h-4 w-4" /> New Episode
-        </button>
-      </div>
+      </section>
 
-      {/* ─── Stats row ─── */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
-        {[
-          { label: "Total", value: stats.total, color: "text-slate-900", bg: "bg-slate-50" },
-          { label: "Published", value: stats.published, color: "text-emerald-700", bg: "bg-emerald-50" },
-          { label: "Drafts", value: stats.drafts, color: "text-amber-700", bg: "bg-amber-50" },
-        ].map(({ label, value, color, bg }) => (
-          <div key={label} className={`${bg} rounded-xl px-4 py-3.5 border border-slate-200/60`}>
-            <p className={`text-2xl font-extrabold tabular-nums ${color}`}>{value}</p>
-            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ─── Feedback ─── */}
-      {success && (
-        <div className="mb-5 flex items-center gap-2.5 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3">
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-          <span className="text-sm font-medium text-emerald-700">{success}</span>
-        </div>
-      )}
       {error && (
-        <div className="mb-5 flex items-center justify-between rounded-lg bg-red-50 border border-red-200 px-4 py-3">
-          <span className="text-sm font-medium text-red-700">{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600"><X className="h-4 w-4" /></button>
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-800">
+          <X className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Dismiss</button>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+          <span className="flex-1">{success}</span>
+          <button type="button" onClick={() => setSuccess(null)} className="border-0 bg-transparent p-0 text-xs font-semibold text-emerald-700 hover:underline">Dismiss</button>
         </div>
       )}
 
-      {/* ─── Create / Edit form (modal) ─── */}
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-hidden shadow-2xl flex flex-col">
-            {/* ── Accent bar ── */}
-            <div className="h-1 w-full bg-gradient-to-r from-[#02665e] via-emerald-400 to-[#02665e] flex-shrink-0" />
-
-            {/* ── Sticky header ── */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10 flex-shrink-0">
-              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2.5">
-                {editingId ? <Pencil className="h-4 w-4 text-[#02665e]" /> : <Plus className="h-4 w-4 text-[#02665e]" />}
-                {editingId ? "Edit Episode" : "New Episode"}
-              </h2>
-              <button onClick={resetForm} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-
-            {/* ── Tab bar ── */}
-            <div className="flex border-b border-gray-200 px-6 bg-gray-50/50 flex-shrink-0">
+      {/* Status track, doubling as a filter */}
+      <section className="rounded-2xl border border-solid border-neutral-300 bg-white p-2 shadow-sm">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {STAGES.map((stage) => {
+            const Icon = stage.icon;
+            const n = stage.key === "published" ? stats.published : stats.drafts;
+            const share = stats.total ? Math.round((n / stats.total) * 100) : 0;
+            const selected = status === stage.key;
+            return (
               <button
-                onClick={() => setShowPreview(false)}
-                className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${
-                  !showPreview
-                    ? "border-[#02665e] text-[#02665e]"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                key={stage.key}
+                type="button"
+                onClick={() => setStatus(selected ? null : stage.key)}
+                aria-pressed={selected}
+                className={`min-w-0 rounded-xl border border-solid p-3.5 text-left transition-all ${selected ? `border-neutral-900 ${stage.soft}` : "border-transparent bg-neutral-50 ring-1 ring-inset ring-neutral-200 hover:bg-white"}`}
               >
-                Edit
+                <span className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${stage.text}`}><Icon className="h-3.5 w-3.5" /> {stage.label}</span>
+                  <span className="text-[11px] tabular-nums text-neutral-400">{share}%</span>
+                </span>
+                <span className="mt-2 block text-2xl font-bold tabular-nums leading-none text-neutral-900">{loading ? "..." : n}</span>
+                <span className="mt-1 block truncate text-[11px] text-neutral-500">{stage.hint}</span>
+                <span className="mt-2.5 block h-1 w-full overflow-hidden rounded-full bg-neutral-200/70">
+                  <span className={`block h-full rounded-full ${stage.bar}`} style={{ width: `${n > 0 ? Math.max(share, 4) : 0}%` }} />
+                </span>
               </button>
-              <button
-                onClick={() => setShowPreview(true)}
-                className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
-                  showPreview
-                    ? "border-[#02665e] text-[#02665e]"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                <Monitor className="h-3.5 w-3.5" />
-                Preview
-              </button>
-            </div>
+            );
+          })}
+        </div>
+      </section>
 
-            {/* ── Scrollable body ── */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-
-              {/* ══ PREVIEW MODE ══ */}
-              {showPreview ? (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">How it will appear on the homepage</p>
-                  <div className="flex justify-center">
-                    <div className="w-full max-w-sm rounded-2xl ring-1 ring-slate-200/80 bg-white overflow-hidden shadow-sm">
-                      {/* Thumbnail */}
-                      <div className="relative aspect-video bg-slate-100 overflow-hidden">
-                        {previewThumb ? (
-                          <>
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={previewThumb} alt="" className="w-full h-full object-cover" />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
-                              <div className="h-12 w-12 rounded-full bg-white/90 shadow-lg flex items-center justify-center">
-                                <Play className="h-5 w-5 text-slate-900 fill-slate-900 ml-0.5" />
-                              </div>
-                            </div>
-                            {form.duration && (
-                              <span className="absolute bottom-2 right-2 rounded bg-black/75 px-2 py-0.5 text-[11px] font-semibold text-white tabular-nums">{form.duration}</span>
-                            )}
-                          </>
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-50">
-                            <Play className="h-10 w-10 text-slate-300" />
-                          </div>
-                        )}
-                      </div>
-                      {/* Content */}
-                      <div className="p-4">
-                        <h3 className="font-bold text-[15px] leading-snug text-slate-900 line-clamp-2">
-                          {form.title || <span className="text-slate-300 italic font-normal">Episode title...</span>}
-                        </h3>
-                        {(form.guestName || form.guestRole) && (
-                          <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-                            <User className="h-3 w-3 flex-shrink-0" />
-                            <span>
-                              {form.guestName}
-                              {form.guestRole && <span className="text-slate-400"> · {form.guestRole}</span>}
-                            </span>
-                          </div>
-                        )}
-                        {form.description && (
-                          <p className="mt-2 text-[13px] leading-relaxed text-slate-500 line-clamp-2">{form.description}</p>
-                        )}
-                        <div className="mt-3 flex items-center justify-between">
-                          <span className="text-[11px] text-slate-400 font-medium">
-                            {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e]">
-                            Watch <Play className="h-3 w-3 fill-current" />
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  {!form.title.trim() && !form.youtubeUrl.trim() && (
-                    <p className="mt-4 text-center text-sm text-gray-400">Fill in the form fields to see changes reflected here.</p>
-                  )}
-                </div>
-              ) : (
-              /* ══ EDIT MODE ══ */
-              <>
-
-              {/* Section: Episode Details */}
-              <div>
-                <div className="pb-2.5 border-b border-gray-200 mb-5">
-                  <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                    <Radio className="h-4 w-4 text-[#02665e]" />
-                    Episode Details
-                  </h3>
-                  <p className="text-sm text-gray-500 mt-0.5">Core info about this episode</p>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Title <span className="text-red-400">*</span></label>
-                    <input
-                      type="text"
-                      value={form.title}
-                      onChange={(e) => setForm({ ...form, title: e.target.value })}
-                      placeholder="e.g. Interview with Tanzania Tourism Board"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm box-border"
-                      maxLength={300}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">YouTube URL <span className="text-red-400">*</span></label>
-                    <div className="relative">
-                      <Youtube className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-red-500 pointer-events-none" />
-                      <input
-                        type="url"
-                        value={form.youtubeUrl}
-                        onChange={(e) => setForm({ ...form, youtubeUrl: e.target.value })}
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm box-border"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-                    <textarea
-                      value={form.description}
-                      onChange={(e) => setForm({ ...form, description: e.target.value })}
-                      placeholder="Brief summary of this episode..."
-                      rows={3}
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm resize-none box-border"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Section: Guest Information */}
-              <div>
-                <div className="pb-2.5 border-b border-gray-200 mb-5">
-                  <h3 className="text-base font-semibold text-gray-900">Guest Information</h3>
-                  <p className="text-sm text-gray-500 mt-0.5">Optional guest details</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Guest Name</label>
-                    <input
-                      type="text"
-                      value={form.guestName}
-                      onChange={(e) => setForm({ ...form, guestName: e.target.value })}
-                      placeholder="e.g. John Mtui"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm box-border"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Guest Role</label>
-                    <input
-                      type="text"
-                      value={form.guestRole}
-                      onChange={(e) => setForm({ ...form, guestRole: e.target.value })}
-                      placeholder="e.g. Director of Tourism"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm box-border"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Section: Metadata */}
-              <div>
-                <div className="pb-2.5 border-b border-gray-200 mb-5">
-                  <h3 className="text-base font-semibold text-gray-900">Metadata</h3>
-                  <p className="text-sm text-gray-500 mt-0.5">Duration and tags for categorization</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Duration</label>
-                    <input
-                      type="text"
-                      value={form.duration}
-                      onChange={(e) => setForm({ ...form, duration: e.target.value })}
-                      placeholder="e.g. 12:34"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm box-border"
-                    />
-                  </div>
-                  <div className="min-w-0">
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Tags <span className="text-gray-400 font-normal">(comma-separated)</span></label>
-                    <input
-                      type="text"
-                      value={form.tags}
-                      onChange={(e) => setForm({ ...form, tags: e.target.value })}
-                      placeholder="interview, tourism, update"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-colors text-sm box-border"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              </>
-              )}
-            </div>
-
-            {/* ── Sticky footer ── */}
-            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
-              <Toggle
-                checked={form.published}
-                onChange={(v) => setForm({ ...form, published: v })}
-                label="Publish immediately"
-              />
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={resetForm}
-                  className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={saving}
-                  className="px-5 py-2.5 bg-[#02665e] text-white rounded-lg text-sm font-semibold hover:bg-[#024d47] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {editingId ? "Save Changes" : "Create Episode"}
-                </button>
-              </div>
-            </div>
+      {/* Directory */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="m-0 text-sm font-bold text-neutral-900">{status === "published" ? "Published episodes" : status === "draft" ? "Drafts" : "All episodes"}</h2>
+            <p className="m-0 text-xs tabular-nums text-neutral-400">{loading ? "Loading..." : `${filtered.length} ${filtered.length === 1 ? "episode" : "episodes"}, newest first`}</p>
           </div>
-        </div>
-      )}
-
-      {/* ─── Filter bar ─── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        {/* Tabs */}
-        <div className="flex rounded-xl bg-slate-100 p-1 gap-0.5">
-          {(
-            [
-              { key: "all", label: "All", count: stats.total },
-              { key: "published", label: "Published", count: stats.published },
-              { key: "draft", label: "Drafts", count: stats.drafts },
-            ] as const
-          ).map(({ key, label, count }) => (
-            <button
-              key={key}
-              onClick={() => setFilterTab(key)}
-              className={`rounded-lg px-4 py-2 text-[13px] font-semibold transition-all ${
-                filterTab === key
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {label}
-              <span
-                className={`ml-1.5 text-[11px] tabular-nums ${
-                  filterTab === key ? "text-slate-500" : "text-slate-400"
-                }`}
-              >
-                {count}
-              </span>
+          {status && (
+            <button type="button" onClick={() => setStatus(null)} className="inline-flex h-7 items-center gap-1 rounded-full border-0 bg-neutral-100 px-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-200">
+              <X className="h-3 w-3" /> Show all
             </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search episodes..."
-            className="rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] w-full sm:w-72 transition-all"
-          />
-        </div>
-      </div>
-
-      {/* ─── Episodes table ─── */}
-      {loading ? (
-        <div className="flex items-center justify-center py-24">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="h-7 w-7 animate-spin text-[#02665e]" />
-            <span className="text-sm text-slate-400 font-medium">Loading episodes...</span>
+          )}
+          <div className="relative ml-auto w-full min-w-0 sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title, guest or tag" aria-label="Search episodes" className={`${fieldClass} h-9 pl-9 pr-9`} />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
-      ) : episodes.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white px-6 py-16 text-center">
-          <div className="mx-auto mb-4 h-16 w-16 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
-            <Radio className="h-7 w-7 text-slate-300" />
-          </div>
-          <p className="text-lg font-bold text-slate-700">No episodes yet</p>
-          <p className="text-sm text-slate-400 mt-1.5 max-w-[36ch] mx-auto">
-            Create your first podcast episode to share media content with users on the homepage.
-          </p>
-          <button
-            onClick={() => {
-              resetForm();
-              setShowForm(true);
-            }}
-            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#02665e] px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#025550]"
-          >
-            <Plus className="h-4 w-4" />
-            Create First Episode
-          </button>
-        </div>
-      ) : filteredEpisodes.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
-          <Search className="h-8 w-8 text-slate-300 mx-auto mb-3" />
-          <p className="text-slate-600 font-semibold">No matching episodes</p>
-          <p className="text-sm text-slate-400 mt-1">
-            Try adjusting your search or filter.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
-          {/* Table header */}
-          <div className="hidden md:grid grid-cols-[minmax(0,1fr)_140px_120px_120px_52px] items-center gap-4 px-5 py-3 bg-slate-50/80 border-b border-slate-100 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
-            <span>Episode</span>
-            <span>Status</span>
-            <span>Duration</span>
-            <span>Date</span>
-            <span></span>
-          </div>
 
-          {/* Rows */}
-          <div className="divide-y divide-slate-100">
-            {filteredEpisodes.map((ep) => {
-              const videoId = extractYouTubeId(ep.youtubeUrl);
-              const thumb =
-                ep.thumbnailUrl ||
-                (videoId
-                  ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
-                  : null);
-
+        {loading && episodes.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 py-14 text-sm text-neutral-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading episodes
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-3 px-4 py-5 sm:px-5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><Radio className="h-5 w-5" /></span>
+            <div className="min-w-0 flex-1">
+              <p className="m-0 text-sm font-semibold text-neutral-900">{episodes.length ? "No episodes match" : "No episodes yet"}</p>
+              <p className="m-0 mt-0.5 text-xs text-neutral-500">{episodes.length ? "Try another word or clear the filter." : "Add a YouTube episode and it can go live on the homepage straight away."}</p>
+            </div>
+            {!episodes.length && (
+              <button type="button" onClick={openNew} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white hover:bg-[#12342f]">
+                <Plus className="h-3.5 w-3.5" /> New episode
+              </button>
+            )}
+          </div>
+        ) : (
+          <div>
+            {filtered.map((ep, idx) => {
+              const thumb = thumbOf(ep);
+              const when = ep.publishedAt || ep.createdAt;
               return (
-                <div
-                  key={ep.id}
-                  className="group grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px_120px_120px_52px] items-center gap-3 md:gap-4 px-5 py-4 hover:bg-slate-50/60 transition-colors"
-                >
-                  {/* Episode info */}
-                  <div className="flex items-center gap-4 min-w-0">
-                    {/* Thumbnail */}
-                    <div className="relative flex-shrink-0 w-20 h-[45px] rounded-lg overflow-hidden bg-slate-100">
-                      {thumb ? (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img
-                          src={thumb}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Play className="h-4 w-4 text-slate-300" />
-                        </div>
+                <article key={ep.id} className={`flex min-w-0 items-center gap-4 px-4 py-3.5 sm:px-5 ${idx ? "border-0 border-t border-solid border-neutral-200" : ""}`}>
+                  <a href={ep.youtubeUrl} target="_blank" rel="noopener noreferrer" className="group relative block h-[63px] w-28 shrink-0 overflow-hidden rounded-lg bg-neutral-100 ring-1 ring-inset ring-neutral-200" aria-label={`Watch ${ep.title} on YouTube`}>
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={thumb} alt="" loading="lazy" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="grid h-full w-full place-items-center text-neutral-300"><Play className="h-4 w-4" /></span>
+                    )}
+                    <span className="absolute inset-0 grid place-items-center bg-black/0 transition-colors group-hover:bg-black/20">
+                      <Play className="h-5 w-5 fill-white text-white opacity-0 transition-opacity group-hover:opacity-100" />
+                    </span>
+                    {ep.duration && <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 text-[10px] font-semibold tabular-nums text-white">{ep.duration}</span>}
+                  </a>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 truncate text-sm font-semibold text-neutral-900">{ep.title}</p>
+                    <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-400">
+                      {(ep.guestName || ep.guestRole) && (
+                        <span className="inline-flex items-center gap-1 text-neutral-600"><User className="h-3 w-3" /> {ep.guestName}{ep.guestRole ? `, ${ep.guestRole}` : ""}</span>
                       )}
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                        <Play className="h-4 w-4 text-white opacity-0 group-hover:opacity-80 transition-opacity fill-white" />
-                      </div>
-                    </div>
-
-                    {/* Title + meta */}
-                    <div className="min-w-0">
-                      <h3 className="text-[13px] font-bold text-slate-900 truncate leading-tight">
-                        {ep.title}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {(ep.guestName || ep.guestRole) && (
-                          <span className="text-[11px] text-slate-400 truncate">
-                            {ep.guestName}
-                            {ep.guestRole && ` · ${ep.guestRole}`}
-                          </span>
-                        )}
-                        {(ep.tags || []).length > 0 && (
-                          <div className="hidden lg:flex gap-1">
-                            {ep.tags.slice(0, 2).map((t) => (
-                              <span
-                                key={t}
-                                className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider"
-                              >
-                                {t}
-                              </span>
-                            ))}
-                            {ep.tags.length > 2 && (
-                              <span className="text-[9px] text-slate-400 font-medium">
-                                +{ep.tags.length - 2}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Status */}
-                  <div>
-                    <button
-                      onClick={() => togglePublish(ep)}
-                      className={`inline-flex items-center gap-1.5 rounded-full pl-2 pr-3 py-1 text-[11px] font-bold transition-all ring-1 ${
-                        ep.published
-                          ? "bg-emerald-50 text-emerald-700 ring-emerald-200 hover:bg-emerald-100"
-                          : "bg-slate-50 text-slate-500 ring-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      <span
-                        className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                          ep.published ? "bg-emerald-500" : "bg-slate-300"
-                        }`}
-                      />
-                      {ep.published ? "Published" : "Draft"}
-                    </button>
-                  </div>
-
-                  {/* Duration */}
-                  <div className="text-[13px] text-slate-500 tabular-nums font-medium">
-                    {ep.duration || (
-                      <span className="text-slate-300">—</span>
+                      <span>{ep.published ? "Published" : "Created"} {ago(when).toLowerCase()} · {eat(when)}</span>
+                    </p>
+                    {(ep.tags || []).length > 0 && (
+                      <span className="mt-1.5 flex flex-wrap gap-1">
+                        {ep.tags.slice(0, 4).map((t) => (
+                          <span key={t} className="rounded-md bg-neutral-50 px-1.5 py-0.5 text-[11px] text-neutral-600 ring-1 ring-inset ring-neutral-200">{t}</span>
+                        ))}
+                        {ep.tags.length > 4 && <span className="text-[11px] text-neutral-400">+{ep.tags.length - 4}</span>}
+                      </span>
                     )}
                   </div>
 
-                  {/* Date */}
-                  <div className="text-[12px] text-slate-400 font-medium">
-                    {ep.publishedAt ? fmtDate(ep.publishedAt) : fmtDate(ep.createdAt)}
-                  </div>
+                  <span className={`hidden shrink-0 items-center gap-1.5 text-xs font-semibold sm:inline-flex ${ep.published ? "text-emerald-700" : "text-amber-700"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${ep.published ? "bg-emerald-500" : "bg-amber-400"}`} />
+                    {ep.published ? "Live" : "Draft"}
+                  </span>
 
-                  {/* Actions dropdown */}
-                  <div className="relative flex justify-end">
+                  <span className="flex shrink-0 items-center gap-1">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (actionsOpen === ep.id) {
-                          setActionsOpen(null);
-                        } else {
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          setDropdownPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-                          setActionsOpen(ep.id);
-                        }
-                      }}
-                      className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      type="button"
+                      onClick={() => void togglePublish(ep)}
+                      disabled={busyId === ep.id}
+                      className={`hidden h-8 items-center gap-1.5 rounded-lg border border-solid px-2.5 text-xs font-semibold transition-colors disabled:opacity-50 md:inline-flex ${ep.published ? "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50" : "border-transparent bg-[#0b2420] text-white hover:bg-[#12342f]"}`}
                     >
-                      <MoreHorizontal className="h-4 w-4" />
+                      {busyId === ep.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : ep.published ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      {ep.published ? "Unpublish" : "Publish"}
                     </button>
-                  </div>
-                </div>
+                    <a href={ep.youtubeUrl} target="_blank" rel="noopener noreferrer" title="Open on YouTube" aria-label={`Open ${ep.title} on YouTube`} className="grid h-8 w-8 place-items-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                    <button type="button" onClick={() => openEdit(ep)} title="Edit" aria-label={`Edit ${ep.title}`} className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900">
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button type="button" onClick={() => setDeleteConfirmId(ep.id)} title="Delete" aria-label={`Delete ${ep.title}`} className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-500 transition-colors hover:bg-rose-50 hover:text-rose-600">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </span>
+                </article>
               );
             })}
           </div>
+        )}
+      </section>
 
-          {/* Table footer */}
-          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50/50">
-            <span className="text-[12px] text-slate-400 font-medium">
-              {filteredEpisodes.length} episode{filteredEpisodes.length !== 1 ? "s" : ""}
-              {filterTab !== "all" && ` (${filterTab})`}
-            </span>
-            <span className="text-[11px] text-slate-400">
-              Sorted by most recent
-            </span>
+      {/* Create / edit dialog */}
+      {showForm && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={editingId ? "Edit episode" : "New episode"} onClick={() => !saving && closeForm()}>
+          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 border-0 border-b border-solid border-neutral-200 px-5 py-3.5">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#0b2420] text-emerald-300"><Radio className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">{editingId ? "Edit episode" : "New episode"}</h2>
+                <p className="m-0 text-xs text-neutral-400">{form.published ? "Goes live on the homepage when you save." : "Saved as a draft, hidden from users."}</p>
+              </div>
+              <div className="hidden rounded-lg bg-neutral-100 p-0.5 sm:inline-flex" role="tablist" aria-label="Editor view">
+                {([[false, "Details"], [true, "Preview"]] as const).map(([preview, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    role="tab"
+                    aria-selected={showPreview === preview}
+                    onClick={() => setShowPreview(preview)}
+                    className={`inline-flex h-7 items-center gap-1 rounded-md border-0 px-2.5 text-xs font-semibold ${showPreview === preview ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}
+                  >
+                    {preview && <Monitor className="h-3 w-3" />} {label}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={closeForm} disabled={saving} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg border-0 bg-transparent text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {formError && (
+                <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2.5 text-xs text-rose-800">
+                  <X className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span className="flex-1">{formError}</span>
+                </div>
+              )}
+
+              {showPreview ? (
+                <div className="px-5 py-5">
+                  <p className={sectionLabel}>How it appears on the homepage</p>
+                  <div className="mt-3 flex justify-center">
+                    <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">
+                      <div className="relative aspect-video overflow-hidden bg-neutral-100">
+                        {previewThumb ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={previewThumb} alt="" className="h-full w-full object-cover" />
+                            <span className="absolute inset-0 grid place-items-center">
+                              <span className="grid h-12 w-12 place-items-center rounded-full bg-white/90 shadow-lg"><Play className="ml-0.5 h-5 w-5 fill-neutral-900 text-neutral-900" /></span>
+                            </span>
+                            {form.duration && <span className="absolute bottom-2 right-2 rounded bg-black/75 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-white">{form.duration}</span>}
+                          </>
+                        ) : (
+                          <span className="grid h-full w-full place-items-center text-neutral-300"><Play className="h-10 w-10" /></span>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        <h3 className="m-0 line-clamp-2 text-[15px] font-bold leading-snug text-neutral-900">{form.title || <span className="font-normal italic text-neutral-300">Episode title</span>}</h3>
+                        {(form.guestName || form.guestRole) && (
+                          <p className="m-0 mt-2 flex items-center gap-1.5 text-xs text-neutral-500"><User className="h-3 w-3" /> {form.guestName}{form.guestRole && <span className="text-neutral-400">, {form.guestRole}</span>}</p>
+                        )}
+                        {form.description && <p className="m-0 mt-2 line-clamp-2 text-[13px] leading-relaxed text-neutral-500">{form.description}</p>}
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="text-[11px] text-neutral-400">{new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e]">Watch <Play className="h-3 w-3 fill-current" /></span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_200px]">
+                    <div className="min-w-0 space-y-4">
+                      <label className="block">
+                        <span className="flex items-center justify-between"><span className={sectionLabel}>Title</span><span className="text-[11px] tabular-nums text-neutral-400">{form.title.length}/300</span></span>
+                        <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} maxLength={300} placeholder="For example: Interview with the Tanzania Tourism Board" className={`${fieldClass} mt-1.5 h-10 text-[15px] font-semibold`} />
+                      </label>
+                      <label className="block">
+                        <span className={sectionLabel}>YouTube link</span>
+                        <span className="relative mt-1.5 block">
+                          <Youtube className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-rose-500" />
+                          <input type="url" value={form.youtubeUrl} onChange={(e) => setForm({ ...form, youtubeUrl: e.target.value })} placeholder="https://www.youtube.com/watch?v=..." className={`${fieldClass} h-10 pl-9 ${linkLooksWrong ? "border-rose-300" : ""}`} />
+                        </span>
+                        {linkLooksWrong && <span className="mt-1 block text-[11px] font-medium text-rose-600">Paste a youtube.com/watch, youtu.be or embed link.</span>}
+                      </label>
+                    </div>
+                    <div className="min-w-0">
+                      <p className={sectionLabel}>Thumbnail</p>
+                      <div className="mt-1.5 aspect-video overflow-hidden rounded-lg bg-neutral-100 ring-1 ring-inset ring-neutral-200">
+                        {previewThumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={previewThumb} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="grid h-full w-full place-items-center px-3 text-center text-[11px] text-neutral-400">Appears once the link is valid</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-0 border-t border-solid border-neutral-200 px-5 py-4">
+                    <label className="block">
+                      <span className="flex items-center justify-between"><span className={sectionLabel}>Description</span><span className="text-[11px] tabular-nums text-neutral-400">{form.description.trim() ? form.description.trim().split(/\s+/).length : 0} words</span></span>
+                      <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} placeholder="A short summary shown under the title." className={`${fieldClass} mt-1.5 block resize-none py-2.5 leading-6`} />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 sm:grid-cols-2">
+                    <label className="block min-w-0 px-5 py-4">
+                      <span className={sectionLabel}>Guest name</span>
+                      <input type="text" value={form.guestName} onChange={(e) => setForm({ ...form, guestName: e.target.value })} placeholder="Optional" className={`${fieldClass} mt-1.5 h-9`} />
+                    </label>
+                    <label className="block min-w-0 border-0 border-t border-solid border-neutral-200 px-5 py-4 sm:border-l sm:border-t-0">
+                      <span className={sectionLabel}>Guest role</span>
+                      <input type="text" value={form.guestRole} onChange={(e) => setForm({ ...form, guestRole: e.target.value })} placeholder="For example: Director of Tourism" className={`${fieldClass} mt-1.5 h-9`} />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 sm:grid-cols-[200px_minmax(0,1fr)]">
+                    <label className="block min-w-0 px-5 py-4">
+                      <span className={sectionLabel}>Duration</span>
+                      <input type="text" value={form.duration} onChange={(e) => setForm({ ...form, duration: e.target.value })} placeholder="12:34" className={`${fieldClass} mt-1.5 h-9 tabular-nums`} />
+                    </label>
+                    <label className="block min-w-0 border-0 border-t border-solid border-neutral-200 px-5 py-4 sm:border-l sm:border-t-0">
+                      <span className={sectionLabel}>Tags, separated by commas</span>
+                      <input type="text" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="interview, tourism, update" className={`${fieldClass} mt-1.5 h-9`} />
+                      {form.tags.trim() && (
+                        <span className="mt-2 flex flex-wrap gap-1">
+                          {form.tags.split(",").map((t) => t.trim()).filter(Boolean).map((t, i) => (
+                            <span key={`${t}-${i}`} className="rounded-md bg-neutral-50 px-1.5 py-0.5 text-[11px] text-neutral-600 ring-1 ring-inset ring-neutral-200">{t}</span>
+                          ))}
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 border-0 border-t border-solid border-neutral-200 bg-neutral-50/80 px-5 py-3">
+              <Switch checked={form.published} onChange={(v) => setForm({ ...form, published: v })} label="Publish on the homepage" />
+              <span className="ml-auto flex items-center gap-2">
+                <button type="button" onClick={closeForm} disabled={saving} className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Cancel</button>
+                <button type="button" onClick={() => void handleSubmit()} disabled={saving} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#12342f] disabled:opacity-50">
+                  {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {editingId ? "Save changes" : form.published ? "Publish episode" : "Save draft"}
+                </button>
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Confirm delete" onClick={() => setDeleteConfirmId(null)}>
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 px-5 py-4">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><Trash2 className="h-4 w-4" /></span>
+              <div className="min-w-0">
+                <h2 className="m-0 text-sm font-bold text-neutral-900">Delete this episode?</h2>
+                <p className="m-0 mt-1 text-xs leading-5 text-neutral-500">
+                  {deleteTarget ? <>&ldquo;{deleteTarget.title}&rdquo; {deleteTarget.published ? "comes off the homepage straight away. " : ""}</> : null}This cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-0 border-t border-solid border-neutral-200 bg-neutral-50/80 px-5 py-3">
+              <button type="button" onClick={() => setDeleteConfirmId(null)} className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50">Cancel</button>
+              <button type="button" onClick={() => void handleDelete(deleteConfirmId)} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
+            </div>
           </div>
         </div>
       )}

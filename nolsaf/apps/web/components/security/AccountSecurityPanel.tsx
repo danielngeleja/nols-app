@@ -74,6 +74,7 @@ export default function AccountSecurityPanel({ variant = "page", roleLabelOverri
         setupUrl="/api/account/2fa/totp/setup"
         verifyUrl="/api/account/2fa/totp/verify"
         disableUrl="/api/account/2fa/disable"
+        regenerateCodesUrl="/api/account/2fa/codes/regenerate"
         embedded={embedded}
       />
 

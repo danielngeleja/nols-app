@@ -15,9 +15,20 @@ import { generateTransportTripCode } from "../lib/tripCode.js";
 import { AVAILABILITY_BLOCKING_BOOKING_STATUSES } from "../lib/bookingStatus.js";
 import { filterPayableAvailabilityBlocks } from "../lib/groupStayAvailabilityBlocks.js";
 import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
-import { getNrmsCapacityConsumers } from "../lib/nrmsAvailability.js";
+import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
-import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
+import { effectiveRoomSelectionCode, matchingRoomSelectionCodes, roomsSpecEntries } from "../lib/roomSelectionCode.js";
+
+/**
+ * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
+ * row and then run the whole capacity pass, so Prisma's default interactive
+ * transaction budget (maxWait 2s, timeout 5s) is too small: on production
+ * latency the pass plus the booking and transport writes overrun it, the
+ * transaction is closed underneath the remaining writes, and the request fails
+ * late with a confusing error while the held connections starve the background
+ * workers. Same shape as the other long transactions in this codebase.
+ */
+const BOOKING_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
 
 /** Sign a short-lived token proving the caller created this booking. */
 function signBookingAccessToken(bookingId: number): string {
@@ -495,6 +506,20 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       });
     }
 
+    const publishedRoomOptions = roomsSpecEntries(property.roomsSpec);
+    if (!data.roomCode && publishedRoomOptions.length === 1) {
+      // Older property records may have no persisted code, but one published
+      // option is unambiguous. Persist its stable identity on the booking so
+      // payment, NRMS projection and arrival all refer to the same category.
+      data.roomCode = effectiveRoomSelectionCode(publishedRoomOptions[0]);
+    } else if (!data.roomCode && publishedRoomOptions.length > 1) {
+      return res.status(400).json({
+        error: "Choose a room category before booking",
+        code: "ROOM_CATEGORY_REQUIRED",
+        requestId,
+      });
+    }
+
     // Never trust the client's disabled-toggle state — re-check the transport
     // gate for this property's region/district/ward server-side.
     if (data.includeTransport) {
@@ -594,18 +619,8 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         },
       });
       const conflictingBlocks = await filterPayableAvailabilityBlocks(rawConflictingBlocks, tx as any);
-      const nrmsConsumers = await getNrmsCapacityConsumers(tx, data.propertyId, checkIn, checkOut);
-      for (const row of nrmsConsumers) {
-        conflictingBlocks.push({
-          id: -row.allocationId,
-          startDate: row.startDate,
-          endDate: row.endDate,
-          roomCode: row.roomUnitCode ?? row.roomTypeName,
-          source: "NRMS",
-          bedsBlocked: 1,
-          notes: `NRMS reservation ${row.reservationId}`,
-        } as any);
-      }
+      const nrmsHolds = await getNrmsMarketplaceHolds(tx, data.propertyId, checkIn, checkOut);
+      conflictingBlocks.push(...(nrmsHolds as any[]));
 
       // Parse roomsSpec to get room types and their capacities
       let roomTypes: Array<{ code?: string; roomCode?: string; name?: string; beds?: number; rooms?: number; roomsCount?: number }> = [];
@@ -772,7 +787,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           !isRoomIndexSelection &&
           data.roomCode &&
           isExplicitRoomUnitCode(data.roomCode) &&
-          (conflictingBookings.some((b: any) => b.roomCode === data.roomCode) || nrmsConsumers.some((row) => row.roomUnitCode === data.roomCode))
+          (conflictingBookings.some((b: any) => b.roomCode === data.roomCode) || nrmsHolds.some((row) => row.roomUnitCode === data.roomCode))
         );
 
       // Type-level capacity: when roomCode is set, the selected TYPE must have at least 1 room available
@@ -792,7 +807,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         selectedRoomType: typeKey || undefined,
         availableForSelectedType: typeKey != null ? (availabilityByRoomType[typeKey]?.availableRooms ?? 0) : undefined,
       };
-    });
+    }, BOOKING_TX_OPTIONS);
 
     if (!availabilityCheck.available) {
       const conflictReasons: string[] = [];
@@ -974,9 +989,10 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     // Security: never let guest-provided identifiers override an authenticated session.
     let userId: number | null = (req as any)?.user?.id ?? null;
     if (!userId) {
-      if (data.guestEmail) {
+      const lookupEmail = sanitizedGuestEmail || data.guestEmail;
+      if (lookupEmail) {
         const user = await prisma.user.findUnique({
-          where: { email: data.guestEmail },
+          where: { email: lookupEmail },
           select: { id: true },
         });
         if (user) userId = user.id;
@@ -1024,18 +1040,8 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         },
       });
       const finalConflictingBlocks = await filterPayableAvailabilityBlocks(rawFinalConflictingBlocks, tx as any);
-      const finalNrmsConsumers = await getNrmsCapacityConsumers(tx, data.propertyId, checkIn, checkOut);
-      for (const row of finalNrmsConsumers) {
-        finalConflictingBlocks.push({
-          id: -row.allocationId,
-          startDate: row.startDate,
-          endDate: row.endDate,
-          roomCode: row.roomUnitCode ?? row.roomTypeName,
-          source: "NRMS",
-          bedsBlocked: 1,
-          notes: `NRMS reservation ${row.reservationId}`,
-        } as any);
-      }
+      const finalNrmsHolds = await getNrmsMarketplaceHolds(tx, data.propertyId, checkIn, checkOut);
+      finalConflictingBlocks.push(...(finalNrmsHolds as any[]));
 
       // Fetch property to check capacity (matching availability checker logic)
       const propertyForFinalCheck = await tx.property.findUnique({
@@ -1208,7 +1214,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           !finalIsRoomIndexSelection &&
           data.roomCode &&
           isExplicitRoomUnitCode(data.roomCode) &&
-          (finalConflictingBookings.some((b: any) => b.roomCode === data.roomCode) || finalNrmsConsumers.some((row) => row.roomUnitCode === data.roomCode))
+          (finalConflictingBookings.some((b: any) => b.roomCode === data.roomCode) || finalNrmsHolds.some((row) => row.roomUnitCode === data.roomCode))
         );
       const finalTypeKey = data.roomCode ? findBucketKey(finalRoomCodeForBucket, finalKeys) : null;
       const finalTypeOk = data.roomCode ? !!(finalTypeKey && (finalAvailabilityByRoomType[finalTypeKey]?.availableRooms ?? 0) >= roomsQty) : true;
@@ -1228,36 +1234,23 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
       }
 
       // Ensure we have a userId when transport is included (TransportBooking requires userId)
+      // The email and phone lookups already ran before this transaction opened,
+      // so only the fallback create is left: matching reads do not belong inside
+      // the property row lock.
       if (data.includeTransport && !userId) {
-        if (sanitizedGuestEmail) {
-          const u = await tx.user.findUnique({ where: { email: sanitizedGuestEmail }, select: { id: true } });
-          if (u) userId = u.id;
-        }
-
-        if (!userId && sanitizedGuestPhone) {
-          const phoneVariants = buildPhoneVariants(sanitizedGuestPhone);
-          const u = await tx.user.findFirst({
-            where: { phone: { in: phoneVariants } },
-            select: { id: true },
-          });
-          if (u) userId = u.id;
-        }
-
-        if (!userId) {
-          // Create a minimal customer record so transport requests can be linked correctly.
-          const created = await tx.user.create({
-            data: {
-              role: "CUSTOMER",
-              name: sanitizedGuestName,
-              fullName: sanitizedGuestName,
-              email: sanitizedGuestEmail,
-              phone: sanitizedGuestPhone,
-              kycStatus: "PENDING_KYC",
-            } as any,
-            select: { id: true },
-          });
-          userId = created.id;
-        }
+        // Create a minimal customer record so transport requests can be linked correctly.
+        const created = await tx.user.create({
+          data: {
+            role: "CUSTOMER",
+            name: sanitizedGuestName,
+            fullName: sanitizedGuestName,
+            email: sanitizedGuestEmail,
+            phone: sanitizedGuestPhone,
+            kycStatus: "PENDING_KYC",
+          } as any,
+          select: { id: true },
+        });
+        userId = created.id;
       }
 
       const transportSummary = (() => {
@@ -1363,6 +1356,14 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           } as any,
             });
 
+            // A create must come back with a row. When the surrounding
+            // transaction has already been closed underneath us, this resolved
+            // to null and the old code failed with an opaque
+            // "Cannot read properties of null (reading 'id')".
+            if (!tb || (tb as any).id == null) {
+              throw new Error("Transport booking was not created (no row returned)");
+            }
+
             transportBookingForOffer = {
               id: Number((tb as any).id),
               tripCode: ((tb as any).tripCode ?? null) as any,
@@ -1397,7 +1398,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         checkOut: booking.checkOut,
         transportBookingForOffer,
       };
-    });
+    }, BOOKING_TX_OPTIONS);
 
     // NOTE: do not broadcast transport offers here.
     // The transport auto-dispatch worker issues targeted offers (top drivers) based on live locations.
@@ -1600,4 +1601,3 @@ router.get("/:id", async (req: Request, res: Response) => {
 });
 
 export default router;
-

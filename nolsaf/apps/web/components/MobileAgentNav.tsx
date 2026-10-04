@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Bell, ClipboardList, Home, User } from "lucide-react";
+import { Bell, CalendarDays, Home, User } from "lucide-react";
 import { usePathname } from "next/navigation";
 
-type Slot = "home" | "assignments" | "notifications" | "account";
+type Slot = "home" | "bookings" | "notifications" | "account";
 
 export default function MobileAgentNav() {
   const pathname = usePathname();
@@ -23,7 +23,7 @@ export default function MobileAgentNav() {
     const path = pathname || "";
     return {
       home: path === "/account/agent" || path === "/account/agent/",
-      assignments: path.startsWith("/account/agent/assignments"),
+      bookings: path.startsWith("/account/agent/bookings") || path.startsWith("/account/agent/tour-bookings"),
       notifications: path.startsWith("/account/agent/notifications"),
       account:
         path.startsWith("/account/agent/profile") ||
@@ -165,16 +165,16 @@ export default function MobileAgentNav() {
             })}
 
             {renderNavItem({
-              href: "/account/agent/assignments",
-              slot: "assignments",
-              label: "Tasks",
-              activeState: active.assignments,
+              href: "/account/agent/bookings",
+              slot: "bookings",
+              label: "Bookings",
+              activeState: active.bookings,
               icon: (
-                <ClipboardList
+                <CalendarDays
                   width={ICON_SIZE}
                   height={ICON_SIZE}
-                  strokeWidth={strokeWidth(active.assignments)}
-                  color={iconColor(active.assignments)}
+                  strokeWidth={strokeWidth(active.bookings)}
+                  color={iconColor(active.bookings)}
                 />
               ),
             })}

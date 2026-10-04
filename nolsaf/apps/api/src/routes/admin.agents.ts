@@ -16,7 +16,7 @@ import { getAgentSuspensionEmail, getAgentRestorationEmail, getOperatorProfileAp
 import { signUserJwt } from "../lib/sessionManager.js";
 import crypto from "crypto";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
-import { bridgeApprovedOperatorToAccommodation } from "../lib/nrmsPartnerCapability.js";
+import { ACCOMMODATION_BRIDGE_TX_OPTIONS, bridgeApprovedOperatorToAccommodation } from "../lib/nrmsPartnerCapability.js";
 
 // ============================================================
 // Constants
@@ -116,7 +116,6 @@ interface AgentResponse {
     phone: string | null;
     createdAt?: Date;
   };
-  assignedPlanRequests?: any[];
   reviews?: any[];
 }
 
@@ -234,10 +233,6 @@ const updateAgentSchema = z.object({
   maxActiveRequests: z.number().int().min(1).max(100).optional(),
 }).strict();
 
-const assignAgentSchema = z.object({
-  planRequestId: z.number().int().positive(),
-}).strict();
-
 const agentDocParamsSchema = z
   .object({
     id: z.string().regex(/^\d+$/).transform(Number),
@@ -320,7 +315,6 @@ function formatAgentResponse(agent: any): AgentResponse {
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
     user: agent.user,
-    ...(agent.assignedPlanRequests && { assignedPlanRequests: agent.assignedPlanRequests }),
     ...(agent.reviews && { reviews: agent.reviews }),
   };
 }
@@ -1243,27 +1237,6 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
             createdAt: true,
           },
         },
-        assignedPlanRequests: {
-          select: {
-            id: true,
-            role: true,
-            tripType: true,
-            status: true,
-            fullName: true,
-            email: true,
-            phone: true,
-            dateFrom: true,
-            dateTo: true,
-            groupSize: true,
-            budget: true,
-            destinations: true,
-            notes: true,
-            adminResponse: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-          orderBy: { createdAt: "desc" },
-        },
         reviews: {
           select: {
             id: true,
@@ -1410,7 +1383,6 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
         eligibleForPromotion,
         criteriaMet: next?.met ?? null,
       },
-      assignedPlanRequests: agent.assignedPlanRequests || [],
       reviews: reviews,
       financialSummary: {
         paidCount: paidInvoicesCount,
@@ -1634,7 +1606,7 @@ router.post(
         agentId: Number(req.validatedParams.id),
         adminId: getAdminId(req as AuthedRequest),
         reason: req.validatedData.reason,
-      }));
+      }), ACCOMMODATION_BRIDGE_TX_OPTIONS);
       if (!result.ok) {
         return sendError(res, result.reason === "NOT_FOUND" ? 404 : 409, result.message, { code: result.reason });
       }
@@ -1807,7 +1779,7 @@ router.patch(
 
 // ============================================================
 // GET /api/admin/agents/:id/bookings
-// Fetch assigned tour requests with monetized financial details.
+// Fetch the operator's tour bookings with monetized financial details.
 // ============================================================
 router.get(
   "/:id/bookings",
@@ -1824,18 +1796,9 @@ router.get(
       const status = String(req.query?.status || "").trim();
       const search = sanitizeText(String(req.query?.search || "").trim());
 
-      const planWhere: any = { assignedAgentId: agent.id };
       const tourWhere: any = { operatorAgentId: agent.id };
       if (search) {
         const maybeId = Number(search);
-        planWhere.OR = [
-          { fullName: { contains: search } },
-          { email: { contains: search } },
-          { phone: { contains: search } },
-          { destinations: { contains: search } },
-          { tripType: { contains: search } },
-          ...(Number.isInteger(maybeId) && maybeId > 0 ? [{ id: maybeId }] : []),
-        ];
         tourWhere.OR = [
           { bookingCode: { contains: search } },
           { guestName: { contains: search } },
@@ -1847,25 +1810,7 @@ router.get(
         ];
       }
 
-      const settings = await prisma.systemSetting.findFirst({ select: { agentCommissionPercent: true } });
-      const commissionPercent = Number(settings?.agentCommissionPercent ?? 15);
-
-      const [planItems, tourItems] = await Promise.all([
-        prisma.planRequest.findMany({
-          where: planWhere,
-          orderBy: { createdAt: "desc" },
-          select: {
-            id: true,
-            fullName: true,
-            tripType: true,
-            destinations: true,
-            dateFrom: true,
-            dateTo: true,
-            budget: true,
-            status: true,
-            createdAt: true,
-          },
-        }),
+      const [tourItems] = await Promise.all([
         prisma.tourBooking.findMany({
           where: tourWhere,
           orderBy: { createdAt: "desc" },
@@ -1886,32 +1831,6 @@ router.get(
           },
         }),
       ]);
-
-      const normalizePlanStatus = (rawStatus: string) => {
-        const s = String(rawStatus || "").toUpperCase();
-        if (s === "COMPLETED" || s === "DONE" || s === "FINISHED") return "COMPLETED";
-        if (s === "CANCELED" || s === "CANCELLED" || s === "REFUNDED" || s === "REJECTED") return "CANCELLED";
-        if (s === "IN_PROGRESS" || s === "CONFIRMED" || s === "ACTIVE" || s === "ONGOING") return "IN_PROGRESS";
-        if (s === "PENDING" || s === "REQUESTED" || s === "APPROVED" || s === "VERIFIED") return "PENDING";
-        return "NEW";
-      };
-
-      const planBookings = planItems.map((item) => {
-        const amount = item.budget != null ? Number(item.budget) : 0;
-        const platformFee = amount > 0 ? Math.round((amount * commissionPercent) / 100) : 0;
-        return {
-          id: item.id,
-          guestName: item.fullName,
-          property: item.destinations || item.tripType || "Assigned tour request",
-          checkIn: item.dateFrom,
-          checkOut: item.dateTo,
-          amount,
-          platformFee,
-          operatorPayout: Math.max(0, amount - platformFee),
-          status: normalizePlanStatus(item.status),
-          createdAt: item.createdAt,
-        };
-      });
 
       const normalizeTourStatus = (rawStatus: string, metadata: unknown) => {
         const s = String(rawStatus || "").toUpperCase();
@@ -1941,7 +1860,7 @@ router.get(
 
       const requestedStatus = String(status || "").trim().toUpperCase();
       const normalizedRequestedStatus = requestedStatus === "CANCELED" ? "CANCELLED" : requestedStatus;
-      const combined = [...planBookings, ...tourBookings]
+      const combined = [...tourBookings]
         .filter((row) => !normalizedRequestedStatus || normalizedRequestedStatus === "ALL" || row.status === normalizedRequestedStatus)
         .sort((a, b) => {
           const at = new Date(a.createdAt as any).getTime();
@@ -2357,101 +2276,5 @@ router.post(
     }
   }
 );
-
-// ============================================================
-// POST /api/admin/agents/:id/assign-to-request
-// ============================================================
-router.post("/:id/assign-to-request", validate(getAgentParamsSchema, "params"), validate(assignAgentSchema, "body"), async (req: any, res) => {
-  try {
-    const { id } = req.validatedParams;
-    const { planRequestId } = req.validatedData;
-    const adminId = getAdminId(req as AuthedRequest);
-
-    const agentId = Number(id);
-
-    // Use transaction for atomic assignment
-    const result = await prisma.$transaction(async (tx) => {
-      // Check if agent exists and is available
-      const agent = await tx.agent.findUnique({
-        where: { id: agentId },
-        include: {
-          user: {
-            select: {
-              name: true,
-            },
-          },
-        },
-      });
-
-      if (!agent) {
-        throw new Error("Agent not found");
-      }
-
-      if (!agent.isAvailable) {
-        throw new Error("Agent is not available");
-      }
-
-      if (agent.currentActiveRequests >= agent.maxActiveRequests) {
-        throw new Error("Agent has reached maximum active requests");
-      }
-
-      // Check if plan request exists
-      const planRequest = await tx.planRequest.findUnique({
-        where: { id: planRequestId },
-      });
-
-      if (!planRequest) {
-        throw new Error("Plan request not found");
-      }
-
-      // Update plan request with agent assignment
-      await tx.planRequest.update({
-        where: { id: planRequestId },
-        data: {
-          assignedAgentId: agentId,
-          assignedAgent: agent.user?.name || null, // Keep legacy field updated
-        },
-      });
-
-      // Update agent's current active requests count
-      const updatedAgent = await tx.agent.update({
-        where: { id: agentId },
-        data: {
-          currentActiveRequests: agent.currentActiveRequests + 1,
-        },
-      });
-
-      return { agentId, planRequestId, agentName: agent.user?.name };
-    });
-
-    // Audit log
-    await audit(req as AuthedRequest, "AGENT_ASSIGNED", `agent:${result.agentId}`, null, {
-      planRequestId: result.planRequestId,
-      agentName: result.agentName,
-    });
-
-    sendSuccess(res, {
-      success: true,
-      message: "Agent assigned successfully",
-      agentId: result.agentId,
-      planRequestId: result.planRequestId,
-    });
-  } catch (err: any) {
-    console.error("[POST /admin/agents/:id/assign-to-request] Error:", err);
-    if (err.message === "Agent not found") {
-      return sendError(res, 404, "Agent not found");
-    }
-    if (err.message === "Plan request not found") {
-      return sendError(res, 404, "Plan request not found");
-    }
-    if (err.message === "Agent is not available") {
-      return sendError(res, 400, "Agent is not available");
-    }
-    if (err.message === "Agent has reached maximum active requests") {
-      return sendError(res, 400, "Agent has reached maximum active requests");
-    }
-    sendError(res, 500, "Failed to assign agent");
-  }
-});
 
 export default router;

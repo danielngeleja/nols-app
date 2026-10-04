@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import apiClient, { saveAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import {
@@ -9,10 +9,11 @@ import {
   shouldResolveWorkspaceSelection,
   validatedPostAuthTarget,
 } from "@/lib/postAuthRouting";
-import { AlertCircle, Check, UserPlus, Lock, LogIn, User, Truck, Building2, Mail, ArrowLeft, Phone, Eye, EyeOff, Shield, Fingerprint, ShieldX, AlertTriangle, ChevronDown } from 'lucide-react';
+import { AlertCircle, Check, UserPlus, Lock, LogIn, User, Truck, Building2, Mail, ArrowLeft, ArrowRight, Phone, Eye, EyeOff, Shield, Fingerprint, ShieldX, AlertTriangle, ChevronDown, MessageSquareText, Compass } from 'lucide-react';
 import { useRouter, useSearchParams } from "next/navigation";
 import LogoSpinner from "@/components/LogoSpinner";
 import AdminMfaLoginGate, { type AdminMfaStart } from "@/components/security/AdminMfaLoginGate";
+import AccountMfaLoginGate, { type AccountMfaStart } from "@/components/security/AccountMfaLoginGate";
 import { formatOtpCountdown, getOtpRetryAfterSeconds, getOtpSendErrorMessage } from "@/lib/otpRateLimit";
 
 const COUNTRY_CODES = [
@@ -187,7 +188,7 @@ const getPhoneLengthHint = (code: string) => {
   return min === max ? `Enter ${min} digits for ${getCountryLabel(code)}` : `Enter ${min}-${max} digits for ${getCountryLabel(code)}`;
 };
 
-function CountryCodePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function CountryCodePicker({ value, onChange, embedded = false }: { value: string; onChange: (v: string) => void; embedded?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const selected = COUNTRY_CODES.find((c) => c.code === value) ?? COUNTRY_CODES[0];
@@ -211,28 +212,33 @@ function CountryCodePicker({ value, onChange }: { value: string; onChange: (v: s
   }, [open, close]);
 
   return (
-    <div ref={ref} className="relative w-[122px] min-w-[122px] flex-shrink-0">
+    <div ref={ref} className={embedded ? "relative h-full flex-shrink-0" : "relative w-[122px] min-w-[122px] flex-shrink-0"}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-1.5 rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 transition-all hover:border-[#02665e]/40 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] shadow-sm"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`Country code ${selected.code}`}
+        className={embedded
+          ? "flex h-full items-center gap-1.5 rounded-l-xl border-0 bg-transparent pl-3.5 pr-2.5 text-[14.5px] font-semibold text-slate-800 transition hover:bg-slate-50 focus:outline-none"
+          : "flex w-full items-center justify-between gap-1.5 rounded-xl border-2 border-solid border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 transition-all hover:border-[#02665e]/40 focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] shadow-sm"}
       >
         <span className="text-base leading-none">{selected.flag}</span>
         <span>{selected.code}</span>
         <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1.5 z-50 rounded-xl border border-slate-200 bg-white ring-1 ring-black/5 shadow-xl overflow-hidden">
+        <div className="absolute top-full left-0 mt-1.5 z-50 min-w-[150px] rounded-xl border border-solid border-slate-200 bg-white ring-1 ring-black/5 shadow-xl overflow-hidden">
           <div className="max-h-[260px] overflow-y-auto overscroll-contain">
             {COUNTRY_CODES.map((c) => (
               <button
                 key={c.code}
                 type="button"
                 onClick={() => { onChange(c.code); close(); }}
-                className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-sm transition-colors whitespace-nowrap ${
+                className={`w-full flex items-center gap-2.5 border-0 px-3.5 py-2 text-sm transition-colors whitespace-nowrap ${
                   c.code === value
                     ? 'bg-[#02665e]/10 text-[#02665e] font-semibold'
-                    : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                    : 'bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900'
                 }`}
               >
                 <span className="text-base leading-none">{c.flag}</span>
@@ -264,6 +270,10 @@ export default function RegisterPage() {
   const referralCode = searchParams?.get('ref') || null;
   const roleParam = (searchParams?.get('role') || '').toLowerCase();
   const modeParam = (searchParams?.get('mode') || '').toLowerCase();
+  // Prefilled when someone is invited to create an account for a specific
+  // address, e.g. an NRMS property owner adding a staff member. It only
+  // seeds the form; the address is still verified by OTP like any other.
+  const emailParam = (searchParams?.get('email') || '').trim().toLowerCase();
   const nextParamRaw = searchParams?.get('next');
   const api = apiClient;
 
@@ -303,16 +313,30 @@ export default function RegisterPage() {
   const [loginSent, setLoginSent] = useState<boolean>(false);
   const [loginLoading, setLoginLoading] = useState<boolean>(false);
   const [loginOtpCountdown, setLoginOtpCountdown] = useSecondCountdown();
-  const [loginMethod, setLoginMethod] = useState<'phone' | 'credentials'>(roleParam === 'admin' ? 'credentials' : 'phone');
+  const [loginMethod, setLoginMethod] = useState<'phone' | 'credentials'>('credentials');
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [capsLockOn, setCapsLockOn] = useState<boolean>(false);
+  const loginOtpInputRef = useRef<HTMLInputElement | null>(null);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
   const [lockoutTotalSeconds, setLockoutTotalSeconds] = useState<number>(0);
   const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState<number>(0);
   const [lockoutMessage, setLockoutMessage] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState<boolean>(false);
   const [adminMfa, setAdminMfa] = useState<AdminMfaStart | null>(null);
+  const [accountMfa, setAccountMfa] = useState<AccountMfaStart | null>(null);
+  /** Account has the authenticator on but nothing to verify against: needs a support reset. */
+  const [mfaResetNeeded, setMfaResetNeeded] = useState(false);
   const [blockedAccount, setBlockedAccount] = useState<null | { name: string; email?: string | null; caseRef?: string | null; reason: string; nextSteps: string; payoutMessage: string }>(null);
   
+  // Returning visitors land on the sign-in method they used last (per browser only).
+  useEffect(() => {
+    if (roleParam === 'admin') return;
+    try {
+      const saved = window.localStorage.getItem('nolsaf.loginMethod');
+      if (saved === 'phone' || saved === 'credentials') setLoginMethod(saved);
+    } catch {}
+  }, [roleParam]);
+
   // Passkey sign-in helper
   const handlePasskeySignIn = async () => {
     setPasskeyLoading(true);
@@ -395,10 +419,14 @@ export default function RegisterPage() {
         throw new Error(composed || 'Passkey verification failed');
       }
 
+      if ((verifyData as any)?.mfaRequired) {
+        setAccountMfa(verifyData as AccountMfaStart);
+        return;
+      }
       await redirectAfterAuth((verifyData as any)?.user?.role);
     } catch (e: any) {
       if (e?.name === 'NotAllowedError') {
-        setError('You dont have the Passkey try signing with another option and add passkey after login');
+        setError('Passkey sign-in was cancelled or no passkey was found on this device. Sign in another way, then add a passkey from your security settings.');
       } else {
         setError(e?.message || 'Passkey sign-in failed');
       }
@@ -501,6 +529,14 @@ export default function RegisterPage() {
   useEffect(() => {
     if (roleParam === 'admin') setLoginMethod('credentials');
   }, [roleParam]);
+
+  // An invited address arrives as a link, so open on the email path with it
+  // filled rather than on the phone path the visitor would have to abandon.
+  useEffect(() => {
+    if (!emailParam || !emailParam.includes('@')) return;
+    setRegisterEmail(emailParam);
+    setRegisterMethod('email');
+  }, [emailParam]);
 
   useEffect(() => {
     setBlockedAccount(null);
@@ -1049,8 +1085,61 @@ export default function RegisterPage() {
     );
   };
 
+  const selectLoginMethod = (method: 'phone' | 'credentials') => {
+    setError(null);
+    setLoginSent(false);
+    setLoginMethod(method);
+    setMfaResetNeeded(false);
+    setCapsLockOn(false);
+    try { window.localStorage.setItem('nolsaf.loginMethod', method); } catch {}
+    // Keep keyboard and screen reader users in flow: land on the field that just appeared.
+    setTimeout(() => document.getElementById(method === 'phone' ? 'login-phone' : 'login-email')?.focus(), 50);
+  };
+
+  const trackCapsLock = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === 'function') setCapsLockOn(e.getModifierState('CapsLock'));
+  };
+
+  const sendLoginOtp = async () => {
+    setLoginLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      if (!isPhoneLengthValid(loginPhone, loginCountryCode)) {
+        setError(getPhoneLengthHint(loginCountryCode));
+        return;
+      }
+      const response = await api.post('/api/auth/send-otp', {
+        phone: normalizeLoginPhone(loginPhone, loginCountryCode),
+      });
+      if (response.status === 200) {
+        setSuccess('OTP sent to your phone. Please check and enter the code.');
+        setLoginOtp('');
+        setLoginSent(true);
+        setLoginOtpCountdown(60);
+        setTimeout(() => loginOtpInputRef.current?.focus(), 150);
+      }
+    } catch (err: any) {
+      const data = err?.response?.data;
+      const status = Number(err?.response?.status || 0);
+      const retryAfterSeconds = getOtpRetryAfterSeconds(data, err?.response?.headers?.['retry-after']);
+      if (status === 429 && retryAfterSeconds > 0) setLoginOtpCountdown(retryAfterSeconds);
+      setError(getOtpSendErrorMessage(data, status, retryAfterSeconds));
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const maskedLoginPhone = `${loginCountryCode} ${'•'.repeat(3)} ${loginPhone.replace(/\D/g, '').slice(-3)}`;
+
   // Login Page
   const renderLoginPage = () => {
+    if (accountMfa) {
+      return <AccountMfaLoginGate initial={accountMfa} onVerified={async (data) => {
+        saveAuthToken(data.token);
+        await redirectAfterAuth(data.user.role);
+      }} onCancel={() => { setAccountMfa(null); setLoginPassword(''); setLoginOtp(''); setError(null); }} />;
+    }
     if (adminMfa) {
       return (
         <AdminMfaLoginGate
@@ -1069,50 +1158,32 @@ export default function RegisterPage() {
     }
     return (
       <div className="relative flex w-full flex-col bg-white">
-        <div className="border-b border-slate-100 bg-white px-5 pb-4 pt-5 sm:px-6">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-emerald-50 text-[#02665e] ring-1 ring-emerald-100">
-                <LogIn className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#02776c]">NoLSAF account</p>
-                <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-950">Welcome back</h1>
-                <p className="mt-0.5 text-xs text-slate-500">Sign in securely to continue.</p>
-              </div>
-              {loginSent && (
-                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-[#02665e] ring-1 ring-emerald-100">
-                  Verify code
-                </span>
-              )}
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-              <span className="inline-flex items-center gap-1.5">
-                <Shield className="h-3.5 w-3.5 text-[#028577]" />
-                Protected sign-in
-              </span>
-              {!!roleParam && (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2 py-1 font-semibold text-slate-600 ring-1 ring-slate-200">
-                  {roleParam === 'driver' ? (
-                    <Truck className="h-3.5 w-3.5" />
-                  ) : roleParam === 'owner' ? (
-                    <Building2 className="h-3.5 w-3.5" />
-                  ) : (
-                    <User className="h-3.5 w-3.5" />
-                  )}
-                  <span className="capitalize">{roleParam} portal</span>
-                </span>
-              )}
-            </div>
+        <div className="px-6 pb-1 pt-7 sm:px-8 md:pt-8">
+          <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] ring-1 ring-slate-200">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/assets/NoLS2025-04.png" alt="NoLSAF" className="h-6 w-6 object-contain" />
+          </span>
+          <h1 className="m-0 text-[24px] font-bold leading-tight tracking-tight text-slate-950">
+            {loginSent ? 'Check your phone' : 'Sign in'}
+          </h1>
+          <p className="m-0 mt-1.5 text-[14px] leading-snug text-slate-500">
+            {loginSent
+              ? 'Enter the 6-digit code we just sent. It fills in automatically on most phones.'
+              : roleParam === 'owner'
+                ? 'Welcome back. Sign in to manage your properties.'
+                : roleParam === 'driver'
+                  ? 'Welcome back. Sign in to see your trips.'
+                  : 'Welcome back. Good to see you again.'}
+          </p>
         </div>
 
-        <div className="min-w-0 px-5 py-4 sm:px-6">
+        <div className="min-w-0 px-6 pb-6 pt-5 sm:px-8">
           {renderBlockedAccountCard()}
 
           {isLockedOut && (
-            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center" aria-hidden>
                   <Lock className="w-5 h-5 text-amber-600" />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -1123,12 +1194,20 @@ export default function RegisterPage() {
 
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <div className="text-xs text-slate-500">Time remaining</div>
-                    <div className="font-mono text-sm font-semibold text-amber-600 tabular-nums">
+                    <div className="font-mono text-sm font-semibold text-amber-800 tabular-nums" aria-live="off">
                       {formatRemaining(lockoutRemainingSeconds)}
                     </div>
                   </div>
 
-                  <div className="mt-2 h-2 rounded-full bg-amber-200 overflow-hidden">
+                  <div
+                    className="mt-2 h-2 rounded-full bg-amber-200 overflow-hidden"
+                    role="progressbar"
+                    aria-label="Time until you can try again"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.max(1, lockoutTotalSeconds)}
+                    aria-valuenow={lockoutRemainingSeconds}
+                    aria-valuetext={formatRemaining(lockoutRemainingSeconds)}
+                  >
                     <div
                       className="h-full bg-amber-500 transition-all duration-500"
                       style={{
@@ -1141,165 +1220,203 @@ export default function RegisterPage() {
                   </div>
 
                   <div className="mt-2 text-[11px] text-slate-400">
-                    Tip: If you forgot your password, use “Forgot password?” below.
+                    Tip: If you forgot your password, use “Forgot password?” to reset it.
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-sm text-red-700">
-              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500" />
-              <span className="flex-1 min-w-0 break-words">{error}</span>
+          {mfaResetNeeded ? (
+            <div className="mb-4 overflow-hidden rounded-2xl border border-solid border-amber-200 bg-amber-50">
+              <div className="flex items-start gap-3 p-3.5">
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-400 text-amber-950">
+                  <Shield className="h-[18px] w-[18px]" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] font-bold text-amber-950">Two-step verification needs a reset</p>
+                  <p className="mt-0.5 text-[12.5px] leading-snug text-amber-900/85">
+                    Your password was accepted, but this account has an authenticator turned on with no code set up behind it,
+                    so we cannot verify the second step. For your security we will not skip it.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 border-0 border-t border-solid border-amber-200/80 bg-white/60 px-3.5 py-2.5">
+                <span className="text-[12px] text-amber-900/80">Contact NoLSAF support to reset it.</span>
+                <button
+                  type="button"
+                  onClick={() => { setMfaResetNeeded(false); setError(null); }}
+                  className="border-0 bg-transparent p-0 text-[12px] font-semibold text-amber-900 hover:underline"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
-          )}
+          ) : error ? (
+            <div id="login-error" role="alert" className="mb-4 flex items-start gap-2.5 rounded-xl border border-solid border-rose-200 bg-rose-50 px-3.5 py-3 text-[13px] leading-snug text-rose-800">
+              <AlertCircle className="mt-px h-4 w-4 flex-shrink-0 text-rose-500" />
+              <span className="min-w-0 flex-1 break-words">{error}</span>
+            </div>
+          ) : null}
 
-          <div className={`min-w-0 space-y-3.5 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}>
+          <div className={`min-w-0 space-y-4 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}>
             {!loginSent ? (
               <>
-                {roleParam !== 'admin' && <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setLoginSent(false);
-                      setLoginMethod('phone');
-                    }}
-                    disabled={isLockedOut}
-                    className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 ${
-                      loginMethod === 'phone'
-                        ? 'bg-[#02665e] text-white shadow-sm'
-                        : 'bg-transparent text-slate-600 hover:bg-white hover:text-slate-900'
-                    }`}
-                  >
-                    <Phone className="h-3.5 w-3.5" />
-                    Phone
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setLoginSent(false);
-                      setLoginMethod('credentials');
-                    }}
-                    disabled={isLockedOut}
-                    className={`inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 ${
-                      loginMethod === 'credentials'
-                        ? 'bg-[#02665e] text-white shadow-sm'
-                        : 'bg-transparent text-slate-600 hover:bg-white hover:text-slate-900'
-                    }`}
-                  >
-                    <Mail className="h-3.5 w-3.5" />
-                    Email
-                  </button>
-                </div>}
 
+
+                <div
+                  id="login-panel"
+                  className="min-w-0"
+                >
                 {loginMethod === 'phone' ? (
-                  <>
-                    <div className="min-w-0 space-y-2">
-                      <label className="block text-xs font-semibold text-slate-700">Phone number</label>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CountryCodePicker value={loginCountryCode} onChange={setLoginCountryCode} />
+                  <form
+                    className="min-w-0 space-y-4"
+                    noValidate
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (loginLoading || loginOtpCountdown > 0 || !isPhoneLengthValid(loginPhone, loginCountryCode)) return;
+                      void sendLoginOtp();
+                    }}
+                  >
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="login-phone" className="block text-[12.5px] font-semibold text-slate-700">Phone number</label>
+                      <div className="flex h-12 min-w-0 items-stretch rounded-xl border border-solid border-slate-200 bg-white transition hover:border-slate-300 focus-within:border-[#02665e] focus-within:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]">
+                        <CountryCodePicker value={loginCountryCode} onChange={setLoginCountryCode} embedded />
+                        <span className="my-2.5 w-px flex-shrink-0 bg-slate-200" aria-hidden />
                         <input
+                          id="login-phone"
                           type="tel"
                           value={loginPhone}
                           onChange={(e) => setLoginPhone(sanitizePhoneInput(e.target.value, loginCountryCode))}
                           placeholder={getPhonePlaceholder(loginCountryCode)}
                           maxLength={getPhoneMaxLength(loginCountryCode)}
-                          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+                          autoComplete="tel-national"
+                          inputMode="tel"
+                          aria-describedby={`login-phone-help${loginPhone.length > 0 && !isPhoneLengthValid(loginPhone, loginCountryCode) ? ' login-phone-hint' : ''}${error ? ' login-error' : ''}`}
+                          aria-invalid={loginPhone.length > 0 && !isPhoneLengthValid(loginPhone, loginCountryCode) ? true : undefined}
+                          className="box-border h-full min-w-0 flex-1 rounded-r-xl border-0 bg-transparent px-3.5 text-[15px] font-medium tracking-wide text-slate-900 outline-none placeholder:font-normal placeholder:text-slate-400 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff]"
                         />
                       </div>
-                      <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                        <span className="w-1 h-1 bg-[#02665e] rounded-full flex-shrink-0" />
-                        <span>We&apos;ll send you a verification code</span>
+                      <p id="login-phone-help" className="m-0 flex items-center gap-1.5 text-[12px] text-slate-500">
+                        <MessageSquareText className="h-3.5 w-3.5 flex-shrink-0 text-[#02665e]" aria-hidden />
+                        <span>We&apos;ll text you a 6-digit code. No password needed.</span>
                       </p>
-                      {loginPhone.length > 0 && !isPhoneLengthValid(loginPhone, loginCountryCode) ? (
-                        <p className="text-[11px] text-amber-600 font-medium">{getPhoneLengthHint(loginCountryCode)}</p>
-                      ) : null}
+                      <div aria-live="polite">
+                        {loginPhone.length > 0 && !isPhoneLengthValid(loginPhone, loginCountryCode) ? (
+                          <p id="login-phone-hint" className="m-0 text-[12px] font-medium text-amber-800">{getPhoneLengthHint(loginCountryCode)}</p>
+                        ) : null}
+                      </div>
                     </div>
 
                     <button
-                      onClick={async () => {
-                        setLoginLoading(true);
-                        setError(null);
-                        setSuccess(null);
-                        try {
-                          if (!isPhoneLengthValid(loginPhone, loginCountryCode)) {
-                            setError(getPhoneLengthHint(loginCountryCode));
-                            return;
-                          }
-
-                          const response = await api.post('/api/auth/send-otp', {
-                            phone: normalizeLoginPhone(loginPhone, loginCountryCode),
-                          });
-                          if (response.status === 200) {
-                            setSuccess('OTP sent to your phone. Please check and enter the code.');
-                            setLoginSent(true);
-                          }
-                        } catch (err: any) {
-                          const data = err?.response?.data;
-                          const status = Number(err?.response?.status || 0);
-                          const retryAfterSeconds = getOtpRetryAfterSeconds(data, err?.response?.headers?.['retry-after']);
-                          if (status === 429 && retryAfterSeconds > 0) setLoginOtpCountdown(retryAfterSeconds);
-                          setError(getOtpSendErrorMessage(data, status, retryAfterSeconds));
-                        } finally {
-                          setLoginLoading(false);
-                        }
-                      }}
+                      type="submit"
+                      aria-busy={loginLoading || undefined}
                       disabled={loginLoading || loginOtpCountdown > 0 || !isPhoneLengthValid(loginPhone, loginCountryCode)}
-                      className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-45"
+                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-gradient-to-b from-[#037a70] to-[#02665e] px-4 text-[15px] font-semibold text-white shadow-[0_10px_22px_-12px_rgba(2,102,94,0.9),inset_0_1px_0_rgba(255,255,255,0.18)] transition hover:from-[#02665e] hover:to-[#014e47] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
                     >
-                      {loginLoading ? 'Sending...' : loginOtpCountdown > 0 ? `Try again in ${formatOtpCountdown(loginOtpCountdown)}` : 'Send OTP'}
+                      {loginLoading ? (
+                        <><span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/40 border-t-white" />Sending code</>
+                      ) : loginOtpCountdown > 0 ? (
+                        `Try again in ${formatOtpCountdown(loginOtpCountdown)}`
+                      ) : (
+                        <>Send code<ArrowRight className="h-4 w-4" aria-hidden /></>
+                      )}
                     </button>
-                  </>
+                  </form>
                 ) : (
                   <>
-                    <div className="space-y-3 min-w-0">
-                      <div className="space-y-2 min-w-0">
-                        <label className="block text-xs font-semibold text-slate-700">Email address</label>
-                        <input
-                          type="email"
-                          value={loginIdentifier}
-                          onChange={(e) => setLoginIdentifier(e.target.value)}
-                          placeholder="you@example.com"
-                          disabled={isLockedOut}
-                          className="w-full max-w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
-                        />
-                      </div>
-                      <div className="space-y-2 min-w-0">
-                        <label className="block text-xs font-semibold text-slate-700">Password</label>
+                    {/* A real form, so Enter signs in and password managers recognise it. */}
+                    <form className="min-w-0 space-y-4" onSubmit={(e) => e.preventDefault()} noValidate>
+                    <div className="space-y-3.5 min-w-0">
+                      <div className="space-y-1.5 min-w-0">
+                        <label htmlFor="login-email" className="block text-[12.5px] font-semibold text-slate-700">Email address</label>
                         <div className="relative">
                           <input
+                            id="login-email"
+                            type="email"
+                            autoComplete="username email"
+                            inputMode="email"
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            required
+                            aria-required="true"
+                            aria-invalid={error && !loginIdentifier.trim() ? true : undefined}
+                            aria-describedby={error ? 'login-error' : undefined}
+                            value={loginIdentifier}
+                            onChange={(e) => setLoginIdentifier(e.target.value)}
+                            placeholder="you@example.com"
+                            disabled={isLockedOut}
+                            className="box-border h-12 w-full max-w-full rounded-xl border border-solid border-slate-200 bg-white pl-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:bg-slate-50 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff] [&:-webkit-autofill]:[-webkit-text-fill-color:#0f172a] pr-4"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <label htmlFor="login-password" className="block text-[12.5px] font-semibold text-slate-700">Password</label>
+                          <button
+                            type="button"
+                            onClick={() => setAuthMode('forgot')}
+                            className="-my-1 inline-flex min-h-[24px] items-center rounded-md border-0 bg-transparent px-1 text-[12px] font-semibold text-[#02665e] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                          >
+                            Forgot password?
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            id="login-password"
                             type={showPassword ? 'text' : 'password'}
+                            autoComplete="current-password"
                             value={loginPassword}
                             onChange={(e) => setLoginPassword(e.target.value)}
-                            placeholder="••••••••"
+                            onKeyDown={trackCapsLock}
+                            onKeyUp={trackCapsLock}
+                            onBlur={() => setCapsLockOn(false)}
+                            placeholder="Your password"
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            required
+                            aria-required="true"
+                            aria-invalid={error && !loginPassword ? true : undefined}
+                            aria-describedby={[capsLockOn ? 'login-capslock' : '', error ? 'login-error' : ''].filter(Boolean).join(' ') || undefined}
                             disabled={isLockedOut}
-                            className="w-full max-w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 pr-11 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+                            className="box-border h-12 w-full max-w-full rounded-xl border border-solid border-slate-200 bg-white pl-4 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:bg-slate-50 [&:-webkit-autofill]:shadow-[inset_0_0_0_1000px_#ffffff] [&:-webkit-autofill]:[-webkit-text-fill-color:#0f172a] pr-12"
                           />
                           <button
                             type="button"
                             onClick={() => setShowPassword(!showPassword)}
                             disabled={isLockedOut}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20 rounded-md border-none bg-transparent p-1"
+                            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg border-0 bg-transparent text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
                             aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            aria-pressed={showPassword}
+                            aria-controls="login-password"
                           >
                             {showPassword ? (
-                              <EyeOff className="w-4 h-4" />
+                              <EyeOff className="w-4 h-4" aria-hidden />
                             ) : (
-                              <Eye className="w-4 h-4" />
+                              <Eye className="w-4 h-4" aria-hidden />
                             )}
                           </button>
+                        </div>
+                        <div aria-live="polite">
+                          {capsLockOn ? (
+                            <p id="login-capslock" className="m-0 flex items-center gap-1.5 text-[12px] font-medium text-amber-800">
+                              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
+                              Caps Lock is on
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </div>
 
                     <button
+                      type="submit"
                       onClick={async () => {
                         if (isLockedOut) return;
                         setLoginLoading(true);
                         setError(null);
+                        setMfaResetNeeded(false);
                         setBlockedAccount(null);
                         try {
                           const email = loginIdentifier.trim();
@@ -1338,6 +1455,13 @@ export default function RegisterPage() {
                               return;
                             }
 
+                            // Enabled authenticator with nothing behind it: explain, do not just shout.
+                            if (code === 'MFA_UNAVAILABLE' && r.status === 403) {
+                              setMfaResetNeeded(true);
+                              setError(null);
+                              return;
+                            }
+
                             const errorCode = String((data as any)?.error || '');
                             const errorMsg = String((data as any)?.message || '');
 
@@ -1364,6 +1488,11 @@ export default function RegisterPage() {
                           setLockoutUntil(null);
                           setLockoutTotalSeconds(0);
                           setLockoutMessage(null);
+                          if ((data as any)?.mfaRequired) {
+                            setLoginPassword('');
+                            setAccountMfa(data as AccountMfaStart);
+                            return;
+                          }
                           if ((data as any)?.adminMfaRequired) {
                             setLoginPassword('');
                             setAdminMfa(data as AdminMfaStart);
@@ -1378,85 +1507,71 @@ export default function RegisterPage() {
                         }
                       }}
                       disabled={loginLoading || isLockedOut}
-                      className="flex min-h-11 w-full items-center justify-center rounded-xl bg-[#02665e] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#014e47] disabled:cursor-not-allowed disabled:opacity-45"
+                      aria-busy={loginLoading || undefined}
+                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-[15px] font-semibold text-white shadow-[0_1px_2px_rgba(2,102,94,0.3),inset_0_1px_0_rgba(255,255,255,0.12)] transition-colors hover:bg-[#014e47] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#02665e]/25 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
                     >
-                      {isLockedOut ? `Locked (${formatRemaining(lockoutRemainingSeconds)})` : loginLoading ? 'Signing in...' : 'Sign In'}
+                      {isLockedOut ? (
+                        <><Lock className="h-4 w-4" aria-hidden />Locked ({formatRemaining(lockoutRemainingSeconds)})</>
+                      ) : loginLoading ? (
+                        <><span className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white/40 border-t-white" />Signing in</>
+                      ) : (
+                        'Sign in'
+                      )}
                     </button>
+                    </form>
                   </>
                 )}
-
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('forgot')}
-                    className="inline-flex items-center gap-1.5 border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] outline-none hover:underline"
-                  >
-                    <Lock className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span>Forgot password?</span>
-                  </button>
                 </div>
 
-                <div className="relative flex items-center gap-3 py-0.5">
-                  <div className="h-px flex-1 bg-slate-200" />
-                  <span className="text-[11px] font-medium text-slate-400">or</span>
-                  <div className="h-px flex-1 bg-slate-200" />
+                <div className="flex items-center gap-3 pt-1" aria-hidden>
+                  <span className="h-px flex-1 bg-slate-200" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">or</span>
+                  <span className="h-px flex-1 bg-slate-200" />
                 </div>
 
-                <div>
+                <div className={`grid gap-2.5 ${roleParam !== 'admin' ? 'grid-cols-2' : 'grid-cols-1'}`}>
                   <button
                     type="button"
                     onClick={handlePasskeySignIn}
                     disabled={passkeyLoading || isLockedOut}
-                    className="group flex min-h-[62px] w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-left outline-none transition-[border-color,background-color,box-shadow,transform] hover:border-emerald-300 hover:bg-emerald-50/20 hover:shadow-sm focus-visible:border-[#02776c] focus-visible:ring-2 focus-visible:ring-[#02776c]/15 active:scale-[0.995] disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label="Sign in with a passkey"
+                    className="inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:border-[#02665e] focus-visible:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Sign in with a passkey using face, fingerprint or screen lock"
+                    aria-busy={passkeyLoading || undefined}
                   >
                     {passkeyLoading ? (
-                      <span className="grid h-9 w-9 flex-none place-items-center rounded-full border border-emerald-100 bg-emerald-50/70 text-[#02665e]">
-                        <LogoSpinner size="xs" ariaLabel="Authenticating" />
-                      </span>
+                      <span className="h-4 w-4 flex-none animate-spin rounded-full border-2 border-solid border-[#02665e]/25 border-t-[#02665e]" aria-hidden />
                     ) : (
-                      <span className="grid h-9 w-9 flex-none place-items-center rounded-full border border-emerald-100 bg-emerald-50/70 text-[#02776c] transition-colors group-hover:bg-emerald-50 group-hover:text-[#014e47]">
-                        <Fingerprint className="h-5 w-5" strokeWidth={1.8} />
-                      </span>
+                      <Fingerprint className="h-[18px] w-[18px] flex-none text-[#02665e]" strokeWidth={1.9} aria-hidden />
                     )}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] font-semibold leading-5 text-slate-900">
-                        {passkeyLoading ? 'Authenticating...' : 'Sign in with passkey'}
-                      </span>
-                      <span className="block truncate text-[11px] leading-4 text-slate-500">
-                        Face, fingerprint or screen lock
-                      </span>
-                    </span>
-                    <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-slate-50 text-slate-400 transition-colors group-hover:bg-white group-hover:text-[#02665e]">
-                      <ChevronDown className="h-3 w-3 -rotate-90" strokeWidth={2} />
-                    </span>
+                    <span className="truncate">Passkey</span>
                   </button>
+                  {roleParam !== 'admin' ? (
+                    <button
+                      type="button"
+                      onClick={() => selectLoginMethod(loginMethod === 'phone' ? 'credentials' : 'phone')}
+                      disabled={isLockedOut}
+                      className="order-first inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:border-[#02665e] focus-visible:shadow-[0_0_0_4px_rgba(2,102,94,0.12)] disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label={loginMethod === 'phone' ? 'Sign in with email instead' : 'Sign in with phone instead'}
+                    >
+                      {loginMethod === 'phone' ? (
+                        <Mail className="h-[18px] w-[18px] flex-none text-[#02665e]" aria-hidden />
+                      ) : (
+                        <Phone className="h-[18px] w-[18px] flex-none text-[#02665e]" aria-hidden />
+                      )}
+                      <span className="truncate">{loginMethod === 'phone' ? 'Email' : 'Phone'}</span>
+                    </button>
+                  ) : null}
                 </div>
               </>
             ) : (
-              <>
-                <div className="space-y-2 min-w-0">
-                  <label className="block text-sm font-semibold text-slate-700">Enter OTP</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={loginOtp}
-                    onChange={(e) => setLoginOtp(e.target.value.replace(/[^0-9]/g, ''))}
-                    placeholder="123456"
-                    maxLength={6}
-                    className="w-full max-w-full px-4 py-3 text-lg tracking-widest text-center font-mono bg-white text-slate-900 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e] box-border placeholder:text-slate-300"
-                  />
-                </div>
-                <div className="flex items-center gap-3 min-w-0">
-                  <button
-                    onClick={() => setLoginSent(false)}
-                    className="flex-1 min-w-0 px-3 py-2 text-sm font-semibold text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors box-border"
-                  >
-                    Edit phone
-                  </button>
-                    <button
-                      onClick={async () => {
+              <form
+                className="min-w-0 space-y-4"
+                noValidate
+                onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (loginLoading || loginOtp.length !== 6) return;
                         setLoginLoading(true);
+                        setError(null);
                         setBlockedAccount(null);
                         // Verify login OTP with API
                         try {
@@ -1465,6 +1580,11 @@ export default function RegisterPage() {
                             otp: loginOtp.trim(),
                           });
                           
+                          if (response.data?.mfaRequired) {
+                            setLoginOtp('');
+                            setAccountMfa(response.data as AccountMfaStart);
+                            return;
+                          }
                           if (response.status === 200) {
                             saveAuthToken(response.data?.token);
                             // Auth cookie is set httpOnly by the API; redirect to authenticated area.
@@ -1476,19 +1596,71 @@ export default function RegisterPage() {
                             setBlockedAccount(data.blockedAccount);
                             setError(null);
                           } else {
-                            setError(data?.error || 'Invalid OTP. Please try again.');
+                            setError(data?.error || 'That code did not work. Check it and try again.');
+                            setTimeout(() => loginOtpInputRef.current?.select(), 50);
                           }
                       } finally {
                         setLoginLoading(false);
                       }
-                      }}
-                      disabled={loginLoading || !loginOtp}
-                      className="flex-1 min-w-0 px-4 py-2.5 bg-[#02665e] text-white text-sm font-medium rounded-lg hover:bg-[#014e47] transition-colors disabled:opacity-50 disabled:cursor-not-allowed box-border"
-                    >
-                      {loginLoading ? 'Verifying...' : 'Verify & Sign in'}
-                    </button>
+                }}
+              >
+                <div className="space-y-1.5 min-w-0">
+                  <label htmlFor="login-otp" className="block text-[12.5px] font-semibold text-slate-700">6-digit code</label>
+                  <input
+                    ref={loginOtpInputRef}
+                    id="login-otp"
+                    name="one-time-code"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={loginOtp}
+                    onChange={(e) => setLoginOtp(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    autoFocus
+                    required
+                    aria-required="true"
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={`login-otp-help${error ? ' login-error' : ''}`}
+                    className="box-border h-14 w-full max-w-full rounded-xl border-2 border-solid border-slate-200 bg-white px-4 text-center font-mono text-[22px] font-bold tracking-[0.4em] text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-[#02665e] focus:shadow-[0_0_0_4px_rgba(2,102,94,0.12)]"
+                  />
+                  <p id="login-otp-help" className="m-0 text-[12px] text-slate-500">
+                    Sent by SMS to <span className="font-semibold text-slate-700 tabular-nums">{maskedLoginPhone}</span>
+                  </p>
                 </div>
-              </>
+                <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => { setLoginSent(false); setLoginOtp(''); setError(null); }}
+                    className="box-border inline-flex h-12 min-w-0 flex-1 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white px-3 text-[14px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    Edit phone
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loginLoading || loginOtp.length !== 6}
+                    aria-busy={loginLoading || undefined}
+                    className="box-border inline-flex h-12 min-w-0 flex-1 items-center justify-center rounded-xl border-0 bg-gradient-to-b from-[#037a70] to-[#02665e] px-4 text-[14px] font-semibold text-white transition hover:from-[#02665e] hover:to-[#014e47] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {loginLoading ? 'Verifying...' : 'Verify and sign in'}
+                  </button>
+                </div>
+                <div className="flex items-center justify-center text-[12.5px] text-slate-500" aria-live="polite">
+                  {loginOtpCountdown > 0 ? (
+                    <span className="tabular-nums">Resend code in {formatOtpCountdown(loginOtpCountdown)}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void sendLoginOtp()}
+                      disabled={loginLoading}
+                      className="inline-flex min-h-[24px] items-center rounded-md border-0 bg-transparent px-1 font-semibold text-[#02665e] hover:underline disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30"
+                    >
+                      Didn&apos;t get it? Resend code
+                    </button>
+                  )}
+                </div>
+              </form>
             )}
           </div>
         </div>
@@ -1519,8 +1691,8 @@ export default function RegisterPage() {
 
     if (authMode === 'login') {
       return (
-        <div className="shrink-0 border-t border-slate-100 bg-slate-50/70 px-5 py-3.5 sm:px-6">
-          <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-slate-600">
+        <div className="shrink-0 border-0 border-t border-solid border-slate-100 bg-slate-50/60 px-6 py-4 sm:px-8">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-[13px] text-slate-600">
             <span>New to NoLSAF?</span>
             <button
               type="button"
@@ -1965,17 +2137,22 @@ export default function RegisterPage() {
       </svg>
 
       {/* ── Card ── */}
-      <div id="nolsaf-auth-card" className="relative z-10 w-full max-w-[440px]">
+      <div
+        id="nolsaf-auth-card"
+        className="relative z-10 w-full max-w-[440px]"
+      >
         <div className="overflow-hidden rounded-[26px] bg-white shadow-[0_28px_80px_rgba(0,30,27,0.34)] ring-1 ring-white/40">
-          <div className="flex flex-col bg-white">
-            <div className="flex-1">
-              {authMode === 'register'
-                ? renderRegisterPage()
-                : authMode === 'login'
-                  ? renderLoginPage()
-                  : renderForgotPasswordPage()}
+          <div>
+            <div className="flex min-w-0 flex-col bg-white">
+              <div className="flex-1">
+                {authMode === 'register'
+                  ? renderRegisterPage()
+                  : authMode === 'login'
+                    ? renderLoginPage()
+                    : renderForgotPasswordPage()}
+              </div>
+              {renderModeToggleFooter()}
             </div>
-            {renderModeToggleFooter()}
           </div>
         </div>
       </div>

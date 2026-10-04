@@ -52,11 +52,11 @@ function parseShareChannel(raw: unknown): string | null {
   return SHARE_CHANNELS.includes(value) ? value : null;
 }
 
-function buildShareUrl(token: string, propertyId: number, title: string | null): string {
+function buildShareUrl(token: string, nrmsBookingKey: string, title: string | null): string {
   const origin = process.env.WEB_ORIGIN || process.env.FRONTEND_URL || process.env.APP_ORIGIN || "";
   // Same canonical listing URL the rest of the app links to, with the token as
   // a query param. No new route, and the SEO canonical is unaffected.
-  const slug = buildPropertySlug(title || "", propertyId);
+  const slug = buildPropertySlug(title || "", nrmsBookingKey);
   return `${origin}/public/properties/${slug}?s=${encodeURIComponent(token)}`;
 }
 
@@ -75,6 +75,7 @@ type SavedPropertyWithRelations = {
   updatedAt: Date;
   property: {
     id: number;
+    nrmsBookingKey: string;
     title: string;
     type: string;
     regionName: string | null;
@@ -123,7 +124,7 @@ function transformSavedPropertyToItem(
   }
 
   const title = sp.property.title || "Untitled property";
-  const slug = buildPropertySlug(title, sp.property.id);
+  const slug = buildPropertySlug(title, sp.property.nrmsBookingKey);
   
   // Extract primary image - use the first image URL if available, otherwise use photos
   let primaryImage: string | null = null;
@@ -195,6 +196,7 @@ async function fetchSavedProperties(
         property: {
           select: {
             id: true,
+            nrmsBookingKey: true,
             title: true,
             type: true,
             regionName: true,
@@ -360,6 +362,7 @@ router.post(
           property: {
             select: {
               id: true,
+              nrmsBookingKey: true,
               title: true,
             },
           },
@@ -370,7 +373,7 @@ router.post(
 
       const slug = buildPropertySlug(
         savedProperty.property.title,
-        savedProperty.property.id
+        savedProperty.property.nrmsBookingKey
       );
 
       res.json({
@@ -614,9 +617,9 @@ router.post(
             data: { token: newShareToken(), sharerId: userId, propertyId, channel },
             select: { token: true },
           }),
-          prisma.property.findUnique({ where: { id: propertyId }, select: { title: true } }),
+          prisma.property.findUnique({ where: { id: propertyId }, select: { nrmsBookingKey: true, title: true } }),
         ]);
-        share = { token: created.token, url: buildShareUrl(created.token, propertyId, property?.title ?? null) };
+        if (property) share = { token: created.token, url: buildShareUrl(created.token, property.nrmsBookingKey, property.title) };
       } catch (shareError) {
         console.warn("Property share attribution unavailable", shareError);
       }

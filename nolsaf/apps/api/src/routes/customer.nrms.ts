@@ -3,6 +3,7 @@ import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth } from "../middleware/auth.js";
 import { buildStayOrderingToken } from "../lib/nrmsStayToken.js";
+import { activeStayReservationWhere } from "../lib/nrmsActiveStay.js";
 
 const router = Router();
 const db = prisma as any;
@@ -44,7 +45,7 @@ router.get("/room-ordering", (async (req, res) => {
 
     const reservation = await db.reservation.findFirst({
       where: {
-        status: "CHECKED_IN",
+        ...activeStayReservationWhere(),
         source: "NOLSAF",
         booking: { userId },
         ...(requestedPropertyId ? { propertyId: requestedPropertyId } : {}),

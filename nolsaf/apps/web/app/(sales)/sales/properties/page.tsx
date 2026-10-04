@@ -15,7 +15,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import SalesShell, { statusTone } from "@/components/SalesShell";
+import SalesShell, { codeLabel, statusTone } from "@/components/SalesShell";
 import SalesPageHeader from "@/components/sales/SalesPageHeader";
 
 type Attribution = {
@@ -40,7 +40,28 @@ type PropertyRow = {
   salesAttributions: Attribution[];
   totalEarnings: number;
   currency: string;
+  onboarding?: { completed: number; total: number; current: string | null; currentLabel: string | null; blocked: boolean } | null;
 };
+
+/** Compact "how far along" for a portfolio row: bar plus the next step. */
+function OnboardingMini({ value }: { value: PropertyRow["onboarding"] }) {
+  if (!value) return <span className="text-xs text-slate-400">Not available</span>;
+  const done = value.current === null;
+  const tone = value.blocked ? "bg-red-500" : done ? "bg-emerald-600" : "bg-[#087f68]";
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-slate-100">
+          <div className={`h-full rounded-full ${tone}`} style={{ width: `${(value.completed / Math.max(1, value.total)) * 100}%` }} />
+        </div>
+        <span className="text-xs tabular-nums text-slate-500">{value.completed}/{value.total}</span>
+      </div>
+      <p className={`m-0 mt-1 truncate text-xs ${value.blocked ? "font-semibold text-red-700" : done ? "font-semibold text-emerald-700" : "text-slate-600"}`}>
+        {done ? "Fully onboarded" : `${value.blocked ? "Blocked" : "Next"}: ${value.currentLabel ?? "In progress"}`}
+      </p>
+    </div>
+  );
+}
 
 const attributionStatuses = ["ALL", "VERIFIED", "ACTIVE", "DISPUTED", "EXPIRED", "REVOKED"] as const;
 const pageSize = 25;
@@ -314,6 +335,10 @@ export default function SalesPropertiesPage() {
                           ))}
                         </div>
 
+                        <div className="mt-3">
+                          <OnboardingMini value={property.onboarding} />
+                        </div>
+
                         <dl className="mb-0 mt-4 grid grid-cols-2 gap-2">
                           <div className="rounded-xl bg-slate-50 px-3 py-2.5">
                             <dt className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide text-slate-400">
@@ -347,12 +372,13 @@ export default function SalesPropertiesPage() {
               </div>
 
               <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[920px] border-collapse text-left">
+              <table className="w-full min-w-[1040px] border-collapse text-left">
                 <thead className="bg-slate-50/80">
                   <tr className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">
                     <th className="px-5 py-3">Property</th>
                     <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Attribution</th>
+                    <th className="px-4 py-3">Onboarding</th>
                     <th className="px-4 py-3 text-center">Rooms</th>
                     <th className="px-4 py-3 text-right">Recorded earnings</th>
                     <th className="w-16 px-4 py-3 text-center">View</th>
@@ -384,13 +410,16 @@ export default function SalesPropertiesPage() {
                           <div className="flex flex-wrap gap-1.5">
                             {property.salesAttributions.map((attribution) => (
                               <span key={attribution.id} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-100 bg-white px-2 py-1 shadow-sm">
-                                <span className="text-[10px] font-black text-slate-700">{attribution.productType}</span>
+                                <span className="text-[10px] font-black text-slate-700">{codeLabel(attribution.productType)}</span>
                                 <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${statusTone(attribution.status)}`}>
                                   {formatLabel(attribution.status)}
                                 </span>
                               </span>
                             ))}
                           </div>
+                        </td>
+                        <td className="max-w-[14rem] px-4 py-4">
+                          <OnboardingMini value={property.onboarding} />
                         </td>
                         <td className="px-4 py-4 text-center">
                           <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700">

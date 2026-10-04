@@ -6,14 +6,22 @@
 import { Router, type Response } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
-import { requireNrms, loadOwnedActiveNrmsProperty } from "../lib/nrms.js";
+import { AuthedRequest, requireAuth } from "../middleware/auth.js";
+import { loadNrmsPropertyAccess } from "../lib/nrmsPropertyAccess.js";
+
+/** Everyone who has to see what is free before they can sell or assign it. */
+const CALENDAR_READ_ROLES = ["OWNER", "MANAGER", "FRONT_DESK", "SALES_EXECUTIVE"] as const;
 import { getCalendarEntries } from "../lib/nrmsAvailability.js";
 import { connectExistingNoLsafBookings } from "../lib/nolsafMarketplaceNrms.js";
 
 export const router = Router();
 
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
+// Access is resolved per handler rather than at the router, because reading
+// availability is not owner-only work: a sales executive holds
+// `availability.read` and cannot sell without it. loadNrmsPropertyAccess also
+// checks the PROPERTY owner's NRMS enrollment, which is the check requireNrms
+// used to make against the caller's own account and which no staff member has.
+router.use(requireAuth as RequestHandler);
 
 const MAX_RANGE_DAYS = 92;
 
@@ -30,9 +38,9 @@ function parseDay(value: unknown): Date | null {
  */
 router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
   try {
-    const ownerId = req.user!.id;
-    const active = await loadOwnedActiveNrmsProperty(res, ownerId, Number(req.params.propertyId));
-    if (!active) return;
+    const access = await loadNrmsPropertyAccess(req, res, Number(req.params.propertyId), CALENDAR_READ_ROLES);
+    if (!access) return;
+    const active = { property: access.property, account: access.account };
     const property = active.property;
 
     const now = new Date();
@@ -45,12 +53,18 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     if (end.getTime() > maxEnd.getTime()) end = maxEnd;
 
     const propertyId = property.id as number;
-    // Self-heal confirmed marketplace bookings created before the linked NRMS
-    // operational projection was introduced. NEW/unpaid rows are never selected.
-    await connectExistingNoLsafBookings(prisma, propertyId, start, end);
+    // Repair legacy projections only on the deliberate initial/manual load.
+    // Socket and timer refreshes are read-only calendar requests.
+    if (req.query.repair === "1") {
+      try {
+        await connectExistingNoLsafBookings(prisma, propertyId, start, end);
+      } catch (err) {
+        console.error("[owner.nrms.calendar] marketplace self-heal failed", err);
+      }
+    }
     const [entries, roomTypes] = await Promise.all([
       getCalendarEntries(propertyId, start, end),
-      prisma.roomType.findMany({
+      req.query.compact === "1" ? Promise.resolve(null) : prisma.roomType.findMany({
         where: { propertyId },
         select: {
           id: true,
@@ -71,10 +85,10 @@ router.get("/:propertyId", (async (req: AuthedRequest, res: Response) => {
     res.json({
       property,
       range: { start, end },
-      roomTypes: roomTypes.map((type) => ({
+      roomTypes: roomTypes?.map((type) => ({
         ...type,
         baseRate: type.baseRate != null ? Number(type.baseRate) : null,
-      })),
+      })) ?? undefined,
       entries,
     });
   } catch (err) {

@@ -224,7 +224,7 @@ export default async function CountryTourismPage({
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <Link
-                  href="/public/properties?page=1"
+                  href="/public/properties"
                   className="inline-flex items-center gap-2 rounded-full bg-emerald-700 text-white px-5 py-2.5 text-sm font-semibold no-underline hover:no-underline shadow-[0_14px_32px_rgba(2,6,23,0.14)]"
                 >
                   Accommodation only
@@ -376,7 +376,7 @@ export default async function CountryTourismPage({
               {/* CTA buttons */}
               <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Link
-                  href={`/public/properties?country=${encodeURIComponent(data.id)}&page=1`}
+                  href={`/public/properties?country=${encodeURIComponent(data.id)}`}
                   className={
                     `inline-flex items-center justify-center rounded-full px-8 h-11 text-sm font-bold no-underline hover:no-underline shadow-[0_8px_28px_rgba(0,0,0,0.30)] motion-safe:transition ` +
                     (heroCtaGradient
@@ -535,7 +535,7 @@ export default async function CountryTourismPage({
             </div>
             <div className="flex flex-wrap gap-3 shrink-0 md:pt-2">
               <Link
-                href={`/public/properties?country=${encodeURIComponent(data.id)}&page=1`}
+                href={`/public/properties?country=${encodeURIComponent(data.id)}`}
                 className="inline-flex items-center justify-center rounded-full px-7 h-11 text-sm font-bold no-underline hover:no-underline shadow-[0_6px_20px_rgba(2,102,94,0.28)] motion-safe:transition hover:opacity-90 text-white"
                 style={{ background: '#02665e' }}
               >
