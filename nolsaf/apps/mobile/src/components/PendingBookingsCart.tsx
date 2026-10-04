@@ -2,7 +2,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useNavigation } from "@react-navigation/native";
 import { Building2, ChevronRight, ShoppingCart, TicketsPlane, UsersRound, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "../auth";
@@ -34,6 +34,7 @@ export function PendingBookingsCart() {
   const { token } = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
   const [stayDrafts, setStayDrafts] = useState<BookingListItem[]>([]);
   const [tourDrafts, setTourDrafts] = useState<CustomerTourBookingSummary[]>([]);
@@ -44,6 +45,41 @@ export function PendingBookingsCart() {
   const loadSequence = useRef(0);
   const swing = useRef(new Animated.Value(0)).current;
   const pop = useRef(new Animated.Value(1)).current;
+  const dragY = useRef(new Animated.Value(0)).current;
+  const dragPosition = useRef(0);
+
+  const maxDragY = Math.max(0, windowHeight - insets.top - 226);
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 5 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          dragY.stopAnimation((value) => {
+            dragPosition.current = value;
+          });
+        },
+        onPanResponderMove: (_, gesture) => {
+          dragY.setValue(Math.max(0, Math.min(maxDragY, dragPosition.current + gesture.dy)));
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const next = Math.max(0, Math.min(maxDragY, dragPosition.current + gesture.dy));
+          dragPosition.current = next;
+          Animated.spring(dragY, {
+            toValue: next,
+            damping: 18,
+            stiffness: 220,
+            mass: 0.7,
+            useNativeDriver: true
+          }).start();
+        },
+        onPanResponderTerminate: (_, gesture) => {
+          const next = Math.max(0, Math.min(maxDragY, dragPosition.current + gesture.dy));
+          dragPosition.current = next;
+          dragY.setValue(next);
+        }
+      }),
+    [dragY, maxDragY]
+  );
 
   const load = useCallback(async () => {
     if (!token) {
@@ -94,6 +130,12 @@ export function PendingBookingsCart() {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (dragPosition.current <= maxDragY) return;
+    dragPosition.current = maxDragY;
+    dragY.setValue(maxDragY);
+  }, [dragY, maxDragY]);
 
   const items = useMemo<PendingCartItem[]>(
     () => [
@@ -211,16 +253,19 @@ export function PendingBookingsCart() {
 
   if (!items.length) return null;
 
-  const rotation = swing.interpolate({ inputRange: [-1, 1], outputRange: ["-4deg", "4deg"] });
+  const rotation = swing.interpolate({ inputRange: [-1, 1], outputRange: ["-3deg", "3deg"] });
 
   return (
     <>
-      <View pointerEvents="box-none" style={[styles.overlay, { top: insets.top + 58 }]}>
+      <Animated.View
+        pointerEvents="box-none"
+        {...panResponder.panHandlers}
+        style={[styles.overlay, { top: insets.top + 58, transform: [{ translateY: dragY }] }]}
+      >
         <View pointerEvents="none" style={styles.anchor}>
           <View style={styles.anchorPin} />
         </View>
         <Animated.View style={[styles.hangingAssembly, { opacity: pop, transform: [{ rotate: rotation }, { scale: pop }] }]}>
-          <View pointerEvents="none" style={styles.cord} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${items.length} ${items.length === 1 ? "booking" : "bookings"} waiting for payment`}
@@ -228,7 +273,7 @@ export function PendingBookingsCart() {
             onPress={() => setCartVisible(true)}
             style={({ pressed }) => [styles.cartButton, pressed && styles.cartButtonPressed]}
           >
-            <ShoppingCart color={colors.white} size={23} strokeWidth={2.5} />
+            <ShoppingCart color={colors.white} size={20} strokeWidth={2.5} />
             <View style={styles.badge}>
               <AppText variant="caption" weight="extraBold" tone="inverse" style={styles.badgeText}>
                 {items.length > 9 ? "9+" : String(items.length)}
@@ -236,7 +281,7 @@ export function PendingBookingsCart() {
             </View>
           </Pressable>
         </Animated.View>
-      </View>
+      </Animated.View>
 
       <PendingCartSheet
         visible={cartVisible}
@@ -323,61 +368,50 @@ function PendingCartSheet({
 const styles = StyleSheet.create({
   overlay: {
     position: "absolute",
-    left: 7,
+    right: 8,
     zIndex: 100,
     elevation: 18,
-    width: 72,
-    height: 112,
+    width: 60,
+    height: 72,
     alignItems: "center"
   },
   anchor: {
     zIndex: 2,
-    width: 18,
-    height: 10,
-    borderTopLeftRadius: 9,
-    borderTopRightRadius: 9,
+    width: 14,
+    height: 8,
+    borderTopLeftRadius: 7,
+    borderTopRightRadius: 7,
     alignItems: "center",
     justifyContent: "flex-start",
-    backgroundColor: colors.primaryDeep,
-    borderWidth: 2,
-    borderColor: colors.white
+    backgroundColor: colors.primaryDeep
   },
   anchorPin: {
-    width: 5,
-    height: 5,
+    width: 4,
+    height: 4,
     marginTop: 1,
     borderRadius: radius.full,
     backgroundColor: colors.brand[300]
   },
   hangingAssembly: {
-    width: 66,
+    width: 56,
+    marginTop: -1,
     alignItems: "center",
     transformOrigin: "50% 0%"
   },
-  cord: {
-    width: 2,
-    height: 24,
-    backgroundColor: colors.primaryDeep,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 2,
-    elevation: 2
-  },
   cartButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: colors.white,
     shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 7 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    elevation: 12
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    elevation: 10
   },
   cartButtonPressed: {
     opacity: 0.86,
@@ -385,11 +419,11 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: "absolute",
-    top: -8,
-    right: -8,
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 5,
+    top: -7,
+    right: -7,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 4,
     borderRadius: radius.full,
     alignItems: "center",
     justifyContent: "center",
@@ -398,8 +432,8 @@ const styles = StyleSheet.create({
     borderColor: colors.white
   },
   badgeText: {
-    fontSize: 10,
-    lineHeight: 12
+    fontSize: 9,
+    lineHeight: 11
   },
   modalRoot: {
     flex: 1,
