@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { RequestHandler, Response } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
@@ -1556,8 +1556,31 @@ const confirmContactChange: RequestHandler = async (req, res) => {
 };
 router.post("/contact/confirm-change", blockImpersonated as unknown as RequestHandler, limitContactChangeConfirm as unknown as RequestHandler, confirmContactChange as unknown as RequestHandler);
 
+/** Keep provider diagnostics useful without writing beneficiary or credential data to logs. */
+function payoutLookupFailureCategory(error: AzamPayDisburseError): string {
+  if (error.httpStatus === null) return "NETWORK";
+  const message = (error.providerMessage || "").toLowerCase();
+  if (message.startsWith("invalid azampay response:")) return "INVALID_RESPONSE";
+  if (/checksum|signature|hash/.test(message)) return "CHECKSUM";
+  if (/authoriz|authenticat|token|credential/.test(message)) return "AUTHORIZATION";
+  if (/bank\s*name|institution|provider|operator/.test(message)) return "PROVIDER";
+  if (/account|wallet|msisdn|phone/.test(message)) return "ACCOUNT";
+  if (/expir|timestamp|epoch|stale/.test(message)) return "FRESHNESS";
+  if (/rate\s*limit|too many|throttl/.test(message)) return "RATE_LIMIT";
+  if (error.httpStatus >= 500) return "UPSTREAM_SERVER";
+  return "UNCLASSIFIED";
+}
+
+function payoutLookupProviderStatusCode(rawBody: unknown): number | null {
+  if (!rawBody || typeof rawBody !== "object") return null;
+  const value = (rawBody as Record<string, unknown>).statusCode;
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : null;
+}
+
 /** Shared provider failure classification for the no-write lookup endpoint. */
-function sendPayoutProviderError(res: Response, error: unknown): boolean {
+function sendPayoutProviderError(req: Request, res: Response, error: unknown): boolean {
   if (error instanceof AzamPayDisburseConfigurationError) {
     console.error("account.payouts.configuration_unavailable", {
       operation: error.operation,
@@ -1571,6 +1594,15 @@ function sendPayoutProviderError(res: Response, error: unknown): boolean {
     return true;
   }
   if (error instanceof AzamPayDisburseError) {
+    console.error(JSON.stringify({
+      level: "error",
+      event: "payout_name_lookup_provider_error",
+      requestId: String((req as any).requestId || ""),
+      upstreamStatus: error.httpStatus,
+      providerStatusCode: payoutLookupProviderStatusCode(error.rawBody),
+      retryClass: error.retryClass,
+      reasonCategory: payoutLookupFailureCategory(error),
+    }));
     res.status(502).json({
       code: "PAYOUT_PROVIDER_UNAVAILABLE",
       error: error.providerMessage ?? "AzamPay verification is unavailable. No payout details were changed.",
@@ -1682,7 +1714,7 @@ const verifyPayoutDestination: RequestHandler = async (req, res) => {
         : "Payout destination verified. Confirm the account holder to save it."
     );
   } catch (error: unknown) {
-    if (sendPayoutProviderError(res, error)) return;
+    if (sendPayoutProviderError(req, res, error)) return;
     console.error("account.payouts.verify failed", error);
     sendError(res, 500, "Failed to verify payout information");
   }

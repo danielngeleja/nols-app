@@ -69,7 +69,7 @@ vi.mock("../lib/crypto.js", () => ({
 }));
 
 import { router as accountRouter } from "../routes/account";
-import { AzamPayDisburseConfigurationError } from "../services/azampay/disbursement/errors";
+import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors";
 
 const tx = {
   payoutAccount: {
@@ -82,9 +82,10 @@ const tx = {
   salesPartnerProfile: { updateMany: mocks.txSalesProfileUpdateMany },
 };
 
-function app() {
+function app(requestId?: string) {
   const instance = express();
   instance.use(express.json());
+  if (requestId) instance.use((req: any, _res, next) => { req.requestId = requestId; next(); });
   instance.use("/account", accountRouter);
   return instance;
 }
@@ -333,6 +334,41 @@ describe("secure payout destination update", () => {
     });
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.txUserUpdate).not.toHaveBeenCalled();
+  });
+
+  it("logs only safe provider metadata for a failed payout name lookup", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.lookup.mockRejectedValue(new AzamPayDisburseError({
+      httpStatus: 400,
+      providerMessage: "Invalid account 255700000001 for ASHA MTUMWA",
+      retryClass: "VALIDATION",
+      rawBody: { statusCode: 400, token: "secret-token", accountNumber: "255700000001" },
+    }));
+
+    try {
+      const response = await request(app("lookup-request-123")).post("/account/payouts/verify").send({
+        payoutPreferred: "MOBILE_MONEY",
+        mobileMoneyProvider: "azampesa",
+        mobileMoneyNumber: "255700000001",
+      });
+
+      expect(response.status).toBe(502);
+      const logLine = String(consoleError.mock.calls[0]?.[0] || "");
+      expect(JSON.parse(logLine)).toEqual({
+        level: "error",
+        event: "payout_name_lookup_provider_error",
+        requestId: "lookup-request-123",
+        upstreamStatus: 400,
+        providerStatusCode: 400,
+        retryClass: "VALIDATION",
+        reasonCategory: "ACCOUNT",
+      });
+      expect(logLine).not.toContain("255700000001");
+      expect(logLine).not.toContain("ASHA MTUMWA");
+      expect(logLine).not.toContain("secret-token");
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("rejects a browser attempt to bypass lookup or supply its own account name", async () => {
