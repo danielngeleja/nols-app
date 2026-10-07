@@ -1,12 +1,12 @@
 # Owner Payout Withdrawal: Plan and Engineering Flow
 
-Status: agreed with Daniel on 2026-10-07. **Phase 1 backend built, uncommitted, migration NOT applied** (see section 12). Phases 2 to 5 are not built.
+Status: payout flow built in the checkout; migrations are prepared but not applied. The October 7 policy review replaced the fixed payout waits with validated check-in and live qualification checks. `PAYOUT_RELEASE_ENABLED` remains off by default.
 
 ## 1. Goal
 
 Replace the current owner payout process (owner clicks "claim", then an admin approves the invoice, approves the disbursement, forms a batch and releases it with an OTP) with:
 
-1. A **date lock** that unlocks the owner's money a fixed time after a verified check-in.
+1. Immediate payout readiness after validated check-in when payment, guest alert, account and dispute checks pass.
 2. An **owner-initiated withdrawal confirmed by OTP**, the way betting and wallet apps do it.
 3. **Automatic release** of normal withdrawals, with admins handling only exceptions.
 
@@ -16,10 +16,10 @@ This honours promises the published policies already make: the owner disbursemen
 
 | Rule | Decision |
 |---|---|
-| Unlock, mobile money or bank | `releaseAt = max(codeValidatedAt, start of check-in date in EAT) + 24h` |
-| Unlock, any card payment on the booking | `releaseAt = checkout date in EAT + 24h` |
-| Unknown payment channel (null) | Treated as card (stricter rule) |
-| Why 24h | Cancellation policy section 3.2.5.1.6: a guest must report an uninhabitable property within 24h. This is also the Booking.com model (virtual card active from check-in + 1 day). |
+| Earliest readiness, MNO, bank, card or unknown channel | `releaseAt = codeValidatedAt`; provider-confirmed payment is checked separately |
+| Guest awareness | An accepted SMS or fallback email is recorded before readiness; failed delivery is retried by the worker |
+| Check-in credential custody | The full check-in code is issued to the guest. Owner booking and financial views receive a separate booking reference. Confirmation requires the guest-presented code; a booking ID or receipt QR cannot confirm arrival. An owner request can resend the code only to the booking guest contact, with rate limits and an audit entry. |
+| Disputes | An open cancellation or refund holds the release; the money-out path checks again before submission |
 | Owner's first payout ever | Always goes to the MANUAL lane (one admin look per new owner) |
 | Automatic release allowed for | LOW risk, and MEDIUM where every flag is in {FIRST_PAYOUT_TO_BENEFICIARY, AFTER_HOURS_APPROVAL} |
 | Everything else | MANUAL lane (existing admin flow, unchanged) |
@@ -31,12 +31,12 @@ Amina books NoLSAF Hotel and pays by M-Pesa. Check-in is 07/10/2026; Daniel is t
 
 ```
 07/10 14:00  Daniel validates Amina's code        -> booking CHECKED_IN
-             System creates claim + release        -> LOCKED, releaseAt 08/10 14:00 EAT
-             Amina gets "Any problem? Report it"   -> 24h report window starts
-             Daniel sees "TZS X unlocks 08/10 14:00"
-08/10 14:00  Worker re-checks all gates           -> AVAILABLE
+             System alerts Amina by SMS/email      -> provider acceptance recorded
+             System creates claim + release        -> ready if all gates pass
+             Daniel sees "TZS X ready to withdraw"
+07/10 14:00  Payment/account/dispute gates pass   -> AVAILABLE
              Daniel notified "TZS X available to withdraw" (no code in this message)
-08/10 any    Daniel taps Withdraw                  -> OTP fires to his verified phone
+07/10 any    Daniel taps Withdraw                  -> OTP fires to his verified phone
              Daniel enters OTP                     -> lane decided
              AUTO lane                             -> system approves, batches, sends
              Minutes later                         -> M-Pesa receives, receipt issued
@@ -44,8 +44,8 @@ Amina books NoLSAF Hotel and pays by M-Pesa. Check-in is 07/10/2026; Daniel is t
 
 Branches:
 
-- Amina reports a problem before 08/10 14:00, or a cancellation, refund or dispute opens: **HELD**. An admin resolves it; money never moves while HELD.
-- Card-paid booking: releaseAt becomes checkout + 24h, and everything else is the same.
+- A cancellation or refund request opens before provider submission: the payout is held for review.
+- A card-paid booking uses the same readiness time; a specific risk may route its withdrawal to manual review.
 - Daniel's first payout ever: after the OTP it goes to an admin once, then he is in the AUTO lane.
 - High-risk flags, caps exceeded or the kill switch off: MANUAL lane after the OTP.
 
@@ -73,10 +73,10 @@ Disbursement statuses after RELEASED are the existing ones (REQUESTED, APPROVED,
 
 | Signal | Source in code |
 |---|---|
-| Guest problem report | New report page, creates a `CancellationRequest` with a property-issue reason (reuses the cancellation workspace) |
+| Open guest cancellation or refund request | `CancellationRequest` |
 | Open cancellation request on the booking | `CancellationRequest` (open statuses, to be confirmed in code) |
-| Pending refund | `PaymentRefund` on the booking's payment intent |
-| Open dispute or chargeback | `PaymentDispute`; also `REVERSED` intent status from the payments inbox |
+| Refunded booking | `CancellationRequest` status `REFUNDED` |
+| Marketplace card chargeback | Recovery is handled when recorded by an admin; the marketplace payment flow has no automatic dispute feed yet |
 | Payout account changed within the recent-change window | `PayoutAccount.destinationChangedAt` against `SystemSetting.payoutRecentChangeHours` (72h) |
 | Booking no longer CHECKED_IN or checked out | Booking status |
 
@@ -96,10 +96,9 @@ Rules:
 2. A **sweeper** in the release worker backfills any CHECKED_IN booking with a USED code and no release, so a failed hook or a fourth path we missed still converges.
 3. Move the OINV invoice creation out of `owner.booking.ts` (~line 950) into a shared `ensureOwnerClaim(bookingId)` in `lib/`, used by the hook, the sweeper and the old route. It stays idempotent (find by invoiceNumber) and moves DRAFT to REQUESTED once.
 4. `computeReleaseAt(booking, codeUsedAt, paymentChannels)`, a pure function:
-   - channels = the SUCCESS `PaymentEvent.paymentChannel` values on the booking's `INV-` invoice
-   - any `CARD`, or any null, means `CARD_CHECKOUT_24H`; otherwise `CHECKIN_24H`
-   - all date math in `Africa/Dar_es_Salaam`; the result is stored with its rule name
-5. Notify the guest (SMS plus in-app) with the report link, using an opaque `bk_` reference and never a row id.
+   - the code validation instant is recorded as `CHECKIN_CONFIRMED` for every channel
+   - a successful customer `PaymentEvent` is required by the separate solvency gate
+5. Notify the guest by SMS, falling back to email; record provider acceptance before payout readiness.
 
 ### 5.2 Release worker (`workers/payoutRelease.ts`, leader-only, every 5 minutes)
 
@@ -185,7 +184,7 @@ It must run on both MySQL 8 (staging) and MariaDB 11.8 (prod), in house migratio
 
 | Change | Purpose |
 |---|---|
-| New table `payout_release` | sourceType, sourceId (unique pair), bookingId, ownerId, status, rule (`CHECKIN_24H`, `CARD_CHECKOUT_24H`, later `NO_SHOW`, `NONREFUNDABLE_CANCEL`), releaseAt, availableAt, holdReason, heldAt, releasedAt, disbursementId, lane, createdAt, updatedAt |
+| New table `payout_release` | sourceType, sourceId (unique pair), bookingId, ownerId, status, rule (`CHECKIN_CONFIRMED` for qualified check-ins), releaseAt, availableAt, holdReason, heldAt, releasedAt, disbursementId, lane, createdAt, updatedAt |
 | New table `payout_withdrawal_challenge` | userId, releaseIds (JSON), fingerprint, codeHash, channel, destinationMasked, expiresAt, usedAt, attempts, createdAt |
 | `disbursement.releaseLane` VARCHAR(10) NULL | AUTO or MANUAL (null = created before this feature) |
 | `disbursement_batch.mode` VARCHAR(10) DEFAULT 'MANUAL' | Separates system batches from human batches |
@@ -214,7 +213,7 @@ Prerequisite: migration `20261001090000` (payout safeguards) must be applied fir
 | Phase | Scope | Exit check |
 |---|---|---|
 | 0. Prerequisites | Static egress IP allowlisted by AzamPay (see the AzamPay egress memory note); migration `20261001090000` applied | A production name lookup succeeds |
-| 1. Date lock, shadow mode | Migration, check-in hook, sweeper, release worker (backfill, hold, unlock), owner countdown, guest report page. Withdraw still goes to the MANUAL lane only | 1 to 2 weeks of releases computed correctly against real check-ins |
+| 1. Check-in qualification, shadow mode | Migration, check-in hook, guest alert, sweeper and release worker. Withdraw still goes to the MANUAL lane only | Releases and alerts qualify correctly against real check-ins |
 | 2. OTP withdrawal | Challenge and confirm routes, OTP modal, MANUAL lane only | Owners withdraw; admins see OTP-confirmed requests |
 | 3. AUTO lane | Lane decision, `formAutoBatch`, `authorizeAutoBatch`, admin settings; switch ON with a low daily cap | Automatic payouts reconcile to PAID; daily cap enforced |
 | 4. Recovery | Recovery debt for post-payout refunds and chargebacks, deducted from future releases | Test refund after PAID nets correctly |
@@ -223,7 +222,7 @@ Prerequisite: migration `20261001090000` (payout safeguards) must be applied fir
 
 ## 10. Tests
 
-- `computeReleaseAt`: EAT midnight boundaries, early validation (clock starts at the check-in date), validation after midnight, card / mixed / null channels, checkout + 24h.
+- `computeReleaseAt`: validated code time is the earliest readiness time across MNO, bank, card, mixed and unknown channels.
 - Hold scan: each signal holds; clearing returns to LOCKED; no AVAILABLE while any signal is open.
 - Challenge: wrong code increments attempts; 6th attempt rejected; expired rejected; two concurrent confirms spend it once; an account change between challenge and confirm fails the fingerprint; a challenge for one set of releases cannot confirm a different set; impersonated session blocked; rate limit.
 - Lane: first payout goes MANUAL; harmless MEDIUM goes AUTO; any other MEDIUM flag goes MANUAL; threshold and caps go MANUAL; kill switch off means no AUTO authorization.
@@ -237,7 +236,7 @@ Prerequisite: migration `20261001090000` (payout safeguards) must be applied fir
 |---|---|---|
 | D1 | When does the OTP fire? | **DECIDED 2026-10-07: when the owner taps Withdraw**, never at the moment money becomes available. The "available" notification carries no code. |
 | D2 | Auto-send if the owner never withdraws? | **DECIDED: yes, after 14 days**, to the verified account, unchanged for 72h. This matches policy section 5.2.2, and the destination cannot be redirected without triggering a hold. |
-| D3 | No-show and cancelled non-refundable payouts | **DECIDED:** No-show: the owner marks it after the deadline, the guest has 24h to dispute, card no-shows always go MANUAL. Non-refundable cancellation: unlock at check-in date + 24h. |
+| D3 | No-show and cancelled non-refundable payouts | **Not implemented.** Any future flow needs a separate policy and release rule; validated check-ins use immediate qualification. |
 | D4 | OTP channel | **DECIDED:** SMS to the verified phone; email fallback only if SMS delivery fails. |
 | D5 | Starting daily AUTO cap | **DECIDED: TZS 2,000,000 per day** for the first month, set in admin settings at Phase 3 (not hard-coded), raised after reconciliation is clean. |
 | D6 | Guest report storage | **DECIDED:** reuse `CancellationRequest` with a property-issue reason (one admin workspace) rather than a new table. |
@@ -258,7 +257,7 @@ All decisions were taken on 2026-10-07 ("go with all the recommendations").
 | Owner read API | `GET /api/owner/payouts/releases` in `routes/owner.payouts.ts` |
 | Tests | `services/payouts/release.test.ts` (22 tests); full API suite green (1938 passed) |
 
-Everything is behind **`PAYOUT_RELEASE_ENABLED`** (off by default): the hooks, the worker and the read API do nothing until it is set, so the code can deploy before the migration. Turn it on only after the migration is applied.
+The release worker and withdrawal API are behind **`PAYOUT_RELEASE_ENABLED`** (off by default). The check-in guest alert runs even while payouts are off. Turn on releases only after the migration is applied and the policy notice period is satisfied.
 
 Behaviour in shadow mode:
 
@@ -276,8 +275,8 @@ Behaviour in shadow mode:
 - Marketplace card **chargebacks are not recorded** anywhere today (marketplace `PaymentEvent` has no reversal status; `PaymentDispute` belongs to NRMS payment intents). Phase 4 needs that signal first.
 - Owner countdown UI built: `apps/web/components/OwnerPayoutReleasesCard.tsx`, shown on `/owner/revenue` (My Payouts). It renders nothing while the flag is off.
 - `REFUND_PENDING` added to the open cancellation statuses (the cancellation routes use it).
-- **Guest check-in SMS: KEPT and built** (Daniel: "very protective"). `apps/api/src/lib/checkInConfirmationSms.ts` texts the guest at validation, from both check-in paths: "NoLSAF: Check-in confirmed at {property} on {time} EAT. If you have not checked in, call NoLSAF now on {support phone}." This is not behind the payout flag, so it is live on deploy. Tested in `checkInConfirmationSms.test.ts`.
-- **Guest "report a problem" page: DROPPED (Daniel, 2026-10-07).** Day-to-day issues are settled between guest and owner; NoLSAF is not the judge of every action. D6 no longer applies. The 24h window stays as a settling period, and payouts are still held by the formal signals: open cancellation or refund requests (exceptional circumstances under cancellation policy section 3.2), a guest matching the owner, and booking status. Phase 1 is complete apart from the migration and the flag.
+- **Guest check-in alert:** `apps/api/src/lib/checkInConfirmationSms.ts` sends SMS, falls back to email, and records provider acceptance. It runs even while the payout flag is off. No accepted alert means no new payout readiness.
+- **Guest "report a problem" page: DROPPED (Daniel, 2026-10-07).** Formal cancellation and refund requests, owner/guest identity matches and booking status still hold payouts. There is no routine 24-hour settling period.
 - Daniel applies migration `20261007090000` himself.
 
 ### Phase 2: OTP withdrawal, MANUAL lane (built 2026-10-07, uncommitted)
@@ -320,7 +319,7 @@ To go live after the migration: set `PAYOUT_RELEASE_ENABLED=true`; then in admin
 Open items:
 - **Unclaimed reminder (policy 5.2.2): BUILT.** `remindUnclaimed` in `withdrawal.ts` runs in the worker before the unclaimed sender. 48 hours before the deadline it sends an in-app notice (`owner_payout_unclaimed_reminder`) and an SMS to the verified phone: "NoLSAF: TZS X is ready in My Payouts. If you do not withdraw it, we will send it to Vodacom ***456 on {date} EAT." There is no code in the message. Each reminder is recorded once per payout in the audit log (`OWNER_PAYOUT_UNCLAIMED_REMINDER`). `withdrawUnclaimed` **refuses any payout without a reminder at least 48 hours old**, so the promise holds even after worker downtime. No schema change.
 - The policy update with 21 days' notice (section 12.1) must be published before the AUTO lane is switched on.
-- **Phase 5 (no-show and late cancellation): deliberately left as it is (Daniel, 2026-10-07).** Principle for any future design: a guest is **not** a no-show for missing the check-in day. A guest booked from 7/10 for 20 days who arrives on 10/10 is still inside the stay window and is checked in normally (the unlock rule already handles this: validation on 10/10 unlocks on 11/10). A stay can only count as a no-show once the **checkout date has passed** with no check-in, and even then it should be reconciled politely with the guest rather than charged automatically.
+- **Phase 5 (no-show and late cancellation): deliberately left as it is (Daniel, 2026-10-07).** A guest is not a no-show for missing the check-in day. A guest booked from 7/10 for 20 days who arrives on 10/10 remains inside the stay window and can be checked in normally. With a validated code, qualification starts at that actual check-in. A stay can only count as a no-show once the checkout date has passed with no check-in, and even then it should be reconciled with the guest rather than charged automatically.
 
 ### Owner Payouts workspace (UI rebuilt 2026-10-07, uncommitted)
 
@@ -358,3 +357,10 @@ Decisions: recover the **owner's share only**, refund x (owner payout / guest pa
 | Tests | `recovery.test.ts`, recovery cases in `withdrawal.test.ts` and `payoutEligibilityAmounts.test.ts`; full API suite green (1994 passed) |
 
 Scope note: a recovery is only created when the owner was **PAID** for the stay. A refund before payment is handled by the payout hold instead. A refund on a payout still in flight (approved but not yet paid) needs an admin to stop or reject that payout; this is not automated.
+# Owner withdrawal OTP lock
+
+- Three consecutive wrong withdrawal OTP entries across code requests lock the owner's withdrawal verification and new code issuance. Resending never resets the counter.
+- The lock remains until NoLSAF support verifies the owner's identity. An admin with a fresh finance grant records the verification channel and note when clearing the lock; existing codes are invalidated and the owner requests a new one.
+- The lock does not affect account sign-in or access to support.
+- While locked, unclaimed automatic payout submission is paused as well; no new disbursement is initiated from this withdrawal path until support unlocks it.
+- Support verifies the owner using account and payout details through a trusted contact path, never by asking for the OTP. The admin records the verification method and case note, unlocks with a fresh finance grant, and tells the owner to request a new code. A lock does not authorize a manual payout workaround.

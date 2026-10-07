@@ -4,6 +4,7 @@ import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { Layout } from "../lib/layoutTypes.js";
 import { regenerateAndSaveLayout } from "../lib/autoLayout.js";
+import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 
 export const router = Router();
 router.use(requireAuth, requireRole("OWNER"));
@@ -53,7 +54,7 @@ router.get("/:id/availability", async (req, res) => {
   const id = Number((req as any).params.id);
   const prop = await prisma.property.findFirst({
     where: { id, ownerId },
-    select: { id: true, layout: true }
+    select: { id: true, layout: true, roomsSpec: true }
   });
   if (!prop) return res.status(404).json({ error: "Not found" });
   if (!prop.layout) return res.status(400).json({ error: "No layout yet" });
@@ -78,7 +79,7 @@ router.get("/:id/availability", async (req, res) => {
     .filter(Boolean);
 
   // Fetch bookings that overlap the window for this property
-  const [bookings, blocks] = await Promise.all([
+  const [bookings, blocks, nrmsHolds] = await Promise.all([
     prisma.booking.findMany({
       where: {
         propertyId: id,
@@ -91,31 +92,104 @@ router.get("/:id/availability", async (req, res) => {
     prisma.propertyAvailabilityBlock.findMany({
       where: {
         propertyId: id,
+        migratedReservationId: null,
         startDate: { lt: clipEnd },
         endDate:   { gt: clipStart },
       },
       select: { id: true, startDate: true, endDate: true, roomCode: true, source: true, bedsBlocked: true }
     }),
+    // NRMS reservations and group blocks: the front desk's own stays.
+    getNrmsMarketplaceHolds(prisma, id, clipStart, clipEnd),
   ]);
 
-  // Index bookings by roomCode + compute overlapped nights
+  // Bookings and external blocks are usually recorded against a room TYPE
+  // ("Single", or a roomsSpec code), not a physical room ("Single-8"). Place
+  // each type-level stay on a free room of that type so the floor plan shows
+  // the real occupancy instead of every room as free.
+  const unitsByType = new Map<string, string[]>();
+  for (const f of layout?.floors ?? []) {
+    for (const r of f.rooms ?? []) {
+      if (!r?.code) continue;
+      const typeKey = String(r.name ?? r.code).replace(/\s+\d+$/, "").trim().toLowerCase();
+      if (!unitsByType.has(typeKey)) unitsByType.set(typeKey, []);
+      unitsByType.get(typeKey)!.push(r.code);
+    }
+  }
+  const typeAlias = new Map<string, string>();
+  for (const spec of Array.isArray(prop.roomsSpec) ? (prop.roomsSpec as any[]) : []) {
+    const typeName = String(spec?.roomType ?? "").trim().toLowerCase();
+    const code = String(spec?.roomCode ?? spec?.code ?? "").trim().toLowerCase();
+    if (typeName && code) typeAlias.set(code, typeName);
+  }
+  const roomCodeSet = new Set(roomCodes);
+  const unitsFor = (raw: string): string[] => {
+    const key = raw.trim().toLowerCase();
+    const candidates = [key, typeAlias.get(key), key.replace(/-\d+$/, ""), typeAlias.get(key.replace(/-\d+$/, ""))];
+    for (const c of candidates) if (c && unitsByType.has(c)) return unitsByType.get(c)!;
+    return [];
+  };
+  const taken = new Map<string, Array<[number, number]>>();
+  const isFree = (code: string, s: Date, e: Date) =>
+    !(taken.get(code) ?? []).some(([a, b]) => +s < b && +e > a);
+  const occupy = (code: string, s: Date, e: Date) => {
+    if (!taken.has(code)) taken.set(code, []);
+    taken.get(code)!.push([+s, +e]);
+  };
+  /** Exact room if the code names one; otherwise up to `count` free rooms of the type. */
+  const place = (raw: string | null, s: Date, e: Date, count: number): string[] => {
+    if (!raw) return [];
+    if (roomCodeSet.has(raw)) { occupy(raw, s, e); return [raw]; }
+    const units = unitsFor(raw);
+    const chosen: string[] = [];
+    for (const u of units) {
+      if (chosen.length >= count) break;
+      if (isFree(u, s, e)) { chosen.push(u); occupy(u, s, e); }
+    }
+    return chosen;
+  };
+
+  // Exact-room records first so type-level ones fill around them.
+  const exactFirst = <T extends { roomCode: string | null }>(xs: T[]) =>
+    [...xs].sort((a, b) => Number(!roomCodeSet.has(a.roomCode ?? "")) - Number(!roomCodeSet.has(b.roomCode ?? "")));
+
+  // Index bookings by room + compute overlapped nights
   const byCode: Record<string, { id:number; checkIn:Date; checkOut:Date; status:string; nights:number; guestName?: string | null; totalAmount?: any }[]> = {};
-  for (const b of bookings) {
-    const code = (b as any).roomCode ?? "";
-    if (!code) continue;
+  for (const b of exactFirst(bookings as any[])) {
     const n = overlapNights(clipStart, clipEnd, b.checkIn, b.checkOut);
     if (n <= 0) continue;
-    if (!byCode[code]) byCode[code] = [];
-    byCode[code].push({ id: b.id, checkIn: b.checkIn, checkOut: b.checkOut, status: b.status, nights: n, guestName: (b as any).guestName, totalAmount: (b as any).totalAmount });
+    for (const code of place(b.roomCode ?? null, startOfDay(b.checkIn), startOfDay(b.checkOut), 1)) {
+      if (!byCode[code]) byCode[code] = [];
+      byCode[code].push({ id: b.id, checkIn: b.checkIn, checkOut: b.checkOut, status: b.status, nights: n, guestName: b.guestName, totalAmount: b.totalAmount });
+    }
   }
 
-  // Index blocks by roomCode (null roomCode = all rooms)
   const blocksByCode: Record<string, { id:number; startDate:Date; endDate:Date; source:string|null; nights:number }[]> = {};
-  for (const bl of blocks) {
+
+  // NRMS reservations are guests in rooms, so they count as bookings; group
+  // blocks still waiting for names count as blocks. An assigned NRMS room whose
+  // unit code matches a floor-plan room goes there; otherwise by room type.
+  for (const h of exactFirst(nrmsHolds.map((x) => ({ ...x, roomCode: x.roomUnitCode && roomCodeSet.has(x.roomUnitCode) ? x.roomUnitCode : x.roomTypeName })))) {
+    const n = overlapNights(clipStart, clipEnd, h.startDate, h.endDate);
+    if (n <= 0) continue;
+    const codes = place(h.roomCode, startOfDay(h.startDate), startOfDay(h.endDate), Math.max(1, h.bedsBlocked || 1));
+    for (const code of codes) {
+      if (h.nrmsKind === "RESERVATION") {
+        if (!byCode[code]) byCode[code] = [];
+        byCode[code].push({ id: h.id, checkIn: h.startDate, checkOut: h.endDate, status: "NRMS", nights: n, guestName: h.label, totalAmount: null });
+      } else {
+        if (!blocksByCode[code]) blocksByCode[code] = [];
+        blocksByCode[code].push({ id: h.id, startDate: h.startDate, endDate: h.endDate, source: "NRMS_GROUP", nights: n });
+      }
+    }
+  }
+
+  // Index blocks by room (null roomCode = all rooms; a type code = that many rooms of the type)
+  for (const bl of exactFirst(blocks as any[])) {
     const n = overlapNights(clipStart, clipEnd, bl.startDate, bl.endDate);
     if (n <= 0) continue;
-    // A block with no roomCode affects every room in the layout
-    const codes = bl.roomCode ? [bl.roomCode] : roomCodes;
+    const codes = bl.roomCode
+      ? place(bl.roomCode, startOfDay(bl.startDate), startOfDay(bl.endDate), Math.max(1, Number(bl.bedsBlocked) || 1))
+      : roomCodes;
     for (const code of codes) {
       if (!blocksByCode[code]) blocksByCode[code] = [];
       blocksByCode[code].push({ id: bl.id, startDate: bl.startDate, endDate: bl.endDate, source: bl.source, nights: n });

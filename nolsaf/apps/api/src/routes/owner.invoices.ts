@@ -3,6 +3,7 @@ import type { Request, Response, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { hideOwnerCheckinCode } from "../lib/ownerCheckinCodePrivacy.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
@@ -16,7 +17,7 @@ import {
   ownerInvoiceReference,
 } from "../lib/customerBookingReference.js";
 export const router = Router();
-router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
+router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler, hideOwnerCheckinCode);
 
 const OWNER_INVOICE_PREFIX = "OINV-";
 

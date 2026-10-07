@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { hideOwnerCheckinCode } from "../lib/ownerCheckinCodePrivacy.js";
 import QRCode from "qrcode";
 import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { Prisma } from "@prisma/client";
@@ -17,7 +18,7 @@ import {
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
 import { payoutReleaseEnabled } from "../services/payouts/release.js";
 export const router = Router();
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler);
+router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, hideOwnerCheckinCode);
 
 function revenueVisibilityClause() {
   return {
@@ -78,7 +79,7 @@ async function ensureOwnerReceiptSeal(inv: any, payout: number): Promise<{
     ownerName: inv.owner?.fullName || inv.owner?.name || `Owner #${inv.ownerId}`,
     ownerEmail: inv.owner?.email || null,
     bookingId: inv.bookingId,
-    bookingCode: inv.booking?.code?.codeVisible || inv.booking?.codeVisible || null,
+    bookingCode: customerBookingReference(inv.bookingId),
     propertyName: inv.booking?.property?.title || "Property",
     checkIn: new Date(inv.booking.checkIn).toISOString(),
     checkOut: new Date(inv.booking.checkOut).toISOString(),
@@ -347,7 +348,7 @@ router.get("/invoices.csv", (async (req: AuthedRequest, res) => {
   const defaultCommissionPercent = await getEffectiveCommissionPercent(null);
 
   const header = [
-    "invoiceNumber","status","issuedAt","property","bookingId","code",
+    "invoiceNumber","status","issuedAt","property","bookingId","bookingReference",
     "ownerPayout",
     "paidAt","receiptNumber","paymentRef",
   ];
@@ -368,7 +369,7 @@ router.get("/invoices.csv", (async (req: AuthedRequest, res) => {
       inv.issuedAt.toISOString(),
       inv.booking?.property?.title ?? "",
       String(inv.bookingId),
-      (inv as any).booking?.code?.codeVisible ?? "",
+      customerBookingReference(inv.bookingId),
       String(payout),
       inv.paidAt ? inv.paidAt.toISOString() : "",
       inv.receiptNumber ?? "",
@@ -537,7 +538,7 @@ router.get("/invoices/:id/receipt.pdf", (async (req: AuthedRequest, res) => {
       receiptNumber: s.receiptNumber,
       invoiceNumber: s.invoiceNumber,
       bookingId: s.bookingId,
-      bookingCode: s.bookingCode,
+      bookingCode: customerBookingReference(s.bookingId),
       propertyName: s.propertyName,
       checkIn: s.checkIn,
       checkOut: s.checkOut,

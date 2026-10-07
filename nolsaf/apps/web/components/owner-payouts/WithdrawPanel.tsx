@@ -32,7 +32,7 @@ type ConfirmResult = {
 };
 
 const RESEND_AFTER_MS = 60_000;
-const ENDS_REQUEST = ["CHANGED", "EXPIRED", "ALREADY_USED", "TOO_MANY_ATTEMPTS", "NOT_FOUND"];
+const ENDS_REQUEST = ["CHANGED", "EXPIRED", "ALREADY_USED", "TOO_MANY_ATTEMPTS", "OTP_LOCKED", "NOT_FOUND"];
 
 function apiError(err: any, fallback: string): string {
   return err?.response?.data?.error || fallback;
@@ -66,6 +66,7 @@ export default function WithdrawPanel({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [supportLocked, setSupportLocked] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
@@ -74,6 +75,7 @@ export default function WithdrawPanel({
   const requestCode = async () => {
     setBusy(true);
     setError(null);
+    setSupportLocked(false);
     setDone(null);
     try {
       const res = await apiClient.post<Challenge>("/api/owner/payouts/withdraw/challenge", {});
@@ -84,6 +86,7 @@ export default function WithdrawPanel({
       setTimeout(() => setTick((t) => t + 1), RESEND_AFTER_MS);
     } catch (err: any) {
       setError(apiError(err, "Your withdrawal code could not be sent. Try again."));
+      setSupportLocked(err?.response?.data?.code === "OTP_LOCKED");
       onDone();
     } finally {
       setBusy(false);
@@ -108,7 +111,10 @@ export default function WithdrawPanel({
       setDone(confirmationText(res.data));
       onDone();
     } catch (err: any) {
-      setError(apiError(err, "That code could not be confirmed. Try again."));
+      const remaining = err?.response?.data?.attemptsRemaining;
+      const base = apiError(err, "That code could not be confirmed. Try again.");
+      setError(Number.isInteger(remaining) ? `${base} ${remaining} attempt${remaining === 1 ? "" : "s"} left before withdrawals are locked.` : base);
+      setSupportLocked(err?.response?.data?.code === "OTP_LOCKED");
       if (ENDS_REQUEST.includes(err?.response?.data?.code)) {
         setChallenge(null);
         setCode("");
@@ -207,7 +213,7 @@ export default function WithdrawPanel({
       )}
       {error && (
         <p className="m-0 text-sm text-rose-700" role="alert">
-          {error}
+          {error}{supportLocked && <> <a href="/owner/support" className="font-semibold underline">Contact NoLSAF support</a>.</>}
         </p>
       )}
     </div>

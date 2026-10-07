@@ -101,7 +101,7 @@ export default function OwnerRevenueInvoiceView() {
   const propertyTitle = inv?.booking?.property?.title ?? "Property";
   const guestName = inv?.booking?.user?.fullName ?? inv?.booking?.user?.name ?? "—";
   const phone = inv?.booking?.user?.phone ?? "—";
-  const codeVisible = inv?.booking?.code?.codeVisible ?? inv?.booking?.code?.code ?? "—";
+  const codeVisible = inv?.booking?.id ? `#${inv.booking.id}` : "—";
   const total = inv?.netPayable ?? inv?.total ?? 0;
 
   // Sender (owner) info
@@ -250,7 +250,7 @@ export default function OwnerRevenueInvoiceView() {
         {/* Booking rows */}
         <div className="relative bg-white/60 divide-y divide-slate-100/60">
           <InfoRow label="Property" value={propertyTitle} />
-          <InfoRow label="NoLSAF Code" value={codeVisible} mono />
+          <InfoRow label="Booking reference" value={codeVisible} mono />
           <InfoRow label="Issued" value={issuedAt} />
           {paidAt ? <InfoRow label="Disbursed" value={paidAt} /> : null}
         </div>

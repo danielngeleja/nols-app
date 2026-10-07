@@ -14,6 +14,7 @@
  */
 
 import { prisma } from "@nolsaf/prisma";
+import { ensureGuestCheckInConfirmation } from "../lib/checkInConfirmationSms.js";
 import {
   applyReleaseDecision,
   decideRelease,
@@ -32,6 +33,7 @@ const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const BACKFILL_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const BACKFILL_LIMIT = 100;
 const EVALUATE_LIMIT = 500;
+let lastEvaluatedReleaseId = 0;
 
 export async function runPayoutReleasePass(now = new Date()): Promise<{ created: number; moved: number; failed: number }> {
   let created = 0;
@@ -56,16 +58,33 @@ export async function runPayoutReleasePass(now = new Date()): Promise<{ created:
     }
   }
 
-  const releases = await prisma.payoutRelease.findMany({
-    where: { status: { in: EVALUATED_RELEASE_STATUSES } },
-    orderBy: { releaseAt: "asc" },
+  // Rotate through every active release. Permanently blocked old rows must not
+  // consume the first page forever and starve newer owners.
+  const page = (afterId: number) => prisma.payoutRelease.findMany({
+    where: { status: { in: EVALUATED_RELEASE_STATUSES }, id: { gt: afterId } },
+    orderBy: { id: "asc" as const },
     take: EVALUATE_LIMIT,
-    select: { id: true, status: true, holdReason: true, sourceId: true, bookingId: true, ownerId: true, releaseAt: true },
+    select: { id: true, status: true, holdReason: true, sourceId: true, bookingId: true, ownerId: true, releaseAt: true, rule: true },
   });
+  let releases = await page(lastEvaluatedReleaseId);
+  if (releases.length === 0 && lastEvaluatedReleaseId !== 0) {
+    lastEvaluatedReleaseId = 0;
+    releases = await page(0);
+  }
+  if (releases.length) lastEvaluatedReleaseId = releases[releases.length - 1].id;
   for (const release of releases) {
     try {
-      const decision = decideRelease(await loadReleaseContext(release, now));
-      if (await applyReleaseDecision(release, decision, now)) {
+      await ensureGuestCheckInConfirmation(release.bookingId);
+      // Convert existing shadow releases made under the former 24-hour rules.
+      let current = release;
+      if (release.rule !== "CHECKIN_CONFIRMED") {
+        const code = await prisma.checkinCode.findUnique({ where: { bookingId: release.bookingId }, select: { usedAt: true, status: true } });
+        if (code?.status === "USED" && code.usedAt) {
+          current = await prisma.payoutRelease.update({ where: { id: release.id }, data: { rule: "CHECKIN_CONFIRMED", releaseAt: code.usedAt } });
+        }
+      }
+      const decision = decideRelease(await loadReleaseContext(current, now));
+      if (await applyReleaseDecision(current, decision, now)) {
         moved++;
         console.log(`[payout-release] release ${release.id}: ${release.status} -> ${decision.next}${decision.reason ? ` (${decision.reason})` : ""}`);
       }

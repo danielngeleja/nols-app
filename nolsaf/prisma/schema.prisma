@@ -8937,6 +8937,17 @@ model PayoutWithdrawalChallenge {
   @@map("payout_withdrawal_challenge")
 }
 
+/// Three consecutive wrong owner withdrawal codes block further verification
+/// and code issuance until NoLSAF support verifies and unlocks the owner.
+model PayoutWithdrawalOtpGuard {
+  ownerId        Int       @id
+  failedAttempts Int       @default(0)
+  lockedAt       DateTime?
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  @@map("payout_withdrawal_otp_guard")
+}
+
 /// Money an owner owes back after being paid for a stay that was later
 /// refunded or charged back (owner policy 6.3.3; docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md
 /// Phase 4). amount is the owner's share only: refund x (owner payout / guest

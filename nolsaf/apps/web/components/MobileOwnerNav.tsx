@@ -154,7 +154,7 @@ export default function MobileOwnerNav() {
         {/* My Bookings */}
         <Link
           href="/owner/bookings"
-          aria-label="My bookings"
+          aria-label="All bookings"
           style={{ textDecoration: "none" }}
           className={itemClass(active.bookings)}
           {...touch("bookings")}
@@ -176,7 +176,7 @@ export default function MobileOwnerNav() {
         {/* Payouts */}
         <Link
           href="/owner/payouts"
-          aria-label="Payouts"
+          aria-label="My Payouts"
           style={{ textDecoration: "none" }}
           className={itemClass(active.revenue)}
           {...touch("revenue")}
@@ -208,14 +208,14 @@ export default function MobileOwnerNav() {
               color={active.availability ? "#ffffff" : iconColor(active.availability)}
             />
           </span>
-          <span className={labelClass(active.availability)}>Calendar</span>
+          <span className={labelClass(active.availability)}>Rooms</span>
         </Link>
             </div>
 
             {/* Scanner / Validate floating action (sits in the bend) */}
             <Link
               href="/owner/bookings/validate"
-              aria-label="Validate (scan QR)"
+              aria-label="Check in a guest"
               style={{ textDecoration: "none", transform: "translate(-50%, -44%)" }}
               className="absolute left-1/2 top-0"
               {...touch("validate")}

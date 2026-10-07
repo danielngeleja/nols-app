@@ -19,54 +19,54 @@ describe("computeReleaseAt", () => {
   const checkIn = iso("2026-10-07T00:00:00Z");
   const checkOut = iso("2026-10-09T00:00:00Z");
 
-  it("mobile money: validation time + 24h (Amina example)", () => {
+  it("mobile money: eligible at validated check-in", () => {
     const result = computeReleaseAt({
       codeUsedAt: iso("2026-10-07T11:00:00Z"), // 07/10 14:00 EAT
       checkIn,
       checkOut,
       paymentChannels: ["MNO"],
     });
-    expect(result.rule).toBe("CHECKIN_24H");
-    expect(result.releaseAt.toISOString()).toBe("2026-10-08T11:00:00.000Z"); // 08/10 14:00 EAT
+    expect(result.rule).toBe("CHECKIN_CONFIRMED");
+    expect(result.releaseAt.toISOString()).toBe("2026-10-07T11:00:00.000Z");
   });
 
-  it("an early validation cannot start the clock before the check-in day", () => {
+  it("uses the recorded code validation instant", () => {
     const result = computeReleaseAt({
       codeUsedAt: iso("2026-10-06T17:00:00Z"), // 06/10 20:00 EAT, the day before
       checkIn,
       checkOut,
       paymentChannels: ["MNO"],
     });
-    expect(result.releaseAt.toISOString()).toBe("2026-10-07T21:00:00.000Z"); // 08/10 00:00 EAT
+    expect(result.releaseAt.toISOString()).toBe("2026-10-06T17:00:00.000Z");
   });
 
   it("bank transfers follow the mobile money rule", () => {
     expect(
       computeReleaseAt({ codeUsedAt: iso("2026-10-07T11:00:00Z"), checkIn, checkOut, paymentChannels: ["BANK", "MNO"] }).rule
-    ).toBe("CHECKIN_24H");
+    ).toBe("CHECKIN_CONFIRMED");
   });
 
-  it("card: checkout + 24h", () => {
+  it("card: the same check-in eligibility time", () => {
     const result = computeReleaseAt({ codeUsedAt: iso("2026-10-07T11:00:00Z"), checkIn, checkOut, paymentChannels: ["CARD"] });
-    expect(result.rule).toBe("CARD_CHECKOUT_24H");
-    expect(result.releaseAt.toISOString()).toBe("2026-10-10T00:00:00.000Z");
+    expect(result.rule).toBe("CHECKIN_CONFIRMED");
+    expect(result.releaseAt.toISOString()).toBe("2026-10-07T11:00:00.000Z");
   });
 
-  it("mixed mobile money and card takes the stricter card rule", () => {
+  it("mixed mobile money and card uses the same rule", () => {
     expect(
       computeReleaseAt({ codeUsedAt: iso("2026-10-07T11:00:00Z"), checkIn, checkOut, paymentChannels: ["MNO", "card"] }).rule
-    ).toBe("CARD_CHECKOUT_24H");
+    ).toBe("CHECKIN_CONFIRMED");
   });
 
-  it("an unrecorded channel is treated as card", () => {
+  it("an unrecorded channel does not add a time hold", () => {
     expect(
       computeReleaseAt({ codeUsedAt: iso("2026-10-07T11:00:00Z"), checkIn, checkOut, paymentChannels: ["MNO", null] }).rule
-    ).toBe("CARD_CHECKOUT_24H");
+    ).toBe("CHECKIN_CONFIRMED");
   });
 
-  it("no successful payment at all is treated as card", () => {
+  it("no successful payment is blocked by the payment gate, not the time rule", () => {
     expect(computeReleaseAt({ codeUsedAt: iso("2026-10-07T11:00:00Z"), checkIn, checkOut, paymentChannels: [] }).rule).toBe(
-      "CARD_CHECKOUT_24H"
+      "CHECKIN_CONFIRMED"
     );
   });
 });
@@ -82,6 +82,7 @@ describe("decideRelease", () => {
     refunded: false,
     guestIsOwner: false,
     currencyMismatch: false,
+    guestAlertAccepted: true,
     collectedEnough: true,
     payoutAccountProblem: null,
   };
@@ -133,6 +134,12 @@ describe("decideRelease", () => {
     expect(decideRelease({ ...base, collectedEnough: false })).toEqual({
       next: "LOCKED",
       reason: "Waiting for the guest payment to be confirmed",
+    });
+  });
+
+  it("waits for an accepted guest alert", () => {
+    expect(decideRelease({ ...base, guestAlertAccepted: false })).toEqual({
+      next: "LOCKED", reason: "Waiting for the guest check-in alert to be accepted by SMS or email",
     });
   });
 

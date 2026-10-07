@@ -18,6 +18,8 @@ type Stage = "UNLOCKING" | "WAITING" | "ON_HOLD" | "READY" | "SENDING" | "UNDER_
 
 type OwnerPayout = {
   id: number;
+  ownerId: number;
+  withdrawalOtpLockedAt: string | null;
   stage: Stage;
   ownerName: string | null;
   propertyTitle: string | null;
@@ -80,7 +82,7 @@ function eat(iso: string | null, withTime = true) {
 function detail(p: OwnerPayout): string {
   switch (p.stage) {
     case "UNLOCKING":
-      return `Unlocks ${eat(p.releaseAt)}${p.rule === "CARD_CHECKOUT_24H" ? " (card: checkout + 24h)" : ""}`;
+      return p.rule === "CHECKIN_CONFIRMED" ? `Awaiting payout checks since ${eat(p.releaseAt)}` : `Unlocks ${eat(p.releaseAt)}`;
     case "WAITING":
     case "ON_HOLD":
       return p.reason ?? "No reason recorded";
@@ -118,6 +120,12 @@ export default function AdminOwnerPayoutsPage() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("active");
   const [query, setQuery] = useState("");
+  const [unlockOwner, setUnlockOwner] = useState<{ id: number; name: string } | null>(null);
+  const [verifiedVia, setVerifiedVia] = useState<"PHONE" | "VIDEO" | "IN_PERSON">("PHONE");
+  const [verificationNote, setVerificationNote] = useState("");
+  const [supportCaseRef, setSupportCaseRef] = useState("");
+  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [unlockMessage, setUnlockMessage] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,6 +147,28 @@ export default function AdminOwnerPayoutsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const unlockWithdrawalOtp = async () => {
+    if (!unlockOwner || verificationNote.trim().length < 20) return;
+    setUnlockBusy(true);
+    setError("");
+    try {
+      await apiClient.post(`/api/admin/disbursements/owner-payouts/${unlockOwner.id}/withdrawal-otp/unlock`, {
+        verifiedVia, verificationNote: verificationNote.trim(), supportCaseRef: supportCaseRef.trim(),
+      });
+      setUnlockMessage(`${unlockOwner.name}'s withdrawal OTP is unlocked. Ask them to request a new code.`);
+      setUnlockOwner(null);
+      setVerificationNote("");
+      setSupportCaseRef("");
+      await load();
+    } catch (cause: any) {
+      setError(cause?.response?.data?.require2fa
+        ? "Finance verification is required. Complete it in the verification panel, then try again."
+        : cause?.response?.data?.error || "Could not unlock withdrawal OTP.");
+    } finally {
+      setUnlockBusy(false);
+    }
+  };
 
   const selected = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
   const visible = useMemo(() => {
@@ -199,6 +229,30 @@ export default function AdminOwnerPayoutsPage() {
       </section>
 
       {error && <p className="m-0 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800" role="alert">{error}</p>}
+      {unlockMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800" role="status">{unlockMessage}</p>}
+      {unlockOwner && (
+        <section className="rounded-2xl border border-solid border-amber-300 bg-amber-50 p-4" aria-label="Unlock owner withdrawal verification">
+          <h2 className="m-0 text-base font-bold text-amber-950">Unlock withdrawal OTP for {unlockOwner.name}</h2>
+          <p className="mt-1 text-sm text-amber-900">Complete identity verification with the owner first. This action resets the three-failure lock and invalidates old codes.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm text-amber-950">Verified through
+              <select value={verifiedVia} onChange={(e) => setVerifiedVia(e.target.value as typeof verifiedVia)} className="mt-1 block w-full rounded-lg border border-solid border-amber-300 bg-white p-2">
+                <option value="PHONE">Phone</option><option value="VIDEO">Video</option><option value="IN_PERSON">In person</option>
+              </select>
+            </label>
+            <label className="text-sm text-amber-950">Support case reference
+              <input value={supportCaseRef} onChange={(e) => setSupportCaseRef(e.target.value)} maxLength={80} className="mt-1 block w-full rounded-lg border border-solid border-amber-300 bg-white p-2" />
+            </label>
+          </div>
+          <label className="mt-3 block text-sm text-amber-950">Identity verification note
+            <textarea value={verificationNote} onChange={(e) => setVerificationNote(e.target.value)} minLength={20} maxLength={1000} rows={3} className="mt-1 block w-full rounded-lg border border-solid border-amber-300 bg-white p-2" placeholder="Record what was checked and how the owner was verified." />
+          </label>
+          <div className="mt-3 flex gap-2">
+            <button type="button" onClick={() => void unlockWithdrawalOtp()} disabled={unlockBusy || verificationNote.trim().length < 20} className="rounded-lg border-0 bg-[#02665e] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{unlockBusy ? "Unlocking..." : "Confirm verified unlock"}</button>
+            <button type="button" onClick={() => setUnlockOwner(null)} disabled={unlockBusy} className="rounded-lg border border-solid border-amber-300 bg-white px-4 py-2 text-sm">Cancel</button>
+          </div>
+        </section>
+      )}
 
       {!enabled ? (
         <p className="m-0 rounded-2xl border border-solid border-neutral-300 bg-white px-5 py-6 text-sm text-neutral-600">
@@ -264,6 +318,12 @@ export default function AdminOwnerPayoutsPage() {
                       <td className="px-4 py-3">
                         <p className="m-0 truncate font-semibold text-neutral-900">{p.ownerName ?? "Owner"}</p>
                         <p className="m-0 mt-0.5 truncate font-mono text-[11px] text-neutral-500">{p.claimNumber ?? "No claim"}</p>
+                        {p.withdrawalOtpLockedAt && (
+                          <div className="mt-1.5">
+                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-800">Withdrawal OTP locked</span>
+                            <button type="button" onClick={() => { setUnlockOwner({ id: p.ownerId, name: p.ownerName || `Owner ${p.ownerId}` }); setUnlockMessage(""); }} className="ml-2 border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] underline">Verify and unlock</button>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <Link href={`/admin/bookings/${encodeURIComponent(p.bookingReference)}`} className="block truncate font-semibold text-neutral-900 no-underline hover:text-[#02665e]">

@@ -5,7 +5,7 @@
  * The OTP fires when the owner taps Withdraw, never when money becomes
  * available. The code is bound to the exact releases, total and live payout
  * destination (fingerprint), so it cannot confirm a different withdrawal and
- * any change in between invalidates it. Single use, 5 minutes, 5 attempts.
+ * any change in between invalidates it. Single use, 5 minutes, 3 attempts.
  *
  * A confirmed withdrawal takes one of two lanes per payout (autoLane.ts):
  * AUTO, where the system approves and the release worker sends it under the
@@ -34,7 +34,7 @@ import { decideOwnerPayoutLane, loadAutoLaneSettings, startAutoPayout, type Payo
 import { applyRecoveriesToClaim, openRecoveryTotal } from "./recovery.js";
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 3;
 const CHALLENGES_PER_WINDOW = 3;
 const CHALLENGE_WINDOW_MS = 15 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -53,6 +53,7 @@ export class WithdrawalError extends Error {
       | "EXPIRED"
       | "ALREADY_USED"
       | "TOO_MANY_ATTEMPTS"
+      | "OTP_LOCKED"
       | "INVALID_CODE"
       | "CHANGED",
     message: string,
@@ -62,6 +63,58 @@ export class WithdrawalError extends Error {
     super(message);
     this.name = "WithdrawalError";
   }
+}
+
+const OTP_LOCK_MESSAGE = "Withdrawal verification is locked after three wrong codes. Contact NoLSAF support to verify your identity and restore withdrawals.";
+
+async function assertWithdrawalOtpUnlocked(ownerId: number) {
+  const guard = await prisma.payoutWithdrawalOtpGuard.upsert({
+    where: { ownerId }, create: { ownerId }, update: {},
+  });
+  if (guard.lockedAt || guard.failedAttempts >= MAX_ATTEMPTS) {
+    throw new WithdrawalError("OTP_LOCKED", OTP_LOCK_MESSAGE, 423);
+  }
+  return guard;
+}
+
+/** Count a wrong code across every challenge for this owner. Database updates
+ * serialize concurrent attempts and make the third failure a support lock. */
+async function recordWrongWithdrawalCode(ownerId: number, challengeId: number, now: Date): Promise<number> {
+  const failures = await prisma.$transaction(async (tx) => {
+    const guard = await tx.payoutWithdrawalOtpGuard.updateMany({
+      where: { ownerId, lockedAt: null, failedAttempts: { lt: MAX_ATTEMPTS } },
+      data: { failedAttempts: { increment: 1 } },
+    });
+    if (guard.count !== 1) throw new WithdrawalError("OTP_LOCKED", OTP_LOCK_MESSAGE, 423);
+    const attempt = await tx.payoutWithdrawalChallenge.updateMany({
+      where: { id: challengeId, userId: ownerId, usedAt: null, expiresAt: { gt: now }, attempts: { lt: MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (attempt.count !== 1) throw new WithdrawalError("TOO_MANY_ATTEMPTS", "This withdrawal code can no longer be used. Contact NoLSAF support.");
+    const updated = await tx.payoutWithdrawalOtpGuard.findUniqueOrThrow({ where: { ownerId } });
+    if (updated.failedAttempts >= MAX_ATTEMPTS) {
+      await tx.payoutWithdrawalOtpGuard.update({ where: { ownerId }, data: { lockedAt: now } });
+      await tx.payoutWithdrawalChallenge.updateMany({
+        where: { userId: ownerId, usedAt: null, expiresAt: { gt: now } },
+        data: { expiresAt: now },
+      });
+    }
+    return updated.failedAttempts;
+  });
+  // Audit storage must not roll back a security lock or restore a spent guess.
+  for (const action of failures >= MAX_ATTEMPTS
+    ? ["OWNER_WITHDRAWAL_OTP_FAILED", "OWNER_WITHDRAWAL_OTP_LOCKED"]
+    : ["OWNER_WITHDRAWAL_OTP_FAILED"]) {
+    try {
+      await prisma.auditLog.create({ data: {
+        actorId: ownerId, actorRole: "OWNER", action, entity: "OWNER", entityId: ownerId,
+        afterJson: { failedAttempts: failures, challengeId }, ...retentionFields("FINANCIAL"),
+      } });
+    } catch (error) {
+      console.error("[owner-withdrawal] Could not record OTP security audit", { ownerId, action, error: String(error) });
+    }
+  }
+  return failures;
 }
 
 function formatTzs(amount: number): string {
@@ -171,16 +224,26 @@ async function deliverCode(
     const text =
       `NoLSAF code ${code} to withdraw ${formatTzs(total)} to ${destination}. ` +
       `Expires in ${Math.ceil(CHALLENGE_TTL_MS / 60_000)} min. Never share this code.`;
-    const result = await sendSms(owner.phone, text, { bypassEligibilityCheck: true });
-    if (result.success) return { channel: "SMS", sentTo: `***${owner.phone.replace(/\D/g, "").slice(-3)}` };
+    try {
+      const result = await sendSms(owner.phone, text, { bypassEligibilityCheck: true, sensitiveContent: true });
+      if (result.success && result.provider && !["suppressed", "console"].includes(result.provider)) {
+        return { channel: "SMS", sentTo: `***${owner.phone.replace(/\D/g, "").slice(-3)}` };
+      }
+    } catch (error) {
+      console.warn("[owner-withdrawal] SMS OTP delivery failed; trying verified email", { error: String(error) });
+    }
   }
   if (owner.email && owner.emailVerifiedAt) {
     const email = buildEmail(code, total, destination, count);
-    await sendMail(owner.email, email.subject, email.html, undefined, {
+    const result = await sendMail(owner.email, email.subject, email.html, undefined, {
       bypassEligibilityCheck: true,
       from: SECURITY_EMAIL_FROM,
       replyTo: "support@nolsaf.com",
+      sensitiveContent: true,
     });
+    if (!result.success || ["suppressed", "console"].includes(result.provider)) {
+      throw new WithdrawalError("DELIVERY_FAILED", "We could not send your withdrawal code. Check your verified phone or email.", 502);
+    }
     const [local, domain] = owner.email.split("@");
     return { channel: "EMAIL", sentTo: `${local.slice(0, 2)}***@${domain}` };
   }
@@ -193,6 +256,7 @@ export async function startWithdrawal(ownerId: number, now = new Date()) {
 
   const owner = await loadOwnerContact(ownerId);
   if (!owner) throw new WithdrawalError("NOT_FOUND", "Account not found.", 404);
+  await assertWithdrawalOtpUnlocked(ownerId);
   if (!(owner.phone && owner.phoneVerifiedAt) && !(owner.email && owner.emailVerifiedAt)) {
     throw new WithdrawalError("NO_VERIFIED_CONTACT", "Verify your phone number or email before withdrawing.");
   }
@@ -247,10 +311,15 @@ export async function startWithdrawal(ownerId: number, now = new Date()) {
   });
 
   try {
+    await assertWithdrawalOtpUnlocked(ownerId);
     const delivered = await deliverCode(owner, code, sendTotal, destination, releases.length);
     if (delivered.channel !== "SMS") {
       await prisma.payoutWithdrawalChallenge.update({ where: { id: challenge.id }, data: { channel: delivered.channel } });
     }
+    await prisma.payoutWithdrawalChallenge.updateMany({
+      where: { userId: ownerId, id: { not: challenge.id }, usedAt: null, expiresAt: { gt: now } },
+      data: { expiresAt: now },
+    });
     return {
       challengeRef: challenge.reference,
       channel: delivered.channel,
@@ -279,6 +348,7 @@ function codeMatches(code: string, codeHash: string): boolean {
 /** Step 2: the owner entered the code. Submits every bound claim to the payout queue. */
 export async function confirmWithdrawal(ownerId: number, challengeRef: string, code: string, now = new Date()) {
   if (!payoutReleaseEnabled()) throw new WithdrawalError("FEATURE_OFF", "Withdrawals are not available yet.", 404);
+  await assertWithdrawalOtpUnlocked(ownerId);
 
   const challenge = await prisma.payoutWithdrawalChallenge.findUnique({ where: { reference: String(challengeRef) } });
   if (!challenge || challenge.userId !== ownerId) throw new WithdrawalError("NOT_FOUND", "This withdrawal request was not found. Start again.", 404);
@@ -287,11 +357,9 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
   if (challenge.attempts >= MAX_ATTEMPTS) throw new WithdrawalError("TOO_MANY_ATTEMPTS", "Too many wrong codes. Start again.");
 
   if (!codeMatches(code, challenge.codeHash)) {
-    await prisma.payoutWithdrawalChallenge.updateMany({
-      where: { id: challenge.id, usedAt: null },
-      data: { attempts: { increment: 1 } },
-    });
-    const remaining = Math.max(0, MAX_ATTEMPTS - challenge.attempts - 1);
+    const failures = await recordWrongWithdrawalCode(ownerId, challenge.id, now);
+    if (failures >= MAX_ATTEMPTS) throw new WithdrawalError("OTP_LOCKED", OTP_LOCK_MESSAGE, 423);
+    const remaining = Math.max(0, MAX_ATTEMPTS - failures);
     throw new WithdrawalError("INVALID_CODE", "That code is not correct.", 400, { attemptsRemaining: remaining });
   }
 
@@ -315,8 +383,13 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
   // Spend the code and claim the releases in one transaction, so two
   // concurrent confirms cannot both succeed.
   await prisma.$transaction(async (tx) => {
+    const stillUnlocked = await tx.payoutWithdrawalOtpGuard.updateMany({
+      where: { ownerId, lockedAt: null, failedAttempts: { lt: MAX_ATTEMPTS } },
+      data: { failedAttempts: 0 },
+    });
+    if (stillUnlocked.count !== 1) throw new WithdrawalError("OTP_LOCKED", OTP_LOCK_MESSAGE, 423);
     const spent = await tx.payoutWithdrawalChallenge.updateMany({
-      where: { id: challenge.id, usedAt: null },
+      where: { id: challenge.id, usedAt: null, expiresAt: { gt: now }, attempts: { lt: MAX_ATTEMPTS } },
       data: { usedAt: now },
     });
     if (spent.count !== 1) throw new WithdrawalError("ALREADY_USED", "This code was already used. Start again.");
@@ -327,6 +400,10 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
     if (claimed.count !== releaseIds.length) {
       throw new WithdrawalError("CHANGED", "Something changed since the code was sent. Check your payouts and start again.");
     }
+    await tx.payoutWithdrawalChallenge.updateMany({
+      where: { userId: ownerId, id: { not: challenge.id }, usedAt: null, expiresAt: { gt: now } },
+      data: { expiresAt: now },
+    });
   });
 
   const owner = await loadOwnerContact(ownerId);
@@ -594,6 +671,8 @@ export async function withdrawUnclaimed(now = new Date(), limit = 50): Promise<n
 
   let submitted = 0;
   for (const { ownerId } of stale) {
+    const otpGuard = await prisma.payoutWithdrawalOtpGuard.findUnique({ where: { ownerId }, select: { lockedAt: true, failedAttempts: true } });
+    if (otpGuard?.lockedAt || (otpGuard?.failedAttempts ?? 0) >= MAX_ATTEMPTS) continue;
     const ready = await withdrawableReleases(ownerId, now);
     const account = (await verifiedPayoutAccounts(ownerId))[0];
     if (!account || ready.length === 0) continue;

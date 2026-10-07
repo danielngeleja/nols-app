@@ -15,6 +15,7 @@ import {
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 import { recordRefundRecovery } from "../services/payouts/recovery.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -427,7 +428,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         try {
           await notifyOwner(ownerId, ownerTemplate, {
             bookingId: current.bookingId,
-            bookingCode: current.bookingCode,
+            bookingCode: customerBookingReference(current.bookingId),
             propertyTitle,
             requestId: id,
             newStatus: nextStatus,
@@ -441,12 +442,12 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
       const io = req.app.get("io");
       if (io) {
         if (shouldVoidAndCancel && code) {
-          io.emit("admin:code:voided", { bookingId: current.bookingId, code: code.codeVisible });
+          io.to?.("admin")?.emit?.("admin:code:voided", { bookingId: current.bookingId });
         }
         if (ownerId) {
           io.to(`owner:${ownerId}`).emit("booking:cancellation_update", {
             bookingId: current.bookingId,
-            bookingCode: current.bookingCode,
+            bookingReference: customerBookingReference(current.bookingId),
             status: nextStatus,
             cancelled: shouldVoidAndCancel,
           });

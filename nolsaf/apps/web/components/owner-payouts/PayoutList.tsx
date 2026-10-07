@@ -61,7 +61,9 @@ export function StageTracker({ stage }: { stage: PayoutStage }) {
 export function stageSentence(p: OwnerPayout, now: number): string {
   switch (p.stage) {
     case "UNLOCKING":
-      return `Unlocks ${formatEat(p.releaseAt)}, ${timeLeft(p.releaseAt, now)}. ${ruleLabel(p.rule)}.`;
+      return p.rule === "CHECKIN_CONFIRMED"
+        ? "Validated check-in recorded. Payout checks are running."
+        : `Unlocks ${formatEat(p.releaseAt)}, ${timeLeft(p.releaseAt, now)}. ${ruleLabel(p.rule)}.`;
     case "WAITING":
       return `Waiting: ${p.reason ?? "a final check"}.`;
     case "ON_HOLD":

@@ -6,7 +6,6 @@ import { sendMail } from "./mailer.js";
 import { getBookingValidationWindowStatus } from "./bookingValidationWindow.js";
 import { updateNoLsafBookingStatus } from "./nolsafMarketplaceNrms.js";
 import { onBookingCheckedIn } from "../services/payouts/release.js";
-import { notifyGuestCheckInConfirmed } from "./checkInConfirmationSms.js";
 
 function getModelFieldSet(modelName: string): Set<string> | null {
   try {
@@ -246,7 +245,7 @@ function formatBookingDetails(booking: any, property: any, user: any): {
   return {
     sms: smsMessage,
     email: {
-      subject: `Booking Confirmation - ${booking.code?.code || "NoLSAF"}`,
+      subject: `Booking Confirmation - ${booking.id}`,
       html: emailHtml,
     },
   };
@@ -313,7 +312,7 @@ export async function sendBookingCodeNotification(
       const phone = booking.guestPhone || booking.user?.phone;
       if (phone) {
         try {
-          const smsResult = await sendSms(phone, notification.sms);
+          const smsResult = await sendSms(phone, notification.sms, { sensitiveContent: true });
           if (smsResult.success) {
             smsSent = true;
             // Mark code as issued
@@ -337,10 +336,10 @@ export async function sendBookingCodeNotification(
     // Send Email
     if (shouldSendEmail) {
       // Check both user email (for logged-in users) and guestEmail (for public bookings)
-      const email = booking.user?.email || (booking as any).guestEmail;
+      const email = (booking as any).guestEmail || booking.user?.email;
       if (email) {
         try {
-          await sendMail(email, notification.email.subject, notification.email.html);
+          await sendMail(email, notification.email.subject, notification.email.html, undefined, { sensitiveContent: true });
           emailSent = true;
           // Mark code as issued if not already
           if (booking.code && !booking.code.issuedAt) {
@@ -392,7 +391,7 @@ export async function validateBookingCode(
 
     const codeHash = hashCode(normalizedCode);
     
-    console.log(`[validateBookingCode] Looking up code: "${normalizedCode}", hash: ${codeHash.substring(0, 16)}..., allowUsed: ${allowUsed}`);
+    // The presented credential must never appear in application logs.
     
     // Try to find the code by multiple methods:
     // 1. Direct code match (case-sensitive)
@@ -526,7 +525,7 @@ export async function validateBookingCode(
     }
 
     if (!checkinCode) {
-      console.error(`[validateBookingCode] Code not found: ${normalizedCode} (hash: ${codeHash})`);
+      console.error("[validateBookingCode] Code not found");
       return { valid: false, error: "Invalid booking code" };
     }
 
@@ -544,7 +543,7 @@ export async function validateBookingCode(
 
     // Check code status - reject USED codes unless explicitly allowed (for cancellation checks)
     if (checkinCode.status === "USED" && !allowUsed) {
-      console.log(`[validateBookingCode] Code already used: ${normalizedCode}`);
+      console.log("[validateBookingCode] Code already used");
       return {
         valid: false,
         error: "This code has already been validated and cannot be used again",
@@ -602,7 +601,7 @@ export async function validateBookingCode(
       }
       
       if (Number(propertyOwnerId) !== Number(ownerId)) {
-        console.error(`[validateBookingCode] Owner mismatch: expected ${ownerId}, got ${propertyOwnerId} for code ${normalizedCode}`);
+        console.error(`[validateBookingCode] Owner mismatch: expected ${ownerId}, got ${propertyOwnerId}`);
         return { valid: false, error: "This booking does not belong to your property" };
       }
     }
@@ -631,7 +630,8 @@ export async function validateBookingCode(
  */
 export async function markBookingCodeAsUsed(
   codeId: number,
-  ownerId: number
+  ownerId: number,
+  presentedCode: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const checkinCode = await prisma.checkinCode.findUnique({
@@ -639,6 +639,7 @@ export async function markBookingCodeAsUsed(
       select: {
         id: true,
         status: true,
+        codeHash: true,
         bookingId: true,
         booking: {
           select: {
@@ -666,6 +667,8 @@ export async function markBookingCodeAsUsed(
     if (checkinCode.status !== "ACTIVE") {
       return { success: false, error: "Code is not active" };
     }
+    const presentedHash = hashCode(String(presentedCode).trim().toUpperCase());
+    if (presentedHash !== checkinCode.codeHash) return { success: false, error: "Invalid guest check-in code" };
 
     const windowStatus = getBookingValidationWindowStatus(
       new Date(checkinCode.booking.checkIn as any),
@@ -678,14 +681,15 @@ export async function markBookingCodeAsUsed(
 
     // Update code status and booking status
     await prisma.$transaction(async (tx: any) => {
-      await tx.checkinCode.update({
-        where: { id: codeId },
+      const claimed = await tx.checkinCode.updateMany({
+        where: { id: codeId, status: "ACTIVE", codeHash: presentedHash },
         data: {
           status: "USED",
           usedAt: new Date(),
           usedByOwner: true,
         },
       });
+      if (claimed.count !== 1) throw new Error("This check-in code has already been used.");
       await updateNoLsafBookingStatus(tx, checkinCode.bookingId, "CHECKED_IN");
       // The NRMS projection inside this transaction is a dozen round trips
       // (guest profile, reservation upsert, event, allocations). On the default
@@ -693,10 +697,9 @@ export async function markBookingCodeAsUsed(
       // the guest is turned away at the desk with the code already consumed.
     }, { maxWait: 10_000, timeout: 30_000 });
 
-    // After commit and not awaited: the payout date lock must never delay or
-    // fail the guest's check-in. The release worker backfills any miss.
+    // After commit and not awaited: guest alert and payout checks never delay
+    // the desk. The release worker retries any missed follow-up.
     onBookingCheckedIn(checkinCode.bookingId);
-    notifyGuestCheckInConfirmed(checkinCode.bookingId);
 
     return { success: true };
   } catch (error: any) {

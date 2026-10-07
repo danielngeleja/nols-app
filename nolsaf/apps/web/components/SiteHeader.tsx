@@ -1095,7 +1095,7 @@ export default function SiteHeader({
                       className="group flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 transition-all duration-200 no-underline"
                     >
                       <DollarSign className="h-4 w-4 text-gray-500 group-hover:text-emerald-600 transition-all duration-200 group-hover:scale-110" />
-                      <span className="font-medium">Payouts</span>
+                      <span className="font-medium">My Payouts</span>
                     </Link>
 
                     <Link

@@ -14,12 +14,12 @@ const STEPS = [
   {
     Icon: DoorOpen,
     title: "Guest checks in",
-    text: "You validate the booking code as today. The guest gets a check-in confirmation by SMS.",
+    text: "You validate the booking code as today. The guest gets a check-in confirmation by SMS or email.",
   },
   {
     Icon: Timer,
-    title: "Unlocks after 24 hours",
-    text: "The stay's payout becomes ready 24 hours later, or 24 hours after checkout for card payments.",
+    title: "Ready after check-in",
+    text: "Once payment, guest alert and payout checks pass, the stay's payout is ready to withdraw, including card-paid stays.",
   },
   {
     Icon: KeyRound,

@@ -171,7 +171,7 @@ export default function PayoutsOverviewPage() {
         {active.length === 0 ? (
           <div className="flex items-center gap-3 px-5 py-8 text-sm text-slate-500">
             <Wallet className="h-5 w-5 text-slate-400" aria-hidden />
-            When a guest checks in, their stay appears here and unlocks 24 hours later.
+            After a validated check-in, the stay appears here and is ready once payout checks pass.
           </div>
         ) : (
           <ul className="m-0 list-none divide-y divide-slate-100 p-0">

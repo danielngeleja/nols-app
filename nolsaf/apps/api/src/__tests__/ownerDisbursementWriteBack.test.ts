@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   azamPayDisburse: vi.fn(),
   findInvoice: vi.fn(),
+  findBooking: vi.fn(),
+  findCancellation: vi.fn(),
   updateInvoiceMany: vi.fn(),
   createNotification: vi.fn(),
   sendMail: vi.fn(),
@@ -18,6 +20,8 @@ vi.mock("@nolsaf/prisma", () => ({
     disbursement: { findUnique: mocks.findDisbursement, updateMany: mocks.claimDisbursement },
     disbursementEvent: { create: vi.fn() },
     invoice: { findUnique: mocks.findInvoice, updateMany: mocks.updateInvoiceMany },
+    booking: { findUnique: mocks.findBooking },
+    cancellationRequest: { findFirst: mocks.findCancellation },
     notification: { create: mocks.createNotification },
     $transaction: mocks.transaction,
   },
@@ -99,6 +103,10 @@ describe("owner invoice disbursement write-back", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.claimDisbursement.mockResolvedValue({ count: 1 });
+    mocks.findInvoice.mockResolvedValue({ bookingId: 123 });
+    mocks.findBooking.mockResolvedValue({ status: "CHECKED_IN", code: { status: "USED", usedAt: new Date(), usedByOwner: true } });
+    mocks.findCancellation.mockResolvedValue(null);
+    vi.stubEnv("PAYOUT_RELEASE_ENABLED", "false");
     vi.stubEnv("AZAMPAY_DISBURSE_SOURCE_ACCOUNT", "255700000000");
     vi.stubEnv("AZAMPAY_DISBURSE_TRANSFER_TYPE", "MOBILE_MONEY");
   });
@@ -146,6 +154,38 @@ describe("owner invoice disbursement write-back", () => {
       operation: "REQUEST",
       missingKeys: ["AZAMPAY_DISBURSE_SOURCE_ACCOUNT"],
     });
+    expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
+  });
+
+  it("holds an authorized owner payout when a cancellation dispute opens before submission", async () => {
+    const authorized = ownerDisbursement("AUTHORIZED");
+    const update = vi.fn().mockResolvedValue({ count: 1 });
+    const event = vi.fn().mockResolvedValue({});
+    mocks.findDisbursement.mockResolvedValue(authorized);
+    mocks.findCancellation.mockResolvedValue({ id: 55 });
+    mocks.transaction.mockImplementation(async (callback: any) => callback({
+      disbursement: { updateMany: update }, disbursementEvent: { create: event },
+    }));
+
+    await expect(submitToAzamPay(authorized.id)).rejects.toMatchObject({ name: "PayoutStateError" });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "SECURITY_REVIEW" }),
+    }));
+    expect(event).toHaveBeenCalled();
+    expect(mocks.claimDisbursement).not.toHaveBeenCalled();
+    expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
+  });
+
+  it("holds an owner payout if the check-in code is no longer validated", async () => {
+    const authorized = ownerDisbursement("AUTHORIZED");
+    mocks.findDisbursement.mockResolvedValue(authorized);
+    mocks.findBooking.mockResolvedValue({ status: "CHECKED_IN", code: { status: "VOID", usedAt: null } });
+    mocks.transaction.mockImplementation(async (callback: any) => callback({
+      disbursement: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      disbursementEvent: { create: vi.fn().mockResolvedValue({}) },
+    }));
+
+    await expect(submitToAzamPay(authorized.id)).rejects.toMatchObject({ name: "PayoutStateError" });
     expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
   });
 

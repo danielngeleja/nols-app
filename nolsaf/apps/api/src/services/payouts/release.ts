@@ -1,5 +1,5 @@
 /**
- * Payout Release — the date lock between a verified stay and the owner's money
+ * Payout Release — qualification after a verified stay starts
  *
  * See docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md. A PayoutRelease row is created
  * when a guest's check-in code is validated and decides WHEN the owner may
@@ -8,14 +8,9 @@
  *
  * Phase 1 runs in shadow mode. Releases are created and unlocked, but owners
  * are still paid through the existing manual claim, so a release whose claim
- * was paid that way is simply marked RELEASED with lane MANUAL.
- *
- * Unlock rules (agreed 2026-10-07):
- *   - mobile money / bank: max(code validated, start of check-in day EAT) + 24h.
- *     The 24h matches cancellation policy 3.2.5.1.6 (uninhabitable property
- *     must be reported within 24h) and Booking.com's virtual-card activation.
- *   - any card payment, or a payment whose channel is unknown: checkout + 24h,
- *     because card payments can be charged back long after the stay.
+ * was paid that way is simply marked RELEASED with lane MANUAL. All payment
+ * channels use validated check-in as the earliest eligibility time; the live
+ * payment, guest alert, dispute and payout-account checks still apply.
  */
 
 import { prisma } from "@nolsaf/prisma";
@@ -26,19 +21,18 @@ import {
 } from "../../lib/accommodationPayout.js";
 import { confirmedCustomerPaymentForBooking, PaymentCurrencyMismatchError } from "./eligibility.js";
 import { loadPayoutSafeguards } from "./riskScoring.js";
+import { ensureGuestCheckInConfirmation, guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 
 export type PayoutReleaseStatus = "LOCKED" | "HELD" | "AVAILABLE" | "WITHDRAWING" | "RELEASED" | "CANCELLED";
-export type PayoutReleaseRule = "CHECKIN_24H" | "CARD_CHECKOUT_24H";
+export type PayoutReleaseRule = "CHECKIN_CONFIRMED";
 
 const HOUR_MS = 60 * 60 * 1000;
-const RELEASE_DELAY_MS = 24 * HOUR_MS;
 /**
  * Tanzania observes no daylight saving, so East Africa Time is a fixed UTC+3.
  * A fixed offset keeps the unlock time deterministic on any host timezone.
  */
 const EAT_OFFSET_MS = 3 * HOUR_MS;
 const OWNER_INVOICE_PREFIX = "OINV-";
-const CUSTOMER_INVOICE_PREFIX = "INV-";
 const AMOUNT_TOLERANCE = 0.01;
 
 /** Booking statuses under which a stay has really started. */
@@ -64,9 +58,8 @@ export function startOfEatDay(date: Date): Date {
 }
 
 /**
- * Pure unlock-time rule. `paymentChannels` are the channels of every
- * successful customer payment on the booking; null entries mean the channel
- * was not recorded and are treated as card, the stricter rule.
+ * Pure eligibility-time rule. A provider-confirmed guest payment remains a
+ * separate mandatory gate for every channel, including cards.
  */
 export function computeReleaseAt(input: {
   codeUsedAt: Date;
@@ -74,16 +67,7 @@ export function computeReleaseAt(input: {
   checkOut: Date;
   paymentChannels: Array<string | null>;
 }): { rule: PayoutReleaseRule; releaseAt: Date } {
-  const channels = input.paymentChannels.map((c) => (c == null ? null : String(c).trim().toUpperCase()));
-  const cardOrUnknown = channels.length === 0 || channels.some((c) => c === null || c === "" || c === "CARD");
-
-  if (cardOrUnknown) {
-    const anchor = Math.max(input.checkOut.getTime(), input.codeUsedAt.getTime());
-    return { rule: "CARD_CHECKOUT_24H", releaseAt: new Date(anchor + RELEASE_DELAY_MS) };
-  }
-  // An early validation must never start the clock before the booked day.
-  const anchor = Math.max(input.codeUsedAt.getTime(), startOfEatDay(input.checkIn).getTime());
-  return { rule: "CHECKIN_24H", releaseAt: new Date(anchor + RELEASE_DELAY_MS) };
+  return { rule: "CHECKIN_CONFIRMED", releaseAt: input.codeUsedAt };
 }
 
 /**
@@ -176,17 +160,6 @@ export async function ensureOwnerClaimDraft(bookingId: number) {
   }
 }
 
-async function successfulPaymentChannels(bookingId: number): Promise<Array<string | null>> {
-  const events = await prisma.paymentEvent.findMany({
-    where: {
-      status: "SUCCESS",
-      invoice: { is: { bookingId, invoiceNumber: { startsWith: CUSTOMER_INVOICE_PREFIX } } },
-    },
-    select: { paymentChannel: true },
-  });
-  return events.map((e) => e.paymentChannel ?? null);
-}
-
 /**
  * Idempotently creates the release for a checked-in booking. Returns null when
  * the booking has not really started (not CHECKED_IN/CHECKED_OUT, or the code
@@ -200,11 +173,11 @@ export async function ensurePayoutRelease(bookingId: number) {
       status: true,
       checkIn: true,
       checkOut: true,
-      code: { select: { status: true, usedAt: true } },
+      code: { select: { status: true, usedAt: true, usedByOwner: true } },
     },
   });
   if (!booking || !STAY_STARTED_STATUSES.has(String(booking.status).toUpperCase())) return null;
-  if (booking.code?.status !== "USED" || !booking.code.usedAt) return null;
+  if (booking.code?.status !== "USED" || !booking.code.usedAt || booking.code.usedByOwner !== true) return null;
 
   const ensured = await ensureOwnerClaimDraft(bookingId);
   if (!ensured) return null;
@@ -218,7 +191,7 @@ export async function ensurePayoutRelease(bookingId: number) {
     codeUsedAt: booking.code.usedAt,
     checkIn: booking.checkIn,
     checkOut: booking.checkOut,
-    paymentChannels: await successfulPaymentChannels(bookingId),
+    paymentChannels: [],
   });
 
   try {
@@ -265,9 +238,15 @@ export const USE_WITHDRAW_RESPONSE = {
  * The release worker's sweeper creates anything this misses.
  */
 export function onBookingCheckedIn(bookingId: number): void {
-  if (!payoutReleaseEnabled()) return;
-  void ensurePayoutRelease(bookingId).catch((err) => {
-    console.error("[payout-release] could not create release at check-in", {
+  void (async () => {
+    await ensureGuestCheckInConfirmation(bookingId);
+    if (!payoutReleaseEnabled()) return;
+    const release = await ensurePayoutRelease(bookingId);
+    if (!release) return;
+    const decision = decideRelease(await loadReleaseContext(release));
+    await applyReleaseDecision(release, decision);
+  })().catch((err) => {
+    console.error("[payout-release] check-in follow-up failed", {
       bookingId,
       code: err?.code,
       message: err?.message,
@@ -342,6 +321,7 @@ export interface ReleaseContext {
   refunded: boolean;
   guestIsOwner: boolean;
   currencyMismatch: boolean;
+  guestAlertAccepted: boolean;
   collectedEnough: boolean;
   payoutAccountProblem: string | null;
 }
@@ -383,6 +363,7 @@ export function decideRelease(ctx: ReleaseContext): ReleaseDecision {
   if (ctx.now.getTime() < ctx.releaseAt.getTime()) return { next: "LOCKED", reason: null };
 
   if (!ctx.collectedEnough) return { next: "LOCKED", reason: "Waiting for the guest payment to be confirmed" };
+  if (!ctx.guestAlertAccepted) return { next: "LOCKED", reason: "Waiting for the guest check-in alert to be accepted by SMS or email" };
   if (ctx.payoutAccountProblem) return { next: "LOCKED", reason: ctx.payoutAccountProblem };
 
   return { next: "AVAILABLE", reason: null };
@@ -429,7 +410,7 @@ export async function loadReleaseContext(
   release: { id: number; sourceId: number; bookingId: number; ownerId: number; releaseAt: Date },
   now = new Date()
 ): Promise<ReleaseContext> {
-  const [booking, claim, disbursement, cancellations, owner] = await Promise.all([
+  const [booking, claim, disbursement, cancellations, owner, guestAlertAccepted] = await Promise.all([
     prisma.booking.findUnique({
       where: { id: release.bookingId },
       select: { status: true, userId: true, guestPhone: true, user: { select: { phone: true, email: true } } },
@@ -445,6 +426,7 @@ export async function loadReleaseContext(
       orderBy: { id: "desc" },
     }),
     prisma.user.findUnique({ where: { id: release.ownerId }, select: { phone: true, email: true } }),
+    guestCheckInAlertAccepted(release.bookingId),
   ]);
 
   const statuses = cancellations.map((c) => String(c.status).toUpperCase());
@@ -486,6 +468,7 @@ export async function loadReleaseContext(
     refunded,
     guestIsOwner,
     currencyMismatch,
+    guestAlertAccepted,
     collectedEnough,
     payoutAccountProblem: account.problem,
   };

@@ -21,6 +21,9 @@ import { prisma } from "@nolsaf/prisma";
 import type { Disbursement, Prisma } from "@prisma/client";
 import { loadEligiblePayoutSource, type PayoutSourceType } from "./eligibility.js";
 import { computeApprovalFingerprint } from "./fingerprint.js";
+import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
+import { customerBookingReference } from "../../lib/customerBookingReference.js";
+import { payoutReleaseEnabled } from "./release.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
@@ -126,10 +129,11 @@ export function ownerDisbursementReceiptNumber(invoiceId: number, paidAt: Date):
 export async function divertToSecurityReview(disbursementId: number, reason: string): Promise<void> {
   const message = truncateReason(reason);
   await prisma.$transaction(async (tx) => {
-    await tx.disbursement.update({
-      where: { id: disbursementId },
+    const moved = await tx.disbursement.updateMany({
+      where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
       data: { status: "SECURITY_REVIEW", securityReviewReason: message },
     });
+    if (moved.count !== 1) return;
     await tx.disbursementEvent.create({
       data: {
         disbursementId,
@@ -489,6 +493,38 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
     );
   }
 
+  // A dispute can arrive after the owner confirms the withdrawal or after a
+  // batch is authorized. Recheck the booking at the final provider boundary.
+  // Older claims have no release, but still stop on an open cancellation.
+  if (disbursement.sourceType === "OWNER_INVOICE") {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: disbursement.sourceId }, select: { bookingId: true },
+    });
+    if (!invoice?.bookingId) {
+      await divertToSecurityReview(disbursementId, "Owner payout has no booking to verify before provider submission");
+      throw new PayoutStateError(`Disbursement ${disbursementId} has no verifiable booking`);
+    }
+    const [booking, cancellation, release] = await Promise.all([
+      prisma.booking.findUnique({ where: { id: invoice.bookingId }, select: {
+        status: true, code: { select: { status: true, usedAt: true, usedByOwner: true } },
+      } }),
+      prisma.cancellationRequest.findFirst({
+        where: { bookingId: invoice.bookingId, status: { in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "APPROVED", "REFUND_PENDING", "REFUNDED"] } },
+        select: { id: true },
+      }),
+      payoutReleaseEnabled()
+        ? prisma.payoutRelease.findUnique({ where: { sourceType_sourceId: { sourceType: "OWNER_INVOICE", sourceId: disbursement.sourceId } }, select: { status: true } })
+        : Promise.resolve(null),
+    ]);
+    const alertAccepted = release ? await guestCheckInAlertAccepted(invoice.bookingId) : true;
+    if (!booking || !["CHECKED_IN", "CHECKED_OUT"].includes(String(booking.status).toUpperCase()) ||
+        booking.code?.status !== "USED" || !booking.code.usedAt || booking.code.usedByOwner !== true || cancellation ||
+        (release && (release.status !== "RELEASED" || !alertAccepted))) {
+      await divertToSecurityReview(disbursementId, "Booking, dispute, release or guest alert changed before owner payout submission");
+      throw new PayoutStateError(`Disbursement ${disbursementId} was diverted to SECURITY_REVIEW before provider submission`);
+    }
+  }
+
   assertWithinAmountCeiling(disbursement.amount);
 
   const amount = Number(disbursement.amount);
@@ -761,7 +797,7 @@ async function writeBackSourcePaid(
             ownerName,
             ownerEmail: invoice.owner.email,
             bookingId: invoice.bookingId,
-            bookingCode: invoice.booking.code?.codeVisible ?? null,
+            bookingCode: customerBookingReference(invoice.bookingId),
             propertyName: invoice.booking.property?.title || "Property",
             checkIn: invoice.booking.checkIn.toISOString(),
             checkOut: invoice.booking.checkOut.toISOString(),
@@ -1039,7 +1075,7 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
       receiptNumber: snapshot.receiptNumber,
       invoiceNumber,
       bookingId: snapshot.bookingId,
-      bookingCode: snapshot.bookingCode,
+      bookingCode: customerBookingReference(snapshot.bookingId),
       propertyName,
       checkIn: snapshot.checkIn,
       checkOut: snapshot.checkOut,

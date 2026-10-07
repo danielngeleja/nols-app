@@ -32,7 +32,7 @@ export type OwnerPayout = {
   recoveryDeducted: number;
   currency: string;
   stage: PayoutStage;
-  rule: "CHECKIN_24H" | "CARD_CHECKOUT_24H" | string;
+  rule: "CHECKIN_CONFIRMED" | "CHECKIN_24H" | "CARD_CHECKOUT_24H" | string;
   releaseAt: string;
   availableAt: string | null;
   reason: string | null;
@@ -89,6 +89,7 @@ export function timeLeft(iso: string, now: number): string {
 }
 
 export function ruleLabel(rule: string): string {
+  if (rule === "CHECKIN_CONFIRMED") return "After validated check-in and payout checks";
   if (rule === "CARD_CHECKOUT_24H") return "24h after checkout, because the guest paid by card";
   return "24h after check-in";
 }

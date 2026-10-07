@@ -35,6 +35,7 @@ import { checkDisbursementStatus } from "../services/payouts/reconciliation.js";
 import { recordRecovery, RecoveryError, waiveRecovery } from "../services/payouts/recovery.js";
 import { ownerPayoutStage, payoutReleaseEnabled } from "../services/payouts/release.js";
 import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
+import { retentionFields } from "../lib/auditRetention.js";
 import { provisionPayoutAccountFromProfile, NoPayoutProfileError } from "../services/payouts/provisioning.js";
 import { AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import {
@@ -138,17 +139,20 @@ router.get(
       include: { booking: { select: { checkIn: true, checkOut: true, guestName: true, property: { select: { title: true } } } } },
     });
     const claimIds = rows.map((r) => r.sourceId);
-    const [claims, owners, recovered] = await Promise.all([
+    const ownerIds = [...new Set(rows.map((r) => r.ownerId))];
+    const [claims, owners, recovered, otpGuards] = await Promise.all([
       prisma.invoice.findMany({ where: { id: { in: claimIds } }, select: { id: true, netPayable: true, status: true, paidAt: true, invoiceNumber: true } }),
       prisma.user.findMany({
-        where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } },
+        where: { id: { in: ownerIds } },
         select: { id: true, name: true, fullName: true, email: true },
       }),
       prisma.ownerPayoutRecoveryApplication.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: claimIds } }, _sum: { amount: true } }),
+      prisma.payoutWithdrawalOtpGuard.findMany({ where: { ownerId: { in: ownerIds } }, select: { ownerId: true, lockedAt: true, failedAttempts: true } }),
     ]);
     const claimById = new Map<number, (typeof claims)[number]>(claims.map((c) => [c.id, c]));
     const ownerName = new Map(owners.map((o) => [o.id, o.fullName || o.name || o.email || `Owner ${o.id}`]));
     const recoveredById = new Map(recovered.map((r) => [r.invoiceId, Number(r._sum.amount ?? 0)]));
+    const otpByOwner = new Map<number, { lockedAt: Date | null }>(otpGuards.map((g) => [g.ownerId, g]));
 
     const all = rows.map((r) => {
       const claim = claimById.get(r.sourceId);
@@ -157,6 +161,7 @@ router.get(
         id: r.id,
         stage,
         ownerId: r.ownerId,
+        withdrawalOtpLockedAt: otpByOwner.get(r.ownerId)?.lockedAt ?? null,
         ownerName: ownerName.get(r.ownerId) ?? null,
         propertyTitle: r.booking.property?.title ?? null,
         guestName: r.booking.guestName ?? null,
@@ -179,6 +184,55 @@ router.get(
     const counts: Record<string, number> = {};
     for (const p of all) counts[p.stage] = (counts[p.stage] ?? 0) + 1;
     res.json({ ok: true, enabled: true, counts, payouts: wanted ? all.filter((p) => p.stage === wanted) : all });
+  })
+);
+
+const unlockWithdrawalOtpSchema = z.object({
+  verifiedVia: z.enum(["PHONE", "VIDEO", "IN_PERSON"]),
+  verificationNote: z.string().trim().min(20).max(1000),
+  supportCaseRef: z.string().trim().max(80).optional(),
+}).strict();
+
+/** Support clears only the withdrawal OTP lock after identity verification. */
+router.post(
+  "/owner-payouts/:ownerId/withdrawal-otp/unlock",
+  limitDisbursementAdminWrite,
+  requireAdminFinanceGrant as RequestHandler,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const ownerId = Number(req.params.ownerId);
+    const parsed = unlockWithdrawalOtpSchema.safeParse(req.body);
+    if (!Number.isSafeInteger(ownerId) || ownerId <= 0 || !parsed.success) {
+      res.status(400).json({ error: "Owner ID and identity verification details are required." });
+      return;
+    }
+    const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, role: true } });
+    if (!owner || owner.role !== "OWNER") {
+      res.status(404).json({ error: "Owner not found." });
+      return;
+    }
+    const now = new Date();
+    const unlocked = await prisma.$transaction(async (tx) => {
+      const changed = await tx.payoutWithdrawalOtpGuard.updateMany({
+        where: { ownerId, OR: [{ lockedAt: { not: null } }, { failedAttempts: { gte: 3 } }] },
+        data: { failedAttempts: 0, lockedAt: null },
+      });
+      if (changed.count !== 1) return false;
+      await tx.payoutWithdrawalChallenge.updateMany({
+        where: { userId: ownerId, usedAt: null, expiresAt: { gt: now } },
+        data: { expiresAt: now },
+      });
+      await tx.auditLog.create({ data: {
+        actorId: req.user!.id, actorRole: "ADMIN", action: "OWNER_WITHDRAWAL_OTP_UNLOCKED", entity: "OWNER", entityId: ownerId,
+        afterJson: { verifiedVia: parsed.data.verifiedVia, verificationNote: parsed.data.verificationNote, supportCaseRef: parsed.data.supportCaseRef ?? null },
+        ...retentionFields("FINANCIAL"),
+      } });
+      return true;
+    });
+    if (!unlocked) {
+      res.status(409).json({ error: "This owner's withdrawal OTP is not locked." });
+      return;
+    }
+    res.json({ ok: true, ownerId, message: "Withdrawal OTP unlocked. The owner must request a new code." });
   })
 );
 

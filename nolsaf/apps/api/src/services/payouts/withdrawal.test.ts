@@ -19,6 +19,8 @@ const m = vi.hoisted(() => ({
     payoutRelease: { findMany: vi.fn(), updateMany: vi.fn() },
     invoice: { findUnique: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     user: { findUnique: vi.fn() },
+    guardState: { ownerId: 3, failedAttempts: 0, lockedAt: null as Date | null },
+    payoutWithdrawalOtpGuard: { upsert: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     payoutWithdrawalChallenge: {
       count: vi.fn(),
       create: vi.fn(),
@@ -104,7 +106,7 @@ beforeEach(() => {
   m.decide.mockReturnValue({ next: "AVAILABLE", reason: null });
   m.accounts.mockResolvedValue([ACCOUNT]);
   m.sendSms.mockResolvedValue({ success: true, provider: "sms" });
-  m.sendMail.mockResolvedValue(undefined);
+  m.sendMail.mockResolvedValue({ success: true, provider: "resend" });
   m.notifyAdmins.mockResolvedValue(undefined);
   m.prisma.user.findUnique.mockResolvedValue(OWNER);
   m.prisma.payoutRelease.findMany.mockResolvedValue([RELEASE]);
@@ -114,6 +116,21 @@ beforeEach(() => {
   m.prisma.payoutWithdrawalChallenge.count.mockResolvedValue(0);
   m.prisma.payoutWithdrawalChallenge.create.mockImplementation(async ({ data }: any) => ({ id: 9, ...data }));
   m.prisma.payoutWithdrawalChallenge.updateMany.mockResolvedValue({ count: 1 });
+  m.prisma.guardState.failedAttempts = 0;
+  m.prisma.guardState.lockedAt = null;
+  m.prisma.payoutWithdrawalOtpGuard.upsert.mockImplementation(async () => ({ ...m.prisma.guardState }));
+  m.prisma.payoutWithdrawalOtpGuard.findUniqueOrThrow.mockImplementation(async () => ({ ...m.prisma.guardState }));
+  m.prisma.payoutWithdrawalOtpGuard.findUnique.mockResolvedValue(null);
+  m.prisma.payoutWithdrawalOtpGuard.updateMany.mockImplementation(async ({ data }: any) => {
+    if (m.prisma.guardState.lockedAt || m.prisma.guardState.failedAttempts >= 3) return { count: 0 };
+    if (data.failedAttempts?.increment) m.prisma.guardState.failedAttempts++;
+    else if (data.failedAttempts === 0) m.prisma.guardState.failedAttempts = 0;
+    return { count: 1 };
+  });
+  m.prisma.payoutWithdrawalOtpGuard.update.mockImplementation(async ({ data }: any) => {
+    m.prisma.guardState.lockedAt = data.lockedAt;
+    return { ...m.prisma.guardState };
+  });
   m.prisma.auditLog.create.mockResolvedValue({});
   m.prisma.$transaction.mockImplementation(async (fn: any) => fn(m.prisma));
   m.decideLane.mockResolvedValue({ lane: "MANUAL", reason: "First payout to this owner is checked by our team" });
@@ -161,11 +178,15 @@ describe("startWithdrawal", () => {
     expect(m.sendSms).toHaveBeenCalledWith(
       OWNER.phone,
       expect.stringContaining("NoLSAF code 123456 to withdraw TZS 180,000 to Vodacom ***456"),
-      { bypassEligibilityCheck: true }
+      { bypassEligibilityCheck: true, sensitiveContent: true }
     );
     const stored = m.prisma.payoutWithdrawalChallenge.create.mock.calls[0][0].data;
     expect(stored.codeHash).toBe(hashCode("123456"));
     expect(stored.fingerprint).toBe(fingerprintFor());
+    expect(m.prisma.payoutWithdrawalChallenge.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ userId: 3, id: { not: 9 } }),
+      data: { expiresAt: NOW },
+    }));
     expect(JSON.stringify(result)).not.toContain("123456");
     expect(result).toMatchObject({ channel: "SMS", total: 180000, destination: "Vodacom ***456", count: 1 });
   });
@@ -175,6 +196,20 @@ describe("startWithdrawal", () => {
     const result = await startWithdrawal(3, NOW);
     expect(m.sendMail).toHaveBeenCalledOnce();
     expect(result.channel).toBe("EMAIL");
+  });
+
+  it("falls back to verified email when the SMS provider throws", async () => {
+    m.sendSms.mockRejectedValue(new Error("provider unavailable"));
+    const result = await startWithdrawal(3, NOW);
+    expect(result.channel).toBe("EMAIL");
+    expect(m.sendMail).toHaveBeenCalledOnce();
+  });
+
+  it("does not treat development console delivery as a delivered withdrawal code", async () => {
+    m.sendSms.mockResolvedValue({ success: true, provider: "console" });
+    m.sendMail.mockResolvedValue({ success: true, provider: "console" });
+    await expect(startWithdrawal(3, NOW)).rejects.toMatchObject({ code: "DELIVERY_FAILED" });
+    expect(m.prisma.payoutWithdrawalChallenge.update).toHaveBeenCalledWith({ where: { id: 9 }, data: { expiresAt: NOW } });
   });
 
   it("kills the code when it cannot be delivered", async () => {
@@ -190,12 +225,54 @@ describe("confirmWithdrawal", () => {
     m.prisma.payoutWithdrawalChallenge.findUnique.mockResolvedValue(challenge());
     await expect(confirmWithdrawal(3, "wd_abcdefghijklmnop", "000000", NOW)).rejects.toMatchObject({
       code: "INVALID_CODE",
-      extra: { attemptsRemaining: 4 },
+      extra: { attemptsRemaining: 2 },
     });
-    expect(m.prisma.payoutWithdrawalChallenge.updateMany).toHaveBeenCalledWith({
-      where: { id: 9, usedAt: null },
+    expect(m.prisma.payoutWithdrawalChallenge.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 9, usedAt: null }),
       data: { attempts: { increment: 1 } },
-    });
+    }));
+  });
+
+  it("locks withdrawal and new code requests after three wrong entries across challenges", async () => {
+    m.prisma.payoutWithdrawalChallenge.findUnique
+      .mockResolvedValueOnce(challenge())
+      .mockResolvedValueOnce(challenge({ id: 10, reference: "wd_new" }))
+      .mockResolvedValueOnce(challenge({ id: 10, reference: "wd_new" }));
+    for (const remaining of [2, 1]) {
+      await expect(confirmWithdrawal(3, remaining === 2 ? "wd_abcdefghijklmnop" : "wd_new", "000000", NOW)).rejects.toMatchObject({
+        code: "INVALID_CODE", extra: { attemptsRemaining: remaining },
+      });
+    }
+    await expect(confirmWithdrawal(3, "wd_new", "000000", NOW)).rejects.toMatchObject({ code: "OTP_LOCKED" });
+    expect(m.prisma.guardState.lockedAt).toEqual(NOW);
+    await expect(confirmWithdrawal(3, "wd_abcdefghijklmnop", "123456", NOW)).rejects.toMatchObject({ code: "OTP_LOCKED" });
+    await expect(startWithdrawal(3, NOW)).rejects.toMatchObject({ code: "OTP_LOCKED" });
+    expect(m.prisma.payoutWithdrawalChallenge.create).not.toHaveBeenCalled();
+    expect(m.prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: "OWNER_WITHDRAWAL_OTP_LOCKED" }),
+    }));
+  });
+
+  it("clears earlier wrong-code count after a successful withdrawal", async () => {
+    m.prisma.guardState.failedAttempts = 2;
+    m.prisma.payoutWithdrawalChallenge.findUnique.mockResolvedValue(challenge());
+    await confirmWithdrawal(3, "wd_abcdefghijklmnop", "123456", NOW);
+    expect(m.prisma.guardState.failedAttempts).toBe(0);
+    expect(m.prisma.guardState.lockedAt).toBeNull();
+  });
+
+  it("keeps the support lock if writing the security audit fails", async () => {
+    m.prisma.guardState.failedAttempts = 2;
+    m.prisma.payoutWithdrawalChallenge.findUnique.mockResolvedValue(challenge());
+    m.prisma.auditLog.create.mockRejectedValue(new Error("audit unavailable"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(confirmWithdrawal(3, "wd_abcdefghijklmnop", "000000", NOW)).rejects.toMatchObject({ code: "OTP_LOCKED" });
+      expect(m.prisma.guardState.lockedAt).toEqual(NOW);
+      await expect(startWithdrawal(3, NOW)).rejects.toMatchObject({ code: "OTP_LOCKED" });
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("rejects another owner's challenge", async () => {
@@ -380,5 +457,12 @@ describe("unclaimed payouts (policy 5.2.2)", () => {
     m.prisma.auditLog.findMany.mockResolvedValue([{ entityId: 11 }]);
     expect(await withdrawUnclaimed(NOW)).toBe(1);
     expect(m.decideLane).toHaveBeenCalledOnce();
+  });
+
+  it("holds unclaimed automatic sending while withdrawal OTP is support-locked", async () => {
+    m.prisma.payoutRelease.findMany.mockResolvedValue([{ ownerId: 3 }]);
+    m.prisma.payoutWithdrawalOtpGuard.findUnique.mockResolvedValue({ lockedAt: NOW, failedAttempts: 3 });
+    expect(await withdrawUnclaimed(NOW)).toBe(0);
+    expect(m.decideLane).not.toHaveBeenCalled();
   });
 });
