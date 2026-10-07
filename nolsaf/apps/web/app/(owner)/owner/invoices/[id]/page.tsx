@@ -84,6 +84,11 @@ export default function InvoiceView() {
       // Ensure UI hides the submit panel immediately after submit (no refresh needed)
       setInv((prev: any) => ({ ...(prev ?? {}), status: nextStatus }));
     } catch (e: any) {
+      // Stays under the payout date lock are claimed with Withdraw on My Payouts.
+      if (e?.response?.data?.code === "USE_WITHDRAW") {
+        router.push("/owner/payouts");
+        return;
+      }
       const msg = e?.response?.data?.error || e?.message || "Could not submit invoice";
       setErr(String(msg));
     } finally {
@@ -115,7 +120,7 @@ export default function InvoiceView() {
         <h1 className="text-2xl font-black text-slate-900">Unable to open invoice</h1>
         <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">{err}</p>
         <p className="text-xs text-slate-500">If you believe this is incorrect, confirm you are logged in as the correct Owner account.</p>
-        <Link href="/owner/revenue/requested" className="no-underline inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm">
+        <Link href="/owner/payouts/older-claims" className="no-underline inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm">
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Back to Revenue
         </Link>
@@ -289,7 +294,7 @@ export default function InvoiceView() {
               <button type="button" onClick={downloadPDF} disabled={pdfBusy} className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 hover:text-white active:scale-[0.97] transition-all disabled:opacity-60" aria-label={hasReceipt ? "Download receipt PDF" : "Download PDF"} title={hasReceipt ? "Download receipt PDF" : "Download PDF"}>
                 <Download className="h-4 w-4" aria-hidden />
               </button>
-              <Link href="/owner/revenue/requested" className="no-underline inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 hover:text-white active:scale-[0.97] transition-all" aria-label="Back" title="Back">
+              <Link href="/owner/payouts/older-claims" className="no-underline inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 hover:text-white active:scale-[0.97] transition-all" aria-label="Back" title="Back">
                 <ArrowLeft className="h-4 w-4" aria-hidden />
               </Link>
             </div>

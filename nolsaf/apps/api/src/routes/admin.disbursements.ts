@@ -32,6 +32,9 @@ import { limitDisbursementAdminRead, limitDisbursementAdminWrite } from "../midd
 import { approveDisbursement, requestDisbursement, submitToAzamPay, PayoutStateError } from "../services/payouts/ledger.js";
 import { PayoutIneligibleError } from "../services/payouts/eligibility.js";
 import { checkDisbursementStatus } from "../services/payouts/reconciliation.js";
+import { recordRecovery, RecoveryError, waiveRecovery } from "../services/payouts/recovery.js";
+import { ownerPayoutStage, payoutReleaseEnabled } from "../services/payouts/release.js";
+import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
 import { provisionPayoutAccountFromProfile, NoPayoutProfileError } from "../services/payouts/provisioning.js";
 import { AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import {
@@ -108,6 +111,196 @@ async function writeAdminAudit(
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("ADMIN") as RequestHandler, blockImpersonated as RequestHandler);
+
+// ---------------------------------------------------------------------------
+// Owner payout recoveries (owner policy 6.3.3; docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md
+// Phase 4). Registered before the "/:id" routes so "/recoveries" is not read
+// as a disbursement id.
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /admin/disbursements/owner-payouts?stage=ON_HOLD — the payout date lock
+ * across all owners (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md): what is unlocking,
+ * ready, on hold and why, and which lane each withdrawal took. Read only.
+ */
+router.get(
+  "/owner-payouts",
+  limitDisbursementAdminRead,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    if (!payoutReleaseEnabled()) {
+      res.json({ ok: true, enabled: false, payouts: [], counts: {} });
+      return;
+    }
+    const wanted = String(req.query.stage || "").toUpperCase();
+    const rows = await prisma.payoutRelease.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: 500,
+      include: { booking: { select: { checkIn: true, checkOut: true, guestName: true, property: { select: { title: true } } } } },
+    });
+    const claimIds = rows.map((r) => r.sourceId);
+    const [claims, owners, recovered] = await Promise.all([
+      prisma.invoice.findMany({ where: { id: { in: claimIds } }, select: { id: true, netPayable: true, status: true, paidAt: true, invoiceNumber: true } }),
+      prisma.user.findMany({
+        where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } },
+        select: { id: true, name: true, fullName: true, email: true },
+      }),
+      prisma.ownerPayoutRecoveryApplication.groupBy({ by: ["invoiceId"], where: { invoiceId: { in: claimIds } }, _sum: { amount: true } }),
+    ]);
+    const claimById = new Map<number, (typeof claims)[number]>(claims.map((c) => [c.id, c]));
+    const ownerName = new Map(owners.map((o) => [o.id, o.fullName || o.name || o.email || `Owner ${o.id}`]));
+    const recoveredById = new Map(recovered.map((r) => [r.invoiceId, Number(r._sum.amount ?? 0)]));
+
+    const all = rows.map((r) => {
+      const claim = claimById.get(r.sourceId);
+      const stage = ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null });
+      return {
+        id: r.id,
+        stage,
+        ownerId: r.ownerId,
+        ownerName: ownerName.get(r.ownerId) ?? null,
+        propertyTitle: r.booking.property?.title ?? null,
+        guestName: r.booking.guestName ?? null,
+        checkIn: r.booking.checkIn,
+        checkOut: r.booking.checkOut,
+        bookingReference: adminBookingReference(r.bookingId),
+        claimNumber: claim?.invoiceNumber ?? null,
+        amount: claim?.netPayable ?? null,
+        recoveryDeducted: recoveredById.get(r.sourceId) ?? 0,
+        rule: r.rule,
+        releaseAt: r.releaseAt,
+        availableAt: r.availableAt,
+        reason: r.holdReason,
+        lane: r.lane,
+        releasedAt: r.releasedAt,
+        paidAt: claim?.paidAt ?? null,
+        updatedAt: r.updatedAt,
+      };
+    });
+    const counts: Record<string, number> = {};
+    for (const p of all) counts[p.stage] = (counts[p.stage] ?? 0) + 1;
+    res.json({ ok: true, enabled: true, counts, payouts: wanted ? all.filter((p) => p.stage === wanted) : all });
+  })
+);
+
+/** GET /admin/disbursements/recoveries?status=OPEN — owner debts from refunds and chargebacks. */
+router.get(
+  "/recoveries",
+  limitDisbursementAdminRead,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const status = String(req.query.status || "").toUpperCase();
+    const rows = await prisma.ownerPayoutRecovery.findMany({
+      where: ["OPEN", "RECOVERED", "WAIVED"].includes(status) ? { status } : {},
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: { applications: { select: { invoiceId: true, amount: true, createdAt: true } } },
+    });
+    const owners = await prisma.user.findMany({
+      where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } },
+      select: { id: true, name: true, fullName: true, email: true },
+    });
+    const ownerName = new Map(owners.map((o) => [o.id, o.fullName || o.name || o.email || `Owner ${o.id}`]));
+    res.json({
+      ok: true,
+      recoveries: rows.map((r) => ({
+        id: r.id,
+        ownerId: r.ownerId,
+        ownerName: ownerName.get(r.ownerId) ?? null,
+        bookingReference: adminBookingReference(r.bookingId),
+        kind: r.kind,
+        reference: r.reference,
+        guestAmount: r.guestAmount,
+        amount: r.amount,
+        recoveredAmount: r.recoveredAmount,
+        outstanding: Number(r.amount) - Number(r.recoveredAmount),
+        status: r.status,
+        dueAt: r.dueAt,
+        repayRequestedAt: r.repayRequestedAt,
+        closedAt: r.closedAt,
+        note: r.note,
+        createdAt: r.createdAt,
+        applications: r.applications,
+      })),
+    });
+  })
+);
+
+const chargebackSchema = z
+  .object({
+    bookingReference: z.string().trim().min(3).max(80),
+    amount: z.coerce.number().positive().max(1_000_000_000),
+    providerReference: z.string().trim().min(3).max(100),
+    note: z.string().trim().max(400).optional(),
+  })
+  .strict();
+
+/**
+ * POST /admin/disbursements/recoveries/chargeback — record a card chargeback
+ * from the provider's notice. Creates the owner's share as a recovery when
+ * the owner was already paid; refuses otherwise (the payout hold applies).
+ */
+router.post(
+  "/recoveries/chargeback",
+  limitDisbursementAdminWrite,
+  requireAdminFinanceGrant as RequestHandler,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const body = chargebackSchema.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ ok: false, error: "Booking reference, amount and provider reference are required." });
+      return;
+    }
+    const bookingId = await resolveAdminBookingReference(body.data.bookingReference);
+    if (!bookingId) {
+      res.status(404).json({ ok: false, error: "Booking not found." });
+      return;
+    }
+    try {
+      const recovery = await recordRecovery({
+        kind: "CHARGEBACK",
+        reference: `cb:${body.data.providerReference}`,
+        bookingId,
+        guestAmount: body.data.amount,
+        createdById: req.user!.id,
+        note: body.data.note ?? `Chargeback ${body.data.providerReference}`,
+      });
+      res.status(201).json({ ok: true, recovery });
+    } catch (err) {
+      if (err instanceof RecoveryError) {
+        res.status(409).json({ ok: false, code: err.code, error: err.message });
+        return;
+      }
+      throw err;
+    }
+  })
+);
+
+/** POST /admin/disbursements/recoveries/:id/waive { note } — close a debt without collecting it. */
+router.post(
+  "/recoveries/:id/waive",
+  limitDisbursementAdminWrite,
+  requireAdminFinanceGrant as RequestHandler,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const id = Number(req.params.id);
+    const note = String(req.body?.note ?? "").trim();
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ ok: false, error: "Invalid recovery." });
+      return;
+    }
+    if (note.length < 5) {
+      res.status(400).json({ ok: false, error: "A note explaining the waiver is required." });
+      return;
+    }
+    try {
+      await waiveRecovery(id, req.user!.id, note);
+      res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof RecoveryError) {
+        res.status(err.code === "NOT_FOUND" ? 404 : 409).json({ ok: false, code: err.code, error: err.message });
+        return;
+      }
+      throw err;
+    }
+  })
+);
 
 const idSchema = z.object({ id: z.coerce.number().int().positive() });
 

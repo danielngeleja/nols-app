@@ -14,6 +14,7 @@ import {
 } from "../lib/accommodationCancellationWorkflow.js";
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { recordRefundRecovery } from "../services/payouts/recovery.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -409,6 +410,12 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
       maxWait: 5_000,
       timeout: 15_000,
     });
+
+    // A refund paid after the owner was already paid becomes a recovery of
+    // the owner's share (owner policy 6.3.3). Never throws.
+    if (nextStatus === "REFUNDED") {
+      await recordRefundRecovery(id, adminId);
+    }
 
     // Post-transaction side-effects: notify owner + real-time events.
     if (ownerTemplate && current.booking) {

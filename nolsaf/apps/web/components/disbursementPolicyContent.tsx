@@ -205,7 +205,7 @@ export const DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           NoLSAF operates a flexible, on-demand payout system that allows Property Owners and Drivers to claim their payouts when they choose, subject to eligibility requirements and time limitations outlined in this section. Property Owners and Drivers have the right to claim payouts through their dashboard once earnings become eligible.
         </p>
         <p>
-          <strong>5.1.1 Property Owner Payout Eligibility:</strong> Property Owners become eligible to claim payouts after the booking code has been validated during guest check-in. Once the booking code is validated, the Property Owner can choose to claim the payout immediately or wait for a later time, subject to the time limitations outlined in section 5.2 below.
+          <strong>5.1.1 Property Owner Payout Eligibility:</strong> From 28 October 2026, payout eligibility, unlock times, withdrawal with a one-time code, automatic sending and unclaimed payouts for Property Owners are governed by section 5 of the <Link href="/property-owner-disbursement-policy" className="text-blue-600 hover:text-blue-800 underline">Property Owner Disbursement Policy</Link>, which prevails over this section for Property Owners. Until then, Property Owners become eligible to claim payouts after the booking code has been validated during guest check-in.
         </p>
         <p>
           <strong>5.1.1.1 Instant Claim Option:</strong> Property Owners have the right to claim payouts immediately after booking code validation and service completion verification. The instant claim option allows Property Owners to receive their earnings without waiting for scheduled payout cycles.

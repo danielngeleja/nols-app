@@ -65,6 +65,10 @@ export async function notifyAdmins(template: string, data: any) {
         body: `${data.operatorName ? `${data.operatorName} ` : "An operator "}submitted a payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`}. Review it in the tour revenue dashboard.`
       },
 
+      owner_payout_recovery_overdue: {
+        title: "Owner recovery overdue",
+        body: `${data.amountText || "An amount"} owed by owner #${data.ownerId} (recovery #${data.recoveryId}, booking #${data.bookingId}) was not covered by payouts within 7 business days. The owner has been asked to repay. Review it in Disbursements, Recoveries.`
+      },
       owner_payout_claim_submitted: {
         title: "Owner Payout Invoice Submitted",
         body: `${data.ownerName ? `${data.ownerName} ` : "A property owner "}submitted invoice ${data.invoiceNumber || `#${data.invoiceId}`} for a payout claim${data.propertyTitle ? ` for "${data.propertyTitle}"` : data.bookingId ? ` on booking #${data.bookingId}` : ""}. Review it in the admin revenue dashboard.`
@@ -228,6 +232,18 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       nrms_partnership_terminated: {
         title: "Accommodation partnership ended",
         body: `The partnership between "${data.propertyTitle || "your property"}" and ${data.agencyName || "the tour operator"} was terminated. New bookings and rate access are no longer available.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
+      owner_payout_recovery_opened: {
+        title: "Amount to be recovered from your next payouts",
+        body: `You were already paid for a stay that later had ${data.reasonText || "a refund"}. Your share, ${data.amountText || "the amount"}, will be deducted from your next payouts and shown on your statement (Property Owner Disbursement Policy 6.3.3).`
+      },
+      owner_payout_recovery_repay: {
+        title: "Please repay an outstanding amount",
+        body: `${data.amountText || "An amount"} from an earlier refund has not been covered by your payouts within 7 business days. Please repay it or contact NoLSAF support to agree how it will be settled (Property Owner Disbursement Policy 6.3.3).`
+      },
+      owner_payout_unclaimed_reminder: {
+        title: "Your payout will be sent automatically",
+        body: `${data.amountText || "Your payout"} is ready to withdraw. If you do not withdraw it, NoLSAF will send it to ${data.destination || "your verified payout account"} automatically on ${data.sendOnText || "the scheduled date"}. You can withdraw it sooner from My Payouts.`
       },
       property_submitted: {
         title: "Property Submitted for Review",

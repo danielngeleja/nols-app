@@ -5,6 +5,8 @@ import { sendSms } from "./sms.js";
 import { sendMail } from "./mailer.js";
 import { getBookingValidationWindowStatus } from "./bookingValidationWindow.js";
 import { updateNoLsafBookingStatus } from "./nolsafMarketplaceNrms.js";
+import { onBookingCheckedIn } from "../services/payouts/release.js";
+import { notifyGuestCheckInConfirmed } from "./checkInConfirmationSms.js";
 
 function getModelFieldSet(modelName: string): Set<string> | null {
   try {
@@ -690,6 +692,11 @@ export async function markBookingCodeAsUsed(
       // 5s budget a slow database expires the transaction mid-projection and
       // the guest is turned away at the desk with the code already consumed.
     }, { maxWait: 10_000, timeout: 30_000 });
+
+    // After commit and not awaited: the payout date lock must never delay or
+    // fail the guest's check-in. The release worker backfills any miss.
+    onBookingCheckedIn(checkinCode.bookingId);
+    notifyGuestCheckInConfirmed(checkinCode.bookingId);
 
     return { success: true };
   } catch (error: any) {

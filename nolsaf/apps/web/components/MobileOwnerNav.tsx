@@ -20,7 +20,7 @@ export default function MobileOwnerNav() {
       home: p === "/owner" || p === "/owner/",
       bookings: p.startsWith("/owner/bookings") && !p.startsWith("/owner/bookings/validate"),
       validate: p.startsWith("/owner/bookings/validate"),
-      revenue: p.startsWith("/owner/revenue"),
+      revenue: p.startsWith("/owner/revenue") || p.startsWith("/owner/payouts"),
       availability: p.startsWith("/owner/properties/availability"),
     };
   }, [pathname]);
@@ -173,10 +173,10 @@ export default function MobileOwnerNav() {
         {/* Middle slot keeps spacing */}
         <div className="flex-1" aria-hidden />
 
-        {/* My Revenue */}
+        {/* Payouts */}
         <Link
-          href="/owner/revenue"
-          aria-label="My revenue"
+          href="/owner/payouts"
+          aria-label="Payouts"
           style={{ textDecoration: "none" }}
           className={itemClass(active.revenue)}
           {...touch("revenue")}
@@ -189,7 +189,7 @@ export default function MobileOwnerNav() {
               color={active.revenue ? "#ffffff" : iconColor(active.revenue)}
             />
           </span>
-          <span className={labelClass(active.revenue)}>Revenue</span>
+          <span className={labelClass(active.revenue)}>Payouts</span>
         </Link>
 
         {/* Room Availability */}

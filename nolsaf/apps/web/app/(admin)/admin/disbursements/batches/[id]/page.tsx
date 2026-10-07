@@ -33,6 +33,7 @@ type BatchDetail = {
   formedBy: { name: string | null; email: string | null } | null;
   authorizedBy: { name: string | null; email: string | null } | null;
   items: BatchItem[];
+  mode?: "MANUAL" | "AUTO";
 };
 
 /**
@@ -177,7 +178,7 @@ function BatchDetail({ batchId }: { batchId: number }) {
               <p className="m-0 font-mono text-[11px] text-neutral-500">{batch.batchReference}</p>
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{money(batch.totalAmount, batch.currency)} · {batch.itemCount} item(s)</h1>
               <p className="mb-0 mt-1 text-xs text-neutral-500">
-                Status <span className="font-bold text-neutral-700">{batch.status}</span> · Formed by {batch.formedBy?.name || batch.formedBy?.email || "n/a"}
+                Status <span className="font-bold text-neutral-700">{batch.status}</span> · Formed by {batch.mode === "AUTO" ? "System (automatic payouts)" : batch.formedBy?.name || batch.formedBy?.email || "n/a"}
                 {batch.authorizedBy && <> · Authorized by {batch.authorizedBy.name || batch.authorizedBy.email}</>}
               </p>
               {/* itemCount and totalAmount are frozen at formation; items is the
@@ -192,13 +193,19 @@ function BatchDetail({ batchId }: { batchId: number }) {
               )}
             </div>
           </div>
-          {batch.status === "DRAFT" && release?.blocked && (
+          {batch.status === "DRAFT" && batch.mode === "AUTO" && (
+            <span className="inline-flex max-w-sm items-start gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+              <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              Automatic batch. The system authorizes it when today&apos;s automatic payout limit allows; admins do not release it.
+            </span>
+          )}
+          {batch.status === "DRAFT" && batch.mode !== "AUTO" && release?.blocked && (
             <span className="inline-flex max-w-sm items-start gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               You {release.formedByActor ? "formed this batch" : "approved payouts in this batch"}. Two-person release is required here, so a different admin must authorize it.
             </span>
           )}
-          {batch.status === "DRAFT" && !release?.blocked && (
+          {batch.status === "DRAFT" && batch.mode !== "AUTO" && !release?.blocked && (
             <div className="flex flex-col items-stretch gap-2 lg:items-end">
               {release?.challengeRequired && (
                 <div className="rounded-xl border border-solid border-amber-200 bg-amber-50 p-3">

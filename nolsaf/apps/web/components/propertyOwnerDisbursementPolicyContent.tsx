@@ -3,7 +3,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const PROPERTY_OWNER_DISBURSEMENT_POLICY_LAST_UPDATED = "1 January 2026";
+export const PROPERTY_OWNER_DISBURSEMENT_POLICY_LAST_UPDATED = "7 October 2026";
 
 export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
   {
@@ -24,6 +24,10 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
         <p>
           <strong>1.3 Payment Flow</strong><br />
           As outlined in section 1.3.3 of our <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link>, all payments made by Users are directed to NoLSAF accounts first. Subsequently, NoLSAF disburses the appropriate amounts to Property Owners in accordance with established agreements and payout schedules defined in this Disbursement Policy.
+        </p>
+        <p>
+          <strong>1.4 Changes Effective 28 October 2026</strong><br />
+          This version introduces the payout unlock time, withdrawal confirmed by a one-time code, automatic sending of eligible payouts, and automatic sending of unclaimed payouts after 14 days with a prior reminder (section 5), together with the related verification and hold rules in sections 3, 4 and 5.7. In line with section 12.1, these changes take effect on 28 October 2026, at least 21 days after Property Owners are notified. Until then, the previous payout claim process continues to apply.
         </p>
       </div>
     ),
@@ -81,7 +85,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
         </p>
         <p>
           <strong>3.3 Service Delivery Obligations</strong><br />
-          Property Owners must fulfill their service delivery obligations as outlined in the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link> to be eligible for disbursements. Disbursements are contingent upon successful completion of services and User satisfaction.
+          Property Owners must fulfill their service delivery obligations as outlined in the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link> to be eligible for disbursements. A stay counts as delivered for payout purposes when the guest's booking code has been validated at check-in and the payout unlock time in section 5.1.2 has passed without a hold under section 5.7. Day-to-day matters between a guest and a Property Owner are settled between them; NoLSAF intervenes only through the formal cancellation, refund and dispute processes.
         </p>
         <p>
           <strong>3.3.1 Property Owner Responsibilities:</strong> Property Owners must provide accommodations as described in their listings, maintain property standards, and comply with all booking terms. Disbursements may be delayed or withheld if services are not delivered as agreed or if there are unresolved disputes with Users.
@@ -131,7 +135,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>4.2.2 Bank Transfers:</strong> Direct bank transfers to verified bank accounts. Property Owners must provide accurate bank account details including account number, bank name, branch, and account holder name matching their registered identity.
         </p>
         <p>
-          <strong>4.2.3 Payment Platform Accounts:</strong> PayPal, Stripe, or other supported payment platform accounts, where applicable and supported by NoLSAF.
+          <strong>4.2.3 Other Methods:</strong> Other digital payout methods may be added in future. NoLSAF will announce them through the dashboard before they can be selected. Until then, only the methods listed in sections 4.2.1 and 4.2.2 that NoLSAF has enabled can receive disbursements.
         </p>
         <p>
           <strong>4.3 Payment Method Selection</strong><br />
@@ -183,6 +187,15 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>4.5.4 Security Measures:</strong> Payment method changes are subject to additional security measures, including OTP verification, to prevent unauthorized changes and protect Property Owner accounts.
         </p>
         <p>
+          <strong>4.5.5 Account Holder Check:</strong> Every payout account is checked with the payment provider, which confirms the registered account holder name before the account can receive disbursements. The check is repeated before each payout is sent.
+        </p>
+        <p>
+          <strong>4.5.6 New or Changed Accounts:</strong> For 72 hours after a payout account is added or changed, payouts to it wait until that period has passed. This protects Property Owners if someone else gains access to their account.
+        </p>
+        <p>
+          <strong>4.5.7 Contact Changes:</strong> Withdrawals are paused for 72 hours after the phone number or email address on the Property Owner account is changed, because withdrawal codes are sent to those contacts.
+        </p>
+        <p>
           <strong>4.6 Payment Method Limitations</strong><br />
           Some payment methods may have limitations, including minimum disbursement amounts, maximum transaction limits, or geographic restrictions. Property Owners will be informed of any applicable limitations when selecting their payment method during registration or when updating payment methods.
         </p>
@@ -198,33 +211,45 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          <strong>5.1 Flexible Payout System</strong><br />
-          NoLSAF operates a flexible, on-demand payout system that allows Property Owners to claim their payouts when they choose, subject to eligibility requirements and time limitations outlined in this section. Property Owners have the right to claim payouts through their dashboard once earnings become eligible.
+          <strong>5.1 On-Demand Payouts</strong><br />
+          NoLSAF operates an on-demand payout system. Each stay's payout becomes ready to withdraw at a set unlock time, and the Property Owner withdraws it from My Payouts whenever they choose, subject to the rules in this section.
         </p>
         <p>
-          <strong>5.1.1 Property Owner Payout Eligibility:</strong> Property Owners become eligible to claim payouts after the booking code has been validated during guest check-in. Once the booking code is validated, the Property Owner can choose to claim the payout immediately or wait for a later time, subject to the time limitations outlined in section 5.2 below.
+          <strong>5.1.1 Payout Eligibility:</strong> A payout becomes eligible once the guest's booking code has been validated at check-in. NoLSAF then creates the payout claim for the stay automatically; the Property Owner does not need to submit an invoice.
         </p>
         <p>
-          <strong>5.1.1.1 Instant Claim Option:</strong> Property Owners have the right to claim payouts immediately after booking code validation and service completion verification. The instant claim option allows Property Owners to receive their earnings without waiting for scheduled payout cycles.
+          <strong>5.1.1.1 Guest Confirmation:</strong> When a booking code is validated, NoLSAF sends the guest a message confirming the check-in, the property and the time, with NoLSAF's contact details. A guest who did not check in can contact NoLSAF before any payout is made.
         </p>
         <p>
-          <strong>5.1.1.2 Deferred Claim Option:</strong> Property Owners may choose to defer claiming payouts and allow earnings to accumulate in their account. However, unclaimed payouts are subject to automatic disbursement time limits as outlined in section 5.2.
+          <strong>5.1.2 Payout Unlock Time:</strong> A payout becomes ready to withdraw:
         </p>
         <p>
-          <strong>5.1.2 Payout Claim Process:</strong> Property Owners can initiate payout claims through their NoLSAF dashboard using the established claim process. The claim process includes verification steps to ensure security and accuracy.
+          <strong>5.1.2.1</strong> where the guest paid by mobile money or bank transfer, 24 hours after the booking code is validated, and never earlier than 24 hours after the start of the booked check-in day (East Africa Time); or
         </p>
         <p>
-          <strong>5.2 Time Limitations for Unclaimed Payouts</strong><br />
-          To ensure timely disbursement and prevent excessive accumulation of unclaimed funds, NoLSAF has established time limitations for unclaimed payouts.
+          <strong>5.1.2.2</strong> where any part of the booking was paid by card, or the payment method was not recorded, 24 hours after the booked checkout time, because card payments can be disputed with the cardholder's bank after the stay.
         </p>
         <p>
-          <strong>5.2.1 Maximum Unclaimed Period:</strong> Property Owners must claim their payouts within a maximum period that does not exceed the agreed payout schedule. Unclaimed payouts exceeding the maximum period will be automatically processed according to the standard payout schedule or as agreed between the Property Owner and NoLSAF.
+          <strong>5.1.2.3</strong> The unlock time of each stay is shown in My Payouts. A payout also waits, without being on hold, until the guest's payment is confirmed by the payment provider and the Property Owner has a verified payout account (section 4).
         </p>
         <p>
-          <strong>5.2.2 Automatic Disbursement:</strong> If Property Owners do not claim their payouts within the maximum unclaimed period, NoLSAF will automatically process the disbursement according to the established payout schedule or agreement. Property Owners will be notified before automatic disbursement occurs.
+          <strong>5.1.3 Withdrawal Confirmed by One-Time Code:</strong> To withdraw, the Property Owner selects Withdraw in My Payouts. NoLSAF then sends a one-time code by SMS to the verified phone number on the account, or to the verified email address if the SMS cannot be delivered. The message states the amount and the masked payout account. The code is valid for 5 minutes, can be used once, and works only for that withdrawal: if the payout account or any included payout changes before the code is entered, the code stops working and the Property Owner starts again. NoLSAF staff will never ask for this code.
         </p>
         <p>
-          <strong>5.2.3 Notification of Unclaimed Payouts:</strong> NoLSAF will send notifications to Property Owners when payouts become eligible for claim and as the maximum unclaimed period approaches. Notifications will be sent through the dashboard and via email to ensure Property Owners are aware of their available payouts.
+          <strong>5.1.4 Automatic Sending:</strong> After a withdrawal is confirmed, eligible payouts are sent automatically to the verified payout account, normally within minutes. A payout is instead reviewed by NoLSAF before it is sent, normally within 24 hours, when it is the Property Owner's first payout, when NoLSAF's security checks flag it, or when it exceeds the limits NoLSAF sets for automatic payouts. Payouts beyond the daily limit for automatic payouts are sent on a following day.
+        </p>
+        <p>
+          <strong>5.2 Unclaimed Payouts</strong><br />
+          To prevent earnings from accumulating unpaid, NoLSAF sends payouts that are not withdrawn within a set period.
+        </p>
+        <p>
+          <strong>5.2.1 Maximum Unclaimed Period:</strong> A payout that has been ready to withdraw for 14 days without being withdrawn is sent automatically to the Property Owner's verified payout account, unless the account was added or changed within the previous 72 hours.
+        </p>
+        <p>
+          <strong>5.2.2 Reminder Before Automatic Sending:</strong> At least 48 hours before an unclaimed payout is sent, NoLSAF notifies the Property Owner in the dashboard and by SMS, stating the amount, the masked payout account and the date it will be sent. No unclaimed payout is sent without this reminder. The reminder never contains a code.
+        </p>
+        <p>
+          <strong>5.2.3 Notification of Ready Payouts:</strong> NoLSAF shows each payout's status in My Payouts (unlocking, ready, on hold, sent) and notifies Property Owners as described in sections 5.2.2 and 5.4.5.
         </p>
         <p>
           <strong>5.3 Payout Agreements</strong><br />
@@ -234,20 +259,20 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>5.3.1 Daily Payout Agreements:</strong> Property Owners may request daily payout agreements, where eligible earnings are automatically disbursed on a daily basis. Daily payout agreements are subject to minimum threshold requirements and payment method limitations.
         </p>
         <p>
-          <strong>5.3.2 Weekly Payout Agreements:</strong> Property Owners may request weekly payout agreements, where eligible earnings are automatically disbursed on a weekly basis. Weekly payout agreements are the maximum frequency allowed, and no payout agreements may exceed weekly disbursements.
+          <strong>5.3.2 Weekly Payout Agreements:</strong> Property Owners may request weekly payout agreements, where eligible earnings are automatically disbursed on a weekly basis. Weekly is the longest interval allowed: no payout agreement may leave eligible earnings unpaid for more than a week.
         </p>
         <p>
           <strong>5.3.3 Agreement Requirements:</strong> Payout agreements must be established in writing through the NoLSAF platform and are subject to approval by NoLSAF. Agreements may include specific terms regarding payout frequency, minimum thresholds, and processing times.
         </p>
         <p>
-          <strong>5.3.4 Agreement Modifications:</strong> Property Owners may request modifications to their payout agreements, but changes are subject to approval and may require a verification period before taking effect. No payout agreement may exceed weekly disbursement frequency.
+          <strong>5.3.4 Agreement Modifications:</strong> Property Owners may request modifications to their payout agreements, but changes are subject to approval and may require a verification period before taking effect. No payout agreement may set an interval longer than one week. Payout agreements never shorten the unlock time in section 5.1.2.
         </p>
         <p>
           <strong>5.4 Disbursement Processing Time</strong><br />
           Once a payout claim is initiated or an automatic disbursement is triggered, NoLSAF processes disbursements within specified timeframes.
         </p>
         <p>
-          <strong>5.4.1 Standard Processing Time:</strong> Disbursements are typically processed within 30 minutes to 24 hours after a payout claim is initiated or an automatic disbursement is triggered. The exact processing time depends on the payment method selected, verification status, and system availability.
+          <strong>5.4.1 Standard Processing Time:</strong> Payouts sent automatically under section 5.1.4 are normally processed within minutes of the confirmed withdrawal. Payouts reviewed by NoLSAF are normally processed within 24 hours. The exact time depends on the payment method, verification status, the payment provider and system availability.
         </p>
         <p>
           <strong>5.4.2 Processing Time Factors:</strong> Processing times may vary based on: payment method selected (mobile money may be faster than bank transfers), account verification status, system maintenance, payment provider processing times, and business days versus weekends or holidays.
@@ -282,7 +307,23 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>5.6.2 Bank Transfers:</strong> Typically 1-5 business days after payout initiation, depending on the bank and country.
         </p>
         <p>
-          <strong>5.6.3 Payment Platforms:</strong> Processing times vary by platform and may take 1-7 business days.
+          <strong>5.6.3 Other Methods:</strong> Processing times for methods added under section 4.2.3 will be announced when they are enabled.
+        </p>
+        <p>
+          <strong>5.7 Payout Holds</strong><br />
+          A payout is put on hold, and no money is sent while it is on hold, when:
+        </p>
+        <p>
+          <strong>5.7.1</strong> a cancellation, refund or exceptional-circumstance request under the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link> is open, being processed or has been granted for the booking;
+        </p>
+        <p>
+          <strong>5.7.2</strong> the guest appears to be the Property Owner (for example the same account, phone number or email address, or a guest phone number matching the payout account);
+        </p>
+        <p>
+          <strong>5.7.3</strong> the booking is no longer in a checked-in or checked-out state, or the guest's payment currency does not match the payout currency.
+        </p>
+        <p>
+          <strong>5.7.4</strong> The reason for a hold is shown in My Payouts. NoLSAF reviews held payouts and either releases them or applies the outcome of the relevant process, including the deductions in section 6.3. A cancelled booking or rejected claim cancels the payout.
         </p>
       </div>
     ),
@@ -911,7 +952,16 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>NoLSAF:</strong> The platform and service provider that facilitates bookings, payments, and disbursements between Users, Property Owners, and Drivers.
         </p>
         <p>
-          <strong>OTP (One-Time Password):</strong> A temporary security code sent by NoLSAF via SMS or email to verify payment method information. OTP verification is required during registration and for payment method changes.
+          <strong>OTP (One-Time Password):</strong> A temporary security code sent by NoLSAF via SMS or email to verify payment method information and to confirm each withdrawal. OTP verification is required during registration, for payment method changes and for withdrawals.
+        </p>
+        <p>
+          <strong>Unlock Time:</strong> The time a stay's payout becomes ready to withdraw, as set in section 5.1.2.
+        </p>
+        <p>
+          <strong>Withdrawal:</strong> The Property Owner's request, confirmed with a one-time code, to send the payouts that are ready in My Payouts to their verified payout account.
+        </p>
+        <p>
+          <strong>Payout Hold:</strong> A pause on a payout while one of the conditions in section 5.7 applies. No money is sent while a payout is on hold.
         </p>
         <p>
           <strong>Payout:</strong> The actual transfer of funds to Property Owners. Payouts are processed according to payout schedules, which may be flexible (on-demand) or scheduled (daily/weekly), as outlined in section 5 of this policy.

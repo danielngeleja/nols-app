@@ -18,6 +18,8 @@ type BatchListItem = {
   formedBy: { id: number; name: string | null; email: string | null } | null;
   authorizedBy: { id: number; name: string | null; email: string | null } | null;
   _count: { items: number };
+  /** MANUAL: formed and released by admins. AUTO: formed and authorized by the system under the daily limit. */
+  mode?: "MANUAL" | "AUTO";
 };
 
 const actionClass =
@@ -205,14 +207,21 @@ export default function DisbursementBatchesPage() {
               <tbody className="divide-y divide-neutral-100">
                 {batches.map((batch) => (
                   <tr key={batch.id} className="align-top transition hover:bg-emerald-50/30">
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-neutral-950">{batch.batchReference}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs font-medium text-neutral-950">{batch.batchReference}</span>
+                      {batch.mode === "AUTO" && (
+                        <span className="ml-2 rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[10px] font-bold text-[#02665e]" title="Formed and authorized by the system under the daily automatic payout limit">
+                          Automatic
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusClass(batch.status)}`}>{batch.status}</span>
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-slate-600">{batch._count.items}</td>
                     <td className="px-4 py-3 text-right text-sm font-bold text-slate-950">{money(batch.totalAmount, batch.currency)}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{actorLabel(batch.formedBy)}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{actorLabel(batch.authorizedBy)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{batch.mode === "AUTO" ? "System" : actorLabel(batch.formedBy)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{batch.mode === "AUTO" ? (batch.authorizedAt ? "System" : "Waiting for limit") : actorLabel(batch.authorizedBy)}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{new Date(batch.createdAt).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
                       <Link href={recordHref("disbursement-batch", batch.id)} className={`${actionClass} no-underline`}>

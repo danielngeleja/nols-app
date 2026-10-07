@@ -682,6 +682,7 @@ model Booking {
   propertyShares       PropertyShare[]
   cancellationRequests CancellationRequest[]
   tripEstimates        TripEstimate[]
+  payoutReleases       PayoutRelease[]
 
   /// NRMS operational view of this marketplace booking (NRMS doc section 6.5).
   /// Booking remains the commercial source of truth; the linked Reservation only
@@ -2245,6 +2246,19 @@ model SystemSetting {
   /// Hours after a payout destination is created or changed during which
   /// riskScoring treats it as RECENT_ACCOUNT_CHANGE. Clamped to 24..336.
   payoutRecentChangeHours Int? @default(72)
+
+  /// Kill switch for the AUTO payout lane (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md).
+  /// Off by default: with it off every owner withdrawal goes to the MANUAL lane.
+  autoPayoutEnabled Boolean @default(false)
+
+  /// Ceiling (TZS) on what the AUTO lane may authorize per EAT calendar day.
+  /// Null means the AUTO lane cannot authorize anything.
+  autoPayoutDailyCapTzs Int?
+
+  /// Days an AVAILABLE payout may wait for the owner before it is sent to the
+  /// verified, unchanged account without an OTP (owner policy section 5.2.2).
+  /// Null means never.
+  payoutUnclaimedAutoDays Int?
 
   // ==================== Platform Margin ====================
   /// Payment gateway fee as a percent of guest money collected, used to
@@ -8758,6 +8772,10 @@ model Disbursement {
 
   remarks String? @db.VarChar(300)
 
+  /// AUTO (released by the rules after the owner's withdrawal OTP) or MANUAL
+  /// (an admin decides). Null for payouts created before owner withdrawals.
+  releaseLane String? @db.VarChar(10)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -8822,6 +8840,11 @@ model DisbursementBatch {
   processingStartedAt DateTime?
   completedAt         DateTime?
 
+  /// MANUAL batches are formed and released by admins (release challenge,
+  /// separation of duties). AUTO batches are formed and authorized by the
+  /// system under the AUTO-lane caps and hold only releaseLane AUTO items.
+  mode String @default("MANUAL") @db.VarChar(10)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -8832,6 +8855,149 @@ model DisbursementBatch {
   @@index([status])
   @@index([createdAt])
   @@map("disbursement_batch")
+}
+
+/// Date lock between a verified stay and the owner's money
+/// (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md). One row per payout source.
+///
+/// LOCKED (waiting for releaseAt) -> AVAILABLE (gates passed, owner may
+/// withdraw) -> WITHDRAWING (owner confirmed the OTP) -> RELEASED (a
+/// Disbursement exists). Any hold signal moves LOCKED or AVAILABLE to HELD,
+/// which only an admin clears. CANCELLED when the stay is refunded or the
+/// claim rejected. No money moves from this table: it only decides when the
+/// existing Disbursement pipeline may be asked to pay.
+model PayoutRelease {
+  id Int @id @default(autoincrement())
+
+  /// OWNER_INVOICE today (sourceId = the OINV- invoice id).
+  sourceType String @default("OWNER_INVOICE") @db.VarChar(20)
+  sourceId   Int
+
+  bookingId Int
+  ownerId   Int
+
+  status String @default("LOCKED") @db.VarChar(20)
+
+  /// CHECKIN_24H | CARD_CHECKOUT_24H (later NO_SHOW, NONREFUNDABLE_CANCEL).
+  /// Stored so the unlock time can always be explained.
+  rule      String   @db.VarChar(30)
+  releaseAt DateTime
+
+  availableAt DateTime?
+  holdReason  String?   @db.VarChar(300)
+  heldAt      DateTime?
+  releasedAt  DateTime?
+  cancelledAt DateTime?
+
+  /// Set when the owner's withdrawal created the disbursement. No FK: the
+  /// Disbursement is unique per source through activeSourceKey already.
+  disbursementId Int?
+  lane           String? @db.VarChar(10)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Restrict: a booking carrying a payout decision must not disappear.
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceType, sourceId])
+  @@index([status, releaseAt])
+  @@index([ownerId, status])
+  @@index([bookingId])
+  @@map("payout_release")
+}
+
+/// One OTP challenge for one owner withdrawal. Bound to the exact releases,
+/// total and live destination through fingerprint, so a code issued for one
+/// withdrawal cannot confirm a different one, and any change to the payout
+/// account between challenge and confirm invalidates it. Single use: usedAt
+/// is set inside the transaction that verifies the code.
+model PayoutWithdrawalChallenge {
+  id        Int    @id @default(autoincrement())
+  reference String @unique @db.VarChar(40)
+  userId    Int
+
+  releaseIds  Json
+  totalAmount Decimal @db.Decimal(14, 2)
+  currency    String  @default("TZS") @db.VarChar(3)
+  fingerprint String  @db.VarChar(64)
+
+  codeHash          String @db.VarChar(128)
+  channel           String @db.VarChar(10)
+  destinationMasked String @db.VarChar(40)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("payout_withdrawal_challenge")
+}
+
+/// Money an owner owes back after being paid for a stay that was later
+/// refunded or charged back (owner policy 6.3.3; docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md
+/// Phase 4). amount is the owner's share only: refund x (owner payout / guest
+/// paid), capped at what the owner was paid. Recovered by deduction from the
+/// owner's next payouts (OwnerPayoutRecoveryApplication); if not covered by
+/// dueAt (7 business days) the owner is asked to repay.
+model OwnerPayoutRecovery {
+  id Int @id @default(autoincrement())
+
+  ownerId   Int
+  bookingId Int
+  /// The owner claim (OINV-) that was paid for the stay.
+  sourceInvoiceId Int
+
+  /// REFUND | CHARGEBACK
+  kind      String @db.VarChar(20)
+  /// Idempotency key: "cx:<cancellationRequestId>" or "cb:<provider reference>".
+  reference String @db.VarChar(120)
+
+  /// What the guest got back (refund or chargeback), for the record.
+  guestAmount     Decimal @db.Decimal(12, 2)
+  amount          Decimal @db.Decimal(12, 2)
+  recoveredAmount Decimal @default(0) @db.Decimal(12, 2)
+  currency        String  @default("TZS") @db.VarChar(3)
+
+  /// OPEN | RECOVERED | WAIVED
+  status String @default("OPEN") @db.VarChar(20)
+
+  dueAt            DateTime
+  repayRequestedAt DateTime?
+  closedAt         DateTime?
+  createdById      Int?
+  note             String?   @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications OwnerPayoutRecoveryApplication[]
+
+  @@unique([kind, reference])
+  @@index([ownerId, status])
+  @@index([bookingId])
+  @@index([status, dueAt])
+  @@map("owner_payout_recovery")
+}
+
+/// One deduction of a recovery from a later owner claim. The claim's payable
+/// amount is netPayable minus its applications (eligibility.loadOwnerInvoice),
+/// so the invoice itself is never rewritten.
+model OwnerPayoutRecoveryApplication {
+  id         Int     @id @default(autoincrement())
+  recoveryId Int
+  invoiceId  Int
+  amount     Decimal @db.Decimal(12, 2)
+  createdAt  DateTime @default(now())
+
+  recovery OwnerPayoutRecovery @relation(fields: [recoveryId], references: [id], onDelete: Restrict)
+
+  @@unique([recoveryId, invoiceId])
+  @@index([invoiceId])
+  @@map("owner_payout_recovery_application")
 }
 
 /// Append-only audit trail for everything AzamPay tells NoLSAF about a

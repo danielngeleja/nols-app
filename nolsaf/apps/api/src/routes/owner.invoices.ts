@@ -6,6 +6,7 @@ import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { claimRequiresWithdrawal, USE_WITHDRAW_RESPONSE } from "../services/payouts/release.js";
 import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
 import {
   isCustomerBookingReference,
@@ -314,6 +315,10 @@ router.post("/:id/submit", async (req, res) => {
   // Idempotent: if already submitted/processed, do nothing (prevents repeats + duplicate admin events).
   if (inv.status !== "DRAFT") {
     return res.json({ ok: true, status: inv.status, alreadySubmitted: true });
+  }
+  // Stays under the payout date lock are claimed only through the OTP withdrawal.
+  if (await claimRequiresWithdrawal(inv.bookingId)) {
+    return res.status(409).json(USE_WITHDRAW_RESPONSE);
   }
 
   const claimed = await prisma.invoice.updateMany({

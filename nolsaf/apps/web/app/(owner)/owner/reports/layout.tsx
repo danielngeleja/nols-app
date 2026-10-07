@@ -47,7 +47,7 @@ export default function ReportsLayout({ children }: { children: React.ReactNode 
               </div>
             </div>
             <Link
-              href="/owner/revenue"
+              href="/owner/payouts"
               className="no-underline inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-white/20 bg-white/10 backdrop-blur-sm text-white/80 hover:bg-white/20 hover:text-white active:scale-[0.97] transition-all duration-150 text-xs font-bold"
               aria-label="Open revenue pages"
               title="Revenue"

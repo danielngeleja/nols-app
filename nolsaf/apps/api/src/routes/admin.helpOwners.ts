@@ -7,6 +7,8 @@ import { getBookingValidationWindowStatus } from "../lib/bookingValidationWindow
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 import { adminBookingReference } from "../lib/adminBookingReference.js";
 import { deliverOwnerNotice } from "../lib/ownerNotice.js";
+import { onBookingCheckedIn } from "../services/payouts/release.js";
+import { notifyGuestCheckInConfirmed } from "../lib/checkInConfirmationSms.js";
 
 /**
  * Admin help for owners: look up a guest's check-in code and confirm the
@@ -223,6 +225,10 @@ router.post("/confirm-checkin", confirmLimiter, async (req, res) => {
         },
       });
     }, TX_OPTIONS);
+
+    // Same payout date lock as an owner validation; never awaited.
+    onBookingCheckedIn(booking.id);
+    notifyGuestCheckInConfirmed(booking.id);
 
     let ownerNotified = false;
     if (owner && !owner.deletedAt) {

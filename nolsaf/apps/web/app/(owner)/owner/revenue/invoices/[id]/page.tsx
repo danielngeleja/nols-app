@@ -80,7 +80,7 @@ export default function OwnerRevenueInvoiceView() {
         <h1 className="text-2xl font-black text-slate-900">Unable to open invoice</h1>
         <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">{err}</p>
         <Link
-          href="/owner/revenue"
+          href="/owner/payouts/history"
           className="no-underline inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition shadow-sm mx-auto"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
@@ -160,7 +160,7 @@ export default function OwnerRevenueInvoiceView() {
                 <Download className="h-4 w-4" aria-hidden />
               </a>
               <Link
-                href="/owner/revenue"
+                href="/owner/payouts/history"
                 className="no-underline inline-flex items-center justify-center h-8 w-8 rounded-lg bg-white/10 text-white/80 hover:bg-white/20 hover:text-white active:scale-[0.97] transition-all"
                 aria-label="Back to Revenue"
                 title="Back"

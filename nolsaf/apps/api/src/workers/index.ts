@@ -31,6 +31,7 @@ import { startTravellerTripReminders } from "./travellerTripReminders.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
+import { startPayoutReleaseWorker } from "./payoutRelease.js";
 import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
 import { startFinalizeTourCompletionWorker } from "./finalizeTourCompletion.js";
 
@@ -146,6 +147,9 @@ export function startBackgroundWorkers(io: SocketServer): void {
       // decision; this is what actually moves the money, so that an HTTP
       // timeout can never strand a released batch half-submitted.
       if (disbursementSenderEnabled) startDisbursementBatchWorker();
+      // Date lock on owner payouts (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md).
+      // Moves no money; self-disables unless PAYOUT_RELEASE_ENABLED is set.
+      startPayoutReleaseWorker();
       startChannelOperationsWorker();
       // Calendar feeds need no credentials and no provider partnership, so this
       // one runs unconditionally: with no feeds attached it is a single indexed

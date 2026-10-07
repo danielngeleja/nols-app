@@ -4,13 +4,15 @@ import { type ReactNode, Suspense, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { BarChart3, ChevronLeft, ChevronRight, KeyRound, Layers, LayoutDashboard, LogOut, Menu, ShieldAlert, X } from "lucide-react";
+import { BarChart3, ChevronLeft, ChevronRight, KeyRound, Layers, LayoutDashboard, LogOut, Menu, RotateCcw, ShieldAlert, Timer, X } from "lucide-react";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 
 const NAV_ITEMS = [
   { href: "/admin/disbursements", label: "Queue", icon: LayoutDashboard, exact: true },
   { href: "/admin/disbursements/batches", label: "Batches", icon: Layers },
+  { href: "/admin/disbursements/owner-payouts", label: "Owner Payouts", icon: Timer },
   { href: "/admin/disbursements/security-review", label: "Security Review", icon: ShieldAlert },
+  { href: "/admin/disbursements/recoveries", label: "Recoveries", icon: RotateCcw },
   { href: "/admin/disbursements/reports", label: "Reports", icon: BarChart3 },
 ];
 

@@ -12,27 +12,9 @@ import {
   ChevronDown, ChevronRight, ChevronUp, ShieldCheck,
 } from 'lucide-react';
 import DatePickerField from "@/components/DatePickerField";
-import SecurePayoutPreferenceCard from "@/components/SecurePayoutPreferenceCard";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
-
-type PayoutVerificationPreview = {
-  challengeToken: string;
-  expiresAt: string;
-  destination: {
-    type: "BANK" | "MOBILE_MONEY";
-    provider: string;
-    accountName: string;
-    accountNumber: string;
-    currency: string;
-  };
-  capabilities?: {
-    nameLookupVerified: boolean;
-    azamPayDisbursementEnabled: boolean;
-  };
-  draft: Record<string, string>;
-};
 
 type ContactChangeState = {
   field: "email" | "phone";
@@ -150,10 +132,6 @@ export default function OwnerProfile() {
   const [me, setMe] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [payoutSaving, setPayoutSaving] = useState(false);
-  const [payoutError, setPayoutError] = useState<string | null>(null);
-  const [payoutSuccess, setPayoutSuccess] = useState<string | null>(null);
-  const [payoutPreview, setPayoutPreview] = useState<PayoutVerificationPreview | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -730,115 +708,6 @@ export default function OwnerProfile() {
 
   const save = async () => performSave();
 
-  const buildPayoutDraft = () => {
-    const preferred = String(form.payoutPreferred || "").trim().toUpperCase();
-    return preferred === "BANK"
-      ? {
-          payoutPreferred: "BANK",
-          bankName: String(form.bankName || "").trim(),
-          bankAccountName: String(form.bankAccountName || "").trim(),
-          bankAccountNumber: String(form.bankAccountNumber || "").trim(),
-          bankBranch: String(form.bankBranch || "").trim(),
-        }
-      : {
-          payoutPreferred: "MOBILE_MONEY",
-          mobileMoneyProvider: String(form.mobileMoneyProvider || "").trim(),
-          mobileMoneyNumber: String(form.mobileMoneyNumber || "").trim(),
-        };
-  };
-
-  const requestPayoutSave = async () => {
-    setPayoutError(null);
-    setPayoutSuccess(null);
-    setPayoutPreview(null);
-    if (!payoutDetailsOk) {
-      setPayoutError('Complete the selected payout destination before verifying.');
-      return;
-    }
-    if (!payoutChanged) {
-      setPayoutSuccess('This payout destination is already saved.');
-      return;
-    }
-
-    setPayoutSaving(true);
-    try {
-      const draft = buildPayoutDraft();
-      const response = await api.post('/api/account/payouts/verify', draft);
-      const verification = (response as any)?.data?.data;
-      if (!verification?.challengeToken || !verification?.destination?.accountName) {
-        throw new Error('AzamPay did not return a valid account holder confirmation.');
-      }
-      setPayoutPreview({ ...verification, draft });
-    } catch (err: any) {
-      console.error('Failed to verify payout destination', err);
-      const serverData = err?.response?.data;
-      const failureCode = String(serverData?.code || '');
-      if (failureCode === 'PAYOUT_PROVIDER_NOT_CONFIGURED') {
-        setPayoutError('Payout verification is not configured. Your previous payout destination remains unchanged.');
-      } else {
-        setPayoutError(
-          String(serverData?.error || serverData?.message || err?.message || 'Payout verification failed. Your previous payout destination remains unchanged.')
-        );
-      }
-    } finally {
-      setPayoutSaving(false);
-    }
-  };
-
-  const confirmPayoutDestination = async () => {
-    if (!payoutPreview) return;
-    setPayoutSaving(true);
-    setPayoutError(null);
-    try {
-      const response = await api.put('/api/account/payouts', { challengeToken: payoutPreview.challengeToken });
-      const verifiedAccount = (response as any)?.data?.data?.payoutAccount;
-      const preferred = payoutPreview.destination.type;
-      const verifiedPatch = preferred === "BANK"
-        ? {
-            ...payoutPreview.draft,
-            bankAccountName: String(verifiedAccount?.accountName || payoutPreview.destination.accountName).trim(),
-            mobileMoneyProvider: "",
-            mobileMoneyNumber: "",
-            mobileMoneyAccountName: "",
-          }
-        : {
-            ...payoutPreview.draft,
-            mobileMoneyAccountName: String(verifiedAccount?.accountName || payoutPreview.destination.accountName).trim(),
-            bankName: "",
-            bankAccountName: "",
-            bankAccountNumber: "",
-            bankBranch: "",
-          };
-
-      setForm((current: any) => ({ ...current, ...verifiedPatch }));
-      setMe((current: any) => {
-        const updated = { ...(current ?? {}), ...verifiedPatch };
-        try { (window as any).ME = updated; } catch { /* ignore */ }
-        return updated;
-      });
-      setPayoutPreview(null);
-      setPayoutSuccess(
-        preferred === "BANK"
-          ? "Bank account name verified and saved. Automated AzamPay bank payout remains disabled."
-          : "Payout destination verified and saved."
-      );
-    } catch (err: any) {
-      console.error('Failed to confirm payout destination', err);
-      const serverData = err?.response?.data;
-      const failureCode = String(serverData?.code || '');
-      if (failureCode === 'PAYOUT_VERIFICATION_EXPIRED') {
-        setPayoutPreview(null);
-        setPayoutError('This verification has expired or was already used. Verify the destination again.');
-      } else {
-        setPayoutError(
-          String(serverData?.error || serverData?.message || 'The verified destination could not be saved. Your previous destination remains unchanged.')
-        );
-      }
-    } finally {
-      setPayoutSaving(false);
-    }
-  };
-
   const avatarUrl = (form?.avatarUrl || me?.avatarUrl || null) as string | null;
   const bypassAvatarOptimizer = Boolean(avatarUrl && /^https?:\/\//i.test(avatarUrl));
   const displayName = String(form?.fullName || form?.name || me?.fullName || me?.name || '').trim();
@@ -892,19 +761,6 @@ export default function OwnerProfile() {
     me?.mobileMoneyProvider,
     payoutPreferred,
   ]);
-
-  const payoutChanged = useMemo(() => {
-    const payoutKeys = [
-      'payoutPreferred',
-      'bankName',
-      'bankAccountName',
-      'bankAccountNumber',
-      'bankBranch',
-      'mobileMoneyProvider',
-      'mobileMoneyNumber',
-    ];
-    return payoutKeys.some((key) => String(form?.[key] || '').trim() !== String(me?.[key] || '').trim());
-  }, [form, me]);
 
   const profileCompletion = useMemo(() => {
     // Each check names itself and its section, so the header can say what is next.
@@ -1131,24 +987,21 @@ export default function OwnerProfile() {
 
 
 
-        {/* One secure component owns method selection and destination details. */}
+        {/* The payout account is managed in Payouts (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md). */}
         <div id="owner-payout" className="lg:col-span-12 scroll-mt-24">
-        <SecurePayoutPreferenceCard
-          className=""
-          value={form}
-          disabled={payoutSaving}
-          saving={payoutSaving}
-          saveDisabled={!payoutDetailsOk || !payoutChanged}
-          saveError={payoutError}
-          saveSuccess={payoutSuccess}
-          onSave={requestPayoutSave}
-          onChange={(patch) => {
-            setPayoutError(null);
-            setPayoutSuccess(null);
-            setPayoutPreview(null);
-            setForm((current: any) => ({ ...current, ...patch }));
-          }}
-        />
+          <div className="flex flex-col gap-3 rounded-2xl border border-solid border-slate-300 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-[15px] font-semibold text-slate-900">Payout account</div>
+              <div className="mt-0.5 text-[13px] text-slate-500">
+                {payoutDetailsOk && payoutPreferred === 'MOBILE_MONEY'
+                  ? `Mobile money wallet ending ${String(form?.mobileMoneyNumber || me?.mobileMoneyNumber || '').replace(/\D/g, '').slice(-3)}. Managed in Payouts.`
+                  : 'Add the mobile money account your payouts are sent to. Managed in Payouts.'}
+              </div>
+            </div>
+            <a href="/owner/payouts/account" className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[#02665e] px-4 text-xs font-semibold text-white no-underline hover:bg-[#014e47] hover:no-underline">
+              {payoutDetailsOk ? 'Manage payout account' : 'Add payout account'}
+            </a>
+          </div>
         </div>
 
 
@@ -1645,87 +1498,6 @@ export default function OwnerProfile() {
                   {contactChange.stage === "AUTHORIZE_EXISTING" ? "Authorize change" : "Confirm new contact"}
                 </button>
               )}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {payoutPreview && createPortal(
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="payout-confirmation-title"
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-          onClick={(event) => { if (event.target === event.currentTarget && !payoutSaving) setPayoutPreview(null); }}
-        >
-          <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" aria-hidden />
-          <div className="relative w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700">
-                    <ShieldCheck className="h-5 w-5" aria-hidden />
-                  </span>
-                  <div className="min-w-0">
-                    <h2 id="payout-confirmation-title" className="m-0 text-base font-semibold text-slate-900">Confirm account holder</h2>
-                    <p className="mb-0 mt-1 text-xs leading-5 text-slate-500">AzamPay matched this destination. Review it before saving.</p>
-                  </div>
-                </div>
-                <button type="button" onClick={() => setPayoutPreview(null)} disabled={payoutSaving}
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50" aria-label="Close confirmation">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-4 p-5">
-              <div className="rounded-md border border-emerald-200 bg-emerald-50/60 px-4 py-4">
-                <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
-                  <CheckCircle2 className="h-4 w-4" aria-hidden /> Verified account holder
-                </div>
-                <div className="mt-2 break-words text-lg font-semibold tracking-tight text-slate-900">
-                  {payoutPreview.destination.accountName}
-                </div>
-              </div>
-
-              <dl className="overflow-hidden rounded-md border border-slate-200 divide-y divide-slate-200">
-                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
-                  <dt className="text-slate-500">Method</dt>
-                  <dd className="m-0 text-right font-medium text-slate-800">{payoutPreview.destination.type === 'BANK' ? 'Bank account' : 'Mobile money'}</dd>
-                </div>
-                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
-                  <dt className="text-slate-500">Provider</dt>
-                  <dd className="m-0 text-right font-medium text-slate-800">{{ azampesa: 'AzamPesa', airtel: 'Airtel Money', tigo: 'Mixx by Yas', yas: 'Mixx by Yas', mpesa: 'M-Pesa', vodacom: 'M-Pesa', halopesa: 'HaloPesa', halotel: 'HaloPesa' }[payoutPreview.destination.provider.toLowerCase()] || payoutPreview.destination.provider}</dd>
-                </div>
-                <div className="grid grid-cols-[120px_1fr] gap-3 px-4 py-3 text-sm">
-                  <dt className="text-slate-500">Destination</dt>
-                  <dd className="m-0 text-right font-mono font-medium text-slate-800">{payoutPreview.destination.accountNumber}</dd>
-                </div>
-              </dl>
-
-              {payoutPreview.destination.type === "BANK" && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                  This confirms the bank account holder for your saved profile only. Automated AzamPay bank disbursement is not enabled.
-                </div>
-              )}
-
-              <div className="flex items-start gap-2 text-xs leading-5 text-slate-500">
-                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                This secure confirmation expires at {new Date(payoutPreview.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Nothing changes until you confirm.
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => setPayoutPreview(null)} disabled={payoutSaving}
-                className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">Cancel</button>
-              <button type="button" onClick={confirmPayoutDestination} disabled={payoutSaving}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#02665e] px-4 text-sm font-medium text-white transition hover:bg-[#01564f] disabled:cursor-not-allowed disabled:opacity-60">
-                {payoutSaving
-                  ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />Saving...</>
-                  : <><ShieldCheck className="h-4 w-4" aria-hidden />Confirm and save</>}
-              </button>
             </div>
           </div>
         </div>,

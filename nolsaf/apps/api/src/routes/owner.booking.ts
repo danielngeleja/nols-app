@@ -9,6 +9,7 @@ import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount, extractOwnerPa
 import { notifyAdmins } from "../lib/notifications.js";
 import { validateBookingCode, markBookingCodeAsUsed } from "../lib/bookingCodeService.js";
 import { getBookingValidationWindowStatus } from "../lib/bookingValidationWindow.js";
+import { claimRequiresWithdrawal, USE_WITHDRAW_RESPONSE } from "../services/payouts/release.js";
 import {
   clearBookingCodeFailures,
   getBookingCodeLockoutStatus,
@@ -936,6 +937,8 @@ const sendInvoiceFromBooking: RequestHandler = async (req, res) => {
   if (!booking) return (res as Response).status(404).json({ error: "Booking not found" });
   if (booking.status !== "CHECKED_IN") return (res as Response).status(400).json({ error: "Booking must be CHECKED_IN" });
   if (!booking.code || booking.code.status !== "USED") return (res as Response).status(400).json({ error: "Check-in code must be USED" });
+  // Stays under the payout date lock are claimed only through the OTP withdrawal.
+  if (await claimRequiresWithdrawal(booking.id)) return (res as Response).status(409).json(USE_WITHDRAW_RESPONSE);
 
   // owner details
   const owner = await prisma.user.findUnique({ where: { id: r.user!.id } });
@@ -968,7 +971,13 @@ const sendInvoiceFromBooking: RequestHandler = async (req, res) => {
   });
 
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const existing = await tx.invoice.findFirst({ where: { ownerId: r.user!.id, invoiceNumber } });
+    // By booking, never by the month-stamped number: a claim made last month
+    // must be found again, or the same stay gets a second claim that would
+    // pass the solvency gate on its own and could be paid twice.
+    const existing = await tx.invoice.findFirst({
+      where: { ownerId: r.user!.id, bookingId: booking.id, invoiceNumber: { startsWith: "OINV-" } },
+      orderBy: { id: "asc" },
+    });
     let invoice = existing;
     let created = false;
     if (!invoice) {

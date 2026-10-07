@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   findInvoice: vi.fn(),
   findSalesPayout: vi.fn(),
   groupPaymentEvents: vi.fn(),
+  recoveredSum: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -26,6 +27,7 @@ vi.mock("@nolsaf/prisma", () => ({
     invoice: { findUnique: mocks.findInvoice },
     salesPayoutRequest: { findUnique: mocks.findSalesPayout },
     paymentEvent: { groupBy: mocks.groupPaymentEvents },
+    ownerPayoutRecoveryApplication: { aggregate: mocks.recoveredSum },
   },
 }));
 
@@ -69,6 +71,22 @@ function collected(amount: string | number | null, currency = "TZS") {
 beforeEach(() => {
   vi.clearAllMocks();
   collected("180000.00");
+  mocks.recoveredSum.mockResolvedValue({ _sum: { amount: null } });
+});
+
+describe("owner invoice recovery deduction (policy 6.3.3)", () => {
+  it("pays the claim minus what was used to recover an earlier refund", async () => {
+    mocks.findInvoice.mockResolvedValue(invoice());
+    mocks.recoveredSum.mockResolvedValue({ _sum: { amount: dec("40000.00") } });
+    const source = await loadEligiblePayoutSource("OWNER_INVOICE", 123);
+    expect(source.amount.toString()).toBe("110000");
+  });
+
+  it("refuses a claim that was used up entirely by a recovery", async () => {
+    mocks.findInvoice.mockResolvedValue(invoice());
+    mocks.recoveredSum.mockResolvedValue({ _sum: { amount: dec("150000.00") } });
+    await expect(loadEligiblePayoutSource("OWNER_INVOICE", 123)).rejects.toThrow(/used to recover/);
+  });
 });
 
 describe("sales payout amount", () => {

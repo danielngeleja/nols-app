@@ -5,7 +5,8 @@ import { useState, useEffect } from "react";
 import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
   ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
-  CheckCircle2, Building2, BadgeCheck, TrendingUp, LogIn, LogOut, BarChart3, BedDouble,
+  CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
+  LayoutGrid, Clock, Receipt, Archive,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -44,10 +45,10 @@ function CollapseBtn({
    SUB-ITEM LINK
  */
 function SubItem({
-  href, label, Icon, count,
-}: { href: string; label: string; Icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>; count?: number }) {
+  href, label, Icon, count, exact = false,
+}: { href: string; label: string; Icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>; count?: number; exact?: boolean }) {
   const path = usePathname();
-  const active = path === href || (href !== "/owner" && path?.startsWith(href + "/"));
+  const active = path === href || (!exact && href !== "/owner" && path?.startsWith(href + "/"));
 
   return (
     <Link
@@ -247,7 +248,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
     properties: path === "/owner/properties" || path.startsWith("/owner/properties/"),
     bookings: path === "/owner/bookings" || path.startsWith("/owner/bookings/"),
     groupStays: path === "/owner/group-stays" || path.startsWith("/owner/group-stays/"),
-    revenue: path === "/owner/revenue" || path.startsWith("/owner/revenue/") || path === "/owner/reports" || path.startsWith("/owner/reports/"),
+    revenue: path === "/owner/payouts" || path.startsWith("/owner/payouts/") || path.startsWith("/owner/revenue") || path === "/owner/reports" || path.startsWith("/owner/reports/"),
   };
 
   /*  COLLAPSED  */
@@ -266,7 +267,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
         <CollapseBtn href="/owner/properties/approved" label="My Properties" Icon={Building2} active={sectionActive.properties} />
         <CollapseBtn href="/owner/bookings" label="Bookings" Icon={Calendar} active={sectionActive.bookings} count={checkedInCount + checkoutDueCount || undefined} />
         <CollapseBtn href="/owner/group-stays" label="Group Stays" Icon={Users} active={sectionActive.groupStays} />
-        <CollapseBtn href="/owner/revenue/requested" label="My Revenue" Icon={Wallet} active={sectionActive.revenue} />
+        <CollapseBtn href="/owner/payouts" label="Payouts" Icon={Wallet} active={sectionActive.revenue} />
         <div className="mt-auto w-full border-0 border-t border-solid border-white/10 pt-2">
           <button
             type="button"
@@ -328,10 +329,12 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
           <SubItem href="/owner/group-stays/claims/my-claims" label="My Claims" Icon={FileText} />
         </Section>
 
-        <Section label="My Revenue" Icon={Wallet} isOpen={revenueOpen} active={sectionActive.revenue} onClick={() => setRevenueOpen(v => !v)}>
-          <SubItem href="/owner/revenue/requested" label="Requested" Icon={TrendingUp} />
-          <SubItem href="/owner/revenue/paid" label="Paid Invoices" Icon={BadgeCheck} />
-          <SubItem href="/owner/revenue/rejected" label="Rejected" Icon={FileText} />
+        <Section label="Payouts" Icon={Wallet} isOpen={revenueOpen} active={sectionActive.revenue} onClick={() => setRevenueOpen(v => !v)}>
+          <SubItem href="/owner/payouts" label="Overview" Icon={LayoutGrid} exact />
+          <SubItem href="/owner/payouts/in-progress" label="In progress" Icon={Clock} />
+          <SubItem href="/owner/payouts/history" label="History" Icon={Receipt} />
+          <SubItem href="/owner/payouts/account" label="Payout account" Icon={Wallet} />
+          <SubItem href="/owner/payouts/older-claims" label="Older claims" Icon={Archive} />
           <SubItem href="/owner/reports/overview" label="Reports" Icon={BarChart3} />
         </Section>
 

@@ -278,8 +278,12 @@ describe("owner invoice disbursement write-back", () => {
       nolsafReference: processing.externalReferenceId,
       maskedDestination: "•••••••• 0001",
       timeZone: "Africa/Dar_es_Salaam",
-      qrPng: Buffer.from("qr"),
+      qrPng: expect.any(Buffer),
     }));
+    // Drawn fresh from the signed link, never the stored column (which other
+    // paths may have filled with a data-URL string): a real PNG, not "qr".
+    const qrPng: Buffer = mocks.generateOwnerDisbursementPdf.mock.calls[0][0].qrPng;
+    expect(qrPng.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe(true);
     expect(mocks.sendMail).toHaveBeenCalledWith(
       "owner@example.com",
       "Your payout has been sent",

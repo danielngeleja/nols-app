@@ -408,6 +408,37 @@ export async function approveDisbursement(disbursementId: number, approvedById: 
 }
 
 /**
+ * REQUESTED -> APPROVED by the AUTO lane (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md).
+ * Same fingerprint lock as approveDisbursement, but with no approving admin:
+ * approvedById stays null and releaseLane is AUTO, which keeps the payout out
+ * of human batches (their authorization refuses unattributed approvals) and
+ * routes it to the system's AUTO batches instead. Only callers that have
+ * already passed the AUTO-lane rules may use this.
+ */
+export async function approveDisbursementAutomatically(disbursementId: number): Promise<Disbursement> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.disbursement.findUnique({ where: { id: disbursementId }, include: { payoutAccount: true } });
+    if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} not found`);
+    if (current.status !== "REQUESTED") {
+      throw new PayoutStateError(`Disbursement ${disbursementId} is ${current.status}, expected REQUESTED`);
+    }
+    const approvalFingerprint = computeApprovalFingerprint(current, current.payoutAccount);
+    const updated = await tx.disbursement.update({
+      where: { id: disbursementId },
+      data: { status: "APPROVED", approvedById: null, approvedAt: new Date(), approvalFingerprint, releaseLane: "AUTO" },
+    });
+    await writeAudit(tx, {
+      actorId: null,
+      action: "DISBURSEMENT_APPROVED_AUTO",
+      disbursementId,
+      beforeJson: { status: current.status },
+      afterJson: { status: updated.status, releaseLane: "AUTO" },
+    });
+    return updated;
+  });
+}
+
+/**
  * AUTHORIZED -> PROCESSING. Calls AzamPay. A successful response is NOT a
  * paid state — only applyProviderEvent() can move this to PAID.
  *
@@ -992,9 +1023,10 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
 
   let attachments: Array<{ filename: string; content: Buffer }> | undefined;
   try {
-    const qrPng = invoice.receiptQrPng
-      ? Buffer.from(invoice.receiptQrPng)
-      : await QRCode.toBuffer(invoice.receiptQrPayload, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+    // Drawn fresh from the signed verification link: the stored image column
+    // is written by several paths (one stores a data-URL string, not PNG
+    // bytes), and the PDF silently drops a QR it cannot read.
+    const qrPng = await QRCode.toBuffer(invoice.receiptQrPayload, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
     if (!invoice.receiptQrPng) {
       await prisma.invoice.updateMany({
         where: { id: invoice.id, receiptQrPng: null },
