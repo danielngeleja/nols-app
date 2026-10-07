@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AlertTriangle, ArrowRight, BedDouble, Building2, ChevronLeft, Layers, Loader2, Pencil, Plus, Sparkles } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { FloorPlanSkeleton } from "@/components/owner-availability/Skeleton";
 
 /**
  * Floor plan setup. The plan is generated on the server (lib/autoLayout.ts)
@@ -161,8 +162,7 @@ export default function OwnerPropertyLayoutPage() {
     return (
       <div id="owner-floorplan" className={shell} aria-busy="true">
         {style}
-        <div className="h-44 animate-pulse rounded-3xl bg-[#012a26]" />
-        <div className="h-[420px] animate-pulse rounded-3xl bg-[#012a26]/80" />
+        <FloorPlanSkeleton />
       </div>
     );
   }

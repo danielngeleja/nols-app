@@ -292,9 +292,42 @@ export default function PropertyAvailabilitySelectionPage() {
     return (
       <div id="owner-avail-list" className={shell} aria-busy="true" aria-label="Loading properties">
         {style}
-        <div className="h-56 animate-pulse rounded-3xl bg-[#012a26]" />
+        <style>{`
+          @keyframes oal-shimmer { 0% { background-position: -480px 0 } 100% { background-position: 480px 0 } }
+          #owner-avail-list .oal-d { background: linear-gradient(90deg, rgba(255,255,255,.05) 0%, rgba(255,255,255,.12) 40%, rgba(255,255,255,.05) 80%); background-size: 960px 100%; animation: oal-shimmer 1.4s linear infinite; }
+          #owner-avail-list .oal-l { background: linear-gradient(90deg, #eef2f1 0%, #f8faf9 40%, #eef2f1 80%); background-size: 960px 100%; animation: oal-shimmer 1.4s linear infinite; }
+          @media (prefers-reduced-motion: reduce) { #owner-avail-list .oal-d, #owner-avail-list .oal-l { animation: none; } }
+        `}</style>
+        {/* Steady panels in the page's shape; only a soft shimmer moves. */}
+        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
+          <div className="oal-d h-3 w-28 rounded-full" />
+          <div className="mt-5 space-y-2.5">
+            <div className="oal-d h-2.5 w-20 rounded-full" />
+            <div className="oal-d h-8 w-56 rounded-lg" />
+            <div className="oal-d h-3 w-80 max-w-full rounded-full" />
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                <div className="oal-d h-2.5 w-20 rounded-full" />
+                <div className="oal-d mt-2.5 h-6 w-10 rounded-md" />
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {[0, 1, 2].map((i) => <div key={i} className="h-[330px] animate-pulse rounded-2xl bg-slate-200/70" />)}
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="oal-l h-32" />
+              <div className="space-y-3 p-4">
+                <div className="oal-l h-2.5 w-16 rounded-full" />
+                <div className="oal-l h-8 w-32 rounded-lg" />
+                <div className="oal-l h-2 w-full rounded-full" />
+                <div className="oal-l h-16 w-full rounded-xl" />
+                <div className="oal-l h-10 w-full rounded-xl" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
