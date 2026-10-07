@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
+import { useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import Link from "next/link";
 import { AlertCircle, BedDouble, Building2, CalendarDays, ChevronRight, MapPin, Search, Sparkles } from "lucide-react";
 
@@ -191,6 +192,7 @@ function extractBuildingStructure(property: Property): FloorInfo[] {
 }
 
 export default function PropertyAvailabilitySelectionPage() {
+  const propertyHref = useOwnerPropertyHref();
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -458,7 +460,7 @@ export default function PropertyAvailabilitySelectionPage() {
           return (
             <li key={property.id}>
               <Link
-                href={`/owner/properties/${property.id}/availability`}
+                href={propertyHref(property.id, "/availability")}
                 className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-300/80 bg-white no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
               >
                 {/* Photo */}

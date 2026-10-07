@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
+import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import PropertyPreview from "@/components/PropertyPreview";
 import { 
   MapPin,
@@ -113,6 +114,8 @@ function buildPropertySlug(title: string, publicKey: string): string {
 }
 
 export default function ApprovedProps() {
+  // Re-renders the edit links once the opaque references land.
+  useOwnerPropertyHref();
   const [list, setList] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
@@ -505,7 +508,7 @@ export default function ApprovedProps() {
                         </span>
                       </button>
                       <Link
-                        href={`/owner/properties/add?id=${property.id}`}
+                        href={`/owner/properties/add?id=${ownerPropertyRefOrId(property.id)}`}
                         className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-slate-300 bg-white px-3.5 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit

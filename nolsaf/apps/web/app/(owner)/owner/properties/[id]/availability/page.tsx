@@ -32,6 +32,7 @@ import { io, Socket } from "socket.io-client";
 import DatePicker from "@/components/ui/DatePicker";
 import FloorBoard from "@/components/owner-availability/FloorBoard";
 import { AvailabilityPageSkeleton } from "@/components/owner-availability/Skeleton";
+import { useOwnerPropertyHref, useOwnerPropertyId } from "@/lib/ownerPropertyRefs";
 
 const api = apiClient;
 
@@ -247,8 +248,10 @@ export default function PropertyAvailabilityPage() {
   const consumedRoomCodeParamRef = useRef(false);
   
   // Safely extract propertyId from params
-  const propertyIdParam = params?.id;
-  const propertyId = propertyIdParam ? Number(propertyIdParam) : NaN;
+  // The URL carries the opaque pp_ reference; an old numeric link is swapped for it.
+  const propertyRef = useOwnerPropertyId(params?.id as string | string[] | undefined, (ref) => `/owner/properties/${ref}/availability${typeof window === "undefined" ? "" : window.location.search}`);
+  const propertyId = propertyRef.id ?? NaN;
+  const propertyHref = useOwnerPropertyHref();
   
   const [loading, setLoading] = useState(true);
   const [propertyLoading, setPropertyLoading] = useState(true);
@@ -319,7 +322,9 @@ export default function PropertyAvailabilityPage() {
   // Load property details
   useEffect(() => {
     if (isNaN(propertyId)) {
-      setError("Invalid property ID");
+      // Still turning the URL reference into the property; keep the skeleton up.
+      if (propertyRef.loading) return;
+      setError("Property not found");
       setPropertyLoading(false);
       setLoading(false);
       return;
@@ -335,7 +340,7 @@ export default function PropertyAvailabilityPage() {
         setError(err?.response?.data?.error || "Failed to load property");
         setPropertyLoading(false);
       });
-  }, [propertyId]);
+  }, [propertyId, propertyRef.loading]);
 
   // Load calendar data
   const loadCalendarData = useCallback(async () => {
@@ -1057,7 +1062,7 @@ export default function PropertyAvailabilityPage() {
               </Link>
               <div className="flex flex-wrap items-center gap-2">
                 <Link
-                  href={`/owner/properties/${propertyId}/layout`}
+                  href={propertyHref(propertyId, "/layout")}
                   className="no-underline inline-flex items-center gap-1.5 px-2 py-2 text-sm font-semibold text-white/60 transition hover:text-white"
                   title="Set up floors and rooms"
                 >

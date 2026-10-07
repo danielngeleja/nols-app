@@ -681,7 +681,7 @@ function SelectionCheckbox({ checked, onChange, label, disabled = false, title }
 
 export default function NrmsReservationsPage() {
   const router = useRouter();
-  const { selectedPropertyId } = useNrms();
+  const { selectedPropertyId, properties, setSelectedPropertyId } = useNrms();
   const { accessRole } = useNrmsAccessRole();
   const isSalesExecutive = accessRole === "SALES_EXECUTIVE";
   const [loading, setLoading] = useState(true);
@@ -787,14 +787,55 @@ export default function NrmsReservationsPage() {
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
+  // Deep link: ?reservation=rs_... opens that stay. The stay may belong to a
+  // property other than the one this workspace has selected (an owner with
+  // several hotels), so try the others and switch to the right one.
+  // ?assign=1 (sent by check-in validation) goes straight to the room picker.
   useEffect(() => {
     if (!selectedPropertyId) return;
-    const requestedReference = new URLSearchParams(window.location.search).get("reservation");
+    const params = new URLSearchParams(window.location.search);
+    const requestedReference = params.get("reservation");
     if (!requestedReference) return;
+    const wantsAssign = params.get("assign") === "1";
     let cancelled = false;
-    apiClient.get<{ id: number }>(`/api/owner/nrms/reservations/property/${selectedPropertyId}/resolve/${encodeURIComponent(requestedReference)}`)
-      .then((response) => { if (!cancelled && response.data?.id) setSelectedReservationId(response.data.id); })
-      .catch(() => { if (!cancelled) closeReservation(); });
+    const resolveIn = (propertyId: number) =>
+      apiClient
+        .get<{ id: number }>(`/api/owner/nrms/reservations/property/${propertyId}/resolve/${encodeURIComponent(requestedReference)}`)
+        .then((response) => response.data?.id ?? null)
+        .catch(() => null);
+    (async () => {
+      const id = await resolveIn(selectedPropertyId);
+      if (!id) {
+        for (const property of properties) {
+          if (cancelled || property.id === selectedPropertyId) continue;
+          const found = await resolveIn(property.id);
+          if (found) {
+            // Switching re-runs this effect against the right property.
+            if (!cancelled) setSelectedPropertyId(property.id);
+            return;
+          }
+        }
+      }
+      if (cancelled) return;
+      if (!id) { closeReservation(); return; }
+      if (wantsAssign) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("assign");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+        try {
+          const response = await apiClient.get<any>(`/api/owner/nrms/reservations/${id}`);
+          const stay = response.data?.reservation as Reservation | undefined;
+          const readiness = stay ? roomReadiness(stay) : null;
+          if (!cancelled && stay && readiness && !readiness.ready && !readiness.missingAllocation) {
+            setRoomAssignment(stay);
+            return;
+          }
+        } catch {
+          // Fall back to the stay itself, which offers room assignment.
+        }
+      }
+      if (!cancelled) setSelectedReservationId(id);
+    })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPropertyId]);
@@ -2143,6 +2184,7 @@ function ReservationDetailModal({
   // clock or time zone disagrees with it.
   const [departureDeclarationNeeded, setDepartureDeclarationNeeded] = useState(false);
   const [auditBehindDate, setAuditBehindDate] = useState<string | null>(null);
+  const [showAddCharge, setShowAddCharge] = useState(false);
 
   const reload = useCallback(async () => {
     const r = await apiClient.get<any>(`/api/owner/nrms/reservations/${reservationId}`);
@@ -2277,6 +2319,7 @@ function ReservationDetailModal({
       });
       setChargeDescription("");
       setChargeAmount("");
+      setShowAddCharge(false);
       await reload();
       await onChanged();
     } catch (e: any) {
@@ -2351,6 +2394,67 @@ function ReservationDetailModal({
   const chargesNeedVerification = r?.status === "CHECKED_IN" && chargesRequiringVerification.some((charge) => !verifiedChargeIds.includes(charge.id));
   const outletReconciliationBlocked = r?.status === "CHECKED_IN" && unclassifiedOutletPayments.length > 0;
   const checkoutBlocked = folioBalanceBlocked || chargesNeedVerification || outletReconciliationBlocked;
+  const guestDue = r?.balance != null && r.balance > 0.005 ? r.balance : 0;
+  const paidPercent = totalGuestSpend > 0 ? Math.min(100, Math.round((guestCollected / totalGuestSpend) * 100)) : guestCollected > 0 ? 100 : 0;
+  const nightsCount = r ? Math.max(1, Math.round((new Date(r.checkOut).getTime() - new Date(r.checkIn).getTime()) / 86_400_000)) : 0;
+  const displayName = r?.agentBooking?.agencyName ?? r?.guestProfile?.fullName ?? r?.agentBooking?.leadGuest?.fullName ?? "Guest";
+  const nameInitials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "G";
+  const activeRoomLabel = r?.allocations?.length ? tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active") : "Not assigned";
+  function actionsFor(res: Reservation | null): Array<{ key: string; label: string; disabled?: boolean; tone: "primary" | "danger" }> {
+    if (!res) return [];
+    const all: Array<{ key: string; label: string; show: boolean; disabled?: boolean; tone: "primary" | "danger" }> = [
+      { key: "confirm", label: "Confirm", show: !isMarketplace && ["DRAFT", "HELD"].includes(res.status), tone: "primary" },
+      { key: "check-in", label: "Check in", show: !isMarketplace && res.status === "CONFIRMED", disabled: !readiness.ready, tone: "primary" },
+      {
+        key: "check-out",
+        label: folioAmountDue > 0
+          ? `Payment due · ${money(folioAmountDue, res.currency)}`
+          : folioCredit > 0
+            ? `Resolve credit · ${money(folioCredit, res.currency)}`
+            : folioBalanceBlocked
+              ? "Review folio balance"
+              : outletReconciliationBlocked
+                ? "Classify outlet payments"
+                : chargesNeedVerification
+                  ? "Verify every charge"
+                  : "Check out",
+        show: res.status === "CHECKED_IN",
+        disabled: checkoutBlocked,
+        tone: "primary",
+      },
+      { key: "no-show", label: "No show", show: !isMarketplace && res.status === "CONFIRMED", tone: "danger" },
+      { key: "cancel", label: "Cancel", show: !isMarketplace && ["DRAFT", "HELD", "CONFIRMED"].includes(res.status), tone: "danger" },
+    ];
+    return all.filter((action) => action.show);
+  }
+  const visibleActions = actionsFor(r);
+  const stayStart = r ? new Date(r.checkIn).getTime() : 0;
+  const stayEnd = r ? new Date(r.checkOut).getTime() : 0;
+  const stayProgress = r?.status === "CHECKED_IN" && stayEnd > stayStart ? Math.min(100, Math.max(0, ((Date.now() - stayStart) / (stayEnd - stayStart)) * 100)) : r?.status === "CHECKED_OUT" ? 100 : 0;
+  const weekday = (value: string) => new Date(value).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", weekday: "short" });
+  // One sentence that tells the desk what this stay needs next.
+  const nextStep: { tone: "go" | "wait" | "info" | "done" | "stop"; title: string; body: string } | null = !r ? null
+    : ["DRAFT", "HELD"].includes(r.status) ? { tone: "info", title: "Waiting for confirmation", body: "Confirm the reservation to hold the room for these dates." }
+    : r.status === "CONFIRMED" ? (
+      !readiness.ready ? { tone: "wait", title: "Assign a room first", body: "Pick the room number below, then check the guest in." }
+      : isMarketplace ? { tone: "info", title: "Check in with the guest's code", body: "This NoLSAF booking is checked in from the code page when the guest arrives." }
+      : guestDue > 0 ? { tone: "wait", title: "Ready, with money owed", body: `${money(guestDue, r.currency)} is still unpaid. Take it now or during the stay.` }
+      : { tone: "go", title: "Ready to check in", body: `${activeRoomLabel} is set and the bill is paid.` }
+    )
+    : r.status === "CHECKED_IN" ? (
+      checkoutBlocked ? { tone: "wait", title: "Clear these before check-out", body: [folioAmountDue > 0 ? `collect ${money(folioAmountDue, r.currency)}` : "", folioCredit > 0 ? `resolve ${money(folioCredit, r.currency)} credit` : "", chargesNeedVerification ? "verify manual charges" : "", outletReconciliationBlocked ? "add outlet payment methods" : ""].filter(Boolean).join(", ").replace(/^./, (c) => c.toUpperCase()) + "." }
+      : { tone: "go", title: "In house", body: `Due out ${weekday(r.checkOut)} ${fmtDate(r.checkOut)}. Check out when the guest leaves.` }
+    )
+    : r.status === "CHECKED_OUT" ? { tone: "done", title: "Stay completed", body: "The guest has checked out. The folio stays here for reference." }
+    : { tone: "stop", title: `Reservation ${r.status.replace(/_/g, " ").toLowerCase()}`, body: "No further front desk action is needed." };
+  const stepSkin = {
+    go: "bg-emerald-50 text-emerald-900 ring-emerald-200",
+    wait: "bg-amber-50 text-amber-950 ring-amber-200",
+    info: "bg-sky-50 text-sky-950 ring-sky-200",
+    done: "bg-slate-50 text-slate-800 ring-slate-200",
+    stop: "bg-rose-50 text-rose-900 ring-rose-200",
+  } as const;
+  const stepIcon = { go: "bg-emerald-600", wait: "bg-amber-500", info: "bg-sky-500", done: "bg-slate-400", stop: "bg-rose-500" } as const;
   const plannedCheckOutKey = r?.checkOut?.slice(0, 10) ?? "";
   const departureDateKey = localDateKey();
   const earlyDeparture = Boolean(r?.status === "CHECKED_IN" && (plannedCheckOutKey > departureDateKey || departureDeclarationNeeded));
@@ -2378,77 +2482,130 @@ function ReservationDetailModal({
   // let NRMS and NoLSAF disagree about what the guest owes. Check-out is the
   // property closing its own stay, and the folio opened above has to be
   // settleable from the same place it is posted.
-  const actions: Array<{ key: string; label: string; show: boolean; disabled?: boolean }> = r
-    ? [
-        { key: "confirm", label: "Confirm", show: !isMarketplace && ["DRAFT", "HELD"].includes(r.status) },
-        { key: "check-in", label: "Check in", show: !isMarketplace && r.status === "CONFIRMED", disabled: !readiness.ready },
-        {
-          key: "check-out",
-          label: folioAmountDue > 0
-            ? `Payment due · ${money(folioAmountDue, r.currency)}`
-            : folioCredit > 0
-              ? `Resolve credit · ${money(folioCredit, r.currency)}`
-              : folioBalanceBlocked
-                ? "Review folio balance"
-                : outletReconciliationBlocked
-                  ? "Classify outlet payments"
-                  : chargesNeedVerification
-                    ? "Verify every charge"
-                    : "Check out",
-          show: r.status === "CHECKED_IN",
-          disabled: checkoutBlocked,
-        },
-        { key: "no-show", label: "No show", show: !isMarketplace && r.status === "CONFIRMED" },
-        { key: "cancel", label: "Cancel", show: !isMarketplace && ["DRAFT", "HELD", "CONFIRMED"].includes(r.status) },
-      ]
-    : [];
+
+  const runVisibleAction = (key: string) => {
+    if (key === "check-out") {
+      if (!earlyDeparture) {
+        void runAction("check-out", { verifiedChargeIds });
+        return;
+      }
+      setRoomVacantConfirmed(false);
+      setEarlyDepartureReason("");
+      setCheckoutConfirmOpen(true);
+      return;
+    }
+    void runAction(key);
+  };
+  const actionPanel = r && !readOnly && visibleActions.length > 0 ? (
+    <div className="flex flex-col-reverse gap-2">
+      <div className="flex gap-2 [&>*]:flex-1">
+        {visibleActions.filter((a) => a.tone === "danger").map((a) => (
+          <button
+            type="button"
+            key={a.key}
+            onClick={() => runVisibleAction(a.key)}
+            disabled={busyAction != null || a.disabled}
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-solid border-rose-200 bg-white px-4 text-xs font-bold text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+          >
+            {busyAction === a.key ? "Working..." : a.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-2">
+        {visibleActions.filter((a) => a.tone === "primary").map((a) => (
+          <button
+            type="button"
+            key={a.key}
+            onClick={() => runVisibleAction(a.key)}
+            disabled={busyAction != null || a.disabled}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-bold text-white shadow-[0_12px_24px_-16px_rgba(2,102,94,0.9)] transition hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+          >
+            {busyAction === a.key ? <Loader2 className="h-4 w-4 animate-spin" /> : a.key === "check-out" ? <LogOut className="h-4 w-4" /> : a.key === "check-in" ? <DoorOpen className="h-4 w-4" /> : <BadgeCheck className="h-4 w-4" />}
+            {busyAction === a.key ? "Working..." : a.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : undefined;
 
   return (
     <>
     <ModalFrame title="Reservation" onClose={onClose} closeOnEscape={!voidingCharge && !checkoutConfirmOpen} extraWide>
       {!r ? (
-        <div className="flex justify-center py-10 text-neutral-400">
-          <Loader2 className="w-5 h-5 animate-spin" />
+        <div className="space-y-3" aria-busy="true" aria-label="Loading reservation">
+          <div className="h-36 rounded-2xl bg-[#012a26]" />
+          <div className="h-32 rounded-2xl bg-slate-100" />
+          <div className="h-24 rounded-2xl bg-slate-50" />
         </div>
       ) : readOnly ? (
         <SalesReservationSummary reservation={r} />
       ) : (
-        <div className="space-y-3 text-sm">
-          <section className="flex min-w-0 flex-wrap items-stretch justify-between overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2">
-              <div className="min-w-0 flex-1 px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
-                {/* An agency stay is billed to the agency, so the drawer leads
-                    with the agency and keeps the traveller underneath. */}
-                <div className="truncate font-bold text-neutral-900">{r.agentBooking?.agencyName ?? r.guestProfile?.fullName ?? r.agentBooking?.leadGuest?.fullName ?? "Guest"}</div>
-                <div className="mt-1 text-xs text-neutral-500">
-                  {r.agentBooking ? <>{r.guestProfile?.fullName ?? r.agentBooking.leadGuest?.fullName ?? "Travellers on the manifest"} · </> : null}
-                  {fmtDate(r.checkIn)} to {fmtDate(r.checkOut)} · {SOURCE_LABEL[r.source] ?? r.source} · {r.adults} adult{r.adults === 1 ? "" : "s"}
-                </div>
+        <div className="space-y-4 text-sm">
+          <section className="overflow-hidden rounded-2xl bg-[#012a26] text-white">
+            <div className="flex flex-wrap items-center gap-4 px-5 pt-5">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#5eead4] text-sm font-extrabold text-[#012a26]">{nameInitials}</span>
+              <div className="min-w-0 flex-1">
+                {/* An agency stay is billed to the agency, so it leads with the agency and keeps the traveller underneath. */}
+                <h3 className="m-0 truncate text-lg font-bold tracking-[-0.01em] text-white">{displayName}</h3>
+                <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/60">
+                  {r.agentBooking ? <><span>{r.guestProfile?.fullName ?? r.agentBooking.leadGuest?.fullName ?? "Travellers on the manifest"}</span><span aria-hidden>·</span></> : null}
+                  <span>{SOURCE_LABEL[r.source] ?? r.source}</span>
+                  <span aria-hidden>·</span>
+                  <span>{r.adults} adult{r.adults === 1 ? "" : "s"}{r.children ? `, ${r.children} ${r.children === 1 ? "child" : "children"}` : ""}</span>
+                </p>
               </div>
-              {r.allocations && r.allocations.length > 0 && (
-                <div className="border-l border-neutral-200 px-5 py-3.5">
-                  <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-neutral-500">Room</div>
-                  <div className="mt-1 text-[13px] font-semibold text-neutral-800">{tallyRoomLabels(r.allocations.filter((a) => a.status === "ACTIVE").map((a) => a.roomUnitCode ?? `Any ${a.roomTypeName ?? "room"}`), "None active")}</div>
-                </div>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold capitalize ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>{r.status.replace(/_/g, " ").toLowerCase()}</span>
+                {canPrintInvoice && (
+                  <button
+                    type="button"
+                    onClick={() => window.open(`/api/owner/nrms/reservations/${encodeURIComponent(r.reference ?? String(r.id))}/invoice.pdf`, "_blank", "noopener")}
+                    aria-label="Print invoice"
+                    title="Print invoice"
+                    className="grid h-9 w-9 place-items-center rounded-xl border border-solid border-white/15 bg-white/[0.06] text-white/80 transition hover:bg-white/[0.12] hover:text-white"
+                  >
+                    <Printer className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2 border-l border-neutral-200 bg-neutral-50 px-3.5 py-3">
-              {canPrintInvoice && (
-                <button
-                  type="button"
-                  onClick={() => window.open(`/api/owner/nrms/reservations/${encodeURIComponent(r.reference ?? String(r.id))}/invoice.pdf`, "_blank", "noopener")}
-                  className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  Print invoice
-                </button>
-              )}
-              <span className={`rounded-full px-2.5 py-1.5 text-[11px] font-semibold ${STATUS_CLS[r.status] ?? "bg-neutral-100 text-neutral-500"}`}>
-                {r.status.replace(/_/g, " ").toLowerCase()}
-              </span>
+
+            {/* The stay as a line: room, arrival, nights, departure. */}
+            <div className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 border-0 border-t border-solid border-white/10 px-5 py-4 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto]">
+              <div className={`flex items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-inset ${!readiness.ready && ["CONFIRMED", "CHECKED_IN"].includes(r.status) ? "bg-rose-400/10 text-rose-200 ring-rose-300/30" : "bg-white/[0.06] text-white ring-white/10"}`}>
+                <BedDouble className="h-4 w-4 opacity-70" />
+                <span className="text-sm font-bold">{activeRoomLabel}</span>
+              </div>
+              <div className="text-left">
+                <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/45">Arrives</p>
+                <p className="m-0 mt-0.5 text-sm font-bold text-white">{weekday(r.checkIn)} {fmtDate(r.checkIn)}</p>
+              </div>
+              <div className="col-span-2 min-w-0 sm:col-span-1">
+                <div className="relative h-1.5 rounded-full bg-white/10">
+                  <div className="absolute inset-y-0 left-0 rounded-full bg-[#5eead4]" style={{ width: `${stayProgress}%` }} />
+                  {r.status === "CHECKED_IN" && <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-solid border-[#012a26] bg-[#5eead4]" style={{ left: `${stayProgress}%` }} aria-hidden />}
+                </div>
+                <p className="m-0 mt-1.5 text-center text-[11px] text-white/55">{nightsCount} {nightsCount === 1 ? "night" : "nights"}{r.status === "CHECKED_IN" ? " · in house" : ""}</p>
+              </div>
+              <div className="text-right">
+                <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.1em] text-white/45">Leaves</p>
+                <p className="m-0 mt-0.5 text-sm font-bold text-white">{weekday(r.checkOut)} {fmtDate(r.checkOut)}</p>
+              </div>
             </div>
           </section>
-
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+            <div className="min-w-0 space-y-4">
+          {nextStep && (
+            <div className={`flex items-start gap-3 rounded-2xl px-4 py-3.5 ring-1 ring-inset ${stepSkin[nextStep.tone]}`}>
+              <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-white ${stepIcon[nextStep.tone]}`}>
+                {nextStep.tone === "go" || nextStep.tone === "done" ? <Check className="h-4 w-4" strokeWidth={3} /> : nextStep.tone === "wait" ? <AlertTriangle className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 text-sm font-bold">{nextStep.title}</p>
+                <p className="m-0 mt-0.5 text-xs leading-5 opacity-80">{nextStep.body}</p>
+              </div>
+            </div>
+          )}
           {["CONFIRMED", "CHECKED_IN"].includes(r.status) && !readiness.ready && (
             <section className="rounded-lg border border-amber-200 bg-amber-50 p-4" aria-label="Room assignment required">
               <p className="m-0 font-semibold">{readiness.missingAllocation ? "Booked room category needs recovery" : readiness.assigned + " of " + readiness.total + " rooms assigned"}</p>
@@ -2458,56 +2615,25 @@ function ReservationDetailModal({
               {roomPreparationIssue && <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-xs text-red-700"><p className="m-0 font-semibold">{roomPreparationIssue.message}</p>{roomPreparationIssue.code === "ROOM_CATEGORY_MAPPING_REQUIRED" && <Link href="/owner/nrms/rooms" className="mt-2 inline-flex font-bold text-red-800 underline">Open room categories</Link>}</div>}
             </section>
           )}
-
-          {isMarketplace && <MarketplaceSettlement reservation={r} />}
-
-          {!isMarketplace && <section className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-neutral-200 bg-neutral-200 sm:grid-cols-4">
-            <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Room</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.totalAmount, r.currency)}</p>
-            </div>
-            <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Folio extras</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(r.chargesTotal ?? 0, r.currency)}</p>
-            </div>
-            <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Outlet paid</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-emerald-700"}`}>{money(settledAtOutletTotal, r.currency)}</p>
-              {unclassifiedOutletPayments.length > 0 && <p className="mb-0 mt-0.5 text-[9px] font-semibold text-amber-700">Payment method missing</p>}
-            </div>
-            <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Total spend</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(totalGuestSpend, r.currency)}</p>
-            </div>
-            <div className="min-w-0 bg-white px-3 py-3">
-              <p className="m-0 text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-400">Guest collected</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-emerald-700">{money(guestCollected, r.currency)}</p>
-            </div>
-            {agencyFolioAmount > 0 && <div className={`min-w-0 px-3 py-3 ${r.agencySettlement?.settled ? "bg-blue-50" : "bg-amber-50"}`}>
-              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.agencySettlement?.settled ? "text-blue-700" : "text-amber-700"}`}>Agency folio</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(agencyFolioAmount, r.currency)}</p>
-              <p className={`mb-0 mt-0.5 text-[9px] font-semibold ${r.agencySettlement?.settled ? "text-blue-700" : "text-amber-700"}`}>{r.agencySettlement?.settled ? "Agency settled" : "Agency payment pending"}</p>
-            </div>}
-            <div className={`min-w-0 px-3 py-3 ${r.balance != null && r.balance > 0 && !isMarketplace ? "bg-amber-50" : "bg-emerald-50"}`}>
-              <p className={`m-0 text-[9px] font-bold uppercase tracking-[0.08em] ${r.balance != null && r.balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>Guest amount due</p>
-              <p className={`mb-0 mt-1 whitespace-nowrap text-sm font-bold tabular-nums ${r.balance != null && r.balance > 0 ? "text-amber-900" : "text-emerald-900"}`}>{r.balance != null && r.balance > 0 ? money(r.balance, r.currency) : agencyFolioAmount > 0 ? "Guest folio settled" : "Paid in full"}</p>
-            </div>
-          </section>}
-
           {(canPostCharges || (r.charges && r.charges.length > 0) || outletPaidOrders.length > 0) && (
-            <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
-              <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-neutral-200 bg-neutral-50 px-3.5 py-3">
-                <div className="flex min-w-0 items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white"><ReceiptText className="h-4 w-4" /></span>
-                  <div className="min-w-0"><h3 className="m-0 text-xs font-bold text-neutral-900">Guest charges and outlet orders</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-500">Review every transaction linked to this stay before checkout.</p></div>
+            <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+              <header className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><ReceiptText className="h-[18px] w-[18px]" /></span>
+                  <div className="min-w-0"><h3 className="m-0 text-sm font-bold text-slate-900">Charges and outlet orders</h3><p className="mb-0 mt-0.5 text-xs text-slate-500">Everything linked to this stay, reviewed before checkout.</p></div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {canPostCharges && (
+                    <button type="button" onClick={() => setShowAddCharge((open) => !open)} aria-expanded={showAddCharge} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border border-solid px-3 text-xs font-bold transition ${showAddCharge ? "border-slate-300 bg-slate-100 text-slate-700" : "border-[#02665e]/30 bg-white text-[#02665e] hover:bg-emerald-50"}`}>
+                      {showAddCharge ? "Close" : <><Plus className="h-3.5 w-3.5" />Add charge</>}
+                    </button>
+                  )}
                   {r.status === "CHECKED_IN" && unclassifiedOutletPayments.length > 0 && <span className="shrink-0 rounded-md bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800">{unclassifiedOutletPayments.length} outlet payment {unclassifiedOutletPayments.length === 1 ? "method" : "methods"} required</span>}
                   {r.status === "CHECKED_IN" && chargesRequiringVerification.length > 0 && <span className={`shrink-0 rounded-md px-2.5 py-1 text-[10px] font-bold ${chargesNeedVerification ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>{verifiedChargeIds.length} of {chargesRequiringVerification.length} manual charges verified</span>}
                   {r.status === "CHECKED_IN" && outletVerifiedChargeCount > 0 && <span className="shrink-0 rounded-md bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-800">{outletVerifiedChargeCount} outlet {outletVerifiedChargeCount === 1 ? "charge" : "charges"} verified by workflow</span>}
                 </div>
               </header>
-              <div className="space-y-4 p-3">
+              <div className="space-y-4 p-4 sm:p-5">
               {outletPaidOrders.length > 0 && (
                 <section className="space-y-2">
                   <div className="flex flex-wrap items-end justify-between gap-3 px-0.5">
@@ -2614,10 +2740,16 @@ function ReservationDetailModal({
                   </div>
                 </section>
               )}
-              {canPostCharges && (
-                <div className="rounded-lg border border-neutral-200 bg-neutral-50/70 p-3">
+              {outletPaidOrders.length === 0 && !(r.charges && r.charges.length > 0) && !showAddCharge && (
+                <p className="m-0 flex items-center gap-2 text-xs text-slate-500">
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  No extra charges or outlet orders on this stay yet.
+                </p>
+              )}
+              {canPostCharges && showAddCharge && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-4">
                   <div>
-                    <p className="m-0 text-xs font-bold text-neutral-900">Add a manual extra charge</p>
+                    <p className="m-0 flex items-center gap-1.5 text-sm font-bold text-slate-900"><Plus className="h-4 w-4 text-[#02665e]" />Add an extra charge</p>
                     <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">Record a service or item that increased the guest&apos;s bill but was not already posted through a restaurant or bar order.</p>
                   </div>
                   <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
@@ -2650,77 +2782,113 @@ function ReservationDetailModal({
               </div>
             </section>
           )}
-
-          {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
-            <section id="guest-payment" className="overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-sm shadow-neutral-200/40">
-              <header className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-200 bg-white px-4 py-3.5 shadow-[inset_3px_0_0_0_#059669]">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700">
-                    <WalletCards className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="m-0 text-[13px] font-bold text-neutral-950">Record guest payment</p>
-                    <p className="mb-0 mt-1 text-[11px] leading-5 text-neutral-600">Post money already received directly to this guest folio.</p>
-                  </div>
-                </div>
-                <span className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-1.5 text-[11px] font-bold text-emerald-800">
-                  Outstanding&nbsp; {money(r.balance, r.currency)}
-                </span>
-              </header>
-              {paymentLocked ? (
-                <div className="m-4 flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-emerald-200 bg-white text-emerald-700"><LockKeyhole className="h-3.5 w-3.5" /></span>
-                  This folio is fully paid. Additional payment entry is locked.
-                </div>
-              ) : (
-                <div className="p-4">
-                  <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-12 xl:items-end">
-                    <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 sm:col-span-2 xl:col-span-5">
-                      <span className="flex items-center justify-between gap-2"><span>Amount received</span><span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[9px] text-neutral-600">{r.currency}</span></span>
-                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-md border border-neutral-300 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-neutral-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
-                    </label>
-                    <label className="min-w-0 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500 xl:col-span-3">
-                      Payment method
-                      <span className="mt-1.5 block">
-                        <select className="box-border !h-11 w-full min-w-0 rounded-md border border-neutral-300 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
-                          <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
-                        </select>
-                      </span>
-                    </label>
-                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-md border-0 bg-emerald-700 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 disabled:shadow-none sm:col-span-2 xl:col-span-4">
-                      {busyAction === "payments" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Recording payment...</> : <><CircleDollarSign className="h-4 w-4" />Confirm received payment</>}
-                    </button>
-                  </div>
-                  <div className="mt-3 flex items-start gap-2 border-t border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[11px] leading-4 text-neutral-600">
-                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                    <span>The amount cannot exceed {money(r.balance, r.currency)}. Confirm the actual payment method before recording.</span>
-                  </div>
-                </div>
-              )}
-            </section>
-          )}
-
-          {r.payments && r.payments.length > 0 && (
-            <div className="text-xs text-neutral-500 space-y-1">
-              {r.payments.map((p) => (
-                <div key={p.id} className={`flex justify-between ${p.voidedAt ? "line-through text-neutral-300" : ""}`}>
-                  <span>
-                    {new Date(p.createdAt).toLocaleDateString()} · {p.method.replace(/_/g, " ").toLowerCase()}
-                  </span>
-                  <span>{money(p.amount, p.currency)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
           {auditBehindDate && r.status === "CHECKED_OUT" && (
             <div role="status" className="rounded-xl border border-solid border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               Checkout recorded on today&apos;s date. The business day is still open at {fmtDate(auditBehindDate)}, so its postings land there until Night Audit catches up. <Link href="/owner/nrms/finance?view=audit" className="font-semibold text-amber-900 underline">Open Night Audit</Link>
             </div>
           )}
+            </div>
+            <aside className="min-w-0 space-y-3 lg:sticky lg:top-0">
+          {!isMarketplace && (
+            <section aria-label="Folio summary" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+              <div className={`px-4 pb-4 pt-4 ${guestDue > 0 ? "bg-amber-50/60" : "bg-emerald-50/50"}`}>
+                <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Folio</p>
+                <p className={`m-0 mt-1 text-2xl font-extrabold tracking-[-0.02em] tabular-nums ${guestDue > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+                  {guestDue > 0 ? `${money(guestDue, r.currency)} due` : agencyFolioAmount > 0 ? "Guest settled" : "Paid in full"}
+                </p>
+                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white" role="img" aria-label={`${paidPercent}% collected`}>
+                  <div className={`h-full rounded-full ${guestDue > 0 ? "bg-amber-400" : "bg-emerald-500"}`} style={{ width: `${paidPercent}%` }} />
+                </div>
+                <p className="m-0 mt-1.5 text-[11px] text-slate-500">{paidPercent}% collected</p>
+              </div>
+              <dl className="m-0 space-y-2 px-4 py-3.5 text-[13px]">
+                {[
+                  { label: "Room", value: money(r.totalAmount, r.currency), tone: "text-slate-800" },
+                  { label: "Folio extras", value: money(r.chargesTotal ?? 0, r.currency), tone: "text-slate-800" },
+                  { label: "Paid at outlets", value: money(settledAtOutletTotal, r.currency), tone: unclassifiedOutletPayments.length > 0 ? "text-amber-700" : "text-slate-800" },
+                  ...(agencyFolioAmount > 0 ? [{ label: r.agencySettlement?.settled ? "Agency folio, settled" : "Agency folio, pending", value: money(agencyFolioAmount, r.currency), tone: r.agencySettlement?.settled ? "text-sky-700" : "text-amber-700" }] : []),
+                ].map((row) => (
+                  <div key={row.label} className="flex items-baseline justify-between gap-3">
+                    <dt className="text-slate-500">{row.label}</dt>
+                    <dd className={`m-0 font-semibold tabular-nums ${row.tone}`}>{row.value}</dd>
+                  </div>
+                ))}
+                <div className="flex items-baseline justify-between gap-3 border-0 border-t border-dashed border-slate-200 pt-2">
+                  <dt className="font-semibold text-slate-700">Total spend</dt>
+                  <dd className="m-0 font-bold tabular-nums text-slate-900">{money(totalGuestSpend, r.currency)}</dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-slate-500">Collected</dt>
+                  <dd className="m-0 font-semibold tabular-nums text-emerald-700">{money(guestCollected, r.currency)}</dd>
+                </div>
+                {unclassifiedOutletPayments.length > 0 && <p className="m-0 text-[11px] font-semibold text-amber-700">An outlet payment is missing its method.</p>}
+              </dl>
+            </section>
+          )}
+          {isMarketplace && <MarketplaceSettlement reservation={r} />}
+          {!["CANCELLED", "EXPIRED", "NO_SHOW"].includes(r.status) && (
+            <section id="guest-payment" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+              <header className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-100 px-4 py-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700"><WalletCards className="h-4 w-4" /></span>
+                  <div className="min-w-0">
+                    <p className="m-0 text-sm font-bold text-slate-900">Payments</p>
+                    
+                  </div>
+                </div>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold tabular-nums ring-1 ring-inset ${paymentLocked ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
+                  {paymentLocked ? "Settled" : `${money(r.balance, r.currency)} due`}
+                </span>
+              </header>
 
+              {r.payments && r.payments.length > 0 && (
+                <ul className="m-0 list-none space-y-1.5 px-4 pb-0 pt-3">
+                  {r.payments.map((p) => (
+                    <li key={p.id} className={`flex min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 ${p.voidedAt ? "opacity-50" : ""}`}>
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-emerald-700 ring-1 ring-inset ring-slate-200"><CircleDollarSign className="h-4 w-4" /></span>
+                      <div className="min-w-0 flex-1">
+                        <p className={`m-0 truncate text-xs font-semibold capitalize text-slate-800 ${p.voidedAt ? "line-through" : ""}`}>{PAYMENT_METHOD_LABEL[p.method] ?? p.method.replace(/_/g, " ").toLowerCase()}</p>
+                        <p className="m-0 mt-0.5 text-[11px] text-slate-400">{fmtChargeTimestamp(p.createdAt)}{p.voidedAt ? " · voided" : ""}</p>
+                      </div>
+                      <strong className={`shrink-0 text-sm tabular-nums ${p.voidedAt ? "text-slate-400 line-through" : "text-emerald-700"}`}>{money(p.amount, p.currency)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {paymentLocked ? (
+                <p className="m-0 flex items-center gap-2 px-4 py-3 text-[11px] font-semibold text-slate-500">
+                  <LockKeyhole className="h-3.5 w-3.5 text-emerald-600" />
+                  Fully paid. New payments open again if a charge is added.
+                </p>
+              ) : (
+                <div className="p-4">
+                  <div className="grid min-w-0 grid-cols-1 gap-3">
+                    <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500 ">
+                      <span className="flex items-center justify-between gap-2"><span>Amount received</span><span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600">{r.currency}</span></span>
+                      <input type="number" inputMode="decimal" min={1} max={r.balance ?? undefined} disabled={busyAction === "payments"} className="mt-1.5 box-border !h-11 w-full min-w-0 appearance-none rounded-xl border border-solid border-slate-300 bg-white px-3.5 py-0 text-base font-bold normal-case tracking-normal text-slate-950 outline-none placeholder:text-xs placeholder:font-normal placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={payAmount} onChange={(e) => { setPayAmount(e.target.value); setPayAmountManuallyEdited(true); }} placeholder="Enter amount" />
+                    </label>
+                    <label className="min-w-0 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                      Payment method
+                      <span className="mt-1.5 block">
+                        <select className="box-border !h-11 w-full min-w-0 rounded-xl border border-solid border-slate-300 bg-white px-3.5 py-0 text-sm font-semibold normal-case tracking-normal text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} disabled={busyAction === "payments"}>
+                          <option value="CASH">Cash</option><option value="MOBILE_MONEY">Mobile money</option><option value="BANK">Bank transfer</option><option value="CARD">Card</option><option value="OTHER">Other method</option>
+                        </select>
+                      </span>
+                    </label>
+                    <button type="button" onClick={recordPayment} disabled={busyAction === "payments" || !payAmount} className="box-border inline-flex !h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-bold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400">
+                      {busyAction === "payments" ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Recording payment...</> : <><CircleDollarSign className="h-4 w-4" />Record payment</>}
+                    </button>
+                  </div>
+                  <p className="m-0 mt-3 flex items-start gap-2 text-[11px] leading-4 text-slate-500">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    Up to {money(r.balance, r.currency)}. Record only money already received, with the real method.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+          {error && <p role="alert" className="m-0 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
           {roomNotReady && r.status === "CONFIRMED" && (
             <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
               <p className="m-0">{roomNotReady}</p>
@@ -2734,7 +2902,6 @@ function ReservationDetailModal({
               </button>
             </div>
           )}
-
           {checkoutBlocked && (
             <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -2753,36 +2920,19 @@ function ReservationDetailModal({
               </div>
             </div>
           )}
-
-          <div className="flex flex-wrap gap-2 pt-1">
-            {actions.filter((a) => a.show).map((a) => (
-              <button
-                type="button"
-                key={a.key}
-                onClick={() => {
-                  if (a.key === "check-out") {
-                    if (!earlyDeparture) {
-                      void runAction("check-out", { verifiedChargeIds });
-                      return;
-                    }
-                    setRoomVacantConfirmed(false);
-                    setEarlyDepartureReason("");
-                    setCheckoutConfirmOpen(true);
-                    return;
-                  }
-                  void runAction(a.key);
-                }}
-                disabled={busyAction != null || a.disabled}
-                className={`rounded-lg text-xs font-semibold px-3 py-2 disabled:opacity-60 ${
-                  a.key === "cancel" || a.key === "no-show"
-                    ? "border border-red-200 text-red-600 hover:bg-red-50"
-                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
-                }`}
-              >
-                {busyAction === a.key ? "Working..." : a.label}
-              </button>
-            ))}
+              {actionPanel}
+            </aside>
           </div>
+
+
+
+
+
+
+
+
+
+
         </div>
       )}
     </ModalFrame>

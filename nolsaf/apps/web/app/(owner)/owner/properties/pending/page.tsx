@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import apiClient from "@/lib/apiClient";
+import { ownerPropertyPath } from "@/lib/ownerPropertyRefs";
 import Image from "next/image";
 import PropertyPreview from "@/components/PropertyPreview";
 import {
@@ -220,7 +221,7 @@ function DraftCard({ p, onPreview, onDeleted }: { p: any; onPreview: (id: number
 
         {/* Primary CTA: Continue editing */}
         <button
-          onClick={() => router.push(`/owner/properties/add?id=${p.id}`)}
+          onClick={() => void ownerPropertyPath(p.id).then((path) => router.push(`/owner/properties/add?id=${path.split("/").pop()}`))}
           className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-[#02665e] text-white py-2.5 text-sm font-semibold transition-colors hover:bg-[#014e47]"
         >
           <PenLine className="h-4 w-4" />
@@ -413,7 +414,7 @@ function ActionRequiredCard({ p, onPreview }: { p: any; onPreview: (id: number) 
 
           {/* Primary CTA: Edit & Fix / Resubmit */}
           <button
-            onClick={() => router.push(`/owner/properties/add?id=${p.id}`)}
+            onClick={() => void ownerPropertyPath(p.id).then((path) => router.push(`/owner/properties/add?id=${path.split("/").pop()}`))}
             className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-red-600 text-white py-2.5 text-sm font-semibold transition-colors hover:bg-red-700"
           >
             <PenLine className="h-4 w-4" />

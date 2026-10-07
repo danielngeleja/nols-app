@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowRight, Building2, Plus, X } from "lucide-react";
 import { BoardSkeleton, BoardTilesSkeleton } from "./Skeleton";
 import apiClient from "@/lib/apiClient";
+import { useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 
 /**
  * Floor-by-floor room board for the owner's availability page. It reuses the
@@ -63,6 +64,7 @@ export default function FloorBoard({
   /** Room type (lower-case) to colour, so the board matches the page's room-type filters. */
   typeColors?: Record<string, string>;
 }) {
+  const propertyHref = useOwnerPropertyHref();
   const [layout, setLayout] = useState<Layout | null | undefined>(undefined);
   const [rooms, setRooms] = useState<Record<string, RoomAv>>({});
   const [loading, setLoading] = useState(true);
@@ -147,7 +149,7 @@ export default function FloorBoard({
             <p className="m-0 mt-0.5 text-xs text-white/55">Set up the floor plan once and every room appears here, floor by floor.</p>
           </div>
         </div>
-        <Link href={`/owner/properties/${propertyId}/layout`} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+        <Link href={propertyHref(propertyId, "/layout")} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
           Open floor plan <ArrowRight className="h-4 w-4" aria-hidden />
         </Link>
       </section>

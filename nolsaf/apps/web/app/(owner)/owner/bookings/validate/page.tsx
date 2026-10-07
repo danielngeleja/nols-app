@@ -20,6 +20,7 @@ import {
   UserRound,
   WifiOff,
   X,
+  Check as CheckMark,
 } from "lucide-react";
 import Support from "@/components/Support";
 import apiClient from "@/lib/apiClient";
@@ -47,6 +48,8 @@ type Preview = {
   };
 } | null;
 
+type NrmsRoom = { roomAssignmentRequired: boolean; reservationReference: string | null } | null;
+
 type Eligibility =
   | { canValidate: true; status: "IN_WINDOW"; reason?: undefined }
   | { canValidate: false; status: "BEFORE_CHECKIN" | "AFTER_CHECKOUT" | "INVALID_DATES" | "CODE_NOT_ACTIVE"; reason: string };
@@ -60,6 +63,9 @@ export default function CheckinValidation() {
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview>(null);
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  // NRMS properties: a physical room must be assigned before Confirm works.
+  const [roomNeeded, setRoomNeeded] = useState<{ href: string } | null>(null);
+  const [roomChecking, setRoomChecking] = useState(false);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -147,6 +153,27 @@ export default function CheckinValidation() {
     }
   }, [lockedUntil, nowMs]);
 
+  // Where "Assign the room" goes: straight to this guest's stay in NRMS with the
+  // room picker open, never a list the owner has to search.
+  function roomHref(reference: string | null | undefined) {
+    if (reference) return `/owner/nrms/reservations?reservation=${encodeURIComponent(reference)}&assign=1`;
+    return handoff.returnTo ?? "/owner/nrms/reservations";
+  }
+
+  // After assigning the room in NRMS (another tab), ask again without resetting the pass.
+  async function recheckRoom() {
+    if (!lastValidated) return;
+    setRoomChecking(true);
+    try {
+      const r = await api.post<{ nrms?: NrmsRoom }>("/api/owner/bookings/validate", { code: lastValidated });
+      setRoomNeeded(r.data?.nrms?.roomAssignmentRequired ? { href: roomHref(r.data.nrms.reservationReference) } : null);
+    } catch {
+      // Keep the strip; Confirm still checks on the server.
+    } finally {
+      setRoomChecking(false);
+    }
+  }
+
   const validate = useCallback(async (incomingCode?: string) => {
     const codeToUse = (incomingCode ?? code)?.trim();
     if (!codeToUse) return;
@@ -165,6 +192,7 @@ export default function CheckinValidation() {
     setResultMsg(null);
     setPreview(null);
     setEligibility(null);
+    setRoomNeeded(null);
     setRemainingAttempts(null);
     setAttempting(true);
 
@@ -188,9 +216,10 @@ export default function CheckinValidation() {
     }, 20000);
 
     try {
-      const r = await api.post<{ details: Preview; eligibility?: Eligibility }>("/api/owner/bookings/validate", { code: codeToUse });
+      const r = await api.post<{ details: Preview; eligibility?: Eligibility; nrms?: NrmsRoom }>("/api/owner/bookings/validate", { code: codeToUse });
       setPreview(r.data?.details ?? null);
       setEligibility((r.data as any)?.eligibility ?? null);
+      setRoomNeeded(r.data?.nrms?.roomAssignmentRequired ? { href: roomHref(r.data.nrms.reservationReference) } : null);
       setRemainingAttempts(null);
       setLockedUntil(null);
       setLastValidated(codeToUse);
@@ -232,14 +261,15 @@ export default function CheckinValidation() {
       }
       setContactSuggest(false);
     }
-  }, [code, lastValidated, lockedUntil]);
+    // roomHref only reads handoff.returnTo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, lastValidated, lockedUntil, handoff.returnTo]);
 
   // legacy direct confirm removed; use handleConfirmWithConsent (modal flow) for confirmations.
 
   // Confirm state: the Disbursement Policy is agreed on the arrival pass itself.
   const [agreeDisbursement, setAgreeDisbursement] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const [roomNeeded, setRoomNeeded] = useState<{ href: string } | null>(null);
 
   // QR scan modal
   const [scanOpen, setScanOpen] = useState(false);
@@ -288,10 +318,7 @@ export default function CheckinValidation() {
       if (data.code === "ROOM_ASSIGNMENT_REQUIRED") {
         // NRMS properties need a physical room before arrival is committed.
         // Send the owner straight to the reservation instead of a dead end.
-        setRoomNeeded({
-          href: handoff.returnTo
-            ?? (data.reservationReference ? `/owner/nrms/reservations?reservation=${encodeURIComponent(data.reservationReference)}` : "/owner/nrms/reservations"),
-        });
+        setRoomNeeded({ href: roomHref(data.reservationReference) });
         setResultMsg(null);
       } else {
         setResultMsg(data.error ?? 'Could not confirm check-in');
@@ -1061,14 +1088,27 @@ export default function CheckinValidation() {
             </div>
 
             {/* Actions: the Disbursement Policy is agreed right here, then one tap confirms. */}
-            {canConfirm && verdict.tone === "go" ? (
-              <label className="mt-5 flex cursor-pointer items-center gap-3 rounded-xl bg-white/80 px-4 py-3 ring-1 ring-inset ring-slate-200 transition hover:ring-[#02665e]/40">
+            {canConfirm && verdict.tone === "go" && !roomNeeded ? (
+              <label
+                className={`mt-5 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-inset transition ${
+                  agreeDisbursement ? "bg-[#02665e]/[0.06] ring-2 ring-[#02665e]" : "bg-white ring-1 ring-slate-300 hover:ring-[#02665e]/60"
+                }`}
+              >
                 <input
                   type="checkbox"
                   checked={agreeDisbursement}
                   onChange={(e) => setAgreeDisbursement(e.target.checked)}
-                  className="h-5 w-5 shrink-0 cursor-pointer accent-[#02665e]"
+                  className="peer sr-only"
                 />
+                {/* Drawn box: the native checkbox is hidden by the global reset, so this one carries the state. */}
+                <span
+                  aria-hidden
+                  className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 border-solid transition peer-focus-visible:ring-2 peer-focus-visible:ring-[#02665e]/40 peer-focus-visible:ring-offset-2 ${
+                    agreeDisbursement ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-400 bg-white text-transparent"
+                  }`}
+                >
+                  <CheckMark className="h-3.5 w-3.5" strokeWidth={3.5} />
+                </span>
                 <span className="text-sm text-slate-700">
                   I agree to the NoLSAF{" "}
                   <a
@@ -1084,15 +1124,36 @@ export default function CheckinValidation() {
               </label>
             ) : null}
 
-            {roomNeeded && (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-900 ring-1 ring-inset ring-amber-200">
-                <span className="flex items-center gap-2">
-                  <BedDouble className="h-4 w-4 shrink-0" aria-hidden />
-                  Assign a specific room in NRMS before checking this guest in. The code was not used.
+            {roomNeeded && canConfirm && verdict.tone === "go" && (
+              <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-inset ring-amber-300">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800">
+                  <BedDouble className="h-[18px] w-[18px]" aria-hidden />
                 </span>
-                <a href={roomNeeded.href} className="inline-flex items-center gap-1 font-semibold text-amber-900 underline underline-offset-2">
-                  Assign the room <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                </a>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-sm font-semibold text-amber-950">Assign a room first</p>
+                  <p className="m-0 mt-0.5 text-xs text-amber-900">
+                    This property runs on NRMS, so {preview.personal.fullName.split(/\s+/)[0]} needs a specific room before check-in. The code stays unused until then.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={recheckRoom}
+                    disabled={roomChecking}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {roomChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                    {roomChecking ? "Checking..." : "I assigned it"}
+                  </button>
+                  <a
+                    href={roomNeeded.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3 text-xs font-bold text-white no-underline transition hover:bg-amber-600"
+                  >
+                    Assign the room <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                </div>
               </div>
             )}
             {resultMsg && (
@@ -1113,12 +1174,12 @@ export default function CheckinValidation() {
                 <button
                   type="button"
                   onClick={handleConfirmWithConsent}
-                  disabled={!agreeDisbursement || confirmLoading}
+                  disabled={!agreeDisbursement || confirmLoading || Boolean(roomNeeded)}
                   className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
                 >
-                  {confirmLoading ? "Confirming..." : `Confirm check-in for ${preview.personal.fullName.split(/\s+/)[0]}`}
-                  <span className={`grid h-8 w-8 place-items-center rounded-lg transition group-hover:translate-x-0.5 ${agreeDisbursement ? "bg-[#5eead4] text-[#012a26]" : "bg-slate-200 text-slate-400"}`}>
-                    {confirmLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
+                  {confirmLoading ? "Confirming..." : roomNeeded ? "Assign the room first" : `Confirm check-in for ${preview.personal.fullName.split(/\s+/)[0]}`}
+                  <span className={`grid h-8 w-8 place-items-center rounded-lg transition group-hover:translate-x-0.5 ${agreeDisbursement && !roomNeeded ? "bg-[#5eead4] text-[#012a26]" : "bg-slate-200 text-slate-400"}`}>
+                    {confirmLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : roomNeeded ? <Lock className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
                   </span>
                 </button>
               ) : (

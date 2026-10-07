@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Download, Loader2, Mail, MapPin, Phone, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Loader2, Mail, MapPin, Phone, Send, Check } from "lucide-react";
 import { ClaimSteps, claimStepOf } from "@/components/owner-payouts/ClaimSteps";
 
 // Use same-origin calls + secure httpOnly cookie session.
@@ -334,13 +334,20 @@ export default function InvoiceView() {
             <p className="m-0 text-sm font-bold tabular-nums text-[#02665e]">{fmtTzs(inv.total)}</p>
           </div>
           <p className="m-0 mt-1 text-sm text-slate-500">Payouts usually arrive between 30 minutes and 3 business days after you send it.</p>
-          <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-1 ring-inset ring-slate-200 transition hover:ring-[#02665e]/40">
-            <input
-              type="checkbox"
-              checked={agreeDisbursement}
-              onChange={(e) => setAgreeDisbursement(e.target.checked)}
-              className="h-5 w-5 shrink-0 cursor-pointer accent-[#02665e]"
-            />
+          <label
+            className={`mt-4 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-inset transition ${
+              agreeDisbursement ? "bg-[#02665e]/[0.06] ring-2 ring-[#02665e]" : "bg-white ring-1 ring-slate-300 hover:ring-[#02665e]/60"
+            }`}
+          >
+            <input type="checkbox" checked={agreeDisbursement} onChange={(e) => setAgreeDisbursement(e.target.checked)} className="peer sr-only" />
+            <span
+              aria-hidden
+              className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 border-solid transition peer-focus-visible:ring-2 peer-focus-visible:ring-[#02665e]/40 peer-focus-visible:ring-offset-2 ${
+                agreeDisbursement ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-400 bg-white text-transparent"
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={3.5} />
+            </span>
             <span className="text-sm text-slate-700">
               I agree to the NoLSAF{" "}
               <a

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { AlertTriangle, ArrowRight, BedDouble, Building2, ChevronLeft, Layers, Loader2, Pencil, Plus, Sparkles } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { FloorPlanSkeleton } from "@/components/owner-availability/Skeleton";
+import { ownerPropertyRefOrId, useOwnerPropertyHref, useOwnerPropertyId } from "@/lib/ownerPropertyRefs";
 
 /**
  * Floor plan setup. The plan is generated on the server (lib/autoLayout.ts)
@@ -59,7 +60,10 @@ const STATUS_TEXT = { free: "Free tonight", booked: "Booked tonight", blocked: "
 export default function OwnerPropertyLayoutPage() {
   const routeParams = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(routeParams?.id) ? routeParams?.id?.[0] : routeParams?.id;
-  const propertyId = Number(idParam);
+  // The URL carries the opaque pp_ reference; an old numeric link is swapped for it.
+  const resolved = useOwnerPropertyId(idParam, (ref) => `/owner/properties/${ref}/layout`);
+  const propertyId = resolved.id ?? NaN;
+  const href = useOwnerPropertyHref();
 
   const [layout, setLayout] = useState<Layout | null>(null);
   const [loading, setLoading] = useState(true);
@@ -158,6 +162,18 @@ export default function OwnerPropertyLayoutPage() {
     <style>{`:where(#owner-floorplan, #owner-floorplan *, #owner-floorplan *::before, #owner-floorplan *::after) { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #e2e8f0; }`}</style>
   );
 
+  if (resolved.error) {
+    return (
+      <div id="owner-floorplan" className={shell}>
+        {style}
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
+          This property could not be found on your account.
+          <Link href="/owner/properties/availability" className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div id="owner-floorplan" className={shell} aria-busy="true">
@@ -173,7 +189,7 @@ export default function OwnerPropertyLayoutPage() {
         {style}
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
           {error ?? "The floor plan could not be loaded."}
-          <Link href={`/owner/properties/${propertyId}/availability`} className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
+          <Link href={href(propertyId, "/availability")} className="ml-2 font-semibold text-rose-900 underline">Back to Room availability</Link>
         </div>
       </div>
     );
@@ -244,7 +260,7 @@ export default function OwnerPropertyLayoutPage() {
           aria-hidden
         />
         <div className="relative px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
-          <Link href={`/owner/properties/${propertyId}/availability`} className="inline-flex items-center gap-1 text-sm font-semibold text-white/60 no-underline transition hover:text-white">
+          <Link href={href(propertyId, "/availability")} className="inline-flex items-center gap-1 text-sm font-semibold text-white/60 no-underline transition hover:text-white">
             <ChevronLeft className="h-4 w-4" aria-hidden /> Room availability
           </Link>
           <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -257,7 +273,7 @@ export default function OwnerPropertyLayoutPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                href={`/owner/properties/add?id=${propertyId}`}
+                href={`/owner/properties/add?id=${ownerPropertyRefOrId(propertyId)}`}
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white no-underline transition hover:bg-white/10"
               >
                 <Pencil className="h-4 w-4" aria-hidden /> Edit rooms and floors
@@ -410,14 +426,14 @@ export default function OwnerPropertyLayoutPage() {
                 ) : null}
                 <div className="mt-5 space-y-2">
                   <Link
-                    href={`/owner/properties/${propertyId}/availability?externalBlock=1&roomName=${encodeURIComponent(pick.room.name)}`}
+                    href={href(propertyId, `/availability?externalBlock=1&roomName=${encodeURIComponent(pick.room.name)}`)}
                     className="group flex h-11 items-center justify-between rounded-xl bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
                   >
                     Block this room
                     <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]"><Plus className="h-4 w-4" aria-hidden /></span>
                   </Link>
                   <Link
-                    href={`/owner/properties/${propertyId}/availability`}
+                    href={href(propertyId, "/availability")}
                     className="flex h-11 items-center justify-between rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
                   >
                     Check other dates <ArrowRight className="h-4 w-4" aria-hidden />

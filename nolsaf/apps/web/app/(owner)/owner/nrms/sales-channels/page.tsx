@@ -46,6 +46,7 @@ import {
   Wallet,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { useNrms } from "../_components/NrmsProvider";
 
 type ChannelKey =
@@ -200,7 +201,7 @@ function actionHref(action: ChannelAction, channel: ChannelKey, propertyId: numb
     case "REVIEW_AGENT_REQUESTS":
       return "/owner/nrms/agents/partnerships";
     case "COMPLETE_LISTING":
-      return `/owner/properties/${propertyId}`;
+      return `/owner/properties/add?id=${ownerPropertyRefOrId(propertyId)}`;
     case "SHARE_BOOKING_LINK":
       return "/owner/nrms/qr-codes";
   }
@@ -292,6 +293,8 @@ const FOOT_RULE_DIVIDED = "shadow-[inset_1px_0_0_0_#f1f5f9,inset_0_1px_0_0_#e2e8
 const GROUP_DIVIDER = "shadow-[inset_1px_0_0_0_#f1f5f9]";
 
 export default function SalesChannelsPage() {
+  // Re-renders the listing link once the opaque property reference lands.
+  useOwnerPropertyHref();
   const { selectedPropertyId, selectedProperty } = useNrms();
   const [range, setRange] = useState<RangeKey>("90d");
   const [basis, setBasis] = useState<"BOOKED" | "STAY">("BOOKED");

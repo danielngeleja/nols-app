@@ -307,9 +307,40 @@ const validateBooking: RequestHandler = async (req, res) => {
         }
       : windowStatus;
 
-  return (res as Response).json({ ok: true, details, eligibility });
+  // Tell the pass up front when an NRMS property still needs a room assigned,
+  // so the owner is not sent to Confirm only to be stopped there.
+  let nrms: { roomAssignmentRequired: boolean; reservationReference: string | null } | null = null;
+  if (eligibility.canValidate) {
+    try {
+      const property = await prisma.property.findUnique({ where: { id: booking.propertyId }, select: { nrmsActivatedAt: true } });
+      if (property?.nrmsActivatedAt) {
+        const room = await nrmsRoomAssignment(booking.id);
+        nrms = { roomAssignmentRequired: room.required, reservationReference: room.reservationReference };
+      }
+    } catch (err) {
+      // Confirm still enforces the room check; the preview just shows less.
+      console.warn("[owner.booking] NRMS room check failed during preview", err);
+    }
+  }
+
+  return (res as Response).json({ ok: true, details, eligibility, nrms });
 };
 router.post("/validate", validateBooking);
+
+/**
+ * NRMS properties need a physical room on every booked room before arrival is
+ * committed. Projects the booking into NRMS (idempotent) and reports whether a
+ * room is still missing, with the opaque reservation reference for the link.
+ */
+async function nrmsRoomAssignment(bookingId: number) {
+  await syncNoLsafBookingToNrms(prisma, bookingId);
+  const stay = await prisma.reservation.findUnique({
+    where: { bookingId },
+    select: { id: true, allocations: { where: { status: "ACTIVE" }, select: { roomUnitId: true } } },
+  });
+  const required = !stay || stay.allocations.length === 0 || stay.allocations.some((allocation) => allocation.roomUnitId == null);
+  return { required, reservationId: stay?.id ?? null, reservationReference: stay ? nrmsReservationReference(stay.id) : null };
+}
 
 /** CONFIRM: mark as CHECKED_IN after preview */
 const confirmCheckin: RequestHandler = async (req, res) => {
@@ -356,21 +387,14 @@ const confirmCheckin: RequestHandler = async (req, res) => {
   // source before arrival is committed: restore the paid category, assign a
   // physical room, then consume the guest's one-time code.
   if (booking.property.nrmsActivatedAt) {
-    await syncNoLsafBookingToNrms(prisma, booking.id);
-    const operationalStay = await prisma.reservation.findUnique({
-      where: { bookingId: booking.id },
-      select: {
-        id: true,
-        allocations: { where: { status: "ACTIVE" }, select: { roomUnitId: true } },
-      },
-    });
-    if (!operationalStay || operationalStay.allocations.length === 0 || operationalStay.allocations.some((allocation) => allocation.roomUnitId == null)) {
+    const room = await nrmsRoomAssignment(booking.id);
+    if (room.required) {
       return (res as Response).status(409).json({
         error: "Assign a specific room to every booked room before validating check-in.",
         code: "ROOM_ASSIGNMENT_REQUIRED",
-        reservationId: operationalStay?.id ?? null,
+        reservationId: room.reservationId,
         // Opaque link target for the NRMS reservation, so the owner can assign the room in one tap.
-        reservationReference: operationalStay ? nrmsReservationReference(operationalStay.id) : null,
+        reservationReference: room.reservationReference,
       });
     }
   }

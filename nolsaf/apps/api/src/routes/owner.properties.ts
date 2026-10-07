@@ -11,6 +11,7 @@ import { auditLog } from "../lib/audit.js";
 import { regenerateAndSaveLayout } from "../lib/autoLayout.js";
 import { ensureRoomsSpecCodes } from "../lib/roomSelectionCode.js";
 import { invalidateCache, cacheKeys } from "../lib/performance.js";
+import { customerRecordReference } from "../lib/customerBookingReference.js";
 
 // ---------- Schemas & Helpers ----------
 // Minimal Zod schema for property body used by create/update
@@ -358,6 +359,21 @@ async function findOwnerPropertyById(ownerId: number, id: number) {
 }
 
 /* … your Zod schemas and helpers stay the same … */
+
+// ---------- PAGE REFERENCES ----------
+// Owner page URLs carry an opaque pp_ reference instead of the property id.
+// An owner holds a handful of properties, so the browser fetches every
+// {id, ref} pair once and resolves the address bar against it locally.
+router.get("/refs", (async (req: AuthedRequest, res) => {
+  try {
+    const ownerId = req.user!.id;
+    const rows = await prisma.property.findMany({ where: { ownerId }, select: { id: true }, orderBy: { id: "desc" }, take: 1000 });
+    return res.json({ refs: rows.map((row) => ({ id: row.id, ref: customerRecordReference("property", row.id) })) });
+  } catch (err) {
+    console.error("[owner.properties] refs failed", err);
+    return res.status(500).json({ error: "Could not load property references" });
+  }
+}) as RequestHandler);
 
 // ---------- LIST MINE ----------
 router.get("/mine", (async (req: AuthedRequest, res) => {

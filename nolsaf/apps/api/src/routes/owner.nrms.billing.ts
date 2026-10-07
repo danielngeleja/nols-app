@@ -17,8 +17,8 @@ import { coralPostJson64, parseCoralInitiateResponse } from "../lib/coralcommerc
 import { getPaymentMethodAvailability } from "../lib/serviceAvailability.js";
 import { createNrmsCoralReferenceFields } from "../lib/nrmsCoral.js";
 import { markNrmsPaymentFailed, NRMS_STATEMENT_TRANSACTION_OPTIONS } from "../lib/nrmsBilling.js";
+import { syncNrmsStatement } from "../lib/nrmsStatements.js";
 import { generateNrmsBillingReceiptPdf, type NrmsBillingReceiptData } from "../lib/pdfDocuments.js";
-import crypto from "crypto";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, requireNrms as RequestHandler);
@@ -475,38 +475,15 @@ router.post("/:propertyId/token", (async (req: AuthedRequest, res: Response) => 
       },
       data: { status: "EXPIRED" },
     });
-    const existing = await tx.nrmsServicePaymentToken.findFirst({ where: { statement: { accountId: active.account.id, status: "PAYABLE" }, status: { in: ["PENDING", "PROCESSING"] }, expiresAt: { gt: new Date() } }, orderBy: { id: "desc" } });
-    if (existing) return existing;
-    const payableStatement = await tx.nrmsBillingStatement.findFirst({
-      where: { accountId: active.account.id, status: "PAYABLE" },
-      orderBy: { id: "desc" },
-    });
-    if (payableStatement) {
-      await tx.nrmsServicePaymentToken.updateMany({
-        where: { statementId: payableStatement.id, status: { in: ["FAILED", "EXPIRED"] } },
-        data: { status: "VOID" },
-      });
-      return tx.nrmsServicePaymentToken.create({
-        data: {
-          statementId: payableStatement.id,
-          token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`,
-          amount: payableStatement.amount,
-          currency: payableStatement.currency,
-          expiresAt: new Date(Date.now() + 7 * 86400000),
-        },
-      });
-    }
-    const [events, policy] = await Promise.all([
-      tx.nrmsUsageEvent.findMany({ where: { accountId: active.account.id, amount: { gt: 0 }, statementItem: null }, select: { id: true, amount: true } }),
-      tx.nrmsUsageChargePolicy.findUnique({ where: { id: active.account.policyId }, select: { currency: true } }),
-    ]);
-    if (!events.length) return null;
+    // A provider payment already in flight keeps its link untouched.
+    const processing = await tx.nrmsServicePaymentToken.findFirst({ where: { statement: { accountId: active.account.id, status: "PAYABLE" }, status: "PROCESSING", expiresAt: { gt: new Date() } }, orderBy: { id: "desc" } });
+    if (processing) return processing;
+    const policy = await tx.nrmsUsageChargePolicy.findUnique({ where: { id: active.account.policyId }, select: { currency: true } });
     if (!policy?.currency) throw new Error("NRMS_BILLING_CURRENCY_NOT_CONFIGURED");
-    const amount = events.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
-    const currency = policy.currency.toUpperCase();
-    const statement = await tx.nrmsBillingStatement.create({ data: { accountId: active.account.id, amount, currency } });
-    await tx.nrmsBillingStatementItem.createMany({ data: events.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
-    return tx.nrmsServicePaymentToken.create({ data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency, expiresAt: new Date(Date.now() + 7 * 86400000) } });
+    // Net of credits, capped at the balance, one open statement: see nrmsStatements.ts.
+    const synced = await syncNrmsStatement(tx, { ...active.account, policy: { currency: policy.currency.toUpperCase() } });
+    if (!synced.statementId) return null;
+    return tx.nrmsServicePaymentToken.findFirst({ where: { statementId: synced.statementId, status: { in: ["PENDING", "PROCESSING"] }, expiresAt: { gt: new Date() } }, orderBy: { id: "desc" } });
   }, NRMS_STATEMENT_TRANSACTION_OPTIONS);
   if (!token) return res.status(409).json({ error: "No unbilled usage is available" });
   res.status(201).json({ token });

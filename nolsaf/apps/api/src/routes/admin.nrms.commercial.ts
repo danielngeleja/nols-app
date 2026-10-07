@@ -1,5 +1,4 @@
 // NRMS Admin Oversight, Phase 3: versioned pricing and reasoned property levers.
-import crypto from "node:crypto";
 import { Router, type RequestHandler, type Response } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
@@ -8,6 +7,7 @@ import { requireFinanceGrant, requireNrmsFinanceApprover } from "../middleware/f
 import { notifyOwner, notifyUser } from "../lib/notifications.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { evaluateNrmsDunning } from "../lib/nrmsDunning.js";
+import { applyNrmsCredit, NrmsPaymentInFlightError } from "../lib/nrmsStatements.js";
 import { decideAgentVerification } from "../lib/nrmsAgentIdentity.js";
 import { SEAT_CONSUMING_LINK_STATUSES, setAgentLinkStatus } from "../lib/nrmsAgentLinks.js";
 
@@ -526,25 +526,22 @@ router.post("/property/:propertyId/credit", requireNrmsFinanceApprover as Reques
   if (parsed.data!.amount > Number(account.unpaidBalance)) return res.status(400).json({ error: "Credit cannot exceed the current unpaid balance" });
   const balance = Math.max(0, Number(account.unpaidBalance) - parsed.data!.amount);
   const dunning = evaluateNrmsDunning({ balance, reminderAmount: Number(account.policy.reminderAmount), warningAmount: Number(account.policy.warningAmount), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, trialEndsAt: account.trialEndsAt });
-  const event = await db.$transaction(async (tx: any) => {
-    const created = await tx.nrmsUsageEvent.create({ data: { accountId: account.id, propertyId: account.propertyId, reservationId: null, allocationId: null, policyId: account.policyId, serviceDate: new Date(), classification: "REVERSAL", source: "ADMIN", currency: account.policy.currency, amount: -parsed.data!.amount } });
-    const statement = await tx.nrmsBillingStatement.findFirst({ where: { accountId: account.id, status: "PAYABLE" }, orderBy: { id: "desc" } });
-    if (statement) {
-      const statementCredit = Math.min(parsed.data!.amount, Number(statement.amount));
-      const adjustedAmount = Math.max(0, Number(statement.amount) - statementCredit);
-      await tx.nrmsBillingStatementItem.create({ data: { statementId: statement.id, usageEventId: created.id, amount: -statementCredit } });
-      await tx.nrmsBillingStatement.update({ where: { id: statement.id }, data: { amount: adjustedAmount, status: adjustedAmount === 0 ? "VOID" : "PAYABLE" } });
-      await tx.nrmsServicePaymentToken.updateMany({ where: { statementId: statement.id, status: { not: "PAID" } }, data: { status: "VOID" } });
-      if (adjustedAmount > 0) {
-        await tx.nrmsServicePaymentToken.create({ data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount: adjustedAmount, currency: statement.currency, expiresAt: new Date(Date.now() + 7 * 86400000) } });
-      }
-    }
-    await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt } });
-    return created;
-  });
-  await audit(req.user!.id, "NRMS_CREDIT_GRANT", account.ownerId, { propertyId: account.propertyId, usageEventId: event.id, amount: parsed.data!.amount, reason: parsed.data!.reason });
+  // The credit covers every open statement oldest first; any remainder is
+  // subtracted from the next statement. See nrmsStatements.ts.
+  let credit;
+  try {
+    credit = await db.$transaction(async (tx: any) => {
+      const applied = await applyNrmsCredit(tx, account, parsed.data!.amount);
+      await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: balance, status: dunning.status, limitReachedAt: dunning.limitReachedAt } });
+      return applied;
+    });
+  } catch (error) {
+    if (error instanceof NrmsPaymentInFlightError) return res.status(409).json({ error: error.message, code: error.code });
+    throw error;
+  }
+  await audit(req.user!.id, "NRMS_CREDIT_GRANT", account.ownerId, { propertyId: account.propertyId, usageEventIds: credit.usageEventIds, appliedToStatements: credit.appliedToStatements, carried: credit.carried, amount: parsed.data!.amount, reason: parsed.data!.reason });
   await notifyOwner(account.ownerId, "nrms_credit_granted", { propertyTitle: account.property.title, amount: parsed.data!.amount, reason: parsed.data!.reason });
-  res.status(201).json({ usageEventId: event.id, unpaidBalance: balance });
+  res.status(201).json({ usageEventId: credit.usageEventIds[0] ?? null, usageEventIds: credit.usageEventIds, appliedToStatements: credit.appliedToStatements, carried: credit.carried, unpaidBalance: balance });
 }) as RequestHandler);
 
 router.post("/property/:propertyId/policy", requireNrmsFinanceApprover as RequestHandler, requireFinanceGrant as RequestHandler, (async (req: AuthedRequest, res: Response) => {
