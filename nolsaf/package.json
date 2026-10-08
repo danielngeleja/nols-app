@@ -10,6 +10,8 @@
     "packages/prisma"
   ],
   "devDependencies": {
+    "@eslint/compat": "2.1.1",
+    "@next/eslint-plugin-next": "14.2.35",
     "@prisma/adapter-mariadb": "7.9.1",
     "@prisma/client": "7.9.1",
     "@prisma/debug": "7.9.1",
@@ -61,6 +63,7 @@
   "dependencies": {
     "axios": "^1.20.0",
     "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
     "pdf-parse": "^2.4.5",
     "prisma": "7.9.1"
   },
@@ -80,6 +83,7 @@
       "archiver": "8.0.0",
       "body-parser>qs": "6.16.0",
       "brace-expansion": "5.0.12",
+      "@next/eslint-plugin-next>glob": "10.5.0",
       "dompurify": "3.4.16",
       "esbuild": "0.28.1",
       "express>qs": "6.16.0",
@@ -101,6 +105,7 @@
       "source-map-js": "1.2.2",
       "unzipper": "0.12.5",
       "uuid": "11.1.1",
+      "exceljs>uuid": "11.1.1",
       "xcode": {
         "uuid": "^11.1.1"
       },
@@ -122,6 +127,9 @@
       "qs": "6.16.0"
     },
     "brace-expansion": "5.0.12",
+    "@next/eslint-plugin-next": {
+      "glob": "10.5.0"
+    },
     "dompurify": "3.4.16",
     "esbuild": "0.28.1",
     "express": {
@@ -149,6 +157,9 @@
     "source-map-js": "1.2.2",
     "unzipper": "0.12.5",
     "uuid": "11.1.1",
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
     "xcode": {
       "uuid": "^11.1.1"
     },
