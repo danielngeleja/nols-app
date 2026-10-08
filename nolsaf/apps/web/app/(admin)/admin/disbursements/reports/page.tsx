@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, Check, ChevronRight, Download, GitBranch, Loader2, RotateCcw, Search, X } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Download, Landmark, ListChecks, Loader2, RotateCcw, Search, Users, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import DatePickerField from "@/components/DatePickerField";
 
@@ -101,7 +101,6 @@ const actionClass =
 const fieldClass =
   "h-10 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs text-neutral-700 outline-none transition hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
 const labelClass = "m-0 mb-1.5 block text-[10px] font-bold uppercase tracking-[0.11em] text-neutral-500";
-const filterPanelClass = "rounded-lg border border-neutral-200 bg-neutral-50/70 p-3.5 sm:p-4";
 
 /** YYYY-MM-DD from a local calendar day. The API resolves the day's edges in the reporting timezone. */
 function isoDay(date: Date): string {
@@ -213,6 +212,7 @@ export default function DisbursementReportsPage() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [openPanel, setOpenPanel] = useState<null | "period" | "who" | "status" | "details" | "export">(null);
 
   // One filter object feeds the preview, the recipient picker and the export,
   // so the three can never drift apart.
@@ -362,192 +362,206 @@ export default function DisbursementReportsPage() {
   };
 
   const dateLabel = DATE_FIELDS.find((field) => field.value === dateField)?.label ?? "Date";
+  const eat = (iso: string) =>
+    `${new Date(iso).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })} EAT`;
+  const periodName = period ? PERIOD_PRESETS.find((p) => p.value === period)?.label : from || to ? `${from || "start"} to ${to || "today"}` : "All time";
+  const statusTotal = (summary?.byStatus ?? []).reduce((sum, entry) => sum + entry.count, 0);
+  const STATUS_BAR: Record<string, string> = {
+    PAID: "#059669", RECOVERED: "#047857", FAILED: "#e11d48", SECURITY_REVIEW: "#be123c", RECOVERY_PENDING: "#7c3aed",
+    SUBMITTED: "#0284c7", PROCESSING: "#0ea5e9",
+  };
+
+  // Every narrowing filter, as removable chips above the results.
+  const chips: Array<{ key: string; label: string; clear: () => void }> = [
+    ...(period || from || to ? [{ key: "period", label: `${dateLabel}: ${periodName}`, clear: clearPeriod }] : []),
+    ...groups.map((g) => ({ key: `g-${g}`, label: GROUPS.find((x) => x.value === g)?.label ?? g, clear: () => setGroups(groups.filter((x) => x !== g)) })),
+    ...(recipient ? [{ key: "recipient", label: recipient.name, clear: () => setRecipient(null) }] : []),
+    ...statuses.map((s) => ({ key: `s-${s}`, label: s.replace(/_/g, " ").toLowerCase(), clear: () => setStatuses(statuses.filter((x) => x !== s)) })),
+    ...(currency ? [{ key: "currency", label: currency, clear: () => setCurrency("") }] : []),
+    ...(destinationType ? [{ key: "dest", label: destinationType === "BANK" ? "Bank only" : "Mobile money only", clear: () => setDestinationType("") }] : []),
+    ...(bankName ? [{ key: "bank", label: bankName.toUpperCase(), clear: () => setBankName("") }] : []),
+    ...(batchReference ? [{ key: "batch", label: batchReference, clear: () => setBatchReference("") }] : []),
+    ...(q ? [{ key: "q", label: `"${q}"`, clear: () => setQ("") }] : []),
+  ];
+
+  const panelFooter = (
+    <div className="mt-4 flex items-center justify-end gap-2 border-0 border-t border-solid border-neutral-100 pt-3">
+      <button type="button" onClick={() => setOpenPanel(null)} className="h-9 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-bold text-neutral-600 hover:bg-neutral-50">Close</button>
+      <button type="button" onClick={() => { setOpenPanel(null); void run(1); }} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#012a26] px-3.5 text-xs font-bold text-white">
+        <Search className="h-3.5 w-3.5" aria-hidden /> Apply
+      </button>
+    </div>
+  );
+
+  const statusRow = (value: string, label: string, mark: string, line: boolean, tone: "path" | "good" | "bad" | "recovery" = "path") => {
+    const active = statuses.includes(value);
+    const dot = { path: "bg-[#012a26]", good: "bg-emerald-600", bad: "bg-rose-600", recovery: "bg-violet-600" }[tone];
+    return (
+      <li key={value} className="relative">
+        {line && <span className="absolute left-[13px] top-8 h-[calc(100%-20px)] w-px bg-neutral-200" aria-hidden />}
+        <button type="button" aria-pressed={active} onClick={() => toggle(statuses, setStatuses, value)}
+          className={`flex w-full items-center gap-3 rounded-lg border-0 px-1.5 py-1.5 text-left transition ${active ? "bg-emerald-50" : "bg-transparent hover:bg-neutral-50"}`}>
+          <span className={`relative grid h-6 w-6 shrink-0 place-items-center rounded-full text-[10px] font-bold ${active ? `${dot} text-white` : "bg-neutral-100 text-neutral-500"}`}>{active ? <Check className="h-3 w-3" aria-hidden /> : mark}</span>
+          <span className="min-w-0 flex-1">
+            <span className={`block text-xs font-bold ${active ? "text-neutral-950" : "text-neutral-700"}`}>{label}</span>
+            <span className="block font-mono text-[10px] text-neutral-400">{value}</span>
+          </span>
+        </button>
+      </li>
+    );
+  };
+
+  const railTitle = "m-0 mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-neutral-400";
 
   return (
-    <div id="disbursement-reports" className="mx-auto w-full max-w-7xl space-y-4">
+    <div id="disbursement-reports" className="w-full min-w-0 space-y-4">
       <style>{`#disbursement-reports, #disbursement-reports * { box-sizing: border-box; }`}</style>
 
-      <section className="relative overflow-hidden rounded-xl border border-emerald-100 bg-[linear-gradient(135deg,#ffffff_0%,#f4fbf8_58%,#ebf8f5_100%)] p-5 shadow-[0_18px_45px_-34px_rgba(2,102,94,0.45)] sm:p-6">
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* Dark band: what this is, the live totals and the actions */}
+      <section className="overflow-hidden rounded-xl bg-[#012a26] text-white">
+        <div className="flex flex-col gap-5 px-5 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3.5">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg border border-emerald-100 bg-white text-emerald-700 shadow-sm">
-              <BarChart3 className="h-5 w-5" />
-            </span>
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white/[0.08] text-[#5eead4] ring-1 ring-inset ring-white/10"><BarChart3 className="h-5 w-5" aria-hidden /></span>
             <div className="min-w-0">
-              <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">Finance export</p>
-              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">Disbursement Reports</h1>
-              <p className="mb-0 mt-1 max-w-2xl text-xs leading-5 text-neutral-500 sm:text-sm">
-                Filter by group or beneficiary, then export exactly what you see. Both NoLSAF and provider references are included for line by line
-                reconciliation.
-              </p>
+              <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">Finance export</p>
+              <h1 className="m-0 mt-0.5 text-xl font-bold tracking-tight sm:text-2xl">Disbursement reports</h1>
+              <p className="m-0 mt-0.5 text-xs text-white/60 sm:text-sm">The table and the CSV use the same filters, with NoLSAF and provider references for line by line reconciliation.</p>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            <button type="button" onClick={reset} disabled={loading} className={actionClass}>
-              Reset
+            <button type="button" onClick={reset} disabled={loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-transparent px-3.5 text-xs font-bold text-white/80 hover:bg-white/[0.06] disabled:opacity-40">
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden /> Reset
             </button>
-            <button type="button" onClick={() => void run(1)} disabled={loading} className={`${actionClass} !border-emerald-700 !bg-emerald-700 !text-white`}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              Run report
+            <button type="button" onClick={() => void run(1)} disabled={loading} className="inline-flex h-10 items-center gap-1.5 rounded-lg border-0 bg-[#5eead4] px-4 text-xs font-bold text-[#012a26] hover:bg-[#8ff3e1] disabled:opacity-60">
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Search className="h-4 w-4" aria-hidden />} Run report
             </button>
           </div>
         </div>
+        <dl className="m-0 grid grid-cols-2 border-0 border-t border-solid border-white/10 lg:grid-cols-4">
+          {[
+            { label: "Payouts", value: summary ? summary.rows.toLocaleString("en-US") : "…", hint: periodName },
+            { label: "Beneficiaries", value: summary ? summary.recipients.toLocaleString("en-US") : "…", hint: groups.length ? groups.map((g) => GROUPS.find((x) => x.value === g)?.label).join(", ") : "all groups" },
+            { label: "Total", value: summary?.totals[0] ? money(summary.totals[0].amount, summary.totals[0].currency) : "…", hint: summary && summary.totals.length > 1 ? `+ ${summary.totals.slice(1).map((t) => money(t.amount, t.currency)).join(", ")}` : "in this selection" },
+            { label: "Export", value: summary ? (summary.rows > exportLimit ? "Too large" : "Ready") : "…", hint: summary && summary.rows > exportLimit ? `limit ${exportLimit.toLocaleString("en-US")} rows` : "CSV matches the table" },
+          ].map((stat, index) => (
+            <div key={stat.label} className={`px-5 py-3.5 sm:px-6 ${index % 2 === 1 ? "border-0 border-l border-solid border-white/10" : ""} ${index === 2 ? "border-0 border-t border-solid border-white/10 lg:border-l lg:border-t-0" : ""} ${index === 3 ? "border-0 border-t border-solid border-white/10 lg:border-t-0" : ""}`}>
+              <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/50">{stat.label}</dt>
+              <dd className={`m-0 mt-0.5 truncate text-lg font-extrabold tabular-nums ${stat.label === "Export" && summary && summary.rows > exportLimit ? "text-amber-300" : "text-white"}`}>{stat.value}</dd>
+              <p className="m-0 truncate text-[11px] text-white/50">{stat.hint}</p>
+            </div>
+          ))}
+        </dl>
       </section>
 
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700">{error}</div>}
-      {notice && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800">{notice}</div>}
+      {error && <div className="rounded-lg border border-solid border-red-200 bg-red-50 p-3.5 text-sm font-medium text-red-700">{error}</div>}
+      {notice && <div className="rounded-lg border border-solid border-emerald-200 bg-emerald-50 p-3.5 text-sm font-medium text-emerald-800">{notice}</div>}
 
-      <section className="rounded-xl border border-neutral-200 bg-white p-4 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)] sm:p-5">
-        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="m-0 text-sm font-bold text-neutral-900">Report filters</h2>
-            <p className="mb-0 mt-0.5 text-xs text-neutral-500">Set the reporting period first, then narrow the payouts only if needed.</p>
+      {/* Filter toolbar: one row, each button opens its own panel */}
+      <div className="relative">
+        {openPanel && <button type="button" aria-label="Close filters" onClick={() => setOpenPanel(null)} className="fixed inset-0 z-20 cursor-default border-0 bg-transparent" />}
+        <div className="relative z-30 flex flex-wrap items-center gap-2 rounded-xl border border-solid border-neutral-200 bg-white p-2">
+          {([
+            { key: "period", label: "Period", value: periodName, Icon: CalendarDays, count: period || from || to ? 1 : 0 },
+            { key: "who", label: "Paid to", value: recipient ? recipient.name : groups.length ? groups.map((g) => GROUPS.find((x) => x.value === g)?.label).join(", ") : "Everyone", Icon: Users, count: groups.length + (recipient ? 1 : 0) },
+            { key: "status", label: "Status", value: statuses.length ? `${statuses.length} selected` : "Any", Icon: ListChecks, count: statuses.length },
+            { key: "details", label: "Destination", value: [currency, destinationType === "BANK" ? "Bank" : destinationType ? "Mobile money" : "", bankName.toUpperCase(), batchReference].filter(Boolean).join(", ") || "Any", Icon: Landmark, count: [currency, destinationType, bankName, batchReference].filter(Boolean).length },
+          ] as const).map((item) => {
+            const open = openPanel === item.key;
+            return (
+              <button key={item.key} type="button" onClick={() => setOpenPanel(open ? null : item.key)} aria-expanded={open}
+                className={`inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-solid px-3 text-left transition ${open ? "border-[#012a26] bg-[#012a26] text-white" : item.count ? "border-[#02665e]/40 bg-emerald-50/60 text-neutral-900 hover:border-[#02665e]" : "border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300"}`}>
+                <item.Icon className={`h-4 w-4 shrink-0 ${open ? "text-[#5eead4]" : "text-neutral-400"}`} aria-hidden />
+                <span className="min-w-0 leading-tight">
+                  <span className={`block text-[10px] font-bold uppercase tracking-[0.1em] ${open ? "text-white/60" : "text-neutral-400"}`}>{item.label}</span>
+                  <span className="block max-w-[160px] truncate text-xs font-bold">{item.value}</span>
+                </span>
+                <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition ${open ? "rotate-180 text-white/70" : "text-neutral-400"}`} aria-hidden />
+              </button>
+            );
+          })}
+
+          <div className="relative min-w-0 flex-1" style={{ minWidth: 200 }}>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" aria-hidden />
+            <input aria-label="Search payouts" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void run(1); }} placeholder="Search reference, account or remarks" className={`${fieldClass} !h-10 !pl-9`} />
           </div>
-          <p className="m-0 text-[11px] font-medium text-neutral-400">All fields are optional except the date basis.</p>
-        </div>
 
-        <div className="space-y-3">
-          <div className={filterPanelClass}>
-            {/* Heading and presets share one row so the panel opens with a
-                single line of chrome above the fields. Presets only fill the
-                two dates below, which stay editable, so a cycle that does not
-                run Monday to Sunday is still reachable by hand. */}
-            <div className="mb-3 flex flex-col gap-2.5 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="m-0 text-xs font-bold text-neutral-800">Reporting period</p>
-                <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Choose which event date the range should use.</p>
-              </div>
-              <div className="inline-flex w-full overflow-hidden rounded-lg border border-solid border-neutral-200 bg-white lg:w-auto">
+          <button type="button" onClick={() => setOpenPanel(openPanel === "export" ? null : "export")} aria-expanded={openPanel === "export"}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border-0 bg-[#02665e] px-4 text-xs font-bold text-white hover:bg-[#014d47]">
+            <Download className="h-4 w-4" aria-hidden /> Export CSV <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden />
+          </button>
+
+          {/* Panels */}
+          {openPanel === "period" && (
+            <div className="absolute left-2 top-full z-30 mt-2 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)]" style={{ width: "min(560px, calc(100vw - 32px))" }}>
+              <p className={railTitle}>Quick periods</p>
+              <div className="grid grid-cols-4 gap-1.5">
                 {[{ value: "", label: "All time" }, ...PERIOD_PRESETS].map((preset) => {
                   const active = preset.value ? period === preset.value : !period && !from && !to;
                   return (
-                    <button
-                      key={preset.value || "ALL"}
-                      type="button"
-                      onClick={() => (preset.value ? applyPeriod(preset.value) : clearPeriod())}
-                      className={`flex h-9 min-w-0 flex-1 appearance-none items-center justify-center truncate border-0 border-r border-solid border-neutral-200 px-2 text-[11px] font-bold transition last:border-r-0 lg:flex-none lg:px-3.5 ${active ? "bg-emerald-700 text-white" : "bg-white text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900"}`}
-                    >
+                    <button key={preset.value || "ALL"} type="button" onClick={() => (preset.value ? applyPeriod(preset.value) : clearPeriod())}
+                      className={`h-9 rounded-lg border border-solid text-xs font-bold transition ${active ? "border-[#012a26] bg-[#012a26] text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}>
                       {preset.label}
                     </button>
                   );
                 })}
               </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div>
-                <label className={labelClass} htmlFor="report-date-field">Date basis</label>
-                <select id="report-date-field" value={dateField} onChange={(e) => setDateField(e.target.value)} className={fieldClass}>
-                  {DATE_FIELDS.map((field) => (
-                    <option key={field.value} value={field.value}>{field.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <p className={labelClass}>From</p>
-                <DatePickerField
-                  label="Report start date"
-                  value={from}
-                  onChangeAction={(next: string) => { setFrom(next); setPeriod(""); }}
-                  max={to || undefined}
-                  size="sm"
-                  twoMonths={false}
-                  widthClassName="w-full !rounded-lg"
-                />
-              </div>
-              <div>
-                <p className={labelClass}>To</p>
-                <DatePickerField
-                  label="Report end date"
-                  value={to}
-                  onChangeAction={(next: string) => { setTo(next); setPeriod(""); }}
-                  min={from || undefined}
-                  size="sm"
-                  twoMonths={false}
-                  widthClassName="w-full !rounded-lg"
-                />
-              </div>
-              <div>
-                <label className={labelClass} htmlFor="report-currency">Currency</label>
-                <select id="report-currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className={fieldClass}>
-                  <option value="">All currencies</option>
-                  <option value="TZS">TZS</option>
-                  <option value="USD">USD</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div className={filterPanelClass}>
-              <div className="mb-3">
-                <p className="m-0 text-xs font-bold text-neutral-800">Recipient scope</p>
-                <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Include whole groups or locate one payout recipient.</p>
-              </div>
-              <div>
-                <p className={labelClass}>Recipient group</p>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setGroups([])}
-                    className={`rounded-md border px-3 py-1.5 text-[11px] font-bold transition ${groups.length === 0 ? "border-emerald-700 bg-emerald-700 text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-emerald-200"}`}
-                  >
-                    All groups
-                  </button>
-                  {GROUPS.map((group) => {
-                    const active = groups.includes(group.value);
-                    return (
-                      <button
-                        key={group.value}
-                        type="button"
-                        onClick={() => toggle(groups, setGroups, group.value)}
-                        className={`rounded-md border px-3 py-1.5 text-[11px] font-bold transition ${active ? "border-emerald-700 bg-emerald-700 text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-emerald-200"}`}
-                      >
-                        {active && <Check className="mr-1 inline h-3 w-3" />}
-                        {group.label}
-                      </button>
-                    );
-                  })}
+              <div className="mt-4 grid grid-cols-3 gap-2 border-0 border-t border-solid border-neutral-100 pt-4">
+                <div>
+                  <label className={labelClass} htmlFor="report-date-field">Date basis</label>
+                  <select id="report-date-field" value={dateField} onChange={(e) => setDateField(e.target.value)} className={fieldClass}>
+                    {DATE_FIELDS.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <p className={labelClass}>From</p>
+                  <DatePickerField label="Report start date" value={from} onChangeAction={(next: string) => { setFrom(next); setPeriod(""); }} max={to || undefined} size="sm" twoMonths={false} widthClassName="w-full !rounded-lg" />
+                </div>
+                <div>
+                  <p className={labelClass}>To</p>
+                  <DatePickerField label="Report end date" value={to} onChangeAction={(next: string) => { setTo(next); setPeriod(""); }} min={from || undefined} size="sm" twoMonths={false} widthClassName="w-full !rounded-lg" />
                 </div>
               </div>
+              {panelFooter}
+            </div>
+          )}
 
-              <div className="relative mt-4">
-                <label className={labelClass} htmlFor="report-recipient">Specific recipient</label>
+          {openPanel === "who" && (
+            <div className="absolute left-2 top-full z-30 mt-2 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)]" style={{ width: "min(460px, calc(100vw - 32px))" }}>
+              <p className={railTitle}>Recipient group</p>
+              <div className="grid grid-cols-5 gap-1.5">
+                <button type="button" onClick={() => setGroups([])} className={`h-9 rounded-lg border border-solid text-xs font-bold transition ${groups.length === 0 ? "border-[#012a26] bg-[#012a26] text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}>All</button>
+                {GROUPS.map((group) => {
+                  const active = groups.includes(group.value);
+                  return (
+                    <button key={group.value} type="button" onClick={() => toggle(groups, setGroups, group.value)} className={`h-9 rounded-lg border border-solid text-xs font-bold transition ${active ? "border-[#012a26] bg-[#012a26] text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}>
+                      {group.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="relative mt-4 border-0 border-t border-solid border-neutral-100 pt-4">
+                <label className={labelClass} htmlFor="report-recipient">One beneficiary</label>
                 {recipient ? (
                   <div className="flex h-10 items-center justify-between gap-2 rounded-lg border border-solid border-emerald-200 bg-emerald-50 px-3">
-                    <span className="min-w-0 truncate text-xs font-bold text-emerald-800">
-                      {recipient.name} <span className="font-medium text-emerald-700">({recipient.group})</span>
-                    </span>
-                    <button type="button" onClick={() => setRecipient(null)} aria-label="Clear recipient" className="shrink-0 rounded-md p-1 text-emerald-700 hover:bg-emerald-100">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    <span className="min-w-0 truncate text-xs font-bold text-emerald-800">{recipient.name} <span className="font-medium text-emerald-700">({recipient.group})</span></span>
+                    <button type="button" onClick={() => setRecipient(null)} aria-label="Clear recipient" className="shrink-0 rounded-md border-0 bg-transparent p-1 text-emerald-700 hover:bg-emerald-100"><X className="h-3.5 w-3.5" /></button>
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <input
-                      id="report-recipient"
-                      value={recipientQuery}
-                      onChange={(e) => setRecipientQuery(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchRecipients(); } }}
-                      placeholder="Name on the payout account"
-                      className={fieldClass}
-                    />
+                    <input id="report-recipient" value={recipientQuery} onChange={(e) => setRecipientQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchRecipients(); } }} placeholder="Name on the payout account" className={fieldClass} />
                     <button type="button" onClick={() => void searchRecipients()} disabled={searchingRecipients} aria-label="Search recipients" className={`${actionClass} !w-10 !px-0`}>
                       {searchingRecipients ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                     </button>
                   </div>
                 )}
                 {recipientOpen && !recipient && (
-                  <div className="absolute left-0 right-0 z-20 mt-1.5 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white shadow-xl">
+                  <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-solid border-neutral-200 bg-white">
                     {recipientOptions.length === 0 ? (
                       <p className="m-0 px-3 py-2.5 text-xs text-neutral-500">No beneficiary matches this scope.</p>
                     ) : (
                       recipientOptions.map((option) => (
-                        <button
-                          key={option.userId}
-                          type="button"
-                          onClick={() => { setRecipient(option); setRecipientOpen(false); setRecipientQuery(""); }}
-                          className="flex w-full items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 bg-white px-3 py-2 text-left last:border-b-0 hover:bg-emerald-50"
-                        >
+                        <button key={option.userId} type="button" onClick={() => { setRecipient(option); setRecipientOpen(false); setRecipientQuery(""); }}
+                          className="flex w-full items-center justify-between gap-2 border-0 border-b border-solid border-neutral-100 bg-white px-3 py-2 text-left last:border-b-0 hover:bg-emerald-50">
                           <span className="min-w-0">
                             <span className="block truncate text-xs font-bold text-neutral-800">{option.name}</span>
                             <span className="block truncate text-[11px] text-neutral-500">{option.accountName} · {option.group} · {option.count} payout(s)</span>
@@ -559,14 +573,49 @@ export default function DisbursementReportsPage() {
                   </div>
                 )}
               </div>
+              {panelFooter}
             </div>
+          )}
 
-            <div className={filterPanelClass}>
-              <div className="mb-3">
-                <p className="m-0 text-xs font-bold text-neutral-800">Payout details</p>
-                <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Match a destination, batch, reference, account, or remark.</p>
+          {openPanel === "status" && (
+            <div className="absolute left-2 top-full z-30 mt-2 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)]" style={{ width: "min(620px, calc(100vw - 32px))" }}>
+              <div className="grid gap-5 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                <div>
+                  <p className={railTitle}>Payout path</p>
+                  <ol className="m-0 list-none p-0">
+                    {PAYOUT_PATH.map((step, index) => statusRow(step.status, step.caption, `${index + 1}`, index < PAYOUT_PATH.length - 1))}
+                  </ol>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <p className={railTitle}>Provider outcome</p>
+                    <ul className="m-0 list-none p-0">{statusRow("PAID", "Paid", "✓", false, "good")}{statusRow("FAILED", "Failed", "!", false, "bad")}</ul>
+                  </div>
+                  <div>
+                    <p className={railTitle}>Exceptions</p>
+                    <ul className="m-0 list-none p-0">
+                      {statusRow("SECURITY_REVIEW", "Security review", "!", false, "bad")}
+                      {statusRow("RECOVERY_PENDING", "Recovery pending", "R", false, "recovery")}
+                      {statusRow("RECOVERED", "Recovered", "R", false, "recovery")}
+                    </ul>
+                  </div>
+                </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              {panelFooter}
+            </div>
+          )}
+
+          {openPanel === "details" && (
+            <div className="absolute left-2 top-full z-30 mt-2 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)]" style={{ width: "min(460px, calc(100vw - 32px))" }}>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass} htmlFor="report-currency">Currency</label>
+                  <select id="report-currency" value={currency} onChange={(e) => setCurrency(e.target.value)} className={fieldClass}>
+                    <option value="">All currencies</option>
+                    <option value="TZS">TZS</option>
+                    <option value="USD">USD</option>
+                  </select>
+                </div>
                 <div>
                   <label className={labelClass} htmlFor="report-destination-type">Destination type</label>
                   <select id="report-destination-type" value={destinationType} onChange={(e) => setDestinationType(e.target.value)} className={fieldClass}>
@@ -575,310 +624,170 @@ export default function DisbursementReportsPage() {
                     <option value="BANK">Bank only</option>
                   </select>
                 </div>
-                <div>
-                  {/* Options come from the rows in scope, not a hardcoded MNO
-                      list: payout accounts can be banks, and a fixed list of
-                      three networks made those rows unreachable. */}
+                <div className="col-span-2">
+                  {/* Options come from the rows in scope, so bank accounts are reachable too. */}
                   <label className={labelClass} htmlFor="report-bank">Institution</label>
                   <select id="report-bank" value={bankName} onChange={(e) => setBankName(e.target.value)} className={fieldClass}>
                     <option value="">All institutions</option>
-                    {institutionOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
+                    {institutionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className={labelClass} htmlFor="report-batch">Batch reference</label>
                   <input id="report-batch" value={batchReference} onChange={(e) => setBatchReference(e.target.value)} placeholder="BATCH-..." className={fieldClass} />
                 </div>
-                <div className="sm:col-span-2">
-                  <label className={labelClass} htmlFor="report-q">Search payouts</label>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                    <input id="report-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Reference, account name or number, remarks" className={`${fieldClass} !pl-9`} />
-                  </div>
-                </div>
               </div>
+              {panelFooter}
             </div>
-          </div>
+          )}
 
-          <div className={filterPanelClass}>
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="m-0 text-xs font-bold text-neutral-800">Payout status</p>
-                <p className="mb-0 mt-0.5 text-[11px] text-neutral-500">Select from the standard payout path, its security off-ramp, or post-payment recovery.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStatuses([])}
-                className={`h-8 rounded-md border px-3 text-[11px] font-bold transition ${statuses.length === 0 ? "border-neutral-800 bg-neutral-800 text-white" : "border-neutral-300 bg-white text-neutral-600 hover:border-neutral-400"}`}
-              >
-                {statuses.length === 0 ? "All statuses" : `Clear ${statuses.length} selected`}
+          {openPanel === "export" && (
+            <div className="absolute right-2 top-full z-30 mt-2 rounded-xl border border-solid border-neutral-200 bg-white p-4 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.45)]" style={{ width: "min(380px, calc(100vw - 32px))" }}>
+              <p className="m-0 text-sm font-bold text-neutral-900">Export this selection</p>
+              <p className="m-0 mt-0.5 text-xs text-neutral-500">{summary ? `${summary.rows.toLocaleString("en-US")} payout(s), exactly as filtered.` : "Exactly what the table shows."}</p>
+              <label className={`${labelClass} mt-4`} htmlFor="report-label">Report label</label>
+              <input id="report-label" value={label} onChange={(e) => { setLabel(e.target.value); setLabelTouched(true); }} placeholder="e.g. Week ended 30 July 2026" className={fieldClass} />
+              <p className="m-0 mt-1 text-[10.5px] text-neutral-500">Used only where a payout has no remarks.</p>
+              <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-lg border border-solid border-neutral-200 bg-neutral-50 px-3 py-2.5 text-xs text-neutral-600">
+                <input className="mt-0.5 accent-emerald-700" type="checkbox" checked={unmasked} onChange={(e) => setUnmasked(e.target.checked)} />
+                <span>
+                  <span className="block font-bold text-neutral-800">Full destination numbers</span>
+                  <span className="mt-0.5 block text-[10.5px] leading-4 text-neutral-500">For provider reconciliation only. Recorded in the admin audit.</span>
+                </span>
+              </label>
+              {summary && summary.rows > exportLimit && <p className="m-0 mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Over the {exportLimit.toLocaleString("en-US")} row limit. Narrow the period to download.</p>}
+              <button type="button" onClick={() => { void exportCsv(); setOpenPanel(null); }} disabled={exporting || loading || Boolean(summary && summary.rows > exportLimit)} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg border-0 bg-[#02665e] text-xs font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50">
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Download className="h-4 w-4" aria-hidden />} Download CSV
               </button>
             </div>
-            <div className="border border-neutral-200 bg-white p-2.5">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-500">Standard payout path</span>
-                <span className="h-px flex-1 bg-neutral-200" />
-              </div>
-
-              <div className="overflow-x-auto pb-1">
-                <div className="flex min-w-[980px] items-stretch">
-                  {PAYOUT_PATH.map((step, index) => {
-                    const active = statuses.includes(step.status);
-                    return (
-                      <div key={step.status} className="flex min-w-0 flex-1 items-center">
-                        <button
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() => toggle(statuses, setStatuses, step.status)}
-                          className={`min-h-[62px] min-w-0 flex-1 border border-t-2 px-2.5 py-2 text-left transition ${active ? step.selectedClass : `${step.accentClass} border-x-neutral-200 border-b-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50`}`}
-                        >
-                          <span className="flex items-center justify-between gap-2">
-                            <span className={`grid h-5 w-5 place-items-center rounded-full text-[9px] font-bold ${active ? "bg-white/20 text-white" : "bg-neutral-100 text-neutral-500"}`}>
-                              {index + 1}
-                            </span>
-                            {active && <Check className="h-3 w-3" />}
-                          </span>
-                          <span className="mt-1 block truncate !text-[10px] font-bold">{step.status}</span>
-                          <span className={`mt-0.5 block truncate !text-[9px] ${active ? "text-white/75" : "text-neutral-400"}`}>{step.caption}</span>
-                        </button>
-                        <ChevronRight className="mx-1 h-3.5 w-3.5 shrink-0 text-neutral-300" aria-hidden />
-                      </div>
-                    );
-                  })}
-
-                  <div className="min-w-[210px] flex-[1.35] border border-t-2 border-x-neutral-200 border-b-neutral-200 border-t-emerald-400 bg-white px-2.5 py-2">
-                    <span className="flex items-center gap-2">
-                      <span className="grid h-5 w-5 place-items-center rounded-full bg-neutral-100 text-[9px] font-bold text-neutral-500">7</span>
-                      <span className="!text-[9px] font-bold uppercase tracking-[0.08em] text-neutral-500">Provider outcome</span>
-                    </span>
-                    <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                      {[
-                        { status: "PAID", selected: "border-emerald-600 bg-emerald-600 text-white", idle: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-400" },
-                        { status: "FAILED", selected: "border-rose-600 bg-rose-600 text-white", idle: "border-rose-200 bg-rose-50 text-rose-800 hover:border-rose-400" },
-                      ].map((outcome) => {
-                        const active = statuses.includes(outcome.status);
-                        return (
-                          <button
-                            key={outcome.status}
-                            type="button"
-                            aria-pressed={active}
-                            onClick={() => toggle(statuses, setStatuses, outcome.status)}
-                            className={`min-h-7 rounded-md border px-2 !text-[9px] font-bold transition ${active ? outcome.selected : outcome.idle}`}
-                          >
-                            {outcome.status}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-2 grid gap-2 lg:grid-cols-2">
-                <div className="flex flex-col gap-2 border-l-2 border-rose-300 bg-rose-50/60 p-2.5 sm:flex-row sm:items-center">
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-rose-100 text-rose-700">
-                      <GitBranch className="h-3.5 w-3.5" />
-                    </span>
-                    <span>
-                      <span className="block !text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-700">Security off-ramp</span>
-                      <span className="block !text-[9px] text-neutral-500">Integrity checks pause release for review</span>
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    aria-pressed={statuses.includes("SECURITY_REVIEW")}
-                    onClick={() => toggle(statuses, setStatuses, "SECURITY_REVIEW")}
-                    className={`min-h-8 whitespace-nowrap rounded-md border px-3 !text-[10px] font-bold transition ${statuses.includes("SECURITY_REVIEW") ? "border-rose-600 bg-rose-600 text-white" : "border-rose-200 bg-white text-rose-800 hover:border-rose-400"}`}
-                  >
-                    Security review
-                  </button>
-                </div>
-
-                <div className="flex flex-col gap-2 border-l-2 border-violet-300 bg-violet-50/60 p-2.5 sm:flex-row sm:items-center">
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-violet-100 text-violet-700">
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </span>
-                    <span>
-                      <span className="block !text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-700">Post-payment recovery</span>
-                      <span className="block !text-[9px] text-neutral-500">Released funds awaiting and completing recovery</span>
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    {[
-                      { status: "RECOVERY_PENDING", label: "Pending" },
-                      { status: "RECOVERED", label: "Recovered" },
-                    ].map((recovery, index) => {
-                      const active = statuses.includes(recovery.status);
-                      return (
-                        <span key={recovery.status} className="flex items-center gap-1.5">
-                          {index > 0 && <ChevronRight className="h-3 w-3 text-violet-300" aria-hidden />}
-                          <button
-                            type="button"
-                            aria-pressed={active}
-                            onClick={() => toggle(statuses, setStatuses, recovery.status)}
-                            className={`min-h-8 whitespace-nowrap rounded-md border px-2.5 !text-[10px] font-bold transition ${active ? "border-violet-600 bg-violet-600 text-white" : "border-violet-200 bg-white text-violet-800 hover:border-violet-400"}`}
-                          >
-                            {recovery.label}
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3.5 sm:p-4">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-              <div className="grid gap-3 md:grid-cols-[minmax(260px,0.75fr)_minmax(0,1.25fr)] md:items-end">
-                <div>
-                  <label className={labelClass} htmlFor="report-label">Report label</label>
-                  <input
-                    id="report-label"
-                    value={label}
-                    onChange={(e) => { setLabel(e.target.value); setLabelTouched(true); }}
-                    placeholder="e.g. Week ended 30 July 2026"
-                    className={fieldClass}
-                  />
-                  <p className="mb-0 mt-1 text-[10px] text-neutral-500">Used only where a payout has no remarks.</p>
-                </div>
-                <label className="flex min-h-10 cursor-pointer items-start gap-2.5 rounded-lg border border-emerald-100 bg-white px-3 py-2 text-xs text-neutral-600">
-                  <input className="mt-0.5 accent-emerald-700" type="checkbox" checked={unmasked} onChange={(e) => setUnmasked(e.target.checked)} />
-                  <span>
-                    <span className="block font-bold text-neutral-700">Include full destination numbers</span>
-                    <span className="mt-0.5 block text-[10px] leading-4 text-neutral-500">Use only for provider reconciliation. This export is recorded in the admin audit.</span>
-                  </span>
-                </label>
-              </div>
-              <button type="button" onClick={() => void exportCsv()} disabled={exporting || loading} className={`${actionClass} !h-10 !border-emerald-700 !bg-emerald-700 !px-4 !text-white`}>
-                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                Download CSV
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      </section>
+      </div>
 
-      {summary && (
-        <div className="grid gap-3 lg:grid-cols-3">
-          <section className="rounded-lg border border-neutral-200 bg-white p-4">
-            <p className={labelClass}>Selection</p>
-            <p className="m-0 text-2xl font-bold text-neutral-950">{summary.rows.toLocaleString("en-US")}</p>
-            <p className="mb-0 mt-0.5 text-xs text-neutral-500">payout(s) across {summary.recipients.toLocaleString("en-US")} beneficiary(ies)</p>
-            <div className="mt-2.5 space-y-1">
-              {summary.totals.map((total) => (
-                <p key={total.currency} className="m-0 text-sm font-bold text-neutral-800">{money(total.amount, total.currency)}</p>
-              ))}
-              {summary.rows > exportLimit && (
-                <p className="mb-0 mt-1.5 text-[11px] text-amber-700">Over the {exportLimit.toLocaleString("en-US")} row export limit. Narrow the range to download.</p>
-              )}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-neutral-200 bg-white p-4">
-            <p className={labelClass}>By group</p>
-            <div className="space-y-1.5">
-              {summary.byGroup.length === 0 && <p className="m-0 text-xs text-neutral-500">Nothing in this selection.</p>}
-              {summary.byGroup.map((entry) => (
-                <div key={entry.sourceType} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="font-bold text-neutral-700">{entry.label}</span>
-                  <span className="text-neutral-500">{entry.count} · {Number(entry.amount).toLocaleString("en-US")}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-neutral-200 bg-white p-4">
-            <p className={labelClass}>By status</p>
-            <div className="flex flex-wrap gap-1.5">
-              {summary.byStatus.length === 0 && <p className="m-0 text-xs text-neutral-500">Nothing in this selection.</p>}
-              {summary.byStatus.map((entry) => (
-                <span key={entry.status} className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusClass(entry.status)}`}>
-                  {entry.status.replace(/_/g, " ")} {entry.count}
+      {/* Results */}
+      <div className="min-w-0 space-y-4">
+          {chips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.1em] text-neutral-400">Filtered by</span>
+              {chips.map((chip) => (
+                <span key={chip.key} className="inline-flex h-7 items-center gap-1 rounded-md border border-solid border-neutral-200 bg-white pl-2.5 pr-1 text-[11px] font-semibold capitalize text-neutral-700">
+                  {chip.label}
+                  <button type="button" onClick={chip.clear} aria-label={`Remove ${chip.label}`} className="grid h-5 w-5 place-items-center rounded border-0 bg-transparent text-neutral-400 hover:bg-neutral-100 hover:text-neutral-800"><X className="h-3 w-3" /></button>
                 </span>
               ))}
+              <button type="button" onClick={() => void run(1)} disabled={loading} className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border-0 bg-[#012a26] px-2.5 text-[11px] font-bold text-white disabled:opacity-60">
+                <Search className="h-3 w-3" aria-hidden /> Apply
+              </button>
             </div>
-          </section>
-        </div>
-      )}
+          )}
 
-      <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-        {loading ? (
-          <div className="grid min-h-56 place-items-center text-neutral-400">
-            <div className="text-center">
-              <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-              <p className="mb-0 mt-2 text-xs">Running report</p>
-            </div>
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="grid min-h-56 place-items-center p-8 text-center">
-            <div>
-              <p className="mb-0 text-sm font-bold text-neutral-800">Nothing matches these filters</p>
-              <p className="mb-0 mt-1 text-xs text-neutral-500">Widen the date range, or clear the group and status filters.</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-100 bg-neutral-50/70 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
-                    <th className="px-4 py-3 font-bold">{dateLabel}</th>
-                    <th className="px-4 py-3 font-bold">Reference</th>
-                    <th className="px-4 py-3 font-bold">Recipient</th>
-                    <th className="px-4 py-3 font-bold">Source</th>
-                    <th className="px-4 py-3 text-right font-bold">Amount</th>
-                    <th className="px-4 py-3 font-bold">Status</th>
-                    <th className="px-4 py-3 font-bold">Batch</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100">
-                  {rows.map((row) => {
-                    const stamp = dateField === "paidAt" ? row.paidAt : dateField === "approvedAt" ? row.approvedAt : row.createdAt;
-                    return (
-                      <tr key={row.id} className="align-top">
-                        <td className="px-4 py-3 text-xs text-neutral-500">{stamp ? new Date(stamp).toLocaleString() : "n/a"}</td>
-                        <td className="px-4 py-3 font-mono text-[11px] text-neutral-950">
-                          <div>{row.externalReferenceId}</div>
-                          {row.pgReferenceId && <div className="text-neutral-400">{row.pgReferenceId}</div>}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600">
-                          <div className="font-bold text-neutral-800">{row.recipient.name}</div>
-                          <div className="text-slate-400">
-                            {row.recipient.accountName} · {row.recipient.destinationType === "BANK" ? "Bank" : "Mobile money"} ·{" "}
-                            {row.recipient.provider} · {row.recipient.accountNumber}
+          {summary && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <section className="rounded-xl border border-solid border-neutral-200 bg-white p-4">
+                <p className={railTitle}>By group</p>
+                {summary.byGroup.length === 0 ? <p className="m-0 text-xs text-neutral-500">Nothing in this selection.</p> : (
+                  <ul className="m-0 list-none space-y-2.5 p-0">
+                    {summary.byGroup.map((entry) => {
+                      const share = summary.rows ? Math.round((entry.count / summary.rows) * 100) : 0;
+                      return (
+                        <li key={entry.sourceType}>
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className="font-bold text-neutral-800">{entry.label}</span>
+                            <span className="tabular-nums text-neutral-500"><strong className="text-neutral-800">{Number(entry.amount).toLocaleString("en-US")}</strong> · {entry.count}</span>
                           </div>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600">{row.sourceType.replace(/_/g, " ")} #{row.sourceId}</td>
-                        <td className="px-4 py-3 text-right text-sm font-bold text-slate-950">{money(row.amount, row.currency)}</td>
-                        <td className="px-4 py-3">
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusClass(row.status)}`}>{row.status.replace(/_/g, " ")}</span>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[11px] text-neutral-500">{row.batch?.batchReference || "n/a"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100"><div className="h-full rounded-full bg-[#02665e]" style={{ width: `${Math.max(share, 2)}%` }} /></div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+              <section className="rounded-xl border border-solid border-neutral-200 bg-white p-4">
+                <p className={railTitle}>By status</p>
+                {summary.byStatus.length === 0 ? <p className="m-0 text-xs text-neutral-500">Nothing in this selection.</p> : (
+                  <>
+                    <div className="flex h-2.5 overflow-hidden rounded-full bg-neutral-100">
+                      {summary.byStatus.map((entry) => (
+                        <span key={entry.status} title={`${entry.status} ${entry.count}`} style={{ width: `${(entry.count / Math.max(statusTotal, 1)) * 100}%`, background: STATUS_BAR[entry.status] ?? "#d97706" }} />
+                      ))}
+                    </div>
+                    <ul className="m-0 mt-3 grid list-none grid-cols-2 gap-x-3 gap-y-1.5 p-0">
+                      {summary.byStatus.map((entry) => (
+                        <li key={entry.status} className="flex items-center gap-2 text-xs">
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: STATUS_BAR[entry.status] ?? "#d97706" }} />
+                          <span className="min-w-0 flex-1 truncate capitalize text-neutral-600">{entry.status.replace(/_/g, " ").toLowerCase()}</span>
+                          <span className="font-bold tabular-nums text-neutral-800">{entry.count}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </section>
             </div>
+          )}
 
-            <div className="flex items-center justify-between gap-2 border-0 border-t border-solid border-neutral-100 px-4 py-2.5">
-              <p className="m-0 text-xs text-neutral-500">
-                Page {page} · showing {rows.length} of {summary?.rows.toLocaleString("en-US") ?? "?"}
-              </p>
-              <div className="flex gap-1.5">
-                <button type="button" disabled={page <= 1 || loading} onClick={() => void run(page - 1)} className={actionClass}>Previous</button>
-                <button type="button" disabled={rows.length < pageSize || loading} onClick={() => void run(page + 1)} className={actionClass}>Next</button>
+          <section className="overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white">
+            {loading ? (
+              <div className="grid min-h-56 place-items-center text-neutral-400">
+                <div className="text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin" /><p className="mb-0 mt-2 text-xs">Running report</p></div>
               </div>
-            </div>
-          </>
-        )}
-      </section>
+            ) : rows.length === 0 ? (
+              <div className="grid min-h-56 place-items-center p-8 text-center">
+                <div>
+                  <p className="mb-0 text-sm font-bold text-neutral-800">Nothing matches these filters</p>
+                  <p className="mb-0 mt-1 text-xs text-neutral-500">Widen the period, or remove a group or status filter.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="bg-neutral-50 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
+                        <th className="px-4 py-3 font-bold">{dateLabel}</th>
+                        <th className="px-4 py-3 font-bold">Recipient</th>
+                        <th className="px-4 py-3 font-bold">Reference</th>
+                        <th className="px-4 py-3 text-right font-bold">Amount</th>
+                        <th className="px-4 py-3 font-bold">Status</th>
+                        <th className="px-4 py-3 font-bold">Batch</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => {
+                        const stamp = dateField === "paidAt" ? row.paidAt : dateField === "approvedAt" ? row.approvedAt : row.createdAt;
+                        return (
+                          <tr key={row.id} className="border-0 border-t border-solid border-neutral-100 align-top hover:bg-neutral-50/60">
+                            <td className="whitespace-nowrap px-4 py-3 text-xs text-neutral-500">{stamp ? eat(stamp) : "n/a"}</td>
+                            <td className="px-4 py-3 text-xs">
+                              <div className="font-bold text-neutral-900">{row.recipient.name}</div>
+                              <div className="text-neutral-400">{row.sourceType.replace(/_/g, " ").toLowerCase()} · {row.recipient.destinationType === "BANK" ? "Bank" : "Mobile money"} · {row.recipient.provider} · {row.recipient.accountNumber}</div>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-[11px] text-neutral-900">
+                              <div>{row.externalReferenceId}</div>
+                              {row.pgReferenceId && <div className="text-neutral-400">{row.pgReferenceId}</div>}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-bold tabular-nums text-neutral-950">{money(row.amount, row.currency)}</td>
+                            <td className="px-4 py-3"><span className={`whitespace-nowrap rounded-full border border-solid px-2 py-0.5 text-[10px] font-bold ${statusClass(row.status)}`}>{row.status.replace(/_/g, " ")}</span></td>
+                            <td className="px-4 py-3 font-mono text-[11px] text-neutral-500">{row.batch?.batchReference || "n/a"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between gap-2 border-0 border-t border-solid border-neutral-100 px-4 py-2.5">
+                  <p className="m-0 text-xs text-neutral-500">
+                    Page <strong className="text-neutral-800">{page}</strong> · {(page - 1) * pageSize + 1}-{(page - 1) * pageSize + rows.length} of {summary?.rows.toLocaleString("en-US") ?? "?"}
+                  </p>
+                  <div className="flex gap-1.5">
+                    <button type="button" disabled={page <= 1 || loading} onClick={() => void run(page - 1)} className={actionClass}><ChevronLeft className="h-3.5 w-3.5" aria-hidden /> Previous</button>
+                    <button type="button" disabled={rows.length < pageSize || loading} onClick={() => void run(page + 1)} className={actionClass}>Next <ChevronRight className="h-3.5 w-3.5" aria-hidden /></button>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+      </div>
     </div>
   );
 }
