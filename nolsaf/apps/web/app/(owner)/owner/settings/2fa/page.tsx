@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import Image from "next/image"
-import { ChevronLeft, Smartphone, CheckCircle, XCircle, MessageSquare } from 'lucide-react'
+import { ArrowRight, Check, CircleAlert, Loader2, MessageSquare, ShieldCheck, Smartphone } from 'lucide-react'
 import apiClient from "@/lib/apiClient"
 import BackupCodesPanel from "@/components/security/BackupCodesPanel"
 import RegenerateBackupCodes from "@/components/security/RegenerateBackupCodes"
@@ -317,334 +317,168 @@ export default function Owner2FAPage() {
     }
   }
 
+  const totpOn = Boolean((me?.twoFactorEnabled && me?.twoFactorMethod === 'TOTP') || status?.totpEnabled || totpFlow === 'enabled')
+  const smsOn = Boolean(status?.smsEnabled || smsFlow === 'enabled')
+  const anyOn = totpOn || smsOn
+  const phone: string | null = status?.phone || me?.phone || null
+  const maskedPhone = phone ? `${phone.slice(0, Math.min(5, phone.length - 3))}${"•".repeat(Math.max(0, phone.length - 8))}${phone.slice(-3)}` : null
+  const codeInput = "box-border h-14 w-full rounded-xl border border-solid border-slate-300 bg-white text-center font-mono text-2xl font-bold tracking-[0.5em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
+  const primary = "inline-flex h-11 items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50"
+  const ghost = "inline-flex h-11 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+  const danger = "inline-flex h-11 items-center justify-center gap-2 rounded-xl border-0 bg-rose-600 px-5 text-sm font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+  const turnOff = "inline-flex h-10 items-center justify-center rounded-xl border border-solid border-rose-200 bg-white px-4 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+
+  const Pill = ({ on }: { on: boolean }) => (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${on ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : "bg-slate-100 text-slate-500 ring-slate-200"}`}>
+      {on ? <Check className="h-3 w-3" aria-hidden /> : null}{on ? "On" : "Off"}
+    </span>
+  )
+
   if (initialLoading) {
     return (
-      <div className="w-full bg-gradient-to-br from-slate-50 via-emerald-50/30 to-slate-50 py-4 sm:py-6 lg:py-8">
-        <div className="public-container w-full flex items-center justify-center min-h-[300px]">
-          <div className="text-center">
-            <div className="inline-block h-8 w-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
-            <p className="mt-4 text-sm text-slate-600">Loading 2FA settings...</p>
-          </div>
-        </div>
+      <div className="grid gap-5 lg:grid-cols-2" aria-busy="true">
+        <div className="h-24 rounded-2xl bg-white lg:col-span-2" />
+        <div className="h-72 rounded-2xl bg-white" />
+        <div className="h-72 rounded-2xl bg-white" />
       </div>
     )
   }
 
   return (
-    <div className="w-full bg-gradient-to-br from-slate-50 via-emerald-50/30 to-slate-50 py-4 sm:py-6 lg:py-8">
-      <div className="public-container w-full space-y-4 sm:space-y-6">
-        <div className="w-full text-center">
-          <div className="flex flex-col items-center mb-6">
-            <div className="inline-flex items-center justify-center h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-blue-50 text-blue-600 transition-all duration-300">
-              <Smartphone className="h-6 w-6 sm:h-7 sm:w-7" aria-hidden />
-            </div>
-            <h1 className="mt-3 text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Two-Factor Authentication</h1>
-            <p className="mt-2 text-xs sm:text-sm text-slate-600">Add an extra layer of security to your account.</p>
-          </div>
+    <div className="space-y-5">
+      {/* Where things stand */}
+      <section className={`flex flex-wrap items-center gap-4 rounded-2xl p-5 ring-1 ring-inset ${anyOn ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
+        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-white ${anyOn ? "bg-[#02665e]" : "bg-amber-500"}`}>
+          {anyOn ? <ShieldCheck className="h-5 w-5" aria-hidden /> : <CircleAlert className="h-5 w-5" aria-hidden />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-base font-bold text-slate-900">{anyOn ? "Two-step verification is on" : "Two-step verification is off"}</p>
+          <p className="m-0 mt-0.5 text-sm text-slate-600">
+            {anyOn ? `After your password, we ask for a code ${totpOn ? "from your authenticator app" : `sent by text to ${maskedPhone || "your phone"}`}.` : "Right now your password is the only thing protecting your account and payouts. Turn on one method below."}
+          </p>
         </div>
+      </section>
 
-        {/* TOTP Section */}
-        <section className="w-full max-w-full bg-white rounded-2xl shadow-lg border-2 border-slate-200/50 p-4 sm:p-6 lg:p-8 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-emerald-200/50 box-border">
-          <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-6 w-full max-w-full min-w-0">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <Smartphone className="h-5 w-5 text-blue-600" />
+      {error && <p className="m-0 flex items-start gap-2 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 ring-1 ring-inset ring-rose-200"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />{error}</p>}
+      {success && !error && <p className="m-0 flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200"><Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />{success}</p>}
+
+      {backupCodes.length > 0 && <BackupCodesPanel codes={backupCodes} onDone={() => setBackupCodes([])} />}
+
+      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+        {/* Authenticator app */}
+        <section className={`overflow-hidden rounded-2xl border border-solid bg-white ${totpOn ? "border-[#02665e]/40" : "border-slate-200"}`}>
+          <header className="flex items-start gap-3.5 px-6 pb-4 pt-5">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><Smartphone className="h-5 w-5" aria-hidden /></span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="m-0 text-base font-bold text-slate-900">Authenticator app</h2>
+                <span className="rounded-full bg-[#5eead4]/25 px-2 py-0.5 text-[10.5px] font-bold text-[#02665e]">Recommended</span>
               </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-base sm:text-lg font-bold text-gray-900">TOTP Authenticator</h2>
-                <p className="text-xs sm:text-sm text-slate-600 mt-0.5">Use an authenticator app (Google Authenticator, Authy, etc.) to generate codes.</p>
-              </div>
+              <p className="m-0 mt-0.5 text-xs leading-5 text-slate-500">Google Authenticator, Microsoft Authenticator or Authy make a new 6-digit code every 30 seconds. Works without signal.</p>
             </div>
-            <div className="shrink-0">
-              <span className={`inline-block text-xs px-3 py-1.5 rounded-full font-semibold ring-1 ${(me?.twoFactorEnabled && me?.twoFactorMethod === 'TOTP') || status?.totpEnabled || totpFlow === 'enabled' ? "text-green-700 ring-green-200 bg-green-50":"text-amber-700 ring-amber-200 bg-amber-50"}`}>
-                {((me?.twoFactorEnabled && me?.twoFactorMethod === 'TOTP') || status?.totpEnabled || totpFlow === 'enabled') ? "ENABLED" : "DISABLED"}
-              </span>
-            </div>
-          </div>
+            <Pill on={totpOn} />
+          </header>
 
-          {error && (
-            <div className="rounded-xl bg-red-50 border-2 border-red-200 p-3 sm:p-4 mb-4 animate-in fade-in slide-in-from-top-2 duration-300 w-full max-w-full">
-              <div className="text-xs sm:text-sm font-semibold text-red-800">{error}</div>
-            </div>
-          )}
-          {success && (
-            <div className="rounded-xl bg-green-50 border-2 border-green-200 p-3 sm:p-4 mb-4 animate-in fade-in slide-in-from-top-2 duration-300 w-full max-w-full">
-              <div className="text-xs sm:text-sm font-semibold text-green-800">{success}</div>
-            </div>
-          )}
-
-          {backupCodes.length > 0 && (
-            <div className="mb-4">
-              <BackupCodesPanel codes={backupCodes} onDone={() => setBackupCodes([])} />
-            </div>
-          )}
-
-          {((me?.twoFactorEnabled && me?.twoFactorMethod === 'TOTP') || status?.totpEnabled || totpFlow === 'enabled') && backupCodes.length === 0 && !showDisableInput && (
-            <div className="mb-4">
-              <RegenerateBackupCodes url="/api/account/2fa/codes/regenerate" />
-            </div>
-          )}
-
-          {!((me?.twoFactorEnabled && me?.twoFactorMethod === 'TOTP') || status?.totpEnabled || totpFlow === 'enabled') ? (
-            !twofa ? (
-              <div className="w-full max-w-full">
-                <button 
-                  onClick={start2FA}
-                  disabled={loading}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-all duration-300 border-2 border-emerald-600 hover:border-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
-                >
-                  <Smartphone className="h-4 w-4" />
-                  <span>{loading ? 'Setting up...' : 'Enable TOTP'}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 md:gap-6 items-start w-full max-w-full min-w-0">
-                <div className="flex justify-center sm:justify-start w-full max-w-full min-w-0">
-                  <div className="w-full max-w-full h-auto aspect-square rounded-xl overflow-hidden ring-2 ring-slate-200 bg-white flex items-center justify-center shadow-md box-border">
-                    {twofa?.qrDataUrl ? (
-                      <Image src={twofa.qrDataUrl} alt="TOTP QR" width={192} height={192} className="object-contain w-full h-full max-w-full" />
-                    ) : (
-                      <div className="text-xs text-slate-400 text-center p-4">Loading QR code...</div>
-                    )}
-                  </div>
+          <div className="border-0 border-t border-solid border-slate-100 px-6 py-5">
+            {totpOn ? (
+              !showDisableInput ? (
+                <div className="space-y-4">
+                  {backupCodes.length === 0 && <RegenerateBackupCodes url="/api/account/2fa/codes/regenerate" />}
+                  <button type="button" onClick={handleDisableClick} disabled={loading} className={turnOff}>Turn off authenticator</button>
                 </div>
-                <div className="space-y-3 sm:space-y-4 w-full max-w-full min-w-0">
-                  <div className="w-full max-w-full min-w-0">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 sm:mb-2">
-                      Enter 6-digit code
-                    </label>
-                    <input 
-                      type="text"
-                      maxLength={6}
-                      value={code} 
-                      onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="000000"
-                      className="block w-full max-w-full min-w-0 rounded-lg border-2 border-slate-200 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-mono text-center focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-all duration-200 box-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 sm:gap-3 w-full max-w-full">
-                    <button 
-                      onClick={verify2FA}
-                      disabled={loading || code.length !== 6}
-                      className="w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-all duration-300 border-2 border-emerald-600 hover:border-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95 min-w-0"
-                    >
-                      <span className="truncate">Verify & Enable</span>
-                    </button>
-                    <button 
-                      onClick={() => { setTwofa(null); setCode('') }}
-                      className="w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-all duration-300 border-2 border-slate-200 hover:border-slate-300 min-w-0"
-                    >
-                      <span className="truncate">Cancel</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )
-          ) : (
-            <div className="space-y-4 w-full max-w-full">
-              <p className="text-xs sm:text-sm text-slate-600">TOTP authentication is currently enabled on your account.</p>
-              {!showDisableInput ? (
-                <button 
-                  onClick={handleDisableClick}
-                  disabled={loading}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-300 border-2 border-red-200 hover:border-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Disable TOTP
-                </button>
               ) : (
-                <div className="space-y-3 sm:space-y-4 w-full max-w-full">
-                  <div className="w-full max-w-full min-w-0">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 sm:mb-2">
-                      Enter TOTP code or backup code to disable
-                    </label>
-                    <input 
-                      type="text"
-                      value={disableCode}
-                      onChange={(e) => setDisableCode(e.target.value)}
-                      placeholder="Enter code"
-                      className="block w-full max-w-full min-w-0 rounded-lg border-2 border-slate-200 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-mono focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all duration-200 box-border"
-                      autoFocus
-                    />
-                    <p className="mt-1.5 text-xs text-slate-500">Enter a 6-digit TOTP code from your authenticator app or a backup code.</p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full max-w-full">
-                    <button 
-                      onClick={disable2FA}
-                      disabled={loading || !disableCode.trim()}
-                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-all duration-300 border-2 border-red-600 hover:border-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loading ? 'Disabling...' : 'Disable TOTP'}
-                    </button>
-                    <button 
-                      onClick={cancelDisable}
-                      disabled={loading}
-                      className="sm:w-auto inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-all duration-300 border-2 border-slate-200 hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed min-w-0"
-                    >
-                      <span className="truncate">Cancel</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-
-        {/* SMS Section */}
-        <section className="w-full max-w-full bg-white rounded-2xl shadow-lg border-2 border-slate-200/50 p-4 sm:p-6 lg:p-8 overflow-hidden transition-all duration-300 hover:shadow-xl hover:border-emerald-200/50 box-border">
-          <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-6 w-full max-w-full min-w-0">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <div className="h-10 w-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                <MessageSquare className="h-5 w-5 text-purple-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-base sm:text-lg font-bold text-gray-900">SMS-based 2FA</h2>
-                <p className="text-xs sm:text-sm text-slate-600 mt-0.5">Receive codes via SMS to your registered phone.</p>
-              </div>
-            </div>
-            <div className="shrink-0">
-              {status && status.smsEnabled ? (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-green-50 text-green-700 ring-1 ring-green-200">
-                  <CheckCircle className="h-3 w-3" />
-                  Enabled
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 ring-1 ring-slate-200">
-                  <XCircle className="h-3 w-3" />
-                  Disabled
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 w-full max-w-full">
-            {(status && status.smsEnabled) || smsFlow === 'enabled' ? (
-              !showSmsDisableInput ? (
-                <button 
-                  onClick={handleSmsDisableClick} 
-                  disabled={loading || sending} 
-                  className="col-span-2 w-full inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2.5 text-xs sm:text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all duration-300 border border-red-200 hover:border-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sending ? 'Sending code...' : 'Disable'}
-                </button>
-              ) : (
-                <div className="col-span-2 space-y-3 sm:space-y-4 w-full max-w-full">
-                  <div className="w-full max-w-full min-w-0">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 sm:mb-2">
-                      Enter SMS code to disable
-                    </label>
-                    <input 
-                      type="text"
-                      maxLength={6}
-                      value={smsCode}
-                      onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="000000"
-                      className="block w-full max-w-full min-w-0 rounded-lg border-2 border-slate-200 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs sm:text-sm font-mono text-center focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200 transition-all duration-200 box-border"
-                      autoFocus
-                    />
-                    <p className="mt-1.5 text-xs text-slate-500">Enter the 6-digit code sent to your phone.</p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full max-w-full">
-                    <button 
-                      onClick={handleSmsDisable}
-                      disabled={loading || smsCode.length !== 6}
-                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-all duration-300 border-2 border-red-600 hover:border-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loading ? 'Disabling...' : 'Disable SMS 2FA'}
-                    </button>
-                    <button 
-                      onClick={cancelSmsDisable}
-                      disabled={loading}
-                      className="sm:w-auto inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-all duration-300 border-2 border-slate-200 hover:border-slate-300 disabled:opacity-50 disabled:cursor-not-allowed min-w-0"
-                    >
-                      <span className="truncate">Cancel</span>
-                    </button>
+                <div className="space-y-3">
+                  <label htmlFor="totp-off" className="text-xs font-bold text-slate-700">Enter a code from your app, or a backup code, to turn it off</label>
+                  <input id="totp-off" value={disableCode} onChange={(e) => setDisableCode(e.target.value)} placeholder="Code" autoFocus className="box-border h-12 w-full rounded-xl border border-solid border-slate-300 bg-white px-4 font-mono text-lg tracking-[0.2em] outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100" />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={disable2FA} disabled={loading || !disableCode.trim()} className={danger}>{loading ? "Turning off..." : "Turn off"}</button>
+                    <button type="button" onClick={cancelDisable} disabled={loading} className={ghost}>Keep it on</button>
                   </div>
                 </div>
               )
+            ) : !twofa ? (
+              <div className="space-y-4">
+                <ol className="m-0 list-none space-y-2.5 p-0">
+                  {["Install an authenticator app on your phone.", "Scan the QR code we show you.", "Type the 6-digit code from the app to confirm."].map((step, index) => (
+                    <li key={step} className="flex items-start gap-2.5 text-sm text-slate-700"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600">{index + 1}</span><span className="pt-0.5">{step}</span></li>
+                  ))}
+                </ol>
+                <button type="button" onClick={start2FA} disabled={loading} className={primary}>{loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Smartphone className="h-4 w-4" aria-hidden />}{loading ? "Preparing..." : "Set up authenticator"}</button>
+              </div>
             ) : (
-              <>
-                <button 
-                  onClick={handleSmsSend} 
-                  disabled={sending || !me?.phone} 
-                  className={`w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 border min-w-0 ${
-                    sending || !me?.phone
-                      ? 'text-slate-400 bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed' 
-                      : 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200 hover:border-emerald-300'
-                  }`}
-                >
-                  <MessageSquare className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span className="truncate">{sending ? 'Sending...' : 'Send code'}</span>
-                </button>
-                <button 
-                  onClick={() => setSmsFlow('sent')} 
-                  className="w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all duration-300 border border-slate-200 hover:border-slate-300 min-w-0"
-                >
-                  <span className="truncate">I have a code</span>
-                </button>
-              </>
+              <div className="grid gap-5 sm:grid-cols-[180px_minmax(0,1fr)]">
+                <div>
+                  <div className="grid aspect-square w-full max-w-[180px] place-items-center overflow-hidden rounded-2xl bg-white p-2 ring-1 ring-slate-200">
+                    {twofa?.qrDataUrl ? <Image src={twofa.qrDataUrl} alt="QR code for your authenticator app" width={176} height={176} className="h-full w-full object-contain" /> : <Loader2 className="h-6 w-6 animate-spin text-slate-300" aria-hidden />}
+                  </div>
+                  {twofa?.secretMasked ? <p className="m-0 mt-2 text-center font-mono text-[11px] text-slate-400">Key {twofa.secretMasked}</p> : null}
+                </div>
+                <div className="space-y-3">
+                  <p className="m-0 text-sm text-slate-700"><strong>Scan this code</strong> with your authenticator app, then type the 6 digits it shows.</p>
+                  <input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === "Enter" && code.length === 6) void verify2FA() }} placeholder="000000" aria-label="6-digit code" autoFocus className={codeInput} />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={verify2FA} disabled={loading || code.length !== 6} className={primary}>{totpFlow === 'verifying' ? "Checking..." : "Confirm and turn on"}</button>
+                    <button type="button" onClick={() => { setTwofa(null); setCode(''); setTotpFlow('idle') }} className={ghost}>Cancel</button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
+        </section>
 
-          {(smsFlow === 'sent' || smsFlow === 'verifying') && (
-            <div className="mt-4 border-2 border-slate-200 rounded-xl p-3 sm:p-4 bg-slate-50 w-full max-w-full box-border">
-              <p className="text-xs sm:text-sm text-slate-600 mb-3 break-words">A code was sent to <strong>{status?.phone || me?.phone || 'your phone'}</strong>. Enter it below to verify.</p>
-              <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full max-w-full">
-                <input 
-                  value={smsCode} 
-                  onChange={e => setSmsCode(e.target.value.replace(/\D/g, ''))} 
-                  placeholder="Enter SMS code" 
-                  maxLength={6}
-                  className="col-span-2 w-full max-w-full min-w-0 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 border-2 border-slate-200 rounded-lg text-xs sm:text-sm font-mono text-center focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-all duration-200 box-border" 
-                />
-                <button
-                  onClick={handleSmsVerify}
-                  disabled={smsFlow === 'verifying' || smsCode.length < 4}
-                  className={`w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold rounded-lg transition-all duration-300 border min-w-0 ${
-                    smsFlow === 'verifying' || smsCode.length < 4
-                      ? 'text-slate-400 bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed' 
-                      : 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200 hover:border-emerald-300'
-                  }`}
-                >
-                  {smsFlow === 'verifying' ? (
-                    <>
-                      <div className="h-3.5 w-3.5 sm:h-4 sm:w-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                      <span className="truncate">Verifying</span>
-                    </>
-                  ) : (
-                    <span className="truncate">Verify</span>
-                  )}
-                </button>
-                <button 
-                  onClick={() => { setSmsFlow('idle'); setSmsCode('') }} 
-                  className="w-full inline-flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all duration-300 border border-slate-200 hover:border-slate-300 min-w-0"
-                >
-                  <span className="truncate">Cancel</span>
-                </button>
+        {/* Text message */}
+        <section className={`overflow-hidden rounded-2xl border border-solid bg-white ${smsOn ? "border-[#02665e]/40" : "border-slate-200"}`}>
+          <header className="flex items-start gap-3.5 px-6 pb-4 pt-5">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><MessageSquare className="h-5 w-5" aria-hidden /></span>
+            <div className="min-w-0 flex-1">
+              <h2 className="m-0 text-base font-bold text-slate-900">Text message</h2>
+              <p className="m-0 mt-0.5 text-xs leading-5 text-slate-500">We text a 6-digit code to {maskedPhone ? <strong className="font-mono text-slate-700">{maskedPhone}</strong> : "your phone"} each time you sign in. Needs signal.</p>
+            </div>
+            <Pill on={smsOn} />
+          </header>
+
+          <div className="border-0 border-t border-solid border-slate-100 px-6 py-5">
+            {!phone && !smsOn ? (
+              <div className="rounded-xl bg-amber-50 p-4 ring-1 ring-inset ring-amber-200">
+                <p className="m-0 text-sm font-bold text-amber-900">Add a phone number first</p>
+                <p className="m-0 mt-1 text-xs text-amber-900/80">Text codes need the phone number on your profile.</p>
+                <Link href="/owner/profile" className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3 text-xs font-bold text-amber-900 no-underline ring-1 ring-inset ring-amber-300 hover:bg-amber-100">Open my profile <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
               </div>
-            </div>
-          )}
-
-          {!me?.phone && (
-            <div className="mt-4 rounded-xl bg-amber-50 border-2 border-amber-200 p-3 sm:p-4">
-              <p className="text-xs sm:text-sm text-amber-800">
-                <strong>Note:</strong> A phone number is required for SMS 2FA. Please update your profile with a phone number first.
-              </p>
-            </div>
-          )}
-
-          <div className="mt-6 flex justify-start pt-4 border-t border-slate-200">
-            <Link 
-              href="/owner/settings" 
-              className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all duration-300 border border-slate-200 hover:border-slate-300 no-underline"
-              aria-label="Back to Settings"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              <span>Back to Settings</span>
-            </Link>
+            ) : smsOn ? (
+              !showSmsDisableInput ? (
+                <button type="button" onClick={handleSmsDisableClick} disabled={loading || sending} className={turnOff}>{sending ? "Sending a code..." : "Turn off text codes"}</button>
+              ) : (
+                <div className="space-y-3">
+                  <label htmlFor="sms-off" className="text-xs font-bold text-slate-700">We sent a code to {maskedPhone}. Enter it to turn text codes off.</label>
+                  <input id="sms-off" inputMode="numeric" maxLength={6} value={smsCode} onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ''))} placeholder="000000" autoFocus className={codeInput} />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={handleSmsDisable} disabled={loading || smsCode.length !== 6} className={danger}>{loading ? "Turning off..." : "Turn off"}</button>
+                    <button type="button" onClick={cancelSmsDisable} disabled={loading} className={ghost}>Keep it on</button>
+                  </div>
+                </div>
+              )
+            ) : smsFlow === 'sent' || smsFlow === 'verifying' ? (
+              <div className="space-y-3">
+                <p className="m-0 text-sm text-slate-700">Enter the code we texted to <strong className="font-mono">{maskedPhone}</strong>.</p>
+                <input inputMode="numeric" maxLength={6} value={smsCode} onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === "Enter" && smsCode.length === 6) void handleSmsVerify() }} placeholder="000000" aria-label="Text message code" autoFocus className={codeInput} />
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={handleSmsVerify} disabled={smsFlow === 'verifying' || smsCode.length !== 6} className={primary}>{smsFlow === 'verifying' ? "Checking..." : "Confirm and turn on"}</button>
+                  <button type="button" onClick={handleSmsSend} disabled={sending} className={ghost}>{sending ? "Sending..." : "Send a new code"}</button>
+                  <button type="button" onClick={() => { setSmsFlow('idle'); setSmsCode('') }} className="inline-flex h-11 items-center border-0 bg-transparent px-2 text-sm font-semibold text-slate-500 hover:text-slate-800">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="m-0 text-sm text-slate-700">We will text a code to your phone to confirm it is yours.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={handleSmsSend} disabled={sending} className={primary}>{sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <MessageSquare className="h-4 w-4" aria-hidden />}{sending ? "Sending..." : "Text me a code"}</button>
+                  <button type="button" onClick={() => setSmsFlow('sent')} className={ghost}>I already have a code</button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>
     </div>
   )
 }
-
