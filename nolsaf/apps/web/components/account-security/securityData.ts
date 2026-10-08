@@ -54,3 +54,29 @@ export function relativeTime(iso: string) {
 export function unwrapMe(payload: any) {
   return payload?.ok && payload?.data ? payload.data : payload?.data || payload
 }
+
+/** Where a security area lives and what it protects, so owners and guests share one set of pages. */
+export type SecurityScope = {
+  /** Route of the security overview, e.g. /owner/settings or /account/security. */
+  base: string;
+  /** Where the user adds a phone number. */
+  profileHref: string;
+  /** Finishes "Only a password protects ..." */
+  protects: string;
+  /** One line under the Overview title. */
+  overviewBlurb: string;
+};
+
+export const OWNER_SECURITY: SecurityScope = {
+  base: "/owner/settings",
+  profileHref: "/owner/profile",
+  protects: "your account and your payouts",
+  overviewBlurb: "Your account controls your properties, bookings and payouts. Keep it locked to you.",
+};
+
+export const CUSTOMER_SECURITY: SecurityScope = {
+  base: "/account/security",
+  profileHref: "/account/profile",
+  protects: "your account and your bookings",
+  overviewBlurb: "Your account holds your bookings, payments and travel details. Keep it locked to you.",
+};
