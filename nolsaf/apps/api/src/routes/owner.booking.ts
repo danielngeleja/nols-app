@@ -410,9 +410,28 @@ const confirmCheckin: RequestHandler = async (req, res) => {
     return (res as Response).status(400).json({ error: "No booking code found for this booking" });
   }
 
+  // Confirm takes a code too, so it shares the preview's lockout. Without this,
+  // repeated confirm calls could guess codes with no limit.
+  const lockStatus = await getBookingCodeLockoutStatus(r.user!.id);
+  if (lockStatus.locked) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((lockStatus.remainingMs ?? 0) / 1000));
+    return (res as Response).status(429).json({
+      error: `Too many invalid booking code attempts. Please wait ${retryAfterSeconds} seconds before trying again.`,
+      lockedUntil: lockStatus.lockedUntil,
+      retryAfterSeconds,
+      remainingAttempts: 0,
+    });
+  }
+
   const proof = await validateBookingCode(presentedCode, r.user!.id, true);
   if (!proof.valid || proof.booking?.id !== booking.id) {
-    return (res as Response).status(400).json({ error: "The guest check-in code does not match this booking." });
+    const attempt = await recordBookingCodeFailure(r.user!.id);
+    return (res as Response).status(attempt.locked ? 429 : 400).json({
+      error: attempt.locked
+        ? "Too many invalid booking code attempts. Validation is locked for 5 minutes."
+        : "The guest check-in code does not match this booking.",
+      remainingAttempts: attempt.remainingAttempts,
+    });
   }
 
   // Enforce policy: validation only allowed within check-in/check-out date window.
