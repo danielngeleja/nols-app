@@ -1,5 +1,6 @@
 import type { Server as SocketServer } from "socket.io";
 import { startExpireGroupBookingDeposits } from "./expireGroupBookingDeposits.js";
+import { startCloseUnpaidPastGroupStays } from "./closeUnpaidPastGroupStays.js";
 import { startExpireAgentHoldsWorker } from "./expireAgentHolds.js";
 import { startExpireStaleBookings } from "./expireStaleBookings.js";
 import { startOwnerBusinessLicenceExpiryReminders } from "./ownerBusinessLicenceExpiryReminders.js";
@@ -110,6 +111,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startGuestCodeRequestReminders();
       // Expire group stay offers whose 24h deposit window has passed.
       startExpireGroupBookingDeposits();
+      // Close unpaid group stays once their arrival day has passed.
+      startCloseUnpaidPastGroupStays();
       // Flip lapsed agent request-to-book holds to EXPIRED and free their rooms.
       startExpireAgentHoldsWorker();
       startGuestSmsCampaignWorker();

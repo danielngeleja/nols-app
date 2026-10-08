@@ -465,8 +465,10 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   // Hotel clock in the header: the desk always sees Tanzania time, whatever the device says.
-  const [clock, setClock] = useState(() => new Date());
+  // Starts empty: the server's time would never match the browser's at hydration (React error 418).
+  const [clock, setClock] = useState<Date | null>(null);
   useEffect(() => {
+    setClock(new Date());
     const timer = window.setInterval(() => setClock(new Date()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -938,10 +940,14 @@ function NrmsShell({ children }: { children: ReactNode }) {
               <p className="m-0 mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
                 {!paymentsHome && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />}
                 <span className="truncate">{paymentsHome ? "Payment onboarding across your properties" : accessRole === "OWNER" ? "Live property operations" : roleSubtitle}</span>
-                <span className="hidden shrink-0 text-slate-300 sm:inline" aria-hidden>·</span>
-                <span className="hidden shrink-0 tabular-nums sm:inline">
-                  {clock.toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", weekday: "short", day: "numeric", month: "short" })}, {clock.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })} EAT
-                </span>
+                {clock && (
+                  <>
+                    <span className="hidden shrink-0 text-slate-300 sm:inline" aria-hidden>·</span>
+                    <span className="hidden shrink-0 tabular-nums sm:inline">
+                      {clock.toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", weekday: "short", day: "numeric", month: "short" })}, {clock.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })} EAT
+                    </span>
+                  </>
+                )}
               </p>
             </div>
             {/* Only an owner with more than one property may switch. Staff are

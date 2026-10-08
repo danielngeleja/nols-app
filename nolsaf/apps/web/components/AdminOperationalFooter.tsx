@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Activity, Headphones, HeartPulse, ScrollText } from "lucide-react";
+import { Activity, Headphones, RefreshCw, ScrollText } from "lucide-react";
 
 type HealthState = "checking" | "healthy" | "unavailable";
 type ImpactSummary = {
@@ -144,21 +144,37 @@ export default function AdminOperationalFooter() {
     : !impact
       ? "Checking impact"
       : impact.attentionRequired
-        ? impact.activeClients > 0
-          ? `${impact.impactedClients} / ${impact.activeClients} impacted`
-          : `${impact.impactedClients} client${impact.impactedClients === 1 ? "" : "s"} impacted`
-        : impact.activeClients > 0
-          ? `${impact.healthyClients} / ${impact.activeClients} healthy`
-          : "No active impact";
+        ? `${impact.impactedClients} impacted`
+        : "No impact";
+  const impactDetail = impact && !impactUnavailable
+    ? `${impact.activeClients} active now`
+    : null;
   const impactTitle = impactUnavailable
     ? "Could not load client impact data"
     : !impact
       ? "Checking authenticated client impact"
       : impact.attentionRequired
-        ? `${impact.impactedClients} authenticated client${impact.impactedClients === 1 ? " is" : "s are"} currently impacted. Review required.`
+        ? `${impact.impactedClients} authenticated client${impact.impactedClients === 1 ? " has" : "s have"} an open impact. ${impact.activeClients} client${impact.activeClients === 1 ? " is" : "s are"} active right now. Review required.`
         : impact.activeClients > 0
           ? `${impact.healthyClients} of ${impact.activeClients} active authenticated clients have no open impact.`
           : "No authenticated clients are currently active and no open impact requires attention.";
+
+  const speed = latencyMs == null
+    ? null
+    : latencyMs < 400
+      ? { label: "fast", tone: "text-emerald-300" }
+      : latencyMs < 1500
+        ? { label: "slow", tone: "text-amber-300" }
+        : { label: "very slow", tone: "text-rose-300" };
+  const latencyText = latencyMs == null ? null : latencyMs < 1000 ? `${latencyMs} ms` : `${(latencyMs / 1000).toFixed(1)} s`;
+  const checkedEat = lastCheckedAt?.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" });
+  const envTone = /prod/i.test(environment) ? "bg-emerald-400" : /stag|preview/i.test(environment) ? "bg-amber-400" : "bg-sky-400";
+
+  const recheck = () => {
+    setHealth("checking");
+    void checkHealth();
+    void checkImpact();
+  };
 
   return (
     <footer
@@ -166,21 +182,37 @@ export default function AdminOperationalFooter() {
       className="relative z-10 mx-3 mb-3 mt-2 shrink-0 rounded-2xl border border-white/10 bg-[#0b1424] px-3.5 py-2 shadow-[0_10px_24px_rgba(8,20,36,0.16)] sm:px-5"
     >
       <div className="flex min-h-9 items-center justify-between gap-3">
-        <Link
-          href="/admin/observability"
-          className="group inline-flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-300 no-underline transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
-          title={`${statusTitle} · Open observability`}
-          aria-label={`${statusLabel}. ${statusTitle}. Open observability.`}
-        >
-          <span className="relative flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden>
-            <span className={`absolute h-2 w-2 rounded-full ${statusTone}`} />
-            <HeartPulse className={`relative h-3.5 w-3.5 ${health === "healthy" ? "text-emerald-300" : "text-transparent"}`} />
-          </span>
-          <span className="truncate">{statusLabel}</span>
-          {health === "healthy" && latencyMs != null && (
-            <span className="hidden font-medium tabular-nums text-slate-400 lg:inline">· {latencyMs} ms</span>
-          )}
-        </Link>
+        <div className="flex min-w-0 items-center gap-1">
+          <Link
+            href="/admin/observability"
+            className="group inline-flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-200 no-underline transition-colors hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/30"
+            title={`${statusTitle} · Open observability`}
+            aria-label={`${statusLabel}. ${statusTitle}. Open observability.`}
+          >
+            <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
+              {health !== "unavailable" && <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${statusTone}`} />}
+              <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${statusTone}`} />
+            </span>
+            <span className="truncate">{statusLabel}</span>
+            {health === "healthy" && latencyText && speed && (
+              <span className="hidden items-center gap-1 rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[11px] font-semibold tabular-nums lg:inline-flex">
+                <span className={speed.tone}>{latencyText}</span>
+                <span className="text-slate-500">{speed.label}</span>
+              </span>
+            )}
+            {checkedEat && <span className="hidden text-[11px] font-medium tabular-nums text-slate-500 xl:inline">checked {checkedEat} EAT</span>}
+          </Link>
+          <button
+            type="button"
+            onClick={recheck}
+            disabled={health === "checking"}
+            aria-label="Check again"
+            title="Check again"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-white disabled:cursor-default"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${health === "checking" ? "animate-spin" : ""}`} aria-hidden />
+          </button>
+        </div>
 
         <nav aria-label="Admin footer shortcuts" className="hidden items-center gap-1 sm:flex">
           {quickLinks.map(({ href, label, Icon }) => (
@@ -193,6 +225,7 @@ export default function AdminOperationalFooter() {
               {label}
             </Link>
           ))}
+          <span className="mx-1 h-4 w-px bg-white/10" aria-hidden />
           <Link
             href="/admin/observability"
             title={impactTitle}
@@ -203,18 +236,20 @@ export default function AdminOperationalFooter() {
                 : "text-slate-400 hover:bg-white/[0.07] hover:text-emerald-300 focus-visible:ring-emerald-400/30"
             }`}
           >
-            <span className="relative flex h-4 w-4 items-center justify-center" aria-hidden>
-              <Activity className={`relative h-3.5 w-3.5 ${impact?.attentionRequired ? "text-rose-600" : ""}`} />
-            </span>
-            {impactLabel}
+            <Activity className={`h-3.5 w-3.5 ${impact?.attentionRequired ? "text-red-300" : ""}`} aria-hidden />
+            <span>{impactLabel}</span>
+            {impactDetail && (
+              <span className={`border-0 border-l border-solid pl-1.5 font-medium ${impact?.attentionRequired ? "border-red-400/30 text-red-300/70" : "border-white/10 text-slate-500"}`}>{impactDetail}</span>
+            )}
           </Link>
         </nav>
 
         <div className="flex shrink-0 items-center gap-2 text-[11px] font-semibold text-slate-400">
-          <span className="hidden rounded-full border border-white/10 bg-white/[0.05] px-2 py-1 capitalize md:inline-flex">
+          <span className="hidden items-center gap-1.5 rounded-full border border-solid border-white/10 bg-white/[0.05] px-2.5 py-1 capitalize md:inline-flex">
+            <span className={`h-1.5 w-1.5 rounded-full ${envTone}`} aria-hidden />
             {environment}
           </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-1 tabular-nums">
+          <span className="rounded-full border border-solid border-white/10 bg-white/[0.05] px-2.5 py-1 tabular-nums">
             v{VERSION}
           </span>
         </div>

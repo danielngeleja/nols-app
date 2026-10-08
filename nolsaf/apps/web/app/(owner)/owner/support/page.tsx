@@ -80,9 +80,9 @@ const FAQS: Faq[] = [
   {
     topic: "payouts",
     q: "When do I get paid for a stay?",
-    a: "From 28 October 2026 each stay unlocks for payout 24 hours after check-in, or 24 hours after check-out when the guest paid by card. When it shows Ready, tap Withdraw and confirm with the one-time code.",
+    a: "From 28 October 2026 a stay's payout is ready as soon as you validate the guest's check-in code and NoLSAF has confirmed the guest's payment. When it shows Ready, tap Withdraw and confirm with the one-time code.",
     steps: [
-      "Unlocking: the 24 hour safety window runs",
+      "Check-in: validate the guest's code at arrival",
       "Ready: tap Withdraw on My Payouts",
       "Enter the one-time code sent to you",
       "Sending: NoLSAF pays your verified payout account",
