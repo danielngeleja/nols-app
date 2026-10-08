@@ -199,21 +199,13 @@ export default function ReportsFilter({
   const moreRanges = rangePresets.slice(3) as unknown as Array<(typeof rangePresets)[number] & { key: MoreRangeKey }>;
 
   return (
-    <div className="relative rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Subtle cross-hatch bg */}
-      <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #02665e 0, #02665e 1px, transparent 0, transparent 50%)', backgroundSize: '20px 20px' }} />
-      <div className="relative bg-white/95">
-      <div className="px-4 sm:px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-        <div className="h-6 w-6 rounded-md bg-[#02665e]/10 flex items-center justify-center">
-          <Sliders className="h-3 w-3 text-[#02665e]" />
-        </div>
-        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Filters</span>
-      </div>
-      <div className="px-4 sm:px-5 py-3.5">
+    <div className="rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div>
+      <div className="px-4 sm:px-5 py-4">
         <div className="flex items-end gap-3 overflow-x-auto flex-nowrap pb-1 -mb-1">
 
           <div className="shrink-0 w-[180px]">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">From</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1.5">From</div>
             <DatePickerField
               label="From date"
               value={filters.from}
@@ -224,7 +216,7 @@ export default function ReportsFilter({
           </div>
 
           <div className="shrink-0 w-[180px]">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">To</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1.5">To</div>
             <DatePickerField
               label="To date"
               value={filters.to}
@@ -236,13 +228,13 @@ export default function ReportsFilter({
           </div>
 
           <div className="min-w-[220px] flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Property</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Property</div>
             <label className="relative block">
               <span className="sr-only">Property</span>
               <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" aria-hidden />
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" aria-hidden />
               <select
-                className="h-10 w-full pl-9 pr-9 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e]/30 appearance-none"
+                className="h-10 w-full pl-9 pr-9 rounded-xl border border-solid border-slate-300 bg-white text-sm text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-[#02665e]/20 focus:border-[#02665e]/30 appearance-none"
                 title="Property"
                 aria-label="Property"
                 value={filters.propertyId ?? ""}
@@ -257,7 +249,7 @@ export default function ReportsFilter({
           </div>
 
           <div className="shrink-0">
-            <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Range</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Range</div>
             <div className="flex items-center gap-1.5 flex-nowrap">
               {primaryRanges.map((p) => {
                 const pr = getQuickRange(p.key);
@@ -286,9 +278,9 @@ export default function ReportsFilter({
 
           {effectiveExportHref ? (
             <div className="shrink-0">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Export</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-1.5">Export</div>
               <a
-                className="no-underline inline-flex items-center justify-center h-10 px-3.5 rounded-xl border border-[#02665e]/20 bg-[#02665e]/5 text-[#02665e] shadow-sm hover:bg-[#02665e]/10 active:scale-[0.97] transition text-xs font-bold gap-1.5"
+                className="no-underline inline-flex items-center justify-center h-10 px-3.5 rounded-xl border border-solid border-slate-300 bg-white text-slate-700 hover:border-[#02665e]/40 hover:text-[#02665e] active:scale-[0.97] transition text-xs font-bold gap-1.5"
                 href={effectiveExportHref}
                 target="_blank"
                 rel="noreferrer"
@@ -345,7 +337,7 @@ function MoreOptionsPopover({
             ref={buttonRef}
             type="button"
             className={
-              "h-10 w-10 inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/50 " +
+              "h-10 w-10 inline-flex items-center justify-center rounded-xl border border-solid border-slate-300 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/50 " +
               (open ? "ring-1 ring-slate-200 bg-slate-50" : "")
             }
             title="More options"
@@ -392,7 +384,7 @@ function MoreOptionsPopover({
                           className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300/50"
                           title={p.hint}
                         >
-                          <span className={"h-2 w-2 rounded-sm flex-shrink-0 " + p.accent} aria-hidden />
+                          <span className="h-1.5 w-1.5 rounded-full flex-shrink-0 bg-slate-300" aria-hidden />
                           <div className="min-w-0 text-left">
                             <div className="font-bold text-xs leading-5">{p.label}</div>
                             <div className="text-[10px] text-slate-400 leading-4 truncate">{p.hint}</div>
@@ -445,13 +437,12 @@ function MoreOptionsPopover({
 function RangePill({
   label,
   hint,
-  accentClassName,
   active,
   onClick,
 }: {
   label: string;
   hint: string;
-  accentClassName: string;
+  accentClassName?: string;
   active: boolean;
   onClick: () => void;
 }) {
@@ -461,16 +452,13 @@ function RangePill({
       onClick={onClick}
       aria-label={hint}
       className={
-        "group relative h-10 px-3.5 rounded-xl border text-xs font-bold shadow-sm transition-all duration-150 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
+        "group relative h-10 px-3.5 rounded-xl border border-solid text-xs font-bold transition-all duration-150 active:scale-[0.97] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/30 " +
         (active
-          ? "bg-[#02665e] border-transparent text-white shadow-[#02665e]/20"
-          : "bg-white border-slate-200 text-slate-600 hover:bg-[#02665e]/5 hover:text-[#02665e] hover:border-[#02665e]/20")
+          ? "bg-[#012a26] border-[#012a26] text-white"
+          : "bg-white border-slate-300 text-slate-600 hover:bg-[#02665e]/5 hover:text-[#02665e] hover:border-[#02665e]/30")
       }
     >
-      <span className="inline-flex items-center gap-1.5">
-        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${active ? "bg-white/60" : accentClassName}`} aria-hidden />
-        <span>{label}</span>
-      </span>
+      <span>{label}</span>
 
       <span
         role="tooltip"

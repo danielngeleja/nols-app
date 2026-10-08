@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo } from "react";
-import apiClient from "@/lib/apiClient";
-import { Users, Calendar, MapPin, User, CheckCircle, Loader2, Eye, XCircle, Filter, ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-
-const api = apiClient;
+import { ArrowRight, BedDouble, Building2, Bus, Car, ChevronRight, CircleAlert, Clock3, Compass, HandHeart, MapPin, Moon, RefreshCw, Users, UtensilsCrossed, Wrench } from "lucide-react";
+import apiClient from "@/lib/apiClient";
+import { GroupStaysBand, StatusTabs, humanize, nightsBetween, placeName } from "@/components/owner-groups/GroupStaysChrome";
 
 type GroupStay = {
   id: number;
+  /** Opaque gs_ reference for the page URL. */
+  reference?: string;
   groupType: string;
   accommodationType: string;
   headcount: number;
@@ -21,294 +22,232 @@ type GroupStay = {
   status: string;
   user: { id: number; name: string; email: string; phone: string | null } | null;
   confirmedProperty: { id: number; title: string; type: string; status: string } | null;
-  recommendedPropertyIds?: number[] | null;
   createdAt: string;
-  // Arrangement fields
   arrPickup?: boolean;
   arrTransport?: boolean;
   arrMeals?: boolean;
   arrGuide?: boolean;
   arrEquipment?: boolean;
-  pickupLocation?: string | null;
-  pickupTime?: string | null;
-  arrangementNotes?: string | null;
 };
 
-export default function OwnerGroupStaysPage() {
-  const [groupStays, setGroupStays] = useState<GroupStay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedStatus, setSelectedStatus] = useState<string>("");
-  const [filtersOpen, setFiltersOpen] = useState(false);
+/** Colour for each stage a group stay can be in. Unknown stages fall back to grey. */
+const STAGE_TONE: Record<string, { chip: string; tile: string }> = {
+  AWAITING_DEPOSIT: { chip: "bg-amber-50 text-amber-800 ring-amber-200", tile: "bg-amber-500 text-white" },
+  PENDING: { chip: "bg-amber-50 text-amber-800 ring-amber-200", tile: "bg-amber-500 text-white" },
+  PROCESSING: { chip: "bg-sky-50 text-sky-800 ring-sky-200", tile: "bg-sky-600 text-white" },
+  CONFIRMED: { chip: "bg-emerald-50 text-emerald-800 ring-emerald-200", tile: "bg-[#02665e] text-white" },
+  COMPLETED: { chip: "bg-slate-100 text-slate-700 ring-slate-200", tile: "bg-slate-700 text-white" },
+  CANCELED: { chip: "bg-rose-50 text-rose-700 ring-rose-200", tile: "bg-rose-100 text-rose-600" },
+  CANCELLED: { chip: "bg-rose-50 text-rose-700 ring-rose-200", tile: "bg-rose-100 text-rose-600" },
+};
+const toneOf = (status: string) => STAGE_TONE[status.toUpperCase()] ?? { chip: "bg-slate-100 text-slate-700 ring-slate-200", tile: "bg-slate-600 text-white" };
 
-  const loadData = useCallback(async () => {
+const EXTRAS: Array<{ key: keyof GroupStay; label: string; Icon: typeof Bus }> = [
+  { key: "arrPickup", label: "Pickup", Icon: Car },
+  { key: "arrTransport", label: "Transport", Icon: Bus },
+  { key: "arrMeals", label: "Meals", Icon: UtensilsCrossed },
+  { key: "arrGuide", label: "Guide", Icon: Compass },
+  { key: "arrEquipment", label: "Equipment", Icon: Wrench },
+];
+
+export default function OwnerGroupStaysPage() {
+  const [groupStays, setGroupStays] = useState<GroupStay[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
+
+  const load = useCallback(async () => {
+    setError(null);
     try {
-      setLoading(true);
-      // Always load all group stays for accurate filter counts
-      const response = await api.get("/api/owner/group-stays", { params: {} });
-      setGroupStays(response.data.items || []);
+      const response = await apiClient.get("/api/owner/group-stays");
+      setGroupStays(response.data?.items || []);
     } catch (err: any) {
-      console.error("Failed to load group stays:", err);
       setGroupStays([]);
-    } finally {
-      setLoading(false);
+      setError(err?.response?.data?.error || "Your group stays could not be loaded.");
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { void load(); }, [load]);
 
-  const getStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      PENDING: "bg-amber-100 text-amber-700 border-amber-200",
-      PROCESSING: "bg-blue-100 text-blue-700 border-blue-200",
-      CONFIRMED: "bg-green-100 text-green-700 border-green-200",
-      COMPLETED: "bg-emerald-100 text-emerald-700 border-emerald-200",
-      CANCELED: "bg-red-100 text-red-700 border-red-200",
-    };
-    return colors[status] || "bg-gray-100 text-gray-700 border-gray-200";
+  const list = useMemo(() => groupStays ?? [], [groupStays]);
+  // Tabs come from the stages actually present, so a new stage never hides a stay.
+  const tabs = useMemo(() => {
+    const order = ["AWAITING_DEPOSIT", "PENDING", "PROCESSING", "CONFIRMED", "COMPLETED", "CANCELED", "CANCELLED"];
+    const rank = (key: string) => (order.indexOf(key) === -1 ? 99 : order.indexOf(key));
+    const present = [...new Set(list.map((gs) => gs.status.toUpperCase()))].sort((a, b) => rank(a) - rank(b));
+    return [{ key: "", label: "All", count: list.length }, ...present.map((key) => ({ key, label: humanize(key), count: list.filter((gs) => gs.status.toUpperCase() === key).length }))];
+  }, [list]);
+  const shown = status ? list.filter((gs) => gs.status.toUpperCase() === status) : list;
+  const upcoming = list.filter((gs) => gs.checkIn && new Date(gs.checkIn).getTime() >= Date.now() && !["CANCELED", "CANCELLED", "COMPLETED"].includes(gs.status.toUpperCase()));
+  const guests = upcoming.reduce((sum, gs) => sum + (gs.headcount || 0), 0);
+  const awaitingDeposit = list.filter((gs) => gs.status.toUpperCase() === "AWAITING_DEPOSIT").length;
+  const now = Date.now();
+  const phaseOf = (gs: GroupStay) => {
+    const start = gs.checkIn ? new Date(gs.checkIn).getTime() : NaN;
+    const end = gs.checkOut ? new Date(gs.checkOut).getTime() : NaN;
+    if (Number.isFinite(start) && start > now) return "upcoming";
+    if (Number.isFinite(end) && end > now) return "now";
+    return Number.isFinite(start) ? "past" : "upcoming";
   };
-
-  // Calculate counts for filter tabs
-  const filterCounts = useMemo(() => {
-    return {
-      all: groupStays.length,
-      confirmed: groupStays.filter(gs => gs.status.toUpperCase() === 'CONFIRMED').length,
-      completed: groupStays.filter(gs => gs.status.toUpperCase() === 'COMPLETED').length,
-      canceled: groupStays.filter(gs => gs.status.toUpperCase() === 'CANCELED' || gs.status.toUpperCase() === 'CANCELLED').length,
-    };
-  }, [groupStays]);
-
-  // Filter group stays based on selected status
-  const filteredGroupStays = useMemo(() => {
-    if (!selectedStatus) return groupStays;
-    return groupStays.filter(gs => gs.status.toUpperCase() === selectedStatus.toUpperCase());
-  }, [groupStays, selectedStatus]);
-
-  const filterTabs: { key: string; label: string; icon: any; count: number }[] = [
-    { key: '', label: 'All', icon: Users, count: filterCounts.all },
-    { key: 'CONFIRMED', label: 'Confirmed', icon: CheckCircle, count: filterCounts.confirmed },
-    { key: 'COMPLETED', label: 'Completed', icon: CheckCircle, count: filterCounts.completed },
-    { key: 'CANCELED', label: 'Canceled', icon: XCircle, count: filterCounts.canceled },
-  ];
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "Not specified";
-    try {
-      return new Date(dateStr).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-brand" />
-      </div>
-    );
-  }
+  const byStart = (a: GroupStay, b: GroupStay) => new Date(a.checkIn ?? 0).getTime() - new Date(b.checkIn ?? 0).getTime();
+  const sections = [
+    { key: "now", label: "In progress", hint: "the group is staying now", items: shown.filter((gs) => phaseOf(gs) === "now").sort(byStart) },
+    { key: "upcoming", label: "Upcoming", hint: "soonest first", items: shown.filter((gs) => phaseOf(gs) === "upcoming").sort(byStart) },
+    { key: "past", label: "Past dates", hint: "most recent first", items: shown.filter((gs) => phaseOf(gs) === "past").sort((a, b) => byStart(b, a)) },
+  ].filter((section) => section.items.length > 0);
 
   return (
-    <div className="space-y-8 pb-8">
-      {/* Header */}
-      <div className="flex flex-col items-center justify-center text-center space-y-3">
-        <div className="inline-flex items-center justify-center h-20 w-20 rounded-2xl bg-white border-2 border-brand-200 shadow-lg shadow-brand-500/10 mb-2 transition-all duration-300 hover:scale-105">
-          <Users className="h-10 w-10 text-brand" />
+    <div className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6">
+      <GroupStaysBand
+        title="Assigned to me"
+        subtitle="Group stays NoLSAF placed at your properties: who is coming, when, and what they need."
+        actions={
+          <Link href="/owner/group-stays/claims" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+            <HandHeart className="h-4 w-4" aria-hidden /> Find stays to claim
+          </Link>
+        }
+        stats={[
+          { label: "Assigned", value: groupStays === null ? "…" : list.length, hint: "all time" },
+          { label: "Upcoming", value: groupStays === null ? "…" : upcoming.length, hint: "not yet arrived", tone: "text-[#5eead4]" },
+          { label: "Guests coming", value: groupStays === null ? "…" : guests, hint: "across upcoming stays" },
+          { label: "Awaiting deposit", value: groupStays === null ? "…" : awaitingDeposit, hint: "group has not paid yet", tone: awaitingDeposit ? "text-amber-200" : "text-white/50" },
+        ]}
+      />
+
+      {error && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => void load()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-bold text-white"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
         </div>
-        <div>
-          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">Group Stays Assigned to Me</h1>
-          <p className="text-base text-slate-600 mt-3 max-w-2xl mx-auto leading-relaxed">
-            View and manage group stays assigned to you
-          </p>
-        </div>
-      </div>
+      )}
 
-      {/* Filter Section */}
-      <div className="flex flex-col items-center gap-4">
-        {/* Filter Toggle Button */}
-        {(() => {
-          const activeTab = filterTabs.find(t => t.key === selectedStatus);
-          const currentLabel = activeTab?.label || 'All Statuses';
-          const currentCount = activeTab?.count || filterCounts.all;
-          return (
-            <button
-              onClick={() => setFiltersOpen(!filtersOpen)}
-              className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-xl border-2 border-slate-200 bg-white hover:bg-slate-50 hover:border-brand hover:shadow-md transition-all duration-300 font-semibold text-sm text-slate-700"
-            >
-              <Filter className="h-4 w-4 text-brand" />
-              <span>{currentLabel}</span>
-              {currentCount > 0 && (
-                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-brand-50 text-brand-700 border border-brand-200">
-                  {currentCount}
-                </span>
-              )}
-              <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${filtersOpen ? 'rotate-180' : ''}`} />
-            </button>
-          );
-        })()}
+      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+        <div className="px-3 sm:px-4"><StatusTabs tabs={tabs} value={status} onChange={setStatus} /></div>
 
-        {/* Filter Tabs - Collapsible */}
-        {filtersOpen && (
-          <div className="flex flex-wrap items-center justify-center gap-3 w-full animate-in fade-in slide-in-from-top-2 duration-200">
-            {filterTabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = selectedStatus === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => {
-                    setSelectedStatus(tab.key);
-                    setFiltersOpen(false); // Close filters after selection
-                  }}
-                  className={`inline-flex items-center gap-2.5 px-5 py-2.5 rounded-xl border-2 transition-all duration-300 font-semibold text-sm ${
-                    isActive
-                      ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white border-brand-600 shadow-lg shadow-brand-500/30 scale-105'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md hover:scale-105'
-                  }`}
-                >
-                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-500'}`} />
-                  <span>{tab.label}</span>
-                  {tab.count > 0 && (
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                      isActive 
-                        ? 'bg-white/25 text-white backdrop-blur-sm' 
-                        : 'bg-slate-100 text-slate-700'
-                    }`}>
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Group Stays List */}
-      <div className="space-y-4">
-        {filteredGroupStays.length === 0 ? (
-          <div className="bg-white rounded-xl p-12 text-center">
-            <Users className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-            <p className="text-slate-600">
-              {selectedStatus ? `No ${filterTabs.find(t => t.key === selectedStatus)?.label.toLowerCase()} group stays` : 'No group stays assigned to you'}
-            </p>
+        {groupStays === null ? (
+          <ul className="m-0 list-none p-0" aria-busy="true">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="flex items-center gap-4 border-0 border-b border-solid border-slate-100 px-5 py-4">
+                <div className="h-14 w-12 rounded-xl bg-slate-100" />
+                <div className="flex-1 space-y-2"><div className="h-3.5 w-48 rounded-full bg-slate-100" /><div className="h-3 w-80 max-w-full rounded-full bg-slate-50" /></div>
+              </li>
+            ))}
+          </ul>
+        ) : shown.length === 0 ? (
+          <div className="flex flex-col items-center px-6 py-12 text-center">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500"><Users className="h-6 w-6" aria-hidden /></span>
+            <p className="m-0 mt-3 text-sm font-bold text-slate-900">{status ? `No ${humanize(status).toLowerCase()} group stays` : "No group stays assigned to you yet"}</p>
+            <p className="m-0 mt-1 max-w-sm text-xs leading-5 text-slate-500">When NoLSAF places a group at one of your properties, or accepts one of your offers, it appears here.</p>
+            {!status && (
+              <Link href="/owner/group-stays/claims" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
+                See stays open to claim <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            )}
           </div>
         ) : (
-          filteredGroupStays.map((gs) => (
-            <div 
-              key={gs.id} 
-              className="group relative bg-white rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5"
-            >
-              {/* Left accent bar */}
-              <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-brand via-brand-500 to-brand-600"></div>
-              
-              <div className="pl-5 pr-4 py-4">
-                <div className="flex items-center gap-4">
-                  {/* Icon section - Smaller */}
-                  <div className="flex-shrink-0">
-                    <div className="h-12 w-12 rounded-lg bg-brand/10 flex items-center justify-center transition-all duration-300 group-hover:bg-brand/15 group-hover:scale-105">
-                      <Users className="h-6 w-6 text-brand" />
-                    </div>
-                  </div>
-                  
-                  {/* Content section - Compact horizontal layout */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2 flex-wrap">
-                      <h3 className="text-base font-bold text-slate-900 group-hover:text-brand transition-colors">
-                        Group Stay #{gs.id}
-                      </h3>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getStatusBadge(gs.status)}`}>
-                        {gs.status}
-                      </span>
-                    </div>
-
-                    {/* Compact info row */}
-                    <div className="flex items-center gap-3 flex-wrap text-sm">
-                      {/* Customer name */}
-                      {gs.user && (
-                        <div className="flex items-center gap-1.5">
-                          <User className="h-3.5 w-3.5 text-slate-400" />
-                          <span className="text-slate-700 font-medium">{gs.user.name || "N/A"}</span>
-                        </div>
-                      )}
-                      
-                      {/* Divider */}
-                      {gs.user && <div className="h-3 w-px bg-slate-200"></div>}
-                      
-                      {/* Group type */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-500">Type:</span>
-                        <span className="text-slate-700 font-medium capitalize">{gs.groupType}</span>
-                      </div>
-                      
-                      {/* Divider */}
-                      <div className="h-3 w-px bg-slate-200"></div>
-                      
-                      {/* Headcount */}
-                      <div className="flex items-center gap-1.5">
-                        <Users className="h-3.5 w-3.5 text-slate-400" />
-                        <span className="text-slate-700 font-medium">{gs.headcount} people</span>
-                      </div>
-                      
-                      {/* Divider */}
-                      <div className="h-3 w-px bg-slate-200"></div>
-                      
-                      {/* Accommodation Type */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-500">Accommodation:</span>
-                        <span className="text-slate-700 font-medium capitalize">{gs.accommodationType}</span>
-                      </div>
-                      
-                      {/* Divider */}
-                      <div className="h-3 w-px bg-slate-200"></div>
-                      
-                      {/* Destination - Compact */}
-                      <div className="flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5 text-slate-400" />
-                        <span className="text-slate-700 font-medium">{gs.toRegion}</span>
-                      </div>
-                      
-                      {/* Dates - Compact */}
-                      {(gs.checkIn || gs.checkOut) && (
-                        <>
-                          <div className="h-3 w-px bg-slate-200"></div>
-                          <div className="flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5 text-slate-400" />
-                            {gs.checkIn && (
-                              <span className="text-slate-700 text-xs">{formatDate(gs.checkIn)}</span>
-                            )}
-                            {gs.checkIn && gs.checkOut && <span className="text-slate-400">→</span>}
-                            {gs.checkOut && (
-                              <span className="text-slate-700 text-xs">{formatDate(gs.checkOut)}</span>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Actions - Eye icon only */}
-                  <div className="flex-shrink-0">
-                    <Link
-                      href={`/owner/group-stays/${gs.id}`}
-                      className="inline-flex items-center justify-center h-9 w-9 rounded-lg text-brand hover:bg-brand/10 transition-all duration-300 hover:scale-110"
-                      title="View Details"
-                    >
-                      <Eye className="h-5 w-5" />
-                    </Link>
-                  </div>
+          <div className="space-y-6 p-4 sm:p-5">
+            {sections.map((section) => (
+              <div key={section.key}>
+                <div className="mb-3 flex items-baseline gap-2">
+                  <h2 className="m-0 text-sm font-bold text-slate-900">{section.label}</h2>
+                  <span className="rounded-full bg-slate-100 px-2 text-[11px] font-bold tabular-nums text-slate-600">{section.items.length}</span>
+                  <span className="text-xs text-slate-400">{section.hint}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                  {section.items.map((gs) => <StayCard key={gs.id} gs={gs} />)}
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }
 
+const dayLabel = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", weekday: "short", day: "numeric", month: "short" }) : "Not set");
+
+/** One sentence on timing, and whether something is off (dates passed but still unpaid). */
+function whenLine(gs: GroupStay): { text: string; tone: string } {
+  const status = gs.status.toUpperCase();
+  const start = gs.checkIn ? new Date(gs.checkIn).getTime() : NaN;
+  const end = gs.checkOut ? new Date(gs.checkOut).getTime() : NaN;
+  const now = Date.now();
+  const days = (ms: number) => Math.max(1, Math.round(ms / 86_400_000));
+  if (["CANCELED", "CANCELLED"].includes(status)) return { text: "Cancelled. Nothing to prepare.", tone: "text-slate-500" };
+  if (!Number.isFinite(start)) return { text: "Dates not set yet", tone: "text-slate-500" };
+  if (start > now) {
+    const d = days(start - now);
+    return { text: d === 1 ? "Arrives tomorrow" : `Arrives in ${d} days`, tone: d <= 7 ? "text-[#02665e]" : "text-slate-600" };
+  }
+  if (Number.isFinite(end) && end > now) return { text: `In house, leaves in ${days(end - now)} day${days(end - now) === 1 ? "" : "s"}`, tone: "text-emerald-700" };
+  if (status === "AWAITING_DEPOSIT" || status === "PENDING") return { text: `Dates passed ${days(now - start)} days ago and the deposit was never paid`, tone: "text-rose-700" };
+  return { text: `Ended ${days(now - (Number.isFinite(end) ? end : start))} days ago`, tone: "text-slate-500" };
+}
+
+function StayCard({ gs }: { gs: GroupStay }) {
+  const tone = toneOf(gs.status);
+  const nights = nightsBetween(gs.checkIn, gs.checkOut);
+  const extras = EXTRAS.filter((extra) => Boolean(gs[extra.key]));
+  const place = [gs.toLocation, gs.toWard, gs.toDistrict, gs.toRegion].filter(Boolean).map((part) => placeName(part as string)).slice(0, 2).join(", ") || placeName(gs.toRegion);
+  const when = whenLine(gs);
+  const start = gs.checkIn ? new Date(gs.checkIn).getTime() : NaN;
+  const end = gs.checkOut ? new Date(gs.checkOut).getTime() : NaN;
+  const progress = Number.isFinite(start) && Number.isFinite(end) && end > start ? Math.min(100, Math.max(0, ((Date.now() - start) / (end - start)) * 100)) : 0;
+  return (
+    <Link href={`/owner/group-stays/${encodeURIComponent(gs.reference ?? String(gs.id))}`} className="group flex flex-col overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white no-underline shadow-[0_10px_30px_-26px_rgba(15,23,42,0.5)] transition hover:border-[#02665e]/35 hover:shadow-[0_18px_40px_-26px_rgba(1,42,38,0.5)]">
+      <div className="px-5 pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${tone.chip}`}>{humanize(gs.status)}</span>
+          <span className="text-[11px] font-semibold text-slate-400">Group #{gs.id}</span>
+        </div>
+        <h3 className="m-0 mt-2.5 text-lg font-bold leading-snug text-slate-900">{humanize(gs.groupType) || "Group"} group</h3>
+        <p className="m-0 mt-0.5 flex items-center gap-1.5 truncate text-xs text-slate-500"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />{place}</p>
+      </div>
+
+      <dl className="m-0 mx-5 mt-4 grid grid-cols-3 overflow-hidden rounded-xl bg-slate-50 ring-1 ring-inset ring-slate-200">
+        {[
+          { label: "Guests", value: gs.headcount, Icon: Users },
+          { label: "Rooms", value: gs.roomsNeeded, Icon: BedDouble },
+          { label: "Nights", value: nights ?? "?", Icon: Moon },
+        ].map((fact, index) => (
+          <div key={fact.label} className={`px-3 py-2.5 ${index > 0 ? "border-0 border-l border-solid border-slate-200" : ""}`}>
+            <dt className="flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400"><fact.Icon className="h-3 w-3" aria-hidden />{fact.label}</dt>
+            <dd className="m-0 mt-0.5 text-xl font-extrabold tabular-nums text-slate-900">{fact.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="mx-5 mt-4">
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span><span className="block text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400">Arrive</span><span className="font-semibold text-slate-800">{dayLabel(gs.checkIn)}</span></span>
+          <span className="text-right"><span className="block text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400">Leave</span><span className="font-semibold text-slate-800">{dayLabel(gs.checkOut)}</span></span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+          <div className={`h-full rounded-full ${tone.tile.split(" ")[0]}`} style={{ width: `${Math.max(progress, progress > 0 ? 4 : 0)}%` }} />
+        </div>
+        <p className={`m-0 mt-2 flex items-start gap-1.5 text-xs font-semibold ${when.tone}`}>
+          {when.tone.includes("rose") ? <CircleAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden /> : <Clock3 className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />}
+          {when.text}
+        </p>
+      </div>
+
+      <div className="mt-auto pt-4">
+        <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-slate-100 bg-slate-50/70 px-5 py-3">
+          {gs.confirmedProperty ? (
+            <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg bg-[#012a26] px-2.5 py-1 text-[11px] font-semibold text-[#5eead4]"><Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">{gs.confirmedProperty.title}</span></span>
+          ) : (
+            <span className="text-[11px] text-slate-400">{humanize(gs.accommodationType)}</span>
+          )}
+          {extras.length > 0 && (
+            <span className="flex items-center gap-1" aria-label={`Extras: ${extras.map((x) => x.label).join(", ")}`}>
+              {extras.map((extra) => (
+                <span key={extra.label} title={extra.label} className="grid h-7 w-7 place-items-center rounded-lg bg-white text-slate-500 ring-1 ring-inset ring-slate-200"><extra.Icon className="h-3.5 w-3.5" aria-hidden /></span>
+              ))}
+            </span>
+          )}
+          <span className="ml-auto inline-flex items-center gap-1 text-xs font-bold text-[#02665e]">Open <ChevronRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden /></span>
+        </div>
+      </div>
+    </Link>
+  );
+}

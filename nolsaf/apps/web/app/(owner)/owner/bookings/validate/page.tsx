@@ -1,8 +1,31 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ArrowLeft, Camera, FileCheck2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  BedDouble,
+  CalendarX2,
+  Clock,
+  Globe2,
+  Loader2,
+  Lock,
+  Mail,
+  Phone,
+  RotateCcw,
+  ScanLine,
+  ShieldAlert,
+  ShieldCheck,
+  UserCheck,
+  UserRound,
+  WifiOff,
+  X,
+  Check as CheckMark,
+  KeyRound,
+} from "lucide-react";
 import Support from "@/components/Support";
 import apiClient from "@/lib/apiClient";
+import GuestCodeRequestDialog from "@/components/owner-bookings/GuestCodeRequestDialog";
 import { useRouter } from "next/navigation";
 
 const api = apiClient;
@@ -27,6 +50,8 @@ type Preview = {
   };
 } | null;
 
+type NrmsRoom = { roomAssignmentRequired: boolean; reservationReference: string | null } | null;
+
 type Eligibility =
   | { canValidate: true; status: "IN_WINDOW"; reason?: undefined }
   | { canValidate: false; status: "BEFORE_CHECKIN" | "AFTER_CHECKOUT" | "INVALID_DATES" | "CODE_NOT_ACTIVE"; reason: string };
@@ -40,6 +65,9 @@ export default function CheckinValidation() {
   const [resultMsg, setResultMsg] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview>(null);
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  // NRMS properties: a physical room must be assigned before Confirm works.
+  const [roomNeeded, setRoomNeeded] = useState<{ href: string } | null>(null);
+  const [roomChecking, setRoomChecking] = useState(false);
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -53,6 +81,9 @@ export default function CheckinValidation() {
   const router = useRouter();
 
   const [lastValidated, setLastValidated] = useState<string | null>(null);
+  const [codeFocused, setCodeFocused] = useState(true);
+  // When the pass was loaded; places "today" on the stay timeline.
+  const [viewedAt, setViewedAt] = useState(0);
   const debounceRef = useRef<number | null>(null);
 
   const lockedMs = lockedUntil ? Math.max(0, lockedUntil - nowMs) : 0;
@@ -124,6 +155,27 @@ export default function CheckinValidation() {
     }
   }, [lockedUntil, nowMs]);
 
+  // Where "Assign the room" goes: straight to this guest's stay in NRMS with the
+  // room picker open, never a list the owner has to search.
+  function roomHref(reference: string | null | undefined) {
+    if (reference) return `/owner/nrms/reservations?reservation=${encodeURIComponent(reference)}&assign=1`;
+    return handoff.returnTo ?? "/owner/nrms/reservations";
+  }
+
+  // After assigning the room in NRMS (another tab), ask again without resetting the pass.
+  async function recheckRoom() {
+    if (!lastValidated) return;
+    setRoomChecking(true);
+    try {
+      const r = await api.post<{ nrms?: NrmsRoom }>("/api/owner/bookings/validate", { code: lastValidated });
+      setRoomNeeded(r.data?.nrms?.roomAssignmentRequired ? { href: roomHref(r.data.nrms.reservationReference) } : null);
+    } catch {
+      // Keep the strip; Confirm still checks on the server.
+    } finally {
+      setRoomChecking(false);
+    }
+  }
+
   const validate = useCallback(async (incomingCode?: string) => {
     const codeToUse = (incomingCode ?? code)?.trim();
     if (!codeToUse) return;
@@ -142,6 +194,7 @@ export default function CheckinValidation() {
     setResultMsg(null);
     setPreview(null);
     setEligibility(null);
+    setRoomNeeded(null);
     setRemainingAttempts(null);
     setAttempting(true);
 
@@ -165,12 +218,14 @@ export default function CheckinValidation() {
     }, 20000);
 
     try {
-      const r = await api.post<{ details: Preview; eligibility?: Eligibility }>("/api/owner/bookings/validate", { code: codeToUse });
+      const r = await api.post<{ details: Preview; eligibility?: Eligibility; nrms?: NrmsRoom }>("/api/owner/bookings/validate", { code: codeToUse });
       setPreview(r.data?.details ?? null);
       setEligibility((r.data as any)?.eligibility ?? null);
+      setRoomNeeded(r.data?.nrms?.roomAssignmentRequired ? { href: roomHref(r.data.nrms.reservationReference) } : null);
       setRemainingAttempts(null);
       setLockedUntil(null);
       setLastValidated(codeToUse);
+      setViewedAt(Date.now());
       if (!r.data?.details) setResultMsg("No details returned");
     } catch (e: any) {
       // network errors (no response) vs application errors
@@ -208,18 +263,19 @@ export default function CheckinValidation() {
       }
       setContactSuggest(false);
     }
-  }, [code, lastValidated, lockedUntil]);
+    // roomHref only reads handoff.returnTo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, lastValidated, lockedUntil, handoff.returnTo]);
 
   // legacy direct confirm removed; use handleConfirmWithConsent (modal flow) for confirmations.
 
-  // Confirmation modal state
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [agreeTerms, setAgreeTerms] = useState(false);
+  // Confirm state: the Disbursement Policy is agreed on the arrival pass itself.
   const [agreeDisbursement, setAgreeDisbursement] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
 
   // QR scan modal
   const [scanOpen, setScanOpen] = useState(false);
+  const [lostCodeOpen, setLostCodeOpen] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanActive, setScanActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -228,12 +284,14 @@ export default function CheckinValidation() {
 
   async function handleConfirmWithConsent() {
     if (!preview) return;
-    if (!agreeTerms || !agreeDisbursement) return setResultMsg("Please accept the Terms & Conditions and the Disbursement Policy to continue.");
+    if (!agreeDisbursement) return setResultMsg("Agree to the Disbursement Policy to continue.");
     setConfirmLoading(true);
     setResultMsg(null);
+    setRoomNeeded(null);
     try {
       const payload = {
         bookingId: preview.bookingId,
+        code,
         consent: {
           accepted: true,
           method: 'checkbox',
@@ -247,20 +305,27 @@ export default function CheckinValidation() {
           roomType: preview.booking.roomType,
           nights: preview.booking.nights,
           amountPaid: preview.booking.ownerBaseAmount ?? preview.booking.totalAmount,
-          bookingCode: (preview as any).booking?.code ?? null,
           nationality: preview.personal.nationality
         }
       };
       await api.post('/api/owner/bookings/confirm-checkin', payload);
-      setConfirmOpen(false);
 
       // notify sidebar (and any listeners) to refresh checked-in counts immediately
       window.dispatchEvent(new Event("nols:checkedin-changed"));
       // Back to whoever sent us here: the NRMS front desk when the arrival was
       // started there, otherwise the checked-in list as before.
-      router.push(handoff.returnTo ?? '/owner/bookings/checked-in');
+      // The opaque reference lets Guests in house show a one-time success banner.
+      router.push(handoff.returnTo ?? `/owner/bookings/checked-in?checkedIn=${encodeURIComponent(preview.bookingReference)}`);
     } catch (err: any) {
-      setResultMsg(err?.response?.data?.error ?? 'Could not confirm check-in');
+      const data = err?.response?.data ?? {};
+      if (data.code === "ROOM_ASSIGNMENT_REQUIRED") {
+        // NRMS properties need a physical room before arrival is committed.
+        // Send the owner straight to the reservation instead of a dead end.
+        setRoomNeeded({ href: roomHref(data.reservationReference) });
+        setResultMsg(null);
+      } else {
+        setResultMsg(data.error ?? 'Could not confirm check-in');
+      }
     } finally {
       setConfirmLoading(false);
     }
@@ -283,8 +348,14 @@ export default function CheckinValidation() {
 
   const normalizeScanValue = (rawVal: string) => {
     const v = String(rawVal || "").trim();
-    // If the QR encodes JSON, send it as-is (API will parse bookingId).
-    if (v.startsWith("{") && v.includes("bookingId")) return v;
+    // Only a code-bearing QR is check-in proof. Receipt QR booking IDs are not.
+    if (v.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(v);
+        const presented = String(parsed?.checkinCode || parsed?.bookingCode || parsed?.code || "").trim();
+        return /^[A-Z0-9]{8}$/i.test(presented) ? presented : "";
+      } catch { return ""; }
+    }
     // If it looks like a URL, try to extract a plausible code token.
     // Otherwise pass through (server validation will reject invalid input).
     try {
@@ -335,6 +406,11 @@ export default function CheckinValidation() {
           const results = await detector.detect(videoRef.current);
           if (Array.isArray(results) && results[0]?.rawValue) {
             const normalized = normalizeScanValue(String(results[0].rawValue));
+            if (!normalized) {
+              setScanError("This receipt QR does not contain the guest's check-in code. Ask the guest to present it.");
+              stopScanner();
+              return;
+            }
             setCode(normalized);
             setScanOpen(false);
             stopScanner();
@@ -478,360 +554,697 @@ export default function CheckinValidation() {
     }).format(n);
   };
 
+  const canConfirm = !loading && (eligibility ? eligibility.canValidate : true);
+  const clearResult = () => { setPreview(null); setCode(""); setResultMsg(null); setEligibility(null); setLastValidated(null); setAgreeDisbursement(false); setRoomNeeded(null); };
+  const initials = preview
+    ? preview.personal.fullName.trim().split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
+    : "";
+  const isQrCode = code.trim().startsWith("{");
+  const cells = Array.from({ length: 8 }, (_, i) => (isQrCode ? "" : code.toUpperCase()[i] ?? ""));
+  const activeCell = isQrCode ? -1 : Math.min(code.length, 7);
+
+  // One verdict for the whole pass, so the owner reads the answer before the details.
+  const verdict = (() => {
+    if (!preview) return null;
+    if (preview.booking.status === "CHECKED_IN") return { tone: "done", Icon: UserCheck, title: "Already checked in", body: "This guest's arrival is already recorded." };
+    switch (eligibility?.status) {
+      case "BEFORE_CHECKIN": return { tone: "wait", Icon: Clock, title: "Too early", body: eligibility.reason };
+      case "AFTER_CHECKOUT": return { tone: "stop", Icon: CalendarX2, title: "Stay has ended", body: eligibility.reason };
+      case "CODE_NOT_ACTIVE": return { tone: "stop", Icon: ShieldAlert, title: "Code not active", body: eligibility.reason };
+      case "INVALID_DATES": return { tone: "wait", Icon: AlertTriangle, title: "Dates need review", body: eligibility.reason };
+      default: return { tone: "go", Icon: ShieldCheck, title: "Ready to check in", body: "The code matches this booking and today is inside the stay." };
+    }
+  })();
+  // Each verdict carries its own material: a lit gradient stub, a matching
+  // rubber stamp on the pass, and a tinted timeline.
+  const toneStyle = {
+    go: {
+      stub: "bg-[radial-gradient(130%_90%_at_0%_0%,#0f8a7e_0%,#02665e_42%,#013c37_100%)]",
+      ring: "bg-white/10 text-[#5eead4] ring-1 ring-inset ring-white/20",
+      label: "text-[#9fd8cc]",
+      stamp: "VERIFIED",
+      ink: "text-[#02665e] border-[#02665e]",
+      wash: "from-emerald-50/70",
+      bar: "bg-[#02665e]",
+      today: "text-[#02665e]",
+      note: "",
+    },
+    done: {
+      stub: "bg-[radial-gradient(130%_90%_at_0%_0%,#0b4b44_0%,#012a26_55%,#00140f_100%)]",
+      ring: "bg-white/10 text-[#5eead4] ring-1 ring-inset ring-white/15",
+      label: "text-[#9fd8cc]",
+      stamp: "CHECKED IN",
+      ink: "text-[#012a26] border-[#012a26]",
+      wash: "from-slate-50",
+      bar: "bg-[#012a26]",
+      today: "text-slate-700",
+      note: "bg-slate-50 text-slate-600 ring-slate-200",
+    },
+    wait: {
+      stub: "bg-[radial-gradient(130%_90%_at_0%_0%,#d97706_0%,#92400e_45%,#451a03_100%)]",
+      ring: "bg-white/10 text-amber-200 ring-1 ring-inset ring-amber-200/25",
+      label: "text-amber-200/90",
+      stamp: "TOO EARLY",
+      ink: "text-amber-700 border-amber-600",
+      wash: "from-amber-50/80",
+      bar: "bg-[repeating-linear-gradient(135deg,#f59e0b_0_6px,#fbbf24_6px_12px)]",
+      today: "text-amber-700",
+      note: "bg-amber-50 text-amber-900 ring-amber-200",
+    },
+    stop: {
+      stub: "bg-[radial-gradient(130%_90%_at_0%_0%,#c0262d_0%,#8a1c22_40%,#3d0a0e_100%)]",
+      ring: "bg-white/10 text-rose-100 ring-1 ring-inset ring-rose-200/25",
+      label: "text-rose-200/90",
+      stamp: "STAY ENDED",
+      ink: "text-rose-700 border-rose-600",
+      wash: "from-rose-50/80",
+      bar: "bg-[repeating-linear-gradient(135deg,#e11d48_0_6px,#f43f5e_6px_12px)]",
+      today: "text-rose-700",
+      note: "bg-rose-50 text-rose-900 ring-rose-200",
+    },
+  } as const;
+  const tone = verdict ? toneStyle[verdict.tone as keyof typeof toneStyle] : toneStyle.go;
+
+  // Where today sits on the stay, from 0 (check-in) to 1 (check-out).
+  const stayStart = preview ? new Date(preview.booking.checkIn).getTime() : 0;
+  const stayEnd = preview ? new Date(preview.booking.checkOut).getTime() : 0;
+  const todayPos = preview && viewedAt && stayEnd > stayStart ? (viewedAt - stayStart) / (stayEnd - stayStart) : null;
+  const DAY = 86_400_000;
+  const daysAfter = preview && viewedAt ? Math.floor((viewedAt - stayEnd) / DAY) : 0;
+  const daysBefore = preview && viewedAt ? Math.ceil((stayStart - viewedAt) / DAY) : 0;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const todayLabel =
+    todayPos === null
+      ? null
+      : todayPos < 0
+        ? daysBefore > 0 ? `Today, ${plural(daysBefore, "day")} before check-in` : "Today, before check-in"
+        : todayPos > 1
+          ? daysAfter > 0 ? `Today, ${plural(daysAfter, "day")} after check-out` : "Today, after check-out"
+          : "Today, inside the stay";
+  // A short, large figure for the stub: how far off the stay is.
+  const stubFigure =
+    todayPos === null ? null : todayPos > 1 && daysAfter > 0 ? { n: daysAfter, unit: daysAfter === 1 ? "day since check-out" : "days since check-out" }
+      : todayPos < 0 && daysBefore > 0 ? { n: daysBefore, unit: daysBefore === 1 ? "day to check-in" : "days to check-in" }
+        : null;
+  const titleCase = (v: string) => v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ");
+
   return (
-    <div className="w-full box-border overflow-hidden">
+    <div id="checkin-validate" className="w-full min-w-0 space-y-5 pb-12">
+      <style>{`
+        #checkin-validate, #checkin-validate * { box-sizing: border-box; }
+        @keyframes cv-blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+        @keyframes cv-rise { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+        #checkin-validate .cv-caret { animation: cv-blink 1s step-end infinite; }
+        #checkin-validate .cv-rise { animation: cv-rise .35s cubic-bezier(.2,.7,.2,1) both; }
+      `}</style>
 
-      {/* ── Hero Banner ── */}
-      <div className="w-full relative overflow-hidden nols-entrance">
-        {/* Teal gradient background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#02665e] via-[#034e47] to-[#023a35]" />
-        {/* Animated cross-hatch pattern */}
-        <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, #fff 0, #fff 1px, transparent 0, transparent 50%), repeating-linear-gradient(-45deg, #fff 0, #fff 1px, transparent 0, transparent 50%)', backgroundSize: '18px 18px' }} />
-        {/* Floating orbs */}
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/[0.04] pointer-events-none" />
-        <div className="absolute -bottom-12 -left-6 w-36 h-36 rounded-full bg-white/[0.03] pointer-events-none" />
-        <div className="absolute top-6 right-1/4 w-16 h-16 rounded-full bg-white/[0.03] pointer-events-none animate-pulse" />
-
-        <div className="relative flex flex-col items-center text-center px-4 pt-8 pb-7 gap-4">
-          {/* Animated icon ring */}
-          <div className="relative">
-            <div className="absolute -inset-2 rounded-2xl border border-white/20 animate-[ping_3s_ease-in-out_infinite]" />
-            <div className="absolute -inset-1 rounded-xl bg-white/10 animate-pulse" />
-            <div className="relative h-14 w-14 rounded-xl bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-lg">
-              <FileCheck2 className="h-7 w-7 text-white drop-shadow" aria-hidden />
-            </div>
-          </div>
-
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">Check-in Validation</h1>
-            <p className="mt-1.5 text-sm text-white/60 max-w-[280px] mx-auto leading-relaxed">
-              Scan the receipt QR or enter the booking code to validate a guest check-in.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap justify-center">
-            <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 backdrop-blur-sm px-3 py-1 text-[11px] font-semibold text-white/80">
-              Owner tool
-            </span>
-            <span className="inline-flex items-center rounded-full border border-emerald-300/30 bg-emerald-400/15 backdrop-blur-sm px-3 py-1 text-[11px] font-semibold text-emerald-200">
-              Secure
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-bold border backdrop-blur-sm ${
-                isConnected
-                  ? "border-emerald-300/30 bg-emerald-400/20 text-emerald-200"
-                  : isConnected === false
-                    ? "border-white/15 bg-white/10 text-white/50"
-                    : "border-white/10 bg-white/5 text-white/40"
-              }`}
-              aria-live="polite"
-              title={isConnected ? "API reachable" : isConnected === false ? "API not reachable" : "Checking API"}
-            >
-              <span className={`relative flex h-2 w-2 flex-shrink-0`}>
-                {isConnected && (
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
-                )}
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                  isConnected ? "bg-emerald-300" : isConnected === false ? "bg-white/40" : "bg-white/30 animate-pulse"
-                }`} />
+      {/* ── Console: the code is entered inside the band itself ── */}
+      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 75% 40%, #000 0%, transparent 70%)", WebkitMaskImage: "radial-gradient(ellipse at 75% 40%, #000 0%, transparent 70%)" }}
+          aria-hidden
+        />
+        <div className="relative grid gap-6 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-10">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  isConnected ? "bg-[#5eead4]/10 text-[#5eead4]" : isConnected === false ? "bg-amber-300/10 text-amber-200" : "bg-white/5 text-white/50"
+                }`}
+                aria-live="polite"
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-[#5eead4]" : isConnected === false ? "bg-amber-300" : "animate-pulse bg-white/40"}`} />
+                {isConnected ? "Online" : isConnected === false ? "Offline" : "Connecting"}
               </span>
-              {isConnected ? "Online" : isConnected === false ? "Offline" : "Connecting…"}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Main content — no extra px, public-container already provides padding ── */}
-      <div className="w-full box-border py-4 nols-entrance nols-delay-1" style={{maxWidth:'100%',overflowX:'hidden'}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr',gap:'1rem',width:'100%',maxWidth:'100%',boxSizing:'border-box'}}
-             className="lg:grid-cols-2 lg:gap-6 lg:items-start">
-
-          {/* ── Validate Card ── */}
-          <div className="w-full overflow-hidden bg-white rounded-2xl border border-slate-200">
-
-            {/* Card header strip */}
-            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60 flex items-center justify-center">
-              <div className="text-center">
-                <p className="text-sm font-bold text-slate-900">Validate guest</p>
-                <p className="text-xs text-slate-500 mt-0.5">Paste code, type it, or scan QR</p>
-              </div>
             </div>
+            <h1 className="m-0 mt-2 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[34px]">
+              Welcome the guest in.
+            </h1>
+            <p className="m-0 mt-2 max-w-md text-sm leading-relaxed text-white/60">
+              Ask the guest to present their 8 character check-in code. A QR can be used only if it contains that code. You will see an arrival pass before confirming.
+            </p>
 
-            <div className="p-4 space-y-4">
-
-              {/* Front desk handoff: which arrival NRMS sent them here for. */}
-              {handoff.reference ? (
-                <div className="border-0 border-b border-solid border-slate-200 pb-4 text-slate-900">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="m-0 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">NRMS front desk arrival</p>
-                      <p className="m-0 mt-1 truncate text-lg font-bold tracking-tight">
-                        {handoff.guestName ? `Check in ${handoff.guestName}` : "Loading guest details..."}
-                      </p>
-                      {handoff.propertyName ? (
-                        <p className="m-0 mt-1 text-xs text-slate-500">
-                          {handoff.propertyName}{handoff.checkIn ? ` | ${formatStayDate(handoff.checkIn)}` : ""}
-                        </p>
-                      ) : null}
-                    </div>
-                    {handoff.returnTo ? (
-                      <a href={handoff.returnTo} className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-slate-600 no-underline hover:text-emerald-700">
-                        <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-                        Front desk
-                      </a>
-                    ) : null}
-                  </div>
-                  <p className="m-0 mt-3 border-0 border-l-2 border-solid border-emerald-600 pl-3 text-xs leading-relaxed text-slate-600">
-                    Ask the guest for their booking code, then enter it below to confirm check-in. You will return to the front desk when the code is accepted.
+            {handoff.reference ? (
+              <div className="mt-5 flex max-w-md items-start gap-3 rounded-2xl border border-solid border-white/10 bg-white/[0.04] px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9fd8cc]">NRMS front desk arrival</p>
+                  <p className="m-0 mt-0.5 truncate text-sm font-semibold text-white">
+                    {handoff.guestName ? `Check in ${handoff.guestName}` : "Loading guest details..."}
                   </p>
-                  {preview && preview.bookingReference !== handoff.reference ? (
-                    <p className="m-0 mt-3 text-xs font-semibold text-amber-700">
-                      This code belongs to {preview.personal.fullName}{handoff.guestName ? `, not ${handoff.guestName}` : ""}. Confirm that you have the correct guest before continuing.
+                  {handoff.propertyName ? (
+                    <p className="m-0 text-xs text-white/50">
+                      {handoff.propertyName}{handoff.checkIn ? ` · ${formatStayDate(handoff.checkIn)}` : ""}
                     </p>
                   ) : null}
                 </div>
-              ) : null}
+                {handoff.returnTo ? (
+                  <a href={handoff.returnTo} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-white/70 no-underline hover:text-white">
+                    <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Front desk
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
-              {/* Code input */}
-              <div className="space-y-2">
-                <label htmlFor="checkin-input" className="block text-sm font-semibold text-slate-800">
-                  Check-in Code
-                </label>
-                <div className="flex items-stretch gap-2">
-                  <input
-                    id="checkin-input"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    onPaste={(e) => {
-                      if (isLocked) return;
-                      const pasted = e.clipboardData?.getData("text") ?? "";
-                      if (pasted) {
-                        const normalized = normalizeScanValue(pasted);
-                        setCode(normalized);
-                        const t = String(normalized || "").trim();
-                        const isQrPayload = t.startsWith("{") && t.includes("bookingId");
-                        if (isQrPayload || t.length === 8) {
-                          validate(normalized);
-                        }
+          {/* Code cells over a single real input */}
+          <div className="min-w-0">
+            <label htmlFor="checkin-input" className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+              Booking code
+            </label>
+            <div className="flex items-stretch gap-2.5">
+              <div className="relative min-w-0 flex-1">
+                <div className="grid grid-cols-8 gap-1.5 sm:gap-2" aria-hidden>
+                  {cells.map((ch, i) => {
+                    const isActive = codeFocused && !isLocked && i === activeCell && !(code.length >= 8);
+                    return (
+                      <span
+                        key={i}
+                        className={`relative grid h-14 place-items-center rounded-xl border border-solid font-mono text-2xl font-bold transition-colors sm:h-16 sm:w-12 sm:text-[28px] ${
+                          isLocked
+                            ? "border-white/5 bg-white/[0.02] text-white/20"
+                            : ch
+                              ? "border-[#5eead4]/40 bg-[#5eead4]/[0.08] text-white"
+                              : isActive
+                                ? "border-[#5eead4] bg-white/[0.06] text-white"
+                                : "border-white/10 bg-white/[0.04] text-white/20"
+                        } ${i === 3 ? "mr-1 sm:mr-2" : ""}`}
+                      >
+                        {ch || (isActive ? <span className="cv-caret h-7 w-0.5 rounded bg-[#5eead4]" /> : <span className="h-1 w-1 rounded-full bg-white/20" />)}
+                      </span>
+                    );
+                  })}
+                </div>
+                <input
+                  id="checkin-input"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\s+/g, ""))}
+                  onFocus={() => setCodeFocused(true)}
+                  onBlur={() => setCodeFocused(false)}
+                  onPaste={(e) => {
+                    if (isLocked) return;
+                    const pasted = e.clipboardData?.getData("text") ?? "";
+                    if (pasted) {
+                      e.preventDefault();
+                      const normalized = normalizeScanValue(pasted);
+                      setCode(normalized);
+                      const t = String(normalized || "").trim();
+                      const isQrPayload = t.startsWith("{") && t.includes("bookingId");
+                      if (isQrPayload || t.length === 8) {
+                        validate(normalized);
                       }
-                    }}
-                    disabled={isLocked}
-                    className="flex-1 min-w-0 px-4 py-3 text-base font-mono tracking-widest uppercase border border-slate-200 rounded-xl bg-white text-center outline-none placeholder:text-slate-300 placeholder:tracking-normal focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed transition-all"
-                    placeholder="XXXXXXXX"
-                    autoFocus
-                    maxLength={8}
-                  />
+                    }
+                  }}
+                  disabled={isLocked}
+                  className="absolute inset-0 h-full w-full cursor-text rounded-xl border-0 bg-transparent p-0 text-transparent caret-transparent outline-none selection:bg-transparent"
+                  autoFocus
+                  maxLength={isQrCode ? undefined : 8}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  aria-describedby="checkin-hint"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => { setScanOpen(true); setScanError(null); }}
+                disabled={isLocked}
+                className="grid h-14 w-14 shrink-0 place-items-center rounded-xl border border-solid border-[#5eead4]/40 bg-[#5eead4] text-[#012a26] transition hover:bg-[#8ff3e1] disabled:cursor-not-allowed disabled:opacity-40 sm:h-16 sm:w-16"
+                aria-label="Scan receipt QR"
+                title="Scan receipt QR"
+              >
+                <ScanLine className="h-6 w-6" aria-hidden />
+              </button>
+            </div>
+            <div id="checkin-hint" className="mt-2.5 flex min-h-[20px] items-center justify-between gap-3 text-[11px] text-white/45">
+              {isLocked && lockCountdown ? (
+                <span className="font-semibold text-amber-200" role="status" aria-live="polite">
+                  Too many invalid attempts. Try again in <span className="tabular-nums">{lockCountdown}</span>.
+                </span>
+              ) : loading ? (
+                <span className="inline-flex items-center gap-1.5 text-[#9fd8cc]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  {searching ? "Still searching..." : attempting ? "Checking the code..." : "Validating..."}
+                </span>
+              ) : isQrCode ? (
+                <span className="text-[#9fd8cc]">Receipt QR read. Checking it now.</span>
+              ) : (
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span>QR scanning works in Chrome or Edge on mobile.</span>
                   <button
                     type="button"
-                    onClick={() => { setScanOpen(true); setScanError(null); }}
-                    disabled={isLocked}
-                    className="shrink-0 h-12 w-12 flex items-center justify-center rounded-xl bg-[#02665e] text-white hover:bg-[#024d47] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-                    aria-label="Scan QR code"
-                    title="Scan QR code"
+                    onClick={() => setLostCodeOpen(true)}
+                    className="inline-flex h-7 appearance-none items-center gap-1.5 rounded-full border border-solid border-[#5eead4]/35 px-3 text-[11px] font-semibold text-[#5eead4] transition hover:border-[#5eead4]/60 hover:text-white"
+                    style={{ background: "rgba(94,234,212,0.08)" }}
                   >
-                    <Camera className="h-5 w-5" aria-hidden />
+                    <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                    Guest lost their code?
                   </button>
-                </div>
-                <p className="text-xs text-slate-500">QR scan requires Chrome or Edge on mobile.</p>
+                </span>
+              )}
+              {!isLocked && typeof remainingAttempts === "number" ? (
+                <span className="shrink-0" aria-live="polite">
+                  <span className="font-semibold text-white">{remainingAttempts}</span> attempts left
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Problems reaching or reading the code ── */}
+      {contactSuggest && !loading && (
+        <div className="rounded-2xl border border-solid border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This is taking unusually long. If it still does not return a result, please contact support below.
+        </div>
+      )}
+
+      {resultMsg && !preview && !isLocked && (() => {
+        const offline = resultMsg.includes("Network error");
+        const shown = isQrCode ? "QR" : code.trim().toUpperCase();
+        const retry = () => {
+          setResultMsg(null);
+          setCode("");
+          window.setTimeout(() => document.getElementById("checkin-input")?.focus(), 0);
+        };
+        return (
+          <article
+            className="cv-rise relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-[0_30px_70px_-42px_rgba(61,10,14,0.55)] ring-1 ring-slate-200 md:flex-row"
+            role="alert"
+            aria-live="polite"
+          >
+            {/* Stub */}
+            <div
+              className={`relative isolate flex flex-col justify-between gap-6 overflow-hidden p-6 text-white md:w-[300px] md:shrink-0 ${
+                offline
+                  ? "bg-[radial-gradient(130%_90%_at_0%_0%,#475569_0%,#1e293b_45%,#0b1120_100%)]"
+                  : "bg-[radial-gradient(130%_90%_at_0%_0%,#c0262d_0%,#8a1c22_40%,#3d0a0e_100%)]"
+              }`}
+            >
+              <div
+                className="pointer-events-none absolute inset-0 -z-10 opacity-[0.09]"
+                style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "14px 14px" }}
+                aria-hidden
+              />
+              <span className="pointer-events-none absolute -left-16 -top-16 -z-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" aria-hidden />
+              {offline ? (
+                <WifiOff className="pointer-events-none absolute -bottom-8 -right-8 -z-10 h-44 w-44 rotate-[-12deg] text-white/[0.07]" strokeWidth={1.25} aria-hidden />
+              ) : (
+                <ShieldAlert className="pointer-events-none absolute -bottom-8 -right-8 -z-10 h-44 w-44 rotate-[-12deg] text-white/[0.07]" strokeWidth={1.25} aria-hidden />
+              )}
+
+              <div>
+                <p className={`m-0 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] ${offline ? "text-slate-300" : "text-rose-200/90"}`}>
+                  <span className="h-px w-5 bg-current opacity-60" aria-hidden />
+                  Arrival pass
+                </p>
+                <span className="mt-5 grid h-14 w-14 place-items-center rounded-2xl bg-white/10 text-white shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] ring-1 ring-inset ring-white/20 backdrop-blur-sm">
+                  {offline ? <WifiOff className="h-7 w-7" aria-hidden /> : <ShieldAlert className="h-7 w-7" aria-hidden />}
+                </span>
+                <h2 className="m-0 mt-5 text-[26px] font-bold leading-[1.1] tracking-tight text-white drop-shadow-sm">
+                  {offline ? "Could not reach NoLSAF" : "No booking found"}
+                </h2>
+                <p className="m-0 mt-3 text-[13px] leading-relaxed text-white/75">
+                  {offline ? "The code was not checked. Nothing was used up." : "Nothing was confirmed and no guest was checked in."}
+                </p>
               </div>
 
-              {/* Lock countdown */}
-              {isLocked && lockCountdown ? (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status" aria-live="polite">
-                  Too many invalid attempts. Try again in <strong className="font-semibold">{lockCountdown}</strong>.
+              {shown ? (
+                <div className="rounded-xl bg-black/20 px-3 py-2.5 ring-1 ring-inset ring-white/10">
+                  <p className={`m-0 text-[9px] font-semibold uppercase tracking-[0.18em] ${offline ? "text-slate-300" : "text-rose-200/90"}`}>Code entered</p>
+                  <p className={`m-0 mt-1 font-mono text-lg font-bold tracking-[0.3em] text-white/90 ${offline ? "" : "line-through decoration-rose-300/80 decoration-2"}`}>{shown}</p>
                 </div>
               ) : null}
+            </div>
 
-              {/* Remaining attempts */}
-              {!isLocked && typeof remainingAttempts === "number" ? (
-                <div className="text-xs text-slate-500" aria-live="polite">
-                  Attempts remaining: <span className="font-semibold text-slate-700">{remainingAttempts}</span>
+            {/* Perforation */}
+            <div className="relative hidden w-0 md:block" aria-hidden>
+              <span className="absolute -left-3.5 -top-3.5 z-10 h-7 w-7 rounded-full bg-[#f4f5f4] shadow-[inset_0_-1px_0_rgba(15,23,42,0.08)]" />
+              <span className="absolute -bottom-3.5 -left-3.5 z-10 h-7 w-7 rounded-full bg-[#f4f5f4] shadow-[inset_0_1px_0_rgba(15,23,42,0.08)]" />
+              <span className="absolute inset-y-5 left-0 border-0 border-l-2 border-dashed border-slate-200" />
+            </div>
+
+            {/* Body */}
+            <div className={`relative min-w-0 flex-1 bg-gradient-to-br ${offline ? "from-slate-50" : "from-rose-50/80"} via-white to-white p-6`}>
+              <div
+                className={`pointer-events-none absolute right-6 top-5 hidden rotate-[-9deg] select-none rounded-lg border-[3px] border-double px-3 py-1.5 text-center opacity-80 mix-blend-multiply sm:block ${
+                  offline ? "border-slate-500 text-slate-600" : "border-rose-600 text-rose-700"
+                }`}
+                aria-hidden
+              >
+                <p className="m-0 text-[15px] font-black uppercase leading-none tracking-[0.18em]">{offline ? "OFFLINE" : "NOT FOUND"}</p>
+                <p className="m-0 mt-1 text-[8px] font-bold uppercase tracking-[0.3em] opacity-80">NoLSAF front desk</p>
+              </div>
+
+              <div className="sm:pr-44">
+                <p className="m-0 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  {offline ? "Check your connection and try again" : "We could not match this code"}
+                </p>
+                <p className="m-0 mt-1 text-sm text-slate-500">
+                  {offline ? "Your device could not reach the NoLSAF servers." : `${resultMsg.replace(/\.\s*$/, "")}. Check it with the guest before trying again.`}
+                </p>
+              </div>
+
+              {offline ? (
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <a href={`mailto:${supportEmail}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 hover:bg-slate-50">
+                    <Mail className="h-3.5 w-3.5 text-slate-400" aria-hidden /> {supportEmail}
+                  </a>
+                  <a href={`tel:${supportPhone.replace(/\s+/g, "")}`} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3.5 text-xs font-semibold text-slate-700 no-underline ring-1 ring-slate-200 hover:bg-slate-50">
+                    <Phone className="h-3.5 w-3.5 text-slate-400" aria-hidden /> {supportPhone}
+                  </a>
                 </div>
+              ) : (
+                <ul className="m-0 mt-5 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-3">
+                  {[
+                    { title: "Look-alike characters", body: "0 and O, 1 and I, 5 and S are easy to mix up." },
+                    { title: "Another property", body: "The code only works at the property it was booked for." },
+                    { title: "Old or cancelled booking", body: "Ask the guest to open their latest booking receipt." },
+                  ].map((tip) => (
+                    <li key={tip.title} className="rounded-2xl bg-white/80 p-3.5 ring-1 ring-slate-200/80">
+                      <p className="m-0 text-xs font-semibold text-slate-800">{tip.title}</p>
+                      <p className="m-0 mt-1 text-[11px] leading-relaxed text-slate-500">{tip.body}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {typeof remainingAttempts === "number" && !offline ? (
+                <p className="m-0 mt-4 inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-[11px] font-semibold text-rose-800 ring-1 ring-inset ring-rose-200">
+                  <Lock className="h-3.5 w-3.5" aria-hidden />
+                  {remainingAttempts === 1 ? "1 attempt left" : `${remainingAttempts} attempts left`} before a short lockout
+                </p>
               ) : null}
 
-              {/* Loading */}
-              {loading && (
-                <div className="flex items-center gap-2.5 py-1">
-                  <div className="flex gap-1">
-                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce [animation-delay:-0.3s]" />
-                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce [animation-delay:-0.15s]" />
-                    <div className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce" />
-                  </div>
-                  <span className="text-sm text-slate-600">{searching ? "Still searching…" : attempting ? "Checking…" : "Validating…"}</span>
-                </div>
-              )}
-
-              {/* Long wait */}
-              {contactSuggest && !loading && (
-                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                  This is taking unusually long. If it still does not return a result, please contact support below.
-                </div>
-              )}
-
-              {/* Error message */}
-              {resultMsg && !preview && !isLocked && (
-                <div className="w-full" role="alert" aria-live="polite">
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                    <div className="flex items-start gap-2">
-                      <span className="inline-flex h-2 w-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                      <p className="text-sm text-red-700">
-                        {resultMsg.includes("Network error")
-                          ? "Check your internet connection or contact the NoLSAF team for assistance."
-                          : resultMsg}
-                      </p>
-                    </div>
-
-                    {resultMsg.includes("Network error") && (
-                      <div className="mt-3 pt-3 border-t border-red-200">
-                        <p className="text-xs font-medium text-red-600 mb-2">Get Help:</p>
-                        <div className="flex flex-col gap-2">
-                          <a
-                            href={`mailto:${supportEmail}`}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-red-200 bg-white text-sm text-red-700 hover:bg-red-50 transition-colors"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                            {supportEmail}
-                          </a>
-                          <a
-                            href={`tel:${supportPhone.replace(/\s+/g, "")}`}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-red-200 bg-white text-sm text-red-700 hover:bg-red-50 transition-colors"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                            </svg>
-                            {supportPhone}
-                          </a>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {contactSuggest && (
-                <div className="space-y-3">
-                  <Support compact />
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={offline ? () => validate(code) : retry}
+                  className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e]"
+                >
+                  {offline ? "Try again" : "Enter the code again"}
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26] transition group-hover:translate-x-0.5">
+                    <RotateCcw className="h-4 w-4" aria-hidden />
+                  </span>
+                </button>
+                {!offline && (
                   <button
-                    onClick={() => validate(code)}
-                    disabled={isLocked}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold transition-colors"
+                    type="button"
+                    onClick={() => { setResultMsg(null); setScanOpen(true); setScanError(null); }}
+                    className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
-                    Retry Validation
+                    <ScanLine className="h-4 w-4" aria-hidden />
+                    Scan the receipt QR
                   </button>
+                )}
+              </div>
+            </div>
+          </article>
+        );
+      })()}
+
+      {contactSuggest && (
+        <div className="space-y-3">
+          <Support compact />
+          <button
+            type="button"
+            onClick={() => validate(code)}
+            disabled={isLocked}
+            className="h-10 w-full rounded-xl border border-solid border-slate-200 bg-white text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Retry validation
+          </button>
+        </div>
+      )}
+
+      {/* ── Arrival pass ── */}
+      {preview && verdict ? (
+        <article key={preview.bookingReference} className="cv-rise relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-[0_30px_70px_-42px_rgba(1,42,38,0.6)] ring-1 ring-slate-200 md:flex-row">
+          {/* Stub: the verdict */}
+          <div className={`relative isolate flex flex-col justify-between gap-6 overflow-hidden p-6 text-white md:w-[300px] md:shrink-0 ${tone.stub}`}>
+            <div
+              className="pointer-events-none absolute inset-0 -z-10 opacity-[0.09]"
+              style={{ backgroundImage: "radial-gradient(circle, #fff 1px, transparent 1px)", backgroundSize: "14px 14px" }}
+              aria-hidden
+            />
+            <span className="pointer-events-none absolute -left-16 -top-16 -z-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" aria-hidden />
+            <verdict.Icon className="pointer-events-none absolute -bottom-8 -right-8 -z-10 h-44 w-44 rotate-[-12deg] text-white/[0.07]" strokeWidth={1.25} aria-hidden />
+
+            <div>
+              <p className={`m-0 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] ${tone.label}`}>
+                <span className="h-px w-5 bg-current opacity-60" aria-hidden />
+                Arrival pass
+              </p>
+              <span className={`mt-5 grid h-14 w-14 place-items-center rounded-2xl shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] backdrop-blur-sm ${tone.ring}`}>
+                <verdict.Icon className="h-7 w-7" aria-hidden />
+              </span>
+              <h2 className="m-0 mt-5 text-[26px] font-bold leading-[1.1] tracking-tight text-white drop-shadow-sm">{verdict.title}</h2>
+              {stubFigure ? (
+                <p className="m-0 mt-3 flex items-baseline gap-2">
+                  <span className="text-4xl font-bold tabular-nums leading-none text-white">{stubFigure.n}</span>
+                  <span className={`text-xs font-semibold ${tone.label}`}>{stubFigure.unit}</span>
+                </p>
+              ) : null}
+              <p className="m-0 mt-3 text-[13px] leading-relaxed text-white/75">{verdict.body}</p>
+            </div>
+            <div className="rounded-xl bg-black/15 px-3 py-2.5 ring-1 ring-inset ring-white/10">
+              <p className={`m-0 text-[9px] font-semibold uppercase tracking-[0.18em] ${tone.label}`}>Reference</p>
+              <p className="m-0 mt-1 break-all font-mono text-[11px] text-white/90">{preview.bookingReference}</p>
+            </div>
+          </div>
+
+          {/* Perforation */}
+          <div className="relative hidden w-0 md:block" aria-hidden>
+            <span className="absolute -left-3.5 -top-3.5 z-10 h-7 w-7 rounded-full bg-[#f4f5f4] shadow-[inset_0_-1px_0_rgba(15,23,42,0.08)]" />
+            <span className="absolute -bottom-3.5 -left-3.5 z-10 h-7 w-7 rounded-full bg-[#f4f5f4] shadow-[inset_0_1px_0_rgba(15,23,42,0.08)]" />
+            <span className="absolute inset-y-5 left-0 border-0 border-l-2 border-dashed border-slate-200" />
+          </div>
+
+          {/* Body: who, when, how much */}
+          <div className={`relative min-w-0 flex-1 bg-gradient-to-br ${tone.wash} via-white to-white p-6`}>
+            {/* Rubber stamp */}
+            <div
+              className={`pointer-events-none absolute right-6 top-5 hidden rotate-[-9deg] select-none rounded-lg border-[3px] border-double px-3 py-1.5 text-center opacity-80 mix-blend-multiply sm:block ${tone.ink}`}
+              aria-hidden
+            >
+              <p className="m-0 text-[15px] font-black uppercase leading-none tracking-[0.18em]">{tone.stamp}</p>
+              <p className="m-0 mt-1 text-[8px] font-bold uppercase tracking-[0.3em] opacity-80">NoLSAF front desk</p>
+            </div>
+
+            <div className="flex min-w-0 items-center gap-3.5 sm:pr-44">
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-slate-800 to-slate-950 text-lg font-bold text-white shadow-[0_10px_24px_-14px_rgba(15,23,42,0.9)] select-none">
+                {initials}
+              </span>
+              <div className="min-w-0">
+                <p className="m-0 truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{preview.personal.fullName}</p>
+                <p className="m-0 mt-0.5 flex items-center gap-1.5 truncate text-sm text-slate-500">
+                  <BedDouble className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                  {preview.property.title} · {titleCase(preview.property.type)}
+                </p>
+              </div>
+            </div>
+
+            {/* Guest facts and the amount */}
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              {[
+                { Icon: Phone, value: preview.personal.phone },
+                { Icon: Globe2, value: preview.personal.nationality },
+                { Icon: UserRound, value: [preview.personal.sex, preview.personal.ageGroup].filter((v) => v && v !== "-").join(" · ") },
+              ]
+                .filter((c) => c.value && c.value !== "-")
+                .map((c) => (
+                  <span key={c.value} className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    <c.Icon className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+                    {c.value}
+                  </span>
+                ))}
+              <span className="ml-auto text-right">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Your amount</span>
+                <span className="block text-lg font-bold tabular-nums text-[#02665e]">{formatTZS(preview.booking.ownerBaseAmount ?? preview.booking.totalAmount)}</span>
+              </span>
+            </div>
+
+            {/* Stay timeline */}
+            <div className="mt-5 rounded-2xl bg-white/80 p-4 ring-1 ring-slate-200/80 backdrop-blur-sm">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Check-in</p>
+                  <p className="m-0 mt-0.5 text-sm font-bold text-slate-900">{formatStayDate(preview.booking.checkIn)}</p>
+                </div>
+                <p className="m-0 hidden pb-0.5 text-xs font-semibold text-slate-500 sm:block">
+                  {plural(preview.booking.nights, "night")} · {plural(preview.booking.rooms, "room")}
+                  {preview.booking.roomType && preview.booking.roomType !== "-" ? ` · ${preview.booking.roomType}` : ""}
+                </p>
+                <div className="text-right">
+                  <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Check-out</p>
+                  <p className="m-0 mt-0.5 text-sm font-bold text-slate-900">{formatStayDate(preview.booking.checkOut)}</p>
+                </div>
+              </div>
+              <div className="relative mt-4 h-2.5 rounded-full bg-slate-100 ring-1 ring-inset ring-slate-200">
+                <div
+                  className={`absolute inset-y-0 left-0 rounded-full ${tone.bar}`}
+                  style={{ width: `${Math.round(Math.max(0, Math.min(1, todayPos ?? 0)) * 100)}%` }}
+                />
+                {todayPos !== null && (
+                  <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${Math.max(0, Math.min(1, todayPos)) * 100}%` }}>
+                    {(verdict.tone === "stop" || verdict.tone === "wait") && (
+                      <span className={`absolute inset-0 -m-1.5 animate-ping rounded-full opacity-30 ${verdict.tone === "stop" ? "bg-rose-500" : "bg-amber-500"}`} />
+                    )}
+                    <span className="relative block h-5 w-5 rounded-full border-[3px] border-solid border-white bg-slate-900 shadow-md" />
+                  </span>
+                )}
+              </div>
+              <div className="mt-2.5 flex items-center justify-between gap-3">
+                {todayLabel ? <p className={`m-0 text-[11px] font-semibold ${tone.today}`}>{todayLabel}</p> : <span />}
+                <p className="m-0 text-[11px] font-semibold text-slate-500 sm:hidden">{plural(preview.booking.nights, "night")}</p>
+              </div>
+            </div>
+
+            {/* Actions: the Disbursement Policy is agreed right here, then one tap confirms. */}
+            {canConfirm && verdict.tone === "go" && !roomNeeded ? (
+              <label
+                className={`mt-5 flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 ring-inset transition ${
+                  agreeDisbursement ? "bg-[#02665e]/[0.06] ring-2 ring-[#02665e]" : "bg-white ring-1 ring-slate-300 hover:ring-[#02665e]/60"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={agreeDisbursement}
+                  onChange={(e) => setAgreeDisbursement(e.target.checked)}
+                  className="peer sr-only"
+                />
+                {/* Drawn box: the native checkbox is hidden by the global reset, so this one carries the state. */}
+                <span
+                  aria-hidden
+                  className={`grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md border-2 border-solid transition peer-focus-visible:ring-2 peer-focus-visible:ring-[#02665e]/40 peer-focus-visible:ring-offset-2 ${
+                    agreeDisbursement ? "border-[#02665e] bg-[#02665e] text-white" : "border-slate-400 bg-white text-transparent"
+                  }`}
+                >
+                  <CheckMark className="h-3.5 w-3.5" strokeWidth={3.5} />
+                </span>
+                <span className="text-sm text-slate-700">
+                  I agree to the NoLSAF{" "}
+                  <a
+                    href={process.env.NEXT_PUBLIC_DISBURSEMENT_POLICY_URL ?? "/owner/property-owner-disbursement-policy"}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-semibold text-[#02665e] underline underline-offset-2"
+                  >
+                    Disbursement Policy
+                  </a>
+                </span>
+              </label>
+            ) : null}
+
+            {roomNeeded && canConfirm && verdict.tone === "go" && (
+              <div className="mt-5 flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-inset ring-amber-300">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-800">
+                  <BedDouble className="h-[18px] w-[18px]" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-sm font-semibold text-amber-950">Assign a room first</p>
+                  <p className="m-0 mt-0.5 text-xs text-amber-900">
+                    This property runs on NRMS, so {preview.personal.fullName.split(/\s+/)[0]} needs a specific room before check-in. The code stays unused until then.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={recheckRoom}
+                    disabled={roomChecking}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    {roomChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                    {roomChecking ? "Checking..." : "I assigned it"}
+                  </button>
+                  <a
+                    href={roomNeeded.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-3 text-xs font-bold text-white no-underline transition hover:bg-amber-600"
+                  >
+                    Assign the room <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                </div>
+              </div>
+            )}
+            {resultMsg && (
+              <div className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-xs text-rose-800 ring-1 ring-inset ring-rose-200" role="alert">{resultMsg}</div>
+            )}
+
+            <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:items-stretch">
+              <button
+                type="button"
+                onClick={clearResult}
+                disabled={confirmLoading}
+                className="inline-flex h-12 items-center justify-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" aria-hidden />
+                New code
+              </button>
+              {canConfirm && verdict.tone === "go" ? (
+                <button
+                  type="button"
+                  onClick={handleConfirmWithConsent}
+                  disabled={!agreeDisbursement || confirmLoading || Boolean(roomNeeded)}
+                  className="group inline-flex h-12 flex-1 items-center justify-between gap-2 rounded-xl border border-solid border-[#012a26] bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white shadow-[0_14px_30px_-18px_rgba(1,42,38,0.9)] transition hover:bg-[#02665e] disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+                >
+                  {confirmLoading ? "Confirming..." : roomNeeded ? "Assign the room first" : `Confirm check-in for ${preview.personal.fullName.split(/\s+/)[0]}`}
+                  <span className={`grid h-8 w-8 place-items-center rounded-lg transition group-hover:translate-x-0.5 ${agreeDisbursement && !roomNeeded ? "bg-[#5eead4] text-[#012a26]" : "bg-slate-200 text-slate-400"}`}>
+                    {confirmLoading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : roomNeeded ? <Lock className="h-4 w-4" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
+                  </span>
+                </button>
+              ) : (
+                <div className={`flex flex-1 items-center gap-2.5 rounded-xl px-4 py-2.5 text-xs ring-1 ring-inset ${tone.note || "bg-slate-50 text-slate-600 ring-slate-200"}`}>
+                  <Lock className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+                  <span>
+                    <span className="font-semibold">Check-in is locked for this code.</span>{" "}
+                    {verdict.tone === "stop"
+                      ? "If the guest is with you now, contact the NoLSAF team before letting them in."
+                      : verdict.tone === "wait"
+                        ? "It can be confirmed once the stay begins."
+                        : "Nothing more to do here."}
+                  </span>
                 </div>
               )}
             </div>
           </div>
-
-            {/* Result / Preview (shown only after a successful validation) */}
-            {preview ? (
-              <div style={{width:'100%',maxWidth:'100%',minWidth:0,boxSizing:'border-box',overflowX:'hidden'}}>
-                <div className="space-y-3" style={{width:'100%',maxWidth:'100%',boxSizing:'border-box'}}>
-
-                  {/* ── Guest hero card ── */}
-                  <div style={{width:'100%',maxWidth:'100%',boxSizing:'border-box',overflow:'hidden',borderRadius:'1rem',border:'1px solid rgba(2,102,94,0.3)'}}>
-                    <div className="relative bg-[#02665e]" style={{padding:'1rem'}}>
-                      <div className="pointer-events-none absolute inset-0 opacity-[0.06]"
-                        style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
-                      <div className="relative" style={{display:'flex',alignItems:'center',gap:'0.75rem',width:'100%',minWidth:0}}>
-                        <div style={{height:'3rem',width:'3rem',borderRadius:'0.75rem',background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.2)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                          <span style={{fontSize:'1.125rem',fontWeight:900,color:'white',userSelect:'none'}}>
-                            {preview.personal.fullName.trim().split(/\s+/).map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
-                          </span>
-                        </div>
-                        <div style={{flex:1,minWidth:0,overflow:'hidden'}}>
-                          <div style={{fontSize:'0.625rem',fontWeight:600,color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'0.1em'}}>Validated guest</div>
-                          <div style={{fontSize:'1rem',fontWeight:800,color:'white',lineHeight:1.2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{preview.personal.fullName}</div>
-                          <div style={{fontSize:'0.75rem',color:'rgba(255,255,255,0.65)',marginTop:'2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{preview.property.title} · {preview.property.type}</div>
-                        </div>
-                        <span style={{flexShrink:0,maxWidth:'5rem',display:'inline-flex',alignItems:'center',borderRadius:'9999px',padding:'0.25rem 0.625rem',fontSize:'0.625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',border:'1px solid',background: preview.booking.status === 'CHECKED_IN' ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.15)', borderColor: preview.booking.status === 'CHECKED_IN' ? 'rgba(110,231,183,0.4)' : 'rgba(255,255,255,0.25)', color: preview.booking.status === 'CHECKED_IN' ? 'rgb(209,250,229)' : 'white', overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                          {preview.booking.status.replace('_', ' ')}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{background:'#024d47',padding:'0.625rem 1rem',display:'flex',alignItems:'center',gap:'1.25rem'}}>
-                      <div>
-                        <div style={{fontSize:'0.5625rem',fontWeight:600,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Booking ID</div>
-                        <div style={{fontSize:'0.875rem',fontWeight:700,color:'white'}}>#{preview.bookingId}</div>
-                      </div>
-                      <div style={{height:'1.25rem',width:'1px',background:'rgba(255,255,255,0.15)'}} />
-                      <div>
-                        <div style={{fontSize:'0.5625rem',fontWeight:600,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Property ID</div>
-                        <div style={{fontSize:'0.875rem',fontWeight:700,color:'white'}}>#{preview.property.id}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ── Details card ── */}
-                  <div style={{width:'100%',maxWidth:'100%',boxSizing:'border-box',overflow:'hidden',borderRadius:'1rem',border:'1px solid #e2e8f0',background:'white'}}>
-                    <div style={{padding:'1rem 1rem 0.75rem'}}>
-                      <div style={{fontSize:'0.625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#94a3b8',marginBottom:'0.75rem'}}>Personal Details</div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem',width:'100%',boxSizing:'border-box'}}>
-                        <div style={{gridColumn:'1 / -1'}}><DataRow label="Full Name" value={preview.personal.fullName} /></div>
-                        <DataRow label="Phone"       value={preview.personal.phone} />
-                        <DataRow label="Nationality" value={preview.personal.nationality} />
-                        <DataRow label="Sex"         value={preview.personal.sex} />
-                        <DataRow label="Age Group"   value={preview.personal.ageGroup} />
-                      </div>
-                    </div>
-                    <div style={{margin:'0 1rem',height:'1px',background:'#f1f5f9'}} />
-                    <div style={{padding:'0.75rem 1rem'}}>
-                      <div style={{fontSize:'0.625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#94a3b8',marginBottom:'0.75rem'}}>Booking Details</div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.75rem',width:'100%',boxSizing:'border-box'}}>
-                        <div style={{gridColumn:'1 / -1'}}><DataRow label="Room Type" value={preview.booking.roomType} /></div>
-                        <DataRow label="Rooms"  value={String(preview.booking.rooms)} />
-                        <DataRow label="Nights" value={String(preview.booking.nights)} />
-                        <div style={{gridColumn:'1 / -1'}}><DataRow label="Amount" value={formatTZS(preview.booking.ownerBaseAmount ?? preview.booking.totalAmount)} highlight /></div>
-                      </div>
-                    </div>
-                    <div style={{margin:'0 1rem',height:'1px',background:'#f1f5f9'}} />
-                    <div style={{padding:'0.75rem 1rem 1rem',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem',width:'100%',boxSizing:'border-box'}}>
-                      <div style={{borderRadius:'0.75rem',background:'#f0fdf4',border:'1px solid #d1fae5',padding:'0.625rem 0.75rem',boxSizing:'border-box',overflow:'hidden'}}>
-                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#059669',marginBottom:'0.25rem'}}>Check-in date</div>
-                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#064e3b',lineHeight:1.3}}>{formatStayDate(preview.booking.checkIn)}</div>
-                      </div>
-                      <div style={{borderRadius:'0.75rem',background:'#f0f9ff',border:'1px solid #bae6fd',padding:'0.625rem 0.75rem',boxSizing:'border-box',overflow:'hidden'}}>
-                        <div style={{fontSize:'0.5625rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.1em',color:'#0284c7',marginBottom:'0.25rem'}}>Check-out date</div>
-                        <div style={{fontSize:'0.75rem',fontWeight:700,color:'#0c4a6e',lineHeight:1.3}}>{formatStayDate(preview.booking.checkOut)}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ── Action card ── */}
-                  <div style={{position:'relative',width:'100%',maxWidth:'100%',boxSizing:'border-box',borderRadius:'1rem',border:'1px solid #e2e8f0',background:'white',padding:'1rem'}}>
-                    <button
-                      onClick={() => { setPreview(null); setCode(""); setResultMsg(null); setEligibility(null); }}
-                      style={{position:'absolute',top:'0.75rem',right:'0.75rem',height:'2rem',width:'2rem',display:'flex',alignItems:'center',justifyContent:'center',borderRadius:'0.625rem',border:'1px solid #fca5a5',background:'#fef2f2',color:'#ef4444',cursor:'pointer'}}
-                      aria-label="Clear result"
-                    >
-                      <X className="h-4 w-4" aria-hidden />
-                    </button>
-                    {!eligibility?.canValidate && eligibility?.reason ? (
-                      <div style={{marginBottom:'0.75rem',paddingRight:'2rem',borderRadius:'0.75rem',border:'1px solid #fde68a',background:'#fffbeb',padding:'0.625rem 0.75rem',fontSize:'0.875rem',color:'#92400e',boxSizing:'border-box'}}>
-                        {eligibility.reason}
-                      </div>
-                    ) : null}
-                    <button
-                      onClick={() => { setConfirmOpen(true); setAgreeTerms(false); setAgreeDisbursement(false); }}
-                      disabled={loading || (eligibility ? !eligibility.canValidate : false)}
-                      style={{width:'100%',padding:'0.75rem 1rem',borderRadius:'0.75rem',background:'#02665e',color:'white',fontSize:'0.875rem',fontWeight:700,border:'none',cursor:'pointer',boxSizing:'border-box',opacity: (loading || (eligibility ? !eligibility.canValidate : false)) ? 0.5 : 1}}
-                    >
-                      ✓ Confirm Check-in
-                    </button>
-                    <p style={{marginTop:'0.625rem',fontSize:'0.6875rem',color:'#94a3b8',textAlign:'center'}}>
-                      Marks code as <strong style={{color:'#64748b'}}>USED</strong> · moves guest to <strong style={{color:'#64748b'}}>Checked-In</strong>
-                    </p>
-                  </div>
-
+        </article>
+      ) : !resultMsg ? (
+        /* Placeholder pass: shows what is coming, in the same shape */
+        <div className="flex flex-col overflow-hidden rounded-3xl border-2 border-dashed border-slate-200 md:flex-row">
+          <div className="flex flex-col justify-center gap-3 p-6 md:w-[280px] md:shrink-0 md:border-0 md:border-r-2 md:border-dashed md:border-slate-200">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+              <ScanLine className="h-6 w-6" aria-hidden />
+            </span>
+            <p className="m-0 text-base font-bold text-slate-700">Arrival pass</p>
+            <p className="m-0 text-xs leading-relaxed text-slate-500">Appears as soon as a code is read. Nothing is confirmed until you press Confirm.</p>
+          </div>
+          <ol className="m-0 grid flex-1 list-none grid-cols-1 gap-4 p-6 sm:grid-cols-3">
+            {[
+              { Icon: ScanLine, title: "Read the code", body: "Type the 8 characters the guest presents, or scan a code-bearing QR." },
+              { Icon: UserCheck, title: "Match the guest", body: "Compare the name and phone with the person in front of you." },
+              { Icon: ShieldCheck, title: "Confirm", body: "The arrival is recorded against the booking." },
+            ].map((s, i) => (
+              <li key={s.title} className="rounded-2xl bg-white p-4 ring-1 ring-slate-100">
+                <div className="flex items-center justify-between">
+                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#02665e]/[0.08] text-[#02665e]">
+                    <s.Icon className="h-4 w-4" aria-hidden />
+                  </span>
+                  <span className="font-mono text-xs font-bold text-slate-300">0{i + 1}</span>
                 </div>
-              </div>
-            ) : null}
-          </div>{/* end grid */}
-        </div>{/* end py-4 */}
+                <p className="m-0 mt-3 text-sm font-semibold text-slate-800">{s.title}</p>
+                <p className="m-0 mt-1 text-xs leading-relaxed text-slate-500">{s.body}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
 
         {/* QR Scan Modal */}
+        <GuestCodeRequestDialog open={lostCodeOpen} onClose={() => setLostCodeOpen(false)} />
         {scanOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div
@@ -842,7 +1255,7 @@ export default function CheckinValidation() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-lg font-bold text-slate-900">Scan Receipt QR</div>
-                  <div className="text-xs text-slate-500">Point your camera at the QR code on the guest’s receipt</div>
+                  <div className="text-xs text-slate-500">Point your camera at a guest QR that contains the check-in code</div>
                 </div>
                 <button
                   type="button"
@@ -876,7 +1289,7 @@ export default function CheckinValidation() {
               </div>
 
               <div className="flex items-center justify-between text-xs text-slate-600">
-                <span>{scanActive ? "Scanning…" : "Camera stopped"}</span>
+                <span>{scanActive ? "Scanning..." : "Camera stopped"}</span>
                 <button
                   type="button"
                   onClick={() => { stopScanner(); startScanner(); }}
@@ -889,109 +1302,6 @@ export default function CheckinValidation() {
           </div>
         )}
 
-        {/* Confirmation modal with backdrop blur */}
-        {confirmOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-            <div 
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
-              onClick={() => setConfirmOpen(false)}
-            />
-            <div className="relative bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 z-10 animate-in zoom-in-95 duration-300 space-y-4">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
-                  <FileCheck2 className="h-5 w-5 text-white" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-800">Confirm Check-in</h3>
-              </div>
-              
-              <p className="text-sm text-slate-600 leading-relaxed">
-                You are about to confirm check-in for <strong className="font-semibold text-slate-800">{preview?.personal.fullName}</strong> at <strong className="font-semibold text-slate-800">{preview?.property.title}</strong>. By confirming, this guest will be moved to Checked-In and this action will be recorded.
-              </p>
-
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                <label className="flex items-start gap-3 cursor-pointer group">
-                  <input 
-                    type="checkbox" 
-                    checked={agreeTerms} 
-                    onChange={(e) => setAgreeTerms(e.target.checked)} 
-                    className="mt-0.5 h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-2 focus:ring-emerald-500/20 transition-colors"
-                  />
-                  <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">
-                    I have read and agree to the{' '}
-                    <a 
-                      className="text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2" 
-                      href={process.env.NEXT_PUBLIC_TERMS_URL ?? '#'} 
-                      target="_blank" 
-                      rel="noreferrer"
-                    >
-                      Terms &amp; Conditions
-                    </a>.
-                  </span>
-                </label>
-                <label className="mt-3 flex items-start gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={agreeDisbursement}
-                    onChange={(e) => setAgreeDisbursement(e.target.checked)}
-                    className="mt-0.5 h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-2 focus:ring-emerald-500/20 transition-colors"
-                  />
-                  <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">
-                    I have read and agree to the{" "}
-                    <a
-                      className="text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2"
-                      href={(process.env.NEXT_PUBLIC_DISBURSEMENT_POLICY_URL ?? process.env.NEXT_PUBLIC_PAYOUT_POLICY_URL ?? "#")}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Disbursement Policy
-                    </a>.
-                  </span>
-                </label>
-              </div>
-
-              {resultMsg && (
-                <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700 animate-in fade-in duration-200">
-                  {resultMsg}
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button 
-                  className="flex-1 px-4 py-2.5 rounded-xl border-2 border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50 hover:border-slate-300 transition-all duration-200" 
-                  onClick={() => setConfirmOpen(false)} 
-                  disabled={confirmLoading}
-                >
-                  Cancel
-                </button>
-                <button 
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 text-white font-semibold shadow-lg shadow-emerald-500/25 hover:shadow-xl hover:shadow-emerald-500/30 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]" 
-                  onClick={handleConfirmWithConsent} 
-                  disabled={confirmLoading || !agreeTerms || !agreeDisbursement}
-                >
-                  {confirmLoading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Confirming...
-                    </span>
-                  ) : (
-                    'Confirm Check-in'
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-    </div>
-  );
-}
-
-function DataRow({ label, value, highlight, span }: { label: string; value: string; highlight?: boolean; span?: boolean }) {
-  return (
-    <div className={span ? 'col-span-2' : ''}>
-      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</div>
-      <div className={`mt-0.5 text-[13px] font-semibold leading-snug break-words ${highlight ? 'text-[#02665e]' : 'text-slate-900'}`}>
-        {value || '—'}
-      </div>
     </div>
   );
 }

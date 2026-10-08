@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   accountFindMany: vi.fn(), accountUpdate: vi.fn(),
   tokenFindFirst: vi.fn(), tokenUpdateMany: vi.fn(),
   transaction: vi.fn(),
-  statementFindFirst: vi.fn(),
+  syncStatement: vi.fn(),
   notifyOwner: vi.fn(),
 }));
 
@@ -14,6 +14,8 @@ vi.mock("@nolsaf/prisma", () => ({ prisma: {
   $transaction: mocks.transaction,
 } }));
 vi.mock("../lib/notifications.js", () => ({ notifyOwner: mocks.notifyOwner }));
+// Statement rules are covered in nrmsStatements.test.ts; here we only check the worker hands off.
+vi.mock("../lib/nrmsStatements.js", () => ({ syncNrmsStatement: mocks.syncStatement }));
 vi.mock("../lib/nrmsWorkerHealth.js", () => ({ runNrmsWorker: vi.fn((_name: string, task: () => unknown) => task()) }));
 
 import { runNrmsDunning } from "./nrmsDunning.js";
@@ -38,9 +40,8 @@ describe("NRMS dunning: stuck PAYMENT_PENDING recovery", () => {
     vi.clearAllMocks();
     mocks.accountUpdate.mockResolvedValue({});
     mocks.tokenUpdateMany.mockResolvedValue({ count: 1 });
-    // Statement mint short-circuits: a PAYABLE statement already exists.
-    mocks.transaction.mockImplementation(async (callback: any) => callback({ nrmsBillingStatement: { findFirst: mocks.statementFindFirst } }));
-    mocks.statementFindFirst.mockResolvedValue({ id: 5 });
+    mocks.transaction.mockImplementation(async (callback: any) => callback({}));
+    mocks.syncStatement.mockResolvedValue({ statementId: 5, amount: 62400, folded: 0, deferred: false });
   });
 
   it("keeps PAYMENT_PENDING while a live payment attempt is still awaiting the provider", async () => {
@@ -63,6 +64,7 @@ describe("NRMS dunning: stuck PAYMENT_PENDING recovery", () => {
     // so the owner can generate a fresh token and pay again.
     expect(mocks.accountUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3 }, data: expect.objectContaining({ status: "PAYMENT_REQUIRED" }) }));
     expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 10_000, timeout: 30_000 });
+    expect(mocks.syncStatement).toHaveBeenCalledWith({}, expect.objectContaining({ id: 3 }), { now: NOW });
   });
 
   it("never runs the live-attempt lookup for accounts that are not PAYMENT_PENDING", async () => {

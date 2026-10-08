@@ -2,18 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
+import { useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import Link from "next/link";
-import { 
-  CalendarDays, 
-  Loader2, 
-  AlertCircle,
-  ChevronRight,
-  MapPin,
-  Building2,
-  BedDouble,
-  Layers,
-  Sparkles,
-} from "lucide-react";
+import { AlertCircle, BedDouble, Building2, CalendarDays, ChevronRight, MapPin, Search, Sparkles } from "lucide-react";
 
 const api = apiClient;
 
@@ -201,9 +192,11 @@ function extractBuildingStructure(property: Property): FloorInfo[] {
 }
 
 export default function PropertyAvailabilitySelectionPage() {
+  const propertyHref = useOwnerPropertyHref();
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const ranges = useMemo<Record<SummaryPeriod, PeriodRange>>(() => {
     const now = new Date();
@@ -292,32 +285,51 @@ export default function PropertyAvailabilitySelectionPage() {
     };
   }, [properties, ranges]);
 
+  const shell = "w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6";
+  const style = (
+    <style>{`:where(#owner-avail-list, #owner-avail-list *, #owner-avail-list *::before, #owner-avail-list *::after) { box-sizing: border-box; border-width: 0; border-style: solid; border-color: #e2e8f0; }`}</style>
+  );
+
   if (loading) {
     return (
-      <div className="relative min-h-screen bg-slate-50 rounded-3xl overflow-hidden border border-slate-200 shadow-xl shadow-slate-200/60">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-40 left-1/2 h-[600px] w-[1000px] -translate-x-1/2 rounded-full bg-emerald-100/80 blur-3xl" />
-        </div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <div className="mb-8 h-9 w-32 rounded-xl bg-slate-200 animate-pulse" />
-          <div className="mb-12 h-36 rounded-3xl bg-slate-200 border border-slate-300 animate-pulse" />
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="rounded-3xl border border-slate-200 bg-slate-100 overflow-hidden">
-                <div className="h-36 bg-slate-200 animate-pulse" />
-                <div className="p-5 space-y-3">
-                  <div className="grid grid-cols-3 gap-3">
-                    {[0,1,2].map(j => <div key={j} className="h-16 rounded-2xl bg-slate-200 animate-pulse" />)}
-                  </div>
-                  <div className="h-20 rounded-2xl bg-slate-200 animate-pulse" />
-                </div>
+      <div id="owner-avail-list" className={shell} aria-busy="true" aria-label="Loading properties">
+        {style}
+        <style>{`
+          @keyframes oal-shimmer { 0% { background-position: -480px 0 } 100% { background-position: 480px 0 } }
+          #owner-avail-list .oal-d { background: linear-gradient(90deg, rgba(255,255,255,.05) 0%, rgba(255,255,255,.12) 40%, rgba(255,255,255,.05) 80%); background-size: 960px 100%; animation: oal-shimmer 1.4s linear infinite; }
+          #owner-avail-list .oal-l { background: linear-gradient(90deg, #eef2f1 0%, #f8faf9 40%, #eef2f1 80%); background-size: 960px 100%; animation: oal-shimmer 1.4s linear infinite; }
+          @media (prefers-reduced-motion: reduce) { #owner-avail-list .oal-d, #owner-avail-list .oal-l { animation: none; } }
+        `}</style>
+        {/* Steady panels in the page's shape; only a soft shimmer moves. */}
+        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
+          <div className="oal-d h-3 w-28 rounded-full" />
+          <div className="mt-5 space-y-2.5">
+            <div className="oal-d h-2.5 w-20 rounded-full" />
+            <div className="oal-d h-8 w-56 rounded-lg" />
+            <div className="oal-d h-3 w-80 max-w-full rounded-full" />
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                <div className="oal-d h-2.5 w-20 rounded-full" />
+                <div className="oal-d mt-2.5 h-6 w-10 rounded-md" />
               </div>
             ))}
           </div>
-          <div className="mt-10 flex items-center justify-center gap-3 text-sm text-slate-400">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>Loading your approved properties…</span>
-          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="oal-l h-32" />
+              <div className="space-y-3 p-4">
+                <div className="oal-l h-2.5 w-16 rounded-full" />
+                <div className="oal-l h-8 w-32 rounded-lg" />
+                <div className="oal-l h-2 w-full rounded-full" />
+                <div className="oal-l h-16 w-full rounded-xl" />
+                <div className="oal-l h-10 w-full rounded-xl" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -325,265 +337,210 @@ export default function PropertyAvailabilitySelectionPage() {
 
   if (error) {
     return (
-      <div className="relative min-h-screen bg-slate-50 rounded-3xl overflow-hidden border border-slate-200 shadow-xl shadow-slate-200/60 flex items-center justify-center p-4">
-        <div className="rounded-3xl border border-white/10 bg-slate-900 p-8 max-w-md w-full shadow-2xl shadow-black/60">
-          <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/20 flex items-center justify-center mb-5">
-            <AlertCircle className="w-6 h-6 text-rose-400" />
+      <div id="owner-avail-list" className={shell}>
+        {style}
+        <div className="flex flex-col items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" aria-hidden />
+            <div>
+              <p className="m-0 text-sm font-bold text-rose-900">Your properties could not be loaded</p>
+              <p className="m-0 mt-0.5 text-xs text-rose-800">{error}</p>
+            </div>
           </div>
-          <h1 className="text-xl font-bold text-white">Could not load properties</h1>
-          <p className="mt-2 text-sm text-white/50">{error}</p>
-          <div className="mt-6 flex items-center gap-3">
-            <Link
-              href="/owner/properties/approved"
-              className="no-underline inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 text-sm font-semibold text-white hover:bg-white/10 transition"
-            >
-              <ChevronRight className="w-4 h-4 rotate-180" />
-              <span>Back</span>
-            </Link>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="inline-flex items-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-sm font-semibold text-white hover:from-emerald-500 hover:to-teal-500 transition"
-            >
-              Retry
-            </button>
-          </div>
+          <button type="button" onClick={() => window.location.reload()} className="h-10 rounded-xl bg-[#012a26] px-4 text-sm font-bold text-white hover:bg-[#02665e]">
+            Try again
+          </button>
         </div>
       </div>
     );
   }
+
   if (properties.length === 0) {
     return (
-      <div className="relative min-h-screen bg-slate-50 rounded-3xl overflow-hidden border border-slate-200 shadow-xl shadow-slate-200/60 flex items-center justify-center p-4">
-        <div className="rounded-3xl border border-white/10 bg-slate-900 p-8 max-w-md w-full text-center shadow-2xl shadow-black/60">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-5 shadow-[0_0_30px_-4px_rgba(52,211,153,0.4)]">
-            <CalendarDays className="w-7 h-7 text-white" />
+      <div id="owner-avail-list" className={shell}>
+        {style}
+        <section className="grid overflow-hidden rounded-3xl border border-slate-300/80 bg-white md:grid-cols-2">
+          <div className="p-8">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#012a26] text-[#5eead4]"><CalendarDays className="h-6 w-6" aria-hidden /></span>
+            <p className="m-0 mt-4 text-xl font-bold text-slate-900">No approved properties yet</p>
+            <p className="m-0 mt-1.5 max-w-sm text-sm text-slate-500">Room availability opens once a property is approved.</p>
           </div>
-          <h1 className="text-xl font-bold text-white">No approved properties yet</h1>
-          <p className="mt-2 text-sm text-white/50">
-            You need at least one approved property before you can manage room availability.
-          </p>
-          <div className="mt-6">
-            <Link
-              href="/owner/properties/add"
-              className="no-underline inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white text-sm font-bold hover:from-emerald-500 hover:to-teal-500 transition shadow-lg shadow-emerald-900/40"
-            >
-              <Sparkles className="w-4 h-4" />
-              <span>Add New Property</span>
+          <div className="flex flex-col justify-center gap-2.5 border-0 border-t border-slate-200 bg-slate-50 p-8 md:border-l md:border-t-0">
+            <Link href="/owner/properties/add" className="group inline-flex h-12 items-center justify-between rounded-xl bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline hover:bg-[#02665e]">
+              Add a property
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]"><Sparkles className="h-4 w-4" aria-hidden /></span>
             </Link>
           </div>
-        </div>
+        </section>
       </div>
     );
   }
 
+  // Portfolio, tonight.
+  const sumToday = (k: keyof AvailabilitySummary) =>
+    properties.reduce((t, p) => t + Number(availabilityByPropertyId[p.id]?.today?.[k] ?? 0), 0);
+  const roomsAll = properties.reduce((t, p) => t + extractBuildingStructure(p).reduce((s, f) => s + f.totalRooms, 0), 0);
+  const todayLoaded = properties.some((p) => availabilityByPropertyId[p.id]?.today);
+  const q = query.trim().toLowerCase();
+  const visible = q
+    ? properties.filter((p) => [p.title, p.city, p.district, p.regionName, p.type].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
+    : properties;
+
   return (
-    <div className="relative min-h-screen bg-slate-50 rounded-3xl overflow-hidden border border-slate-200 shadow-xl shadow-slate-200/60">
-      {/* Ambient background glows */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 left-1/2 h-[600px] w-[1000px] -translate-x-1/2 rounded-full bg-emerald-200/50 blur-3xl" />
-        <div className="absolute top-1/3 -left-40 h-[400px] w-[600px] rounded-full bg-teal-200/40 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[400px] w-[500px] rounded-full bg-cyan-200/30 blur-3xl" />
-      </div>
+    <div id="owner-avail-list" className={shell}>
+      {style}
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-
-        {/* ── Nav bar ── */}
-        <nav className="mb-8 flex items-center justify-between">
-          <Link
-            href="/owner/properties/approved"
-            className="no-underline inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 shadow-sm transition"
-          >
-            <ChevronRight className="w-4 h-4 rotate-180" />
-            <span>Properties</span>
+      {/* ── Header band ── */}
+      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
+          aria-hidden
+        />
+        <div className="relative px-5 pb-6 pt-5 sm:px-8 sm:pt-6">
+          <Link href="/owner/properties/approved" className="inline-flex items-center gap-1 text-sm font-semibold text-white/60 no-underline transition hover:text-white">
+            <ChevronRight className="h-4 w-4 rotate-180" aria-hidden /> My properties
           </Link>
-          <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-500 shadow-sm">
-            <BedDouble className="w-3.5 h-3.5" />
-            {properties.length} {properties.length === 1 ? "property" : "properties"}
-          </span>
-        </nav>
-
-        {/* ── Hero header ── */}
-        <div className="relative mb-12 overflow-hidden rounded-3xl border border-white/10 bg-slate-900 bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-cyan-500/5 p-8 shadow-2xl shadow-black/40">
-          {/* decorative arcs */}
-          <svg className="pointer-events-none absolute right-0 top-0 h-full w-1/2 opacity-10" viewBox="0 0 400 300" fill="none">
-            <circle cx="400" cy="0" r="220" stroke="white" strokeWidth="1" />
-            <circle cx="400" cy="0" r="160" stroke="white" strokeWidth="1" />
-            <circle cx="400" cy="0" r="100" stroke="white" strokeWidth="1" />
-          </svg>
-          <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
-            {/* icon */}
-            <div className="flex-shrink-0 w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center shadow-[0_0_40px_-4px_rgba(52,211,153,0.5)]">
-              <CalendarDays className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-emerald-400/80 mb-1">Owner Dashboard</p>
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white">Room Availability</h1>
-              <p className="mt-2 text-sm text-white/50 max-w-md">
-                Monitor bookings, block external reservations, and keep every room's calendar up to date. All in one place.
-              </p>
-            </div>
-            {/* quick stat pills */}
-            <div className="sm:ml-auto flex flex-wrap gap-2 sm:flex-col sm:items-end">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Live sync
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/60">
-                <Layers className="w-3.5 h-3.5" />
-                {properties.reduce((s, p) => s + extractBuildingStructure(p).length, 0)} floors total
-              </span>
-            </div>
+          <div className="mt-4">
+            <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+            <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Room availability</h1>
+            <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">Pick a property to see its rooms by floor, check dates and block rooms booked outside NoLSAF.</p>
+          </div>
+          <div className="mt-6 grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+            {[
+              { label: "Properties", value: String(properties.length), Icon: Building2 },
+              { label: "Rooms", value: String(roomsAll), Icon: BedDouble },
+              { label: "Free tonight", value: todayLoaded ? String(sumToday("totalAvailableRooms")) : "...", Icon: Sparkles },
+              { label: "Booked tonight", value: todayLoaded ? String(sumToday("totalBookedRooms")) : "...", Icon: CalendarDays },
+            ].map((s) => (
+              <div key={s.label} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                  <s.Icon className="h-3.5 w-3.5 text-[#5eead4]" aria-hidden /> {s.label}
+                </span>
+                <span className="mt-1 block text-2xl font-bold tabular-nums">{s.value}</span>
+              </div>
+            ))}
           </div>
         </div>
+      </header>
 
-        {/* ── Properties Grid ── */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {properties.map((property) => {
-            const buildingStructure = extractBuildingStructure(property);
-            const location = [property.city, property.district, property.regionName]
-              .filter(Boolean)
-              .join(", ") || "Location not specified";
+      {/* ── Toolbar ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="m-0 text-sm text-slate-600">
+          <span className="font-bold text-slate-900">{visible.length}</span> {visible.length === 1 ? "property" : "properties"}
+        </p>
+        {properties.length > 3 ? (
+          <label className="relative block w-full sm:w-72">
+            <span className="sr-only">Search properties</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name or area"
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+            />
+          </label>
+        ) : null}
+      </div>
 
-            const totalRooms = buildingStructure.reduce((sum, floor) => sum + floor.totalRooms, 0);
-            const cover = Array.isArray(property.photos) && property.photos.length > 0 ? property.photos[0] : null;
+      {/* ── Properties ── */}
+      <ul className="m-0 grid list-none gap-4 p-0 sm:grid-cols-2 xl:grid-cols-3">
+        {visible.map((property) => {
+          const structure = extractBuildingStructure(property);
+          const totalRooms = structure.reduce((sum, f) => sum + f.totalRooms, 0);
+          const location = [property.city, property.district, property.regionName].filter(Boolean).join(", ");
+          const cover = Array.isArray(property.photos) && property.photos.length > 0 ? property.photos[0] : null;
+          const avail = availabilityByPropertyId[property.id];
+          const avLoading = availabilityLoadingByPropertyId[property.id];
+          const today = avail?.today;
+          const total = Number(today?.totalRooms ?? totalRooms) || 0;
+          const pct = (n: number | undefined) => (total > 0 && typeof n === "number" ? Math.round((n / total) * 100) : 0);
+          const show = (v: number | undefined, isLoading?: boolean) => (typeof v === "number" ? String(v) : isLoading ? "..." : "0");
 
-            const avail = availabilityByPropertyId[property.id];
-            const avLoading = availabilityLoadingByPropertyId[property.id];
-
-            const fmt = (value: number | undefined, isLoading?: boolean) => {
-              if (typeof value === "number") return value;
-              if (isLoading) return "…";
-              return "—";
-            };
-
-            const bookedToday = avail?.today?.totalBookedRooms;
-            const bookedWeek  = avail?.week?.totalBookedRooms;
-            const bookedMonth = avail?.month?.totalBookedRooms;
-            const blockedToday = avail?.today?.totalBlockedRooms;
-            const blockedWeek  = avail?.week?.totalBlockedRooms;
-            const blockedMonth = avail?.month?.totalBlockedRooms;
-
-            const availPct = avail?.today?.overallAvailabilityPercentage ?? null;
-
-            return (
+          return (
+            <li key={property.id}>
               <Link
-                key={property.id}
-                href={`/owner/properties/${property.id}/availability`}
-                className="no-underline group block"
+                href={propertyHref(property.id, "/availability")}
+                className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-300/80 bg-white no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_22px_44px_-26px_rgba(1,42,38,0.5)]"
               >
-                <div className="relative rounded-3xl border border-white/10 bg-slate-900 backdrop-blur-sm overflow-hidden shadow-xl shadow-black/30 hover:-translate-y-1 hover:shadow-[0_28px_60px_-10px_rgba(2,102,94,0.35)] hover:border-emerald-500/30 transition-all duration-300">
-                  {/* hover glow */}
-                  <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                    <div className="absolute -top-20 -right-20 h-52 w-52 rounded-full bg-emerald-500/15 blur-2xl" />
+                {/* Photo */}
+                <div className="relative h-32 overflow-hidden bg-slate-100">
+                  {cover ? (
+                    <div className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.04]" style={{ backgroundImage: `url(${cover})` }} />
+                  ) : (
+                    <div className="absolute inset-0 grid place-items-center text-slate-400"><Building2 className="h-8 w-8" aria-hidden /></div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 to-transparent" aria-hidden />
+                  <div className="absolute left-3 top-3 flex gap-1.5">
+                    <span className="rounded-full bg-white/95 px-2.5 py-1 text-[11px] font-bold text-slate-800">{totalRooms} rooms</span>
+                    <span className="rounded-full bg-[#012a26]/85 px-2.5 py-1 text-[11px] font-bold text-[#5eead4]">{structure.length} {structure.length === 1 ? "floor" : "floors"}</span>
                   </div>
-
-                  {/* 4px accent bar */}
-                  <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 rounded-t-3xl" />
-
-                  {/* Cover photo / hero gradient */}
-                  <div className="relative h-36 overflow-hidden">
-                    {cover ? (
-                      <div
-                        className="absolute inset-0 bg-cover bg-center scale-105 group-hover:scale-100 transition-transform duration-700"
-                        style={{ backgroundImage: `url(${cover})` }}
-                      />
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-emerald-900/60 via-teal-900/40 to-slate-900/70" />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent" />
-
-                    {/* Status + rooms badges */}
-                    <div className="absolute top-4 right-4 flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                        {property.status}
-                      </span>
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/30 backdrop-blur px-2.5 py-1 text-[10px] font-bold text-white/80">
-                        <BedDouble className="w-3 h-3" />
-                        {totalRooms} rooms
-                      </span>
-                    </div>
-
-                    {/* Property name overlaid on photo */}
-                    <div className="absolute bottom-4 left-5 right-5 flex items-end gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur border border-white/20 flex items-center justify-center flex-shrink-0">
-                        <Building2 className="w-5 h-5 text-white/80" />
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="text-base font-bold text-white leading-tight truncate group-hover:text-emerald-300 transition-colors">
-                          {property.title}
-                        </h3>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <MapPin className="w-3 h-3 text-white/40 flex-shrink-0" />
-                          <span className="text-xs text-white/50 truncate">{location}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card body */}
-                  <div className="px-5 pb-5 pt-4">
-
-                    {/* Quick stat strip */}
-                    <div className="grid grid-cols-3 gap-3 mb-4">
-                      {[
-                        { label: "Floors", value: String(buildingStructure.length), icon: <Layers className="w-3.5 h-3.5 text-emerald-400" /> },
-                        { label: "Rooms", value: String(totalRooms), icon: <BedDouble className="w-3.5 h-3.5 text-teal-400" /> },
-                        { label: "Avail. today", value: availPct !== null ? `${availPct}%` : fmt(undefined, avLoading?.today), icon: <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> },
-                      ].map((s) => (
-                        <div key={s.label} className="rounded-2xl border border-white/8 bg-white/5 px-3 py-2.5">
-                          <div className="flex items-center gap-1.5 mb-1">{s.icon}<span className="text-[10px] font-bold uppercase tracking-wider text-white/40">{s.label}</span></div>
-                          <div className="text-lg font-bold text-white tabular-nums">{s.value}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Booking / block table */}
-                    <div className="rounded-2xl border border-white/8 bg-white/4 overflow-hidden">
-                      {/* Table head */}
-                      <div className="grid grid-cols-4 px-3 py-2 border-b border-white/8 bg-white/5 text-[10px] font-bold uppercase tracking-wider text-white/35">
-                        <span />
-                        <span className="text-right">Today</span>
-                        <span className="text-right">Week</span>
-                        <span className="text-right">Month</span>
-                      </div>
-                      {/* NoLSAF booked */}
-                      <div className="grid grid-cols-4 px-3 py-2.5 items-center">
-                        <div className="flex items-center gap-2">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                          <span className="text-[11px] font-semibold text-white/60">NoLSAF</span>
-                        </div>
-                        <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">{fmt(bookedToday, avLoading?.today)}</span>
-                        <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">{fmt(bookedWeek,  avLoading?.week)}</span>
-                        <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">{fmt(bookedMonth, avLoading?.month)}</span>
-                      </div>
-                      {/* External blocked */}
-                      <div className="grid grid-cols-4 px-3 py-2.5 border-t border-white/8 items-center">
-                        <div className="flex items-center gap-2">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                          <span className="text-[11px] font-semibold text-white/60">Blocked</span>
-                        </div>
-                        <span className="text-right text-sm font-bold text-white/70 tabular-nums">{fmt(blockedToday, avLoading?.today)}</span>
-                        <span className="text-right text-sm font-bold text-white/70 tabular-nums">{fmt(blockedWeek,  avLoading?.week)}</span>
-                        <span className="text-right text-sm font-bold text-white/70 tabular-nums">{fmt(blockedMonth, avLoading?.month)}</span>
-                      </div>
-                    </div>
-
-                    {/* CTA footer */}
-                    <div className="mt-4 flex items-center justify-between">
-                      <span className="text-xs text-white/30">Click to manage calendar</span>
-                      <div className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-emerald-900/40 group-hover:from-emerald-500 group-hover:to-teal-500 transition-all">
-                        <span>Manage</span>
-                        <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                      </div>
-                    </div>
+                  <div className="absolute inset-x-3 bottom-2.5 text-white">
+                    <p className="m-0 truncate text-base font-bold">{property.title}</p>
+                    <p className="m-0 flex items-center gap-1 truncate text-[11px] text-white/80">
+                      <MapPin className="h-3 w-3 shrink-0" aria-hidden /> {location || "Location not set"}
+                    </p>
                   </div>
                 </div>
+
+                {/* Tonight */}
+                <div className="flex flex-1 flex-col p-4">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Tonight</p>
+                    <p className="m-0 text-[11px] text-slate-500">
+                      {typeof today?.overallAvailabilityPercentage === "number" ? `${today.overallAvailabilityPercentage}% open` : ""}
+                    </p>
+                  </div>
+                  <p className="m-0 mt-1 flex items-baseline gap-1.5">
+                    <span className="text-3xl font-bold tabular-nums text-slate-900">{show(today?.totalAvailableRooms, avLoading?.today)}</span>
+                    <span className="text-sm text-slate-500">of {total} free</span>
+                  </p>
+                  <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+                    <span className="h-full bg-amber-400" style={{ width: `${pct(today?.totalBookedRooms)}%` }} />
+                    <span className="h-full bg-slate-400" style={{ width: `${pct(today?.totalBlockedRooms)}%` }} />
+                    <span className="h-full bg-[#5eead4]" style={{ width: `${pct(today?.totalAvailableRooms)}%` }} />
+                  </div>
+
+                  {/* Booked and blocked, today / week / month */}
+                  <table className="mt-4 w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                        <th className="pb-1.5 text-left font-semibold" />
+                        <th className="pb-1.5 text-right font-semibold">Today</th>
+                        <th className="pb-1.5 text-right font-semibold">Week</th>
+                        <th className="pb-1.5 text-right font-semibold">Month</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-0 border-t border-slate-100">
+                        <td className="py-1.5 text-slate-600"><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-amber-400 align-middle" aria-hidden />Booked</td>
+                        <td className="py-1.5 text-right font-bold tabular-nums text-slate-900">{show(avail?.today?.totalBookedRooms, avLoading?.today)}</td>
+                        <td className="py-1.5 text-right font-bold tabular-nums text-slate-900">{show(avail?.week?.totalBookedRooms, avLoading?.week)}</td>
+                        <td className="py-1.5 text-right font-bold tabular-nums text-slate-900">{show(avail?.month?.totalBookedRooms, avLoading?.month)}</td>
+                      </tr>
+                      <tr className="border-0 border-t border-slate-100">
+                        <td className="py-1.5 text-slate-600"><span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-slate-400 align-middle" aria-hidden />Blocked</td>
+                        <td className="py-1.5 text-right font-bold tabular-nums text-slate-900">{show(avail?.today?.totalBlockedRooms, avLoading?.today)}</td>
+                        <td className="py-1.5 text-right font-bold tabular-nums text-slate-900">{show(avail?.week?.totalBlockedRooms, avLoading?.week)}</td>
+                        <td className="py-1.5 text-right font-bold tabular-nums text-slate-900">{show(avail?.month?.totalBlockedRooms, avLoading?.month)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <span className="mt-auto pt-4">
+                    <span className="flex h-10 items-center justify-between rounded-xl bg-[#012a26] pl-4 pr-1.5 text-sm font-bold text-white transition group-hover:bg-[#02665e]">
+                      Open availability
+                      <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#5eead4] text-[#012a26] transition group-hover:translate-x-0.5">
+                        <ChevronRight className="h-4 w-4" aria-hidden />
+                      </span>
+                    </span>
+                  </span>
+                </div>
               </Link>
-            );
-          })}
-        </div>
-      </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

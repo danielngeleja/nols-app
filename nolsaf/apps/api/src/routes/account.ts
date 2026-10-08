@@ -2652,10 +2652,13 @@ const getAccountLoginHistory: RequestHandler = async (req, res) => {
     // Prefer audit logs produced by auth flows (USER_LOGIN/USER_LOGOUT). These include IP + UA.
     if ((prisma as any).auditLog) {
       try {
+        // Optional ?limit= lets the history page show more than the latest 50 (capped at 200).
+        const requested = Number((req.query as any)?.limit);
+        const take = Number.isFinite(requested) && requested > 0 ? Math.min(200, Math.floor(requested)) : 50;
         const audits = await (prisma as any).auditLog.findMany({
           where: { actorId: userId, action: { in: ["USER_LOGIN", "USER_LOGOUT"] } },
           orderBy: { createdAt: "desc" },
-          take: 50,
+          take,
         });
         const records = (audits || []).map((it: any) => {
           const ua = typeof it.ua === "string" ? it.ua : "";

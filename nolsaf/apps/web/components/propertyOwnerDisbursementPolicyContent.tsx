@@ -3,7 +3,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const PROPERTY_OWNER_DISBURSEMENT_POLICY_LAST_UPDATED = "1 January 2026";
+export const PROPERTY_OWNER_DISBURSEMENT_POLICY_LAST_UPDATED = "7 October 2026";
 
 export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
   {
@@ -24,6 +24,10 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
         <p>
           <strong>1.3 Payment Flow</strong><br />
           As outlined in section 1.3.3 of our <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link>, all payments made by Users are directed to NoLSAF accounts first. Subsequently, NoLSAF disburses the appropriate amounts to Property Owners in accordance with established agreements and payout schedules defined in this Disbursement Policy.
+        </p>
+        <p>
+          <strong>1.4 Changes Planned for 28 October 2026</strong><br />
+          This version introduces payout readiness immediately after a validated check-in and the checks in section 5.1.2, withdrawal confirmed by a one-time code, automatic sending of eligible payouts, and automatic sending of unclaimed payouts after 14 days with a prior reminder (section 5), together with the related verification and hold rules in sections 3, 4 and 5.7. In line with section 12.1, these changes take effect no earlier than 28 October 2026 and only after Property Owners have received at least 21 days&apos; notice. Until the effective date, the previous payout claim process continues to apply.
         </p>
       </div>
     ),
@@ -81,7 +85,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
         </p>
         <p>
           <strong>3.3 Service Delivery Obligations</strong><br />
-          Property Owners must fulfill their service delivery obligations as outlined in the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link> to be eligible for disbursements. Disbursements are contingent upon successful completion of services and User satisfaction.
+          Property Owners must fulfill their service delivery obligations as outlined in the <Link href="/terms" className="text-blue-600 hover:text-blue-800 underline">Terms of Service</Link> to be eligible for disbursements. A validated guest check-in establishes the stay for payout purposes, subject to the checks in section 5.1.2 and any hold under section 5.7. Receiving a payout during an ongoing stay does not end the Property Owner&apos;s obligation to provide the remaining booked accommodation. Day-to-day matters between a guest and a Property Owner are settled between them; NoLSAF intervenes through the formal cancellation, refund and dispute processes.
         </p>
         <p>
           <strong>3.3.1 Property Owner Responsibilities:</strong> Property Owners must provide accommodations as described in their listings, maintain property standards, and comply with all booking terms. Disbursements may be delayed or withheld if services are not delivered as agreed or if there are unresolved disputes with Users.
@@ -131,7 +135,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>4.2.2 Bank Transfers:</strong> Direct bank transfers to verified bank accounts. Property Owners must provide accurate bank account details including account number, bank name, branch, and account holder name matching their registered identity.
         </p>
         <p>
-          <strong>4.2.3 Payment Platform Accounts:</strong> PayPal, Stripe, or other supported payment platform accounts, where applicable and supported by NoLSAF.
+          <strong>4.2.3 Other Methods:</strong> Other digital payout methods may be added in future. NoLSAF will announce them through the dashboard before they can be selected. Until then, only the methods listed in sections 4.2.1 and 4.2.2 that NoLSAF has enabled can receive disbursements.
         </p>
         <p>
           <strong>4.3 Payment Method Selection</strong><br />
@@ -183,6 +187,15 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>4.5.4 Security Measures:</strong> Payment method changes are subject to additional security measures, including OTP verification, to prevent unauthorized changes and protect Property Owner accounts.
         </p>
         <p>
+          <strong>4.5.5 Account Holder Check:</strong> Every payout account is checked with the payment provider, which confirms the registered account holder name before the account can receive disbursements. The check is repeated before each payout is sent.
+        </p>
+        <p>
+          <strong>4.5.6 New or Changed Accounts:</strong> For 72 hours after a payout account is added or changed, payouts to it wait until that period has passed. This protects Property Owners if someone else gains access to their account.
+        </p>
+        <p>
+          <strong>4.5.7 Contact Changes:</strong> Withdrawals are paused for 72 hours after the phone number or email address on the Property Owner account is changed, because withdrawal codes are sent to those contacts.
+        </p>
+        <p>
           <strong>4.6 Payment Method Limitations</strong><br />
           Some payment methods may have limitations, including minimum disbursement amounts, maximum transaction limits, or geographic restrictions. Property Owners will be informed of any applicable limitations when selecting their payment method during registration or when updating payment methods.
         </p>
@@ -198,33 +211,48 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
     content: (
       <div className="space-y-4">
         <p>
-          <strong>5.1 Flexible Payout System</strong><br />
-          NoLSAF operates a flexible, on-demand payout system that allows Property Owners to claim their payouts when they choose, subject to eligibility requirements and time limitations outlined in this section. Property Owners have the right to claim payouts through their dashboard once earnings become eligible.
+          <strong>5.1 On-Demand Payouts</strong><br />
+          NoLSAF operates an on-demand payout system. A qualified stay&apos;s payout becomes ready to withdraw as soon as the guest&apos;s check-in code is validated and the checks in section 5.1.2 pass. The Property Owner may then withdraw it from My Payouts whenever they choose, subject to the rules in this section.
         </p>
         <p>
-          <strong>5.1.1 Property Owner Payout Eligibility:</strong> Property Owners become eligible to claim payouts after the booking code has been validated during guest check-in. Once the booking code is validated, the Property Owner can choose to claim the payout immediately or wait for a later time, subject to the time limitations outlined in section 5.2 below.
+          <strong>5.1.1 Payout Eligibility:</strong> NoLSAF creates the payout claim automatically when the guest&apos;s booking code is validated at check-in; the Property Owner does not need to submit an invoice. A validated code alone does not send money. The payout becomes ready to withdraw when the checks in section 5.1.2 pass.
         </p>
         <p>
-          <strong>5.1.1.1 Instant Claim Option:</strong> Property Owners have the right to claim payouts immediately after booking code validation and service completion verification. The instant claim option allows Property Owners to receive their earnings without waiting for scheduled payout cycles.
+          <strong>5.1.1.1 Guest Confirmation:</strong> When a booking code is validated, NoLSAF promptly submits an alert to the guest&apos;s booking phone number by SMS. If SMS cannot be accepted by the messaging provider, NoLSAF attempts email to the guest&apos;s email address on the booking account. The alert identifies the property and check-in time, gives NoLSAF&apos;s contact details, and tells a guest who did not check in to contact NoLSAF immediately. Provider acceptance is recorded; it does not guarantee that the guest has read the alert. If neither channel accepts the alert, or no usable guest contact exists, the payout waits for retry or review rather than becoming ready to withdraw. A reported misuse holds any payout not yet sent; an approved refund after payment follows section 6.3.
         </p>
         <p>
-          <strong>5.1.1.2 Deferred Claim Option:</strong> Property Owners may choose to defer claiming payouts and allow earnings to accumulate in their account. However, unclaimed payouts are subject to automatic disbursement time limits as outlined in section 5.2.
+          <strong>5.1.1.2 Guest-Held Check-In Code:</strong> NoLSAF provides the full check-in code to the guest, who presents it to the Property Owner at arrival. The owner&apos;s booking, invoice and payout records use a separate booking reference and do not reveal the code. An owner may ask NoLSAF to resend it only to the guest&apos;s original booking phone or email, or to remind the guest in their account; the request never returns the code to the owner. A booking ID or payment-receipt QR alone cannot validate check-in. A guest who cannot access their booking contact or account should contact NoLSAF support for identity-verified recovery.
         </p>
         <p>
-          <strong>5.1.2 Payout Claim Process:</strong> Property Owners can initiate payout claims through their NoLSAF dashboard using the established claim process. The claim process includes verification steps to ensure security and accuracy.
+          <strong>5.1.2 Immediate Payout Readiness:</strong> There is no routine waiting period after a validated check-in. A payout becomes ready to withdraw as soon as all of the following conditions are met:
         </p>
         <p>
-          <strong>5.2 Time Limitations for Unclaimed Payouts</strong><br />
-          To ensure timely disbursement and prevent excessive accumulation of unclaimed funds, NoLSAF has established time limitations for unclaimed payouts.
+          <strong>5.1.2.1</strong> the booking code has been validated at check-in, the booking is checked in or checked out, and the guest&apos;s payment has been confirmed by the payment provider in the payout currency;
         </p>
         <p>
-          <strong>5.2.1 Maximum Unclaimed Period:</strong> Property Owners must claim their payouts within a maximum period that does not exceed the agreed payout schedule. Unclaimed payouts exceeding the maximum period will be automatically processed according to the standard payout schedule or as agreed between the Property Owner and NoLSAF.
+          <strong>5.1.2.2</strong> the guest check-in alert in section 5.1.1.1 has been accepted by an SMS or email provider, the Property Owner has a verified payout account that is outside the account-change waiting period in section 4.5.6, the withdrawal contact is outside the change waiting period in section 4.5.7, and no hold under section 5.7 applies. The same readiness rule applies to every provider-confirmed payment, whether made by mobile money, bank transfer or card. Later card disputes follow section 6.3.4.
         </p>
         <p>
-          <strong>5.2.2 Automatic Disbursement:</strong> If Property Owners do not claim their payouts within the maximum unclaimed period, NoLSAF will automatically process the disbursement according to the established payout schedule or agreement. Property Owners will be notified before automatic disbursement occurs.
+          <strong>5.1.2.3</strong> My Payouts shows whether the payout is ready, waiting for a required check, on hold, being sent or paid, together with the reason for any wait or hold. Confirmation of eligibility makes the payout ready to withdraw; it does not mean the payment provider has already sent money.
         </p>
         <p>
-          <strong>5.2.3 Notification of Unclaimed Payouts:</strong> NoLSAF will send notifications to Property Owners when payouts become eligible for claim and as the maximum unclaimed period approaches. Notifications will be sent through the dashboard and via email to ensure Property Owners are aware of their available payouts.
+          <strong>5.1.3 Withdrawal Confirmed by One-Time Code:</strong> To withdraw, the Property Owner selects Withdraw in My Payouts. NoLSAF then sends a one-time code by SMS to the verified phone number on the account, or to the verified email address if the SMS cannot be delivered. The message states the amount and the masked payout account. The code is valid for 5 minutes, can be used once, and works only for that withdrawal: if the payout account or any included payout changes before the code is entered, the code stops working and the Property Owner starts again. Three wrong withdrawal codes across requests lock withdrawal verification and new code requests until NoLSAF support verifies the Property Owner&apos;s identity and restores access. This does not lock ordinary sign-in. NoLSAF staff will never ask for the code.
+        </p>
+        <p>
+          <strong>5.1.4 Automatic Sending:</strong> After a withdrawal is confirmed, eligible payouts are sent automatically to the verified payout account, normally within minutes. A payout is instead reviewed by NoLSAF before it is sent, normally within 24 hours, when it is the Property Owner's first payout, when NoLSAF's security checks flag it, or when it exceeds the limits NoLSAF sets for automatic payouts. Card payment by itself does not create a routine wait until checkout; an individual card payout can still require review when its amount, stay or provider information raises a specific risk. Payouts beyond the daily limit for automatic payouts are sent on a following day.
+        </p>
+        <p>
+          <strong>5.2 Unclaimed Payouts</strong><br />
+          To prevent earnings from accumulating unpaid, NoLSAF sends payouts that are not withdrawn within a set period.
+        </p>
+        <p>
+          <strong>5.2.1 Maximum Unclaimed Period:</strong> A payout that has been ready to withdraw for 14 days without being withdrawn is sent automatically to the Property Owner's verified payout account, unless the account was added or changed within the previous 72 hours or withdrawal verification is locked under section 5.1.3. An OTP lock prevents automatic sending until NoLSAF support verifies and restores access.
+        </p>
+        <p>
+          <strong>5.2.2 Reminder Before Automatic Sending:</strong> At least 48 hours before an unclaimed payout is sent, NoLSAF notifies the Property Owner in the dashboard and by SMS, stating the amount, the masked payout account and the date it will be sent. No unclaimed payout is sent without this reminder. The reminder never contains a code.
+        </p>
+        <p>
+          <strong>5.2.3 Notification of Ready Payouts:</strong> NoLSAF shows each payout's status in My Payouts (unlocking, ready, on hold, sent) and notifies Property Owners as described in sections 5.2.2 and 5.4.5.
         </p>
         <p>
           <strong>5.3 Payout Agreements</strong><br />
@@ -234,20 +262,20 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>5.3.1 Daily Payout Agreements:</strong> Property Owners may request daily payout agreements, where eligible earnings are automatically disbursed on a daily basis. Daily payout agreements are subject to minimum threshold requirements and payment method limitations.
         </p>
         <p>
-          <strong>5.3.2 Weekly Payout Agreements:</strong> Property Owners may request weekly payout agreements, where eligible earnings are automatically disbursed on a weekly basis. Weekly payout agreements are the maximum frequency allowed, and no payout agreements may exceed weekly disbursements.
+          <strong>5.3.2 Weekly Payout Agreements:</strong> Property Owners may request weekly payout agreements, where eligible earnings are automatically disbursed on a weekly basis. Weekly is the longest interval allowed: no payout agreement may leave eligible earnings unpaid for more than a week.
         </p>
         <p>
           <strong>5.3.3 Agreement Requirements:</strong> Payout agreements must be established in writing through the NoLSAF platform and are subject to approval by NoLSAF. Agreements may include specific terms regarding payout frequency, minimum thresholds, and processing times.
         </p>
         <p>
-          <strong>5.3.4 Agreement Modifications:</strong> Property Owners may request modifications to their payout agreements, but changes are subject to approval and may require a verification period before taking effect. No payout agreement may exceed weekly disbursement frequency.
+          <strong>5.3.4 Agreement Modifications:</strong> Property Owners may request modifications to their payout agreements, but changes are subject to approval and may require a verification period before taking effect. No payout agreement may set an interval longer than one week. Payout agreements do not bypass the readiness checks in section 5.1.2 or a hold under section 5.7.
         </p>
         <p>
           <strong>5.4 Disbursement Processing Time</strong><br />
           Once a payout claim is initiated or an automatic disbursement is triggered, NoLSAF processes disbursements within specified timeframes.
         </p>
         <p>
-          <strong>5.4.1 Standard Processing Time:</strong> Disbursements are typically processed within 30 minutes to 24 hours after a payout claim is initiated or an automatic disbursement is triggered. The exact processing time depends on the payment method selected, verification status, and system availability.
+          <strong>5.4.1 Standard Processing Time:</strong> Payouts sent automatically under section 5.1.4 are normally processed within minutes of the confirmed withdrawal. Payouts reviewed by NoLSAF are normally processed within 24 hours. The exact time depends on the payment method, verification status, the payment provider and system availability.
         </p>
         <p>
           <strong>5.4.2 Processing Time Factors:</strong> Processing times may vary based on: payment method selected (mobile money may be faster than bank transfers), account verification status, system maintenance, payment provider processing times, and business days versus weekends or holidays.
@@ -282,7 +310,39 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>5.6.2 Bank Transfers:</strong> Typically 1-5 business days after payout initiation, depending on the bank and country.
         </p>
         <p>
-          <strong>5.6.3 Payment Platforms:</strong> Processing times vary by platform and may take 1-7 business days.
+          <strong>5.6.3 Other Methods:</strong> Processing times for methods added under section 4.2.3 will be announced when they are enabled.
+        </p>
+        <p>
+          <strong>5.7 Payout Holds</strong><br />
+          A payout is put on hold, and no money is sent while it is on hold, when:
+        </p>
+        <p>
+          <strong>5.7.1</strong> a cancellation, refund or exceptional-circumstance request under the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link> is open, being processed or has been granted for the booking. If such a request opens after withdrawal confirmation but before the payout is submitted to the payment provider, NoLSAF stops that submission while the request is reviewed;
+        </p>
+        <p>
+          <strong>5.7.2</strong> the guest appears to be the Property Owner (for example the same account, phone number or email address, or a guest phone number matching the payout account);
+        </p>
+        <p>
+          <strong>5.7.3</strong> the booking is no longer in a checked-in or checked-out state, or the guest's payment currency does not match the payout currency.
+        </p>
+        <p>
+          <strong>5.7.4</strong> The reason for a hold is shown in My Payouts. NoLSAF reviews held payouts and either releases them or applies the outcome of the relevant process, including the deductions in section 6.3. A cancelled booking or rejected claim cancels the payout.
+        </p>
+        <p>
+          <strong>5.8 Reports and Disputes After Validated Check-In</strong><br />
+          Validation of a booking code does not remove the guest&apos;s right to report that the code was used without their arrival or to make a request allowed by the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>. A report is recorded against the booking and reviewed under that policy; it does not automatically grant a refund.
+        </p>
+        <p>
+          <strong>5.8.1 Before Withdrawal:</strong> If NoLSAF receives a report while the payout is ready but has not been withdrawn, the payout moves to a hold immediately. The Property Owner cannot start a withdrawal for it until the case is resolved.
+        </p>
+        <p>
+          <strong>5.8.2 After Withdrawal, Before Provider Submission:</strong> If a report arrives after the Property Owner confirms withdrawal but before NoLSAF submits the payout to the payment provider, NoLSAF stops submission and places the payout under review. The Property Owner is told why it is held.
+        </p>
+        <p>
+          <strong>5.8.3 After Provider Submission or Payment:</strong> A payout already submitted to the payment provider may no longer be stoppable. NoLSAF investigates the case and, if a refund or chargeback is confirmed, applies the Property Owner&apos;s share through the deductions and recovery process in section 6.3. The Property Owner is notified of the decision and amount.
+        </p>
+        <p>
+          <strong>5.8.4 Case Outcome:</strong> If the report is rejected, an unpaid payout becomes eligible again once the other checks in section 5.1.2 pass. If the report is upheld, NoLSAF cancels or adjusts an unpaid payout as appropriate; for money already paid, section 6.3 applies. Ordinary cancellation after genuine check-in remains subject to section 3 of the Cancellation Policy.
         </p>
       </div>
     ),
@@ -299,7 +359,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>6.1.1 Commission Agreement During Registration:</strong> During the registration process, NoLSAF and Property Owners will agree on the commission rates that will be added to the base price submitted by the Property Owner. This agreement establishes the pricing structure for listings, where the commission rate is incorporated into the final booking price paid by Users. Property Owners will receive disbursement of their base price under the circumstances and terms established in this agreement.
         </p>
         <p>
-          <strong>6.1.2 Base Price Disbursement:</strong> Property Owners will receive disbursement of their agreed base price for completed bookings, subject to the terms and conditions outlined in this Disbursement Policy. The base price represents the amount agreed upon between NoLSAF and the Property Owner during registration, before the addition of commission rates. Disbursement of the base price is subject to: successful completion of the booking, verification of service delivery, resolution of any disputes, and compliance with all applicable policies.
+          <strong>6.1.2 Base Price Disbursement:</strong> Property Owners will receive disbursement of their agreed base price for qualified stays under section 5, including a stay that is still in progress after a validated check-in. The base price represents the amount agreed upon between NoLSAF and the Property Owner during registration, before the addition of commission rates. The Property Owner remains responsible for the full booked stay; any later refund, chargeback or other adjustment is handled under section 6.3.
         </p>
         <p>
           <strong>6.1.3 Commission Rates:</strong> Commission rates may vary based on property type, service category, volume, or special agreements established during registration. Property Owners can view their applicable commission rates through their dashboard. The commission rate agreed upon during registration will be applied consistently unless modified through mutual agreement or as outlined in section 12 (Amendments to Disbursement Policy).
@@ -319,16 +379,16 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
         </p>
         <p>
           <strong>6.3 Refunds and Chargebacks</strong><br />
-          This section applies exclusively to Property Owners. If a booking is cancelled, refunded, or subject to a chargeback in accordance with the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, the corresponding amount will be deducted from the Property Owner's earnings. The specific refund eligibility and deduction amounts are determined by the cancellation circumstances as outlined in the Cancellation Policy.
+          This section applies exclusively to Property Owners. If a booking is cancelled, refunded, or subject to a chargeback in accordance with the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, only the Property Owner&apos;s share of the confirmed refund or chargeback is deducted from their earnings. Refund eligibility is determined under the Cancellation Policy; the Property Owner&apos;s share is calculated under section 6.3.2.
         </p>
         <p>
           <strong>6.3.1 Refund Eligibility Based on Cancellation Policy:</strong> The amount deducted from Property Owner earnings depends on the cancellation circumstances and timing, as defined in the Cancellation Policy:
         </p>
         <p>
-          <strong>6.3.1.1 Free Cancellation Period Refunds:</strong> If a booking is cancelled within the free cancellation period as outlined in section 2.1 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link> (within 24 hours of booking and at least 72 hours before check-in), Property Owners will have the full booking amount deducted from their earnings, and no earnings will be retained for that booking.
+          <strong>6.3.1.1 Free Cancellation Period Refunds:</strong> If a booking is cancelled within the free cancellation period as outlined in section 2.1 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link> (within 24 hours of booking and at least 72 hours before check-in), no Property Owner earnings will be retained for that booking.
         </p>
         <p>
-          <strong>6.3.1.2 Partial Refund Deductions:</strong> If a booking is cancelled after the free cancellation period but at least 4 days before check-in, as outlined in section 2.2 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, Property Owners will have 50% of the booking amount deducted from their earnings, and 50% will be retained as earnings.
+          <strong>6.3.1.2 Partial Refund Deductions:</strong> If a booking is cancelled after the free cancellation period but at least 4 days before check-in, as outlined in section 2.2 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, the Property Owner&apos;s share of the approved partial refund is deducted and the remaining eligible earnings are retained.
         </p>
         <p>
           <strong>6.3.1.3 Non-Refundable Bookings:</strong> If a booking is designated as non-refundable as outlined in section 2.3 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, and the booking is cancelled, Property Owners will retain the full earnings from that booking, and no refund will be processed to the User.
@@ -337,7 +397,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>6.3.1.4 Cancellations After Check-In:</strong> If a booking is cancelled after check-in, as outlined in section 3 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, Property Owners will generally retain their earnings, except in cases of exceptional circumstances as defined in section 3.2 of the Cancellation Policy, where refunds may be considered on a case-by-case basis.
         </p>
         <p>
-          <strong>6.3.1.5 Exceptional Circumstance Refunds:</strong> If a refund is approved under exceptional circumstances as outlined in section 3.2 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, the refund amount will be deducted from Property Owner earnings. The specific amount deducted will be prorated based on unused nights after the documented incident date, as specified in the Cancellation Policy.
+          <strong>6.3.1.5 Exceptional Circumstance Refunds:</strong> If a refund is approved under exceptional circumstances as outlined in section 3.2 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, the Property Owner&apos;s share of that refund is deducted from earnings. The guest refund is prorated for unused nights after the documented incident date, as specified in the Cancellation Policy.
         </p>
         <p>
           <strong>6.3.1.6 No-Show Bookings:</strong> If a User fails to show up for their booking as outlined in section 5 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, Property Owners will retain the full earnings from that booking, and no refund will be processed.
@@ -349,10 +409,10 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>6.3.1.8 Property Owner-Initiated Cancellations:</strong> If a Property Owner cancels a booking as outlined in section 9 of the <Link href="/cancellation-policy" className="text-blue-600 hover:text-blue-800 underline">Cancellation Policy</Link>, the Property Owner will not receive earnings for that booking, and Users will receive a full refund. NoLSAF may provide alternative accommodations or compensation to affected Users at the Property Owner's expense.
         </p>
         <p>
-          <strong>6.3.2 Deduction from Earnings:</strong> Refund amounts will be deducted from Property Owner earnings according to the refund eligibility determined by the Cancellation Policy. Deductions will be calculated based on the gross booking amount before commission deductions.
+          <strong>6.3.2 Deduction from Earnings:</strong> The Property Owner&apos;s share of a confirmed refund or chargeback is the amount returned to the guest multiplied by the ratio of the owner&apos;s payout for the booking to the guest payment collected for that booking. An unpaid claim is reduced by no more than its remaining amount; recovery from money already disbursed is capped at the amount actually paid to the owner. NoLSAF adjusts its own commission share separately. The amount deducted and its calculation are shown on the Property Owner&apos;s statement.
         </p>
         <p>
-          <strong>6.3.2.1 Pending Earnings Deduction:</strong> If the refund amount exceeds pending (undisbursed) earnings, the deduction will be applied to pending earnings first, and any remaining amount will be deducted from future earnings or the Property Owner may be required to return funds as outlined in section 6.3.3 below.
+          <strong>6.3.2.1 Pending Earnings Deduction:</strong> The Property Owner&apos;s share is applied to pending earnings first. Any remaining amount is deducted from future earnings or may be requested back from the Property Owner as outlined in section 6.3.3 below.
         </p>
         <p>
           <strong>6.3.2.2 Commission Adjustments:</strong> When refunds are processed, NoLSAF will adjust commission calculations accordingly. Property Owners will receive detailed statements showing refund deductions and adjusted commission calculations.
@@ -361,22 +421,22 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>6.3.3 Already Disbursed Earnings:</strong> If earnings have already been disbursed to the Property Owner before a refund is processed, the refund amount may be handled as follows:
         </p>
         <p>
-          <strong>6.3.3.1 Deduction from Future Earnings:</strong> The refund amount will be deducted from future earnings before disbursement. Property Owners will be notified of the deduction and can view the adjustment in their earnings statements.
+          <strong>6.3.3.1 Deduction from Future Earnings:</strong> The outstanding Property Owner share will be deducted from future earnings before disbursement. Property Owners will be notified of the deduction and can view the adjustment in their earnings statements.
         </p>
         <p>
-          <strong>6.3.3.2 Return of Funds Requirement:</strong> If the refund amount is significant or if future earnings are insufficient to cover the refund, NoLSAF may require the Property Owner to return the funds. Property Owners will be notified of the requirement and provided with instructions for returning the funds.
+          <strong>6.3.3.2 Return of Funds Requirement:</strong> If the outstanding Property Owner share is significant or future earnings are insufficient to cover it, NoLSAF may require the Property Owner to return that outstanding share. Property Owners will be notified of the requirement and provided with instructions for returning the funds.
         </p>
         <p>
           <strong>6.3.3.3 Payment Deadline:</strong> Property Owners required to return funds must do so within 7 business days of notification. Failure to return funds within the deadline may result in account suspension, withholding of future disbursements, or other actions as outlined in section 10.2 (Right to Withhold Disbursements).
         </p>
         <p>
-          <strong>6.3.4 Chargebacks:</strong> If a booking is subject to a chargeback initiated by a User through their payment provider, the chargeback amount will be deducted from Property Owner earnings following the same principles as refund deductions. Property Owners will be notified of chargebacks and may be required to provide documentation to dispute the chargeback.
+          <strong>6.3.4 Chargebacks:</strong> If a booking is subject to a chargeback initiated by a User through their payment provider, the Property Owner&apos;s share is deducted from earnings following the same calculation and recovery principles as refunds. Property Owners will be notified of chargebacks and may be required to provide documentation to dispute the chargeback.
         </p>
         <p>
           <strong>6.3.4.1 Chargeback Dispute Process:</strong> Property Owners have the right to dispute chargebacks by providing evidence that services were delivered as agreed. NoLSAF will assist in the chargeback dispute process, but Property Owners are responsible for providing necessary documentation.
         </p>
         <p>
-          <strong>6.3.4.2 Chargeback Fees:</strong> Chargeback fees imposed by payment providers may be deducted from Property Owner earnings in addition to the chargeback amount. Property Owners will be informed of any applicable chargeback fees.
+          <strong>6.3.4.2 Chargeback Fees:</strong> Chargeback fees imposed by payment providers may be deducted from Property Owner earnings in addition to the Property Owner&apos;s share of the chargeback, where the applicable agreement permits it. Property Owners will be informed of any applicable chargeback fees.
         </p>
         <p>
           <strong>6.3.5 Refund and Chargeback Notifications:</strong> Property Owners will receive notifications through their dashboard and via email when refunds or chargebacks are processed, showing the deducted amounts and adjusted earnings. Property Owners should review these notifications promptly and contact support if they have questions or disputes.
@@ -459,7 +519,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           Bonuses and discounts may affect the calculation and disbursement of Property Owner earnings in specific ways.
         </p>
         <p>
-          <strong>7.5.1 Base Price Protection:</strong> Property Owners will receive disbursement of their agreed base price for completed bookings, regardless of User bonuses or discounts applied to the booking. The base price disbursement is protected under the listing agreement established during registration, subject to the terms and conditions outlined in section 6.1.2 (Base Price Disbursement).
+          <strong>7.5.1 Base Price Protection:</strong> Property Owners will receive disbursement of their agreed base price for qualified stays under section 5, regardless of User bonuses or discounts applied to the booking. The base price disbursement is protected under the listing agreement established during registration, subject to the terms and conditions outlined in section 6.1.2 (Base Price Disbursement).
         </p>
         <p>
           <strong>7.5.2 Commission Calculation:</strong> Commission calculations are based on the gross booking amount (before User bonuses or discounts are applied) or as otherwise specified in the listing agreement. Commission rates agreed upon during registration are applied consistently, unless modified through mutual agreement.
@@ -505,7 +565,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
       <div className="space-y-4">
         <p>
           <strong>8.1 Gross Earnings</strong><br />
-          Gross earnings for Property Owners are calculated based on completed bookings rendered through the NoLSAF platform. Property Owner gross earnings are calculated as the total booking amount paid by Users, excluding any taxes, service charges, or fees that are separately collected or managed by the Property Owner outside the platform.
+          Gross earnings for Property Owners are calculated from bookings that qualify under section 5, including validated stays still in progress. Property Owner gross earnings are calculated as the total booking amount paid by Users, excluding any taxes, service charges, or fees that are separately collected or managed by the Property Owner outside the platform. Later adjustments under section 6.3 remain possible.
         </p>
         <p>
           <strong>8.2 Net Earnings</strong><br />
@@ -818,7 +878,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>14.2.1 Account Deletion:</strong> If a Property Owner deletes their account, this Disbursement Policy will be terminated for that Property Owner. Outstanding earnings will be processed in accordance with the terms in effect at the time of account deletion, subject to any holds, disputes, or obligations that may delay or prevent disbursement.
         </p>
         <p>
-          <strong>14.2.2 Property De-listing Agreement:</strong> If a Property Owner submits an established agreement to de-list their properties from the platform, this Disbursement Policy will be terminated for that Property Owner. NoLSAF will process final disbursements for any outstanding earnings related to completed bookings, subject to verification and compliance with all applicable policies.
+          <strong>14.2.2 Property De-listing Agreement:</strong> If a Property Owner submits an established agreement to de-list their properties from the platform, this Disbursement Policy will be terminated for that Property Owner. NoLSAF will process final disbursements for any outstanding earnings from qualified stays, subject to verification and compliance with all applicable policies.
         </p>
         <p>
           <strong>14.2.3 Account Deactivation:</strong> If a Property Owner's account is deactivated, whether by the Property Owner or by NoLSAF, this Disbursement Policy will be terminated. Outstanding earnings will be processed in accordance with the terms in effect at the time of deactivation, subject to any holds, disputes, or obligations.
@@ -866,7 +926,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           This glossary defines key terms used throughout this Disbursement Policy to improve understanding and accessibility.
         </p>
         <p>
-          <strong>Base Price:</strong> The agreed-upon price submitted by a Property Owner for their property listing, before the addition of commission rates. Property Owners receive disbursement of their base price for completed bookings, as established in the listing agreement during registration.
+          <strong>Base Price:</strong> The agreed-upon price submitted by a Property Owner for their property listing, before the addition of commission rates. Property Owners receive disbursement of their base price for qualified stays under section 5, as established in the listing agreement during registration.
         </p>
         <p>
           <strong>Booking:</strong> A reservation made by a User for accommodation or services through the NoLSAF platform. A booking becomes active upon confirmation and payment.
@@ -893,7 +953,7 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>Exceptional Circumstances:</strong> Rare, verifiable emergencies that may qualify for refunds after check-in, as defined in section 3.2 of the Cancellation Policy. These include medical emergencies, death in the family, natural disasters, and government-imposed restrictions.
         </p>
         <p>
-          <strong>Gross Earnings:</strong> The total amount earned by Property Owners from completed bookings, before any deductions for commissions, fees, refunds, or other adjustments.
+          <strong>Gross Earnings:</strong> The total amount earned by Property Owners from bookings that qualify under section 5, before any deductions for commissions, fees, refunds, or other adjustments.
         </p>
         <p>
           <strong>Listing Agreement:</strong> The agreement established between NoLSAF and a Property Owner during the listing process, which includes base price, commission rates, and terms for pricing adjustments to accommodate bonuses and discounts.
@@ -911,13 +971,22 @@ export const PROPERTY_OWNER_DISBURSEMENT_POLICY_SECTIONS: TermsSection[] = [
           <strong>NoLSAF:</strong> The platform and service provider that facilitates bookings, payments, and disbursements between Users, Property Owners, and Drivers.
         </p>
         <p>
-          <strong>OTP (One-Time Password):</strong> A temporary security code sent by NoLSAF via SMS or email to verify payment method information. OTP verification is required during registration and for payment method changes.
+          <strong>OTP (One-Time Password):</strong> A temporary security code sent by NoLSAF via SMS or email to verify payment method information and to confirm each withdrawal. OTP verification is required during registration, for payment method changes and for withdrawals.
+        </p>
+        <p>
+          <strong>Payout Readiness:</strong> The point at which a validated stay&apos;s payout becomes ready to withdraw after all checks in section 5.1.2 pass, without a routine time delay.
+        </p>
+        <p>
+          <strong>Withdrawal:</strong> The Property Owner's request, confirmed with a one-time code, to send the payouts that are ready in My Payouts to their verified payout account.
+        </p>
+        <p>
+          <strong>Payout Hold:</strong> A pause on a payout while one of the conditions in section 5.7 applies. No money is sent while a payout is on hold.
         </p>
         <p>
           <strong>Payout:</strong> The actual transfer of funds to Property Owners. Payouts are processed according to payout schedules, which may be flexible (on-demand) or scheduled (daily/weekly), as outlined in section 5 of this policy.
         </p>
         <p>
-          <strong>Property Owner:</strong> An individual or entity registered on the NoLSAF platform who lists and provides accommodation properties to Users. Property Owners receive disbursements for completed bookings according to the terms of this policy.
+          <strong>Property Owner:</strong> An individual or entity registered on the NoLSAF platform who lists and provides accommodation properties to Users. Property Owners receive disbursements for qualified stays according to the terms of this policy.
         </p>
         <p>
           <strong>Refund:</strong> The return of payment to a User for a cancelled booking, processed in accordance with the Cancellation Policy. Refund amounts are deducted from Property Owner earnings based on the cancellation circumstances and timing.

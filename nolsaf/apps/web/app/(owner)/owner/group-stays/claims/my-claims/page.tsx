@@ -1,10 +1,9 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { ArrowRight, BedDouble, Building2, Check, ChevronRight, ClipboardList, Gift, HandHeart, MessageSquareText, RefreshCw, Users } from "lucide-react";
 import apiClient from "@/lib/apiClient";
-import { FileText, Loader2, Users, MapPin, Calendar, CheckCircle, XCircle, Clock, Building2, Gift, ArrowRight, DollarSign } from "lucide-react";
-
-const api = apiClient;
+import { DateTile, GroupStaysBand, StatusTabs, fmtDay, humanize, nightsBetween, placeName, tzs } from "@/components/owner-groups/GroupStaysChrome";
 
 type Claim = {
   id: number;
@@ -28,468 +27,259 @@ type Claim = {
     checkOut: string | null;
     user: { id: number; name: string; email: string; phone: string | null } | null;
   };
-  property: {
-    id: number;
-    title: string;
-    type: string;
-    regionName: string;
-    owner?: {
-      id: number;
-      name: string;
-    } | null;
-  };
+  property: { id: number; title: string; type: string; regionName: string };
 };
 
+const STATUS: Record<string, { label: string; chip: string; tile: string; note: string }> = {
+  PENDING: { label: "Waiting", chip: "bg-amber-50 text-amber-800 ring-amber-200", tile: "bg-amber-500 text-white", note: "Sent. NoLSAF has not opened it yet." },
+  REVIEWING: { label: "In review", chip: "bg-sky-50 text-sky-800 ring-sky-200", tile: "bg-sky-600 text-white", note: "NoLSAF is comparing offers for this group." },
+  ACCEPTED: { label: "Accepted", chip: "bg-emerald-50 text-emerald-800 ring-emerald-200", tile: "bg-[#02665e] text-white", note: "Your offer won. The stay appears under Assigned to me." },
+  REJECTED: { label: "Not chosen", chip: "bg-rose-50 text-rose-700 ring-rose-200", tile: "bg-rose-100 text-rose-600", note: "Another offer was chosen for this group." },
+  WITHDRAWN: { label: "Withdrawn", chip: "bg-slate-100 text-slate-600 ring-slate-200", tile: "bg-slate-500 text-white", note: "You withdrew this offer." },
+};
+const statusOf = (s: string) => STATUS[s.toUpperCase()] ?? { label: humanize(s), chip: "bg-slate-100 text-slate-600 ring-slate-200", tile: "bg-slate-500 text-white", note: "" };
+const TAB_ORDER = ["PENDING", "REVIEWING", "ACCEPTED", "REJECTED", "WITHDRAWN"];
+
 export default function OwnerMyClaimsPage() {
-  const [claims, setClaims] = useState<Claim[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedStatus, setSelectedStatus] = useState<string>("");
+  const [claims, setClaims] = useState<Claim[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
+  const [open, setOpen] = useState<number | null>(null);
 
-  const loadData = useCallback(async () => {
+  // Load every claim once and filter here, so each tab keeps its true count.
+  const load = useCallback(async () => {
+    setError(null);
     try {
-      setLoading(true);
-      const params: any = {};
-      if (selectedStatus) params.status = selectedStatus;
-
-      const response = await api.get("/api/owner/group-stays/claims/my-claims", { params });
-      setClaims(response.data.items || []);
+      const response = await apiClient.get("/api/owner/group-stays/claims/my-claims");
+      setClaims(response.data?.items || []);
     } catch (err: any) {
-      console.error("Failed to load claims:", err);
       setClaims([]);
-    } finally {
-      setLoading(false);
+      setError(err?.response?.data?.error || "Your claims could not be loaded.");
     }
-  }, [selectedStatus]);
+  }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { void load(); }, [load]);
 
-  const getStatusBadge = (status: string) => {
-    const statusColors: Record<string, { bg: string; text: string; border: string; icon: any; gradient: string }> = {
-      'PENDING': { 
-        bg: 'bg-amber-50', 
-        text: 'text-amber-800', 
-        border: 'border-amber-300', 
-        icon: Clock,
-        gradient: 'from-amber-400 to-amber-500'
-      },
-      'ACCEPTED': { 
-        bg: 'bg-green-50', 
-        text: 'text-green-800', 
-        border: 'border-green-300', 
-        icon: CheckCircle,
-        gradient: 'from-green-500 to-green-600'
-      },
-      'REJECTED': { 
-        bg: 'bg-red-50', 
-        text: 'text-red-800', 
-        border: 'border-red-300', 
-        icon: XCircle,
-        gradient: 'from-red-500 to-red-600'
-      },
-      'WITHDRAWN': { 
-        bg: 'bg-gray-50', 
-        text: 'text-gray-800', 
-        border: 'border-gray-300', 
-        icon: XCircle,
-        gradient: 'from-gray-400 to-gray-500'
-      },
-    };
-
-    const colors = statusColors[status.toUpperCase()] || { 
-      bg: 'bg-gray-50', 
-      text: 'text-gray-800', 
-      border: 'border-gray-300', 
-      icon: FileText,
-      gradient: 'from-gray-400 to-gray-500'
-    };
-    const Icon = colors.icon;
-
-    return (
-      <span className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold ${colors.bg} ${colors.text} border-2 ${colors.border} shadow-sm transition-all duration-300 hover:shadow-md`}>
-        <div className={`h-5 w-5 rounded-lg bg-gradient-to-br ${colors.gradient} flex items-center justify-center`}>
-          <Icon className="h-3 w-3 text-white" />
-        </div>
-        <span className="uppercase tracking-wide">{status}</span>
-      </span>
-    );
-  };
-
-  const formatCurrency = (amount: number, currency: string = "TZS") => {
-    return new Intl.NumberFormat("en-TZ", {
-      style: "currency",
-      currency: currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "N/A";
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      }) + " at " + date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      });
-    } catch {
-      return dateStr;
-    }
-  };
-
-  // Calculate counts for filter tabs
-  const filterCounts = useMemo(() => {
-    return {
-      all: claims.length,
-      pending: claims.filter(c => c.status.toUpperCase() === 'PENDING').length,
-      accepted: claims.filter(c => c.status.toUpperCase() === 'ACCEPTED').length,
-      rejected: claims.filter(c => c.status.toUpperCase() === 'REJECTED').length,
-      withdrawn: claims.filter(c => c.status.toUpperCase() === 'WITHDRAWN').length,
-    };
-  }, [claims]);
-
-  // Filter claims based on selected status
-  const filteredClaims = useMemo(() => {
-    if (!selectedStatus) return claims;
-    return claims.filter(c => c.status.toUpperCase() === selectedStatus.toUpperCase());
-  }, [claims, selectedStatus]);
-
-  const filterTabs: { key: string; label: string; icon: any; count: number }[] = [
-    { key: '', label: 'All Claims', icon: FileText, count: filterCounts.all },
-    { key: 'PENDING', label: 'Pending', icon: Clock, count: filterCounts.pending },
-    { key: 'ACCEPTED', label: 'Accepted', icon: CheckCircle, count: filterCounts.accepted },
-    { key: 'REJECTED', label: 'Rejected', icon: XCircle, count: filterCounts.rejected },
-    { key: 'WITHDRAWN', label: 'Withdrawn', icon: XCircle, count: filterCounts.withdrawn },
+  const list = useMemo(() => claims ?? [], [claims]);
+  const count = (key: string) => list.filter((c) => c.status.toUpperCase() === key).length;
+  const tabs = [
+    { key: "", label: "All", count: list.length },
+    ...TAB_ORDER.filter((key) => count(key) > 0 || ["PENDING", "ACCEPTED"].includes(key)).map((key) => ({ key, label: STATUS[key].label, count: count(key) })),
   ];
-
-  if (loading) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center">
-        <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-brand-100 mb-4">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-600" />
-        </div>
-        <h1 className="text-3xl font-bold text-slate-900">My Claims</h1>
-        <p className="text-sm text-slate-600 mt-2 max-w-2xl">Loading your submitted claims…</p>
-      </div>
-    );
-  }
+  const shown = status ? list.filter((c) => c.status.toUpperCase() === status) : list;
+  const current = shown.find((c) => c.id === open) ?? shown[0] ?? null;
+  const active = count("PENDING") + count("REVIEWING");
+  const decided = count("ACCEPTED") + count("REJECTED");
+  const winRate = decided ? Math.round((count("ACCEPTED") / decided) * 100) : null;
+  const wonValue = list.filter((c) => c.status.toUpperCase() === "ACCEPTED").reduce((sum, c) => sum + Number(c.totalAmount || 0), 0);
 
   return (
-    <div className="space-y-8 pb-8">
-      {/* Header */}
-      <div className="flex flex-col items-center justify-center text-center space-y-3">
-        <div className="inline-flex items-center justify-center h-20 w-20 rounded-2xl bg-white border-2 border-brand-200 shadow-lg shadow-brand-500/10 mb-2 transition-all duration-300 hover:scale-105">
-          <FileText className="h-10 w-10 text-brand" />
-        </div>
-        <div>
-          <h1 className="text-4xl font-bold text-slate-900 tracking-tight">My Claims</h1>
-          <p className="text-base text-slate-600 mt-3 max-w-2xl mx-auto leading-relaxed">
-            View and track all your submitted offers for group stays.
-          </p>
-        </div>
-      </div>
+    <div className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6">
+      <GroupStaysBand
+        title="My claims"
+        subtitle="Every offer you sent for a group stay, where it stands, and what you offered."
+        actions={
+          <Link href="/owner/group-stays/claims" className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-4 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1]">
+            <HandHeart className="h-4 w-4" aria-hidden /> Make a new offer
+          </Link>
+        }
+        stats={[
+          { label: "Offers sent", value: claims === null ? "…" : list.length, hint: "all time" },
+          { label: "Still open", value: claims === null ? "…" : active, hint: "waiting or in review", tone: active ? "text-amber-200" : "text-white/50" },
+          { label: "Won", value: claims === null ? "…" : count("ACCEPTED"), hint: winRate === null ? "no decisions yet" : `${winRate}% of decided offers`, tone: "text-[#5eead4]" },
+          { label: "Value won", value: claims === null ? "…" : tzs(wonValue), hint: "accepted offers" },
+        ]}
+      />
 
-      {/* Filter Tabs */}
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        {filterTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = selectedStatus === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => setSelectedStatus(tab.key)}
-              className={`inline-flex items-center gap-2.5 px-5 py-2.5 rounded-xl border-2 transition-all duration-300 font-semibold text-sm ${
-                isActive
-                  ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white border-brand-600 shadow-lg shadow-brand-500/30 scale-105'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:shadow-md hover:scale-105'
-              }`}
-            >
-              <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-500'}`} />
-              <span>{tab.label}</span>
-              {tab.count > 0 && (
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                  isActive 
-                    ? 'bg-white/25 text-white backdrop-blur-sm' 
-                    : 'bg-slate-100 text-slate-700'
-                }`}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {error && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => void load()} className="inline-flex h-8 items-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-bold text-white"><RefreshCw className="h-3.5 w-3.5" /> Try again</button>
+        </div>
+      )}
 
-      {/* Claims List */}
-      <div className="space-y-4">
-        {filteredClaims.length === 0 ? (
-          <div className="min-h-[40vh] flex flex-col items-center justify-center text-center bg-gradient-to-br from-white via-slate-50/50 to-white rounded-3xl border-2 border-slate-200/60 shadow-lg p-16 animate-in fade-in slide-in-from-bottom-4">
-            <div className="inline-flex items-center justify-center h-20 w-20 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 mb-6 shadow-md">
-              <FileText className="h-10 w-10 text-slate-400" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">
-              {selectedStatus ? `No ${filterTabs.find(t => t.key === selectedStatus)?.label.toLowerCase()} claims` : 'No claims submitted yet'}
-            </h3>
-            <p className="text-sm text-slate-600 max-w-md">
-              {selectedStatus ? 'Try selecting a different filter to see more claims.' : 'Start claiming group stays to see your submitted offers here.'}
-            </p>
-            {!selectedStatus && (
-              <Link
-                href="/owner/group-stays/claims"
-                className="inline-flex items-center gap-2 mt-6 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-600 to-brand-700 text-white hover:from-brand-700 hover:to-brand-800 transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                Browse Available Claims
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            )}
+      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+        <div className="px-3 sm:px-4"><StatusTabs tabs={tabs} value={status} onChange={setStatus} /></div>
+      </section>
+
+      {claims === null ? (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]" aria-busy="true">
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-center gap-4 rounded-2xl border border-solid border-slate-200 bg-white p-4">
+                <div className="h-14 w-12 rounded-xl bg-slate-100" />
+                <div className="flex-1 space-y-2"><div className="h-3.5 w-48 rounded-full bg-slate-100" /><div className="h-3 w-72 max-w-full rounded-full bg-slate-50" /></div>
+              </div>
+            ))}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {filteredClaims.map((claim) => {
-              // Parse special offers into array
-              const specialOffersList = claim.specialOffers 
-                ? claim.specialOffers.split(',').map(s => s.trim()).filter(s => s.length > 0)
-                : [];
-              const status = claim.status.toUpperCase();
-              const cardStatusClass =
-                status === 'ACCEPTED' ? 'border-emerald-200 bg-gradient-to-br from-white via-white to-emerald-50/70 shadow-emerald-100/70' :
-                status === 'PENDING' ? 'border-amber-200 bg-gradient-to-br from-white via-white to-amber-50/70 shadow-amber-100/70' :
-                status === 'REJECTED' ? 'border-rose-200 bg-gradient-to-br from-white via-white to-rose-50/60 shadow-rose-100/60' :
-                'border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-slate-200/60';
-              const cornerAccentClass =
-                status === 'ACCEPTED' ? 'bg-emerald-200/35' :
-                status === 'PENDING' ? 'bg-amber-200/35' :
-                status === 'REJECTED' ? 'bg-rose-200/30' :
-                'bg-slate-200/40';
-              
+          <div className="hidden h-[420px] rounded-3xl bg-slate-100 lg:block" />
+        </div>
+      ) : shown.length === 0 ? (
+        <section className="flex flex-col items-center rounded-2xl border border-solid border-slate-200 bg-white px-6 py-12 text-center">
+          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500"><ClipboardList className="h-6 w-6" aria-hidden /></span>
+          <p className="m-0 mt-3 text-sm font-bold text-slate-900">{status ? `No ${statusOf(status).label.toLowerCase()} offers` : "You have not sent any offers yet"}</p>
+          <p className="m-0 mt-1 max-w-sm text-xs leading-5 text-slate-500">Groups looking for a place to stay are listed under Open to claim. Send a price and NoLSAF picks the best offer.</p>
+          {!status && (
+            <Link href="/owner/group-stays/claims" className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl bg-[#02665e] px-4 text-xs font-bold text-white no-underline hover:bg-[#014d47]">
+              See stays open to claim <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </section>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start">
+          <ul className="m-0 list-none space-y-3 p-0">
+            {shown.map((claim) => {
+              const st = statusOf(claim.status);
+              const gb = claim.groupBooking;
+              const nights = nightsBetween(gb.checkIn, gb.checkOut);
+              const isOpen = current?.id === claim.id;
+              const stage = stageOf(claim.status);
               return (
-                <div 
-                  key={claim.id} 
-                  className={`group relative overflow-hidden rounded-3xl border shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl animate-in fade-in slide-in-from-bottom-4 ${cardStatusClass}`}
-                >
-                  <div className={`pointer-events-none absolute -right-14 -top-14 h-36 w-36 rounded-full ${cornerAccentClass}`} />
-                  
-                  <div className="relative p-6">
-                    {/* Header Section */}
-                    <div className="flex items-start justify-between mb-6 pb-6 border-b border-slate-100">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 flex-wrap mb-3">
-                          <h3 className="text-2xl font-bold text-slate-900 tracking-tight group-hover:text-brand transition-colors duration-300">
-                            Claim #{claim.id}
-                          </h3>
-                          {getStatusBadge(claim.status)}
-                        </div>
+                <li key={claim.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(claim.id)}
+                    aria-pressed={isOpen}
+                    className={`flex w-full items-center gap-4 rounded-2xl border border-solid bg-white p-4 text-left transition ${isOpen ? "border-[#02665e] shadow-[0_14px_34px_-24px_rgba(1,42,38,0.7)] ring-1 ring-[#02665e]" : "border-slate-200 hover:border-slate-300"}`}
+                  >
+                    <DateTile iso={gb.checkIn} tone={st.tile} />
+                    <div className="min-w-0 flex-1">
+                      <p className="m-0 truncate text-[15px] font-bold text-slate-900">Group of {gb.headcount} in {placeName(gb.toRegion)}</p>
+                      <p className="m-0 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                        <span className="inline-flex min-w-0 items-center gap-1"><Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">{claim.property.title}</span></span>
+                        <span>{gb.roomsNeeded} room{gb.roomsNeeded === 1 ? "" : "s"} · {nights ?? "?"} night{nights === 1 ? "" : "s"}</span>
+                      </p>
+                      <div className="mt-2.5 flex items-center gap-1" aria-label={`Stage: ${st.label}`}>
+                        {[0, 1, 2].map((step) => (
+                          <span key={step} className={`h-1 w-8 rounded-full ${step < stage.reached ? stage.bar : "bg-slate-200"}`} />
+                        ))}
+                        <span className={`ml-2 text-[11px] font-bold ${stage.text}`}>{st.label}</span>
                       </div>
                     </div>
-
-                    {/* Group Stay Details */}
-                    <div className="space-y-3 mb-6">
-                      <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-slate-50 to-slate-50/80 border border-slate-200/60 hover:bg-slate-100 transition-colors duration-200">
-                        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-md flex-shrink-0">
-                          <Users className="h-5 w-5 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-0.5">Group Stay</p>
-                          <p className="text-sm font-bold text-slate-900">
-                            #{claim.groupBooking.id} - {claim.groupBooking.headcount} people, {claim.groupBooking.roomsNeeded} rooms
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-blue-50 to-blue-50/80 border border-blue-200/60 hover:bg-blue-100 transition-colors duration-200">
-                        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md flex-shrink-0">
-                          <MapPin className="h-5 w-5 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-0.5">Destination</p>
-                          <p className="text-sm font-bold text-slate-900 capitalize">{claim.groupBooking.toRegion}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-purple-50 to-purple-50/80 border border-purple-200/60 hover:bg-purple-100 transition-colors duration-200">
-                        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-md flex-shrink-0">
-                          <Building2 className="h-5 w-5 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-0.5">Property</p>
-                          <p className="text-sm font-bold text-slate-900">
-                            {claim.property.title} <span className="text-slate-600 font-normal">({claim.property.type})</span>
-                          </p>
-                          {claim.property.owner && (
-                            <p className="text-xs text-slate-600 mt-1">
-                              Owner: <span className="font-semibold text-slate-700">{claim.property.owner.name}</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                    <div className="shrink-0 text-right">
+                      <p className="m-0 text-base font-extrabold tabular-nums text-slate-900">{tzs(claim.totalAmount, claim.currency)}</p>
+                      <p className="m-0 text-[11px] text-slate-400">sent {fmtDay(claim.createdAt)}</p>
                     </div>
-
-                    {/* Pricing Section - Enhanced with Calculation Breakdown */}
-                    <div className="mb-6 p-5 bg-gradient-to-br from-brand-50 via-brand-50/50 to-white rounded-2xl border-2 border-brand-200/60 shadow-md">
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-brand-600 to-brand-700 flex items-center justify-center shadow-md">
-                          <DollarSign className="h-4 w-4 text-white" />
-                        </div>
-                        <h4 className="text-sm font-bold text-brand-900 uppercase tracking-wide">Pricing Breakdown</h4>
-                      </div>
-
-                      {/* Summary Cards - Top Row */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                        <div className="p-3 bg-white/80 rounded-xl border border-brand-200/60">
-                          <p className="text-xs font-semibold text-brand-600 uppercase tracking-wide mb-1">Offered Price</p>
-                          <p className="text-lg font-bold text-brand-900">{formatCurrency(claim.offeredPricePerNight, claim.currency)}/night</p>
-                        </div>
-                        {claim.discountPercent && claim.discountPercent > 0 && (
-                          <div className="p-3 bg-white/80 rounded-xl border border-green-200/60">
-                            <p className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-1">Discount</p>
-                            <p className="text-lg font-bold text-green-700">{claim.discountPercent}% off</p>
-                          </div>
-                        )}
-                        <div className="p-3 bg-white/80 rounded-xl border border-brand-200/60">
-                          <p className="text-xs font-semibold text-brand-600 uppercase tracking-wide mb-1">Total Amount</p>
-                          <p className="text-lg font-bold text-brand-900">{formatCurrency(claim.totalAmount, claim.currency)}</p>
-                        </div>
-                      </div>
-
-                      {/* Calculation Steps */}
-                      {claim.groupBooking.checkIn && claim.groupBooking.checkOut && (() => {
-                        const nights = Math.ceil((new Date(claim.groupBooking.checkOut).getTime() - new Date(claim.groupBooking.checkIn).getTime()) / (1000 * 60 * 60 * 24));
-                        const priceAfterDiscount = claim.discountPercent && claim.discountPercent > 0
-                          ? claim.offeredPricePerNight - (claim.offeredPricePerNight * claim.discountPercent / 100)
-                          : claim.offeredPricePerNight;
-                        const discountAmount = claim.discountPercent && claim.discountPercent > 0
-                          ? (claim.offeredPricePerNight * claim.discountPercent / 100)
-                          : 0;
-                        
-                        return (
-                          <div className="space-y-2.5 pt-4 border-t border-brand-200/60">
-                            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Calculation Details:</p>
-                            
-                            {/* Step 1: Base Price */}
-                            <div className="flex items-center justify-between p-2.5 bg-white/80 rounded-lg border border-brand-200/60">
-                              <span className="text-xs font-medium text-slate-700">Price per Night (per room)</span>
-                              <span className="text-xs font-bold text-brand-900">{formatCurrency(claim.offeredPricePerNight, claim.currency)}</span>
-                            </div>
-
-                            {/* Step 2: Discount (if applicable) */}
-                            {claim.discountPercent && claim.discountPercent > 0 && (
-                              <>
-                                <div className="flex items-center justify-between p-2.5 bg-white/80 rounded-lg border border-amber-200/60">
-                                  <span className="text-xs font-medium text-slate-700">Discount ({claim.discountPercent}%)</span>
-                                  <span className="text-xs font-bold text-amber-700">-{formatCurrency(discountAmount, claim.currency)}</span>
-                                </div>
-                                <div className="flex items-center justify-between p-2.5 bg-white/80 rounded-lg border border-green-200/60">
-                                  <span className="text-xs font-medium text-slate-700">Price per Night (After Discount)</span>
-                                  <span className="text-xs font-bold text-green-700">{formatCurrency(priceAfterDiscount, claim.currency)}</span>
-                                </div>
-                              </>
-                            )}
-
-                            {/* Step 3: Rooms */}
-                            <div className="flex items-center justify-between p-2.5 bg-white/80 rounded-lg border border-brand-200/60">
-                              <span className="text-xs font-medium text-slate-700">Number of Rooms</span>
-                              <span className="text-xs font-bold text-brand-900">{claim.groupBooking.roomsNeeded} room{claim.groupBooking.roomsNeeded > 1 ? 's' : ''}</span>
-                            </div>
-
-                            {/* Step 4: Nights */}
-                            <div className="flex items-center justify-between p-2.5 bg-white/80 rounded-lg border border-brand-200/60">
-                              <span className="text-xs font-medium text-slate-700">Number of Nights</span>
-                              <span className="text-xs font-bold text-brand-900">{nights} night{nights > 1 ? 's' : ''}</span>
-                            </div>
-
-                            {/* Calculation Formula */}
-                            <div className="p-3 bg-slate-50/80 rounded-lg border border-slate-200/60 mt-3">
-                              <p className="text-xs font-semibold text-slate-600 mb-1.5">Calculation Formula:</p>
-                              <p className="text-xs text-slate-700 font-mono leading-relaxed">
-                                {claim.discountPercent && claim.discountPercent > 0 ? (
-                                  <>
-                                    <span className="text-brand-700 font-bold">{formatCurrency(priceAfterDiscount, claim.currency)}</span>
-                                    {' × '}
-                                    <span className="text-brand-700 font-bold">{claim.groupBooking.roomsNeeded}</span>
-                                    {' rooms × '}
-                                    <span className="text-brand-700 font-bold">{nights}</span>
-                                    {' nights = '}
-                                    <span className="text-brand-900 font-bold">{formatCurrency(claim.totalAmount, claim.currency)}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="text-brand-700 font-bold">{formatCurrency(claim.offeredPricePerNight, claim.currency)}</span>
-                                    {' × '}
-                                    <span className="text-brand-700 font-bold">{claim.groupBooking.roomsNeeded}</span>
-                                    {' rooms × '}
-                                    <span className="text-brand-700 font-bold">{nights}</span>
-                                    {' nights = '}
-                                    <span className="text-brand-900 font-bold">{formatCurrency(claim.totalAmount, claim.currency)}</span>
-                                  </>
-                                )}
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Special Offers - Enhanced List Display */}
-                    {specialOffersList.length > 0 && (
-                      <div className="mb-6 p-4 bg-gradient-to-br from-amber-50 via-amber-50/50 to-white rounded-2xl border-2 border-amber-200/60 shadow-md">
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-md">
-                            <Gift className="h-4 w-4 text-white" />
-                          </div>
-                          <h4 className="text-sm font-bold text-amber-900 uppercase tracking-wide">Special Offers</h4>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {specialOffersList.map((offer, idx) => (
-                            <div 
-                              key={idx}
-                              className="flex items-center gap-2 p-2.5 bg-white/80 rounded-lg border border-amber-200/60 hover:bg-amber-50 transition-colors duration-200"
-                            >
-                              <div className="h-2 w-2 rounded-full bg-amber-500 flex-shrink-0"></div>
-                              <span className="text-sm font-medium text-slate-900">{offer}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Notes */}
-                    {claim.notes && (
-                      <div className="mb-6 p-4 bg-gradient-to-br from-slate-50 via-slate-50/50 to-white rounded-2xl border-2 border-slate-200/60 shadow-md">
-                        <div className="flex items-center gap-2 mb-2">
-                          <FileText className="h-4 w-4 text-slate-600" />
-                          <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Notes</h4>
-                        </div>
-                        <p className="text-sm text-slate-700 leading-relaxed">{claim.notes}</p>
-                      </div>
-                    )}
-
-                    {/* Footer - Dates */}
-                    <div className="pt-4 border-t border-slate-200">
-                      <div className="flex items-center gap-2 text-xs text-slate-600">
-                        <Calendar className="h-3.5 w-3.5" />
-                        <span className="font-medium">Submitted: {formatDate(claim.createdAt)}</span>
-                        {claim.reviewedAt && (
-                          <>
-                            <span>•</span>
-                            <span className="font-medium">Reviewed: {formatDate(claim.reviewedAt)}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                    <ChevronRight className={`h-4 w-4 shrink-0 transition ${isOpen ? "text-[#02665e]" : "text-slate-300"}`} aria-hidden />
+                  </button>
+                  {isOpen && <div className="mt-3 lg:hidden"><OfferSheet claim={claim} /></div>}
+                </li>
               );
             })}
-          </div>
-        )}
-      </div>
+          </ul>
+
+          {current && (
+            <aside className="hidden lg:sticky lg:top-24 lg:block">
+              <OfferSheet claim={current} />
+            </aside>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
+/** Three steps every offer walks: sent, reviewed, decided. */
+function stageOf(raw: string) {
+  const s = raw.toUpperCase();
+  if (s === "ACCEPTED") return { reached: 3, bar: "bg-[#02665e]", text: "text-emerald-700" };
+  if (s === "REJECTED") return { reached: 3, bar: "bg-rose-400", text: "text-rose-600" };
+  if (s === "WITHDRAWN") return { reached: 1, bar: "bg-slate-400", text: "text-slate-500" };
+  if (s === "REVIEWING") return { reached: 2, bar: "bg-sky-500", text: "text-sky-700" };
+  return { reached: 1, bar: "bg-amber-500", text: "text-amber-700" };
+}
+
+function OfferSheet({ claim }: { claim: Claim }) {
+  const st = statusOf(claim.status);
+  const s = claim.status.toUpperCase();
+  const gb = claim.groupBooking;
+  const nights = nightsBetween(gb.checkIn, gb.checkOut);
+  const discount = claim.discountPercent && claim.discountPercent > 0 ? claim.discountPercent : 0;
+  const nightly = discount ? claim.offeredPricePerNight * (1 - discount / 100) : claim.offeredPricePerNight;
+  const offers = claim.specialOffers ? claim.specialOffers.split(",").map((x) => x.trim()).filter(Boolean) : [];
+  const decision = s === "ACCEPTED" ? "Won" : s === "REJECTED" ? "Not chosen" : s === "WITHDRAWN" ? "Withdrawn" : "Decision";
+  const steps = [
+    { label: "Sent", date: claim.createdAt, done: true },
+    { label: "In review", date: null as string | null, done: ["REVIEWING", "ACCEPTED", "REJECTED"].includes(s) },
+    { label: decision, date: claim.reviewedAt, done: ["ACCEPTED", "REJECTED", "WITHDRAWN"].includes(s) },
+  ];
+  const headTone = s === "ACCEPTED" ? "text-[#5eead4]" : s === "REJECTED" ? "text-rose-300" : s === "REVIEWING" ? "text-sky-300" : s === "WITHDRAWN" ? "text-white/60" : "text-amber-300";
+
+  return (
+    <article className="overflow-hidden rounded-3xl bg-white shadow-[0_24px_60px_-40px_rgba(1,42,38,0.75)] ring-1 ring-slate-200">
+      <header className="bg-[#012a26] px-6 pb-5 pt-5 text-white">
+        <div className="flex items-center justify-between gap-3">
+          <span className={`text-[11px] font-bold uppercase tracking-[0.16em] ${headTone}`}>{st.label}</span>
+          <span className="text-[11px] text-white/50">Your offer</span>
+        </div>
+        <h2 className="m-0 mt-2 text-xl font-bold leading-tight">Group of {gb.headcount} in {placeName(gb.toRegion)}</h2>
+        <p className="m-0 mt-0.5 text-xs text-white/60">{fmtDay(gb.checkIn)} to {fmtDay(gb.checkOut)}{nights ? ` · ${nights} night${nights === 1 ? "" : "s"}` : ""}</p>
+        <p className="m-0 mt-4 text-[32px] font-extrabold leading-none tracking-tight tabular-nums text-[#5eead4]">{tzs(claim.totalAmount, claim.currency)}</p>
+        <p className="m-0 mt-1 text-xs text-white/60">{tzs(nightly, claim.currency)} a room a night</p>
+      </header>
+
+      <ol className="m-0 grid list-none grid-cols-3 border-0 border-b border-solid border-slate-100 p-0">
+        {steps.map((step, index) => (
+          <li key={step.label} className={`px-4 py-3 ${index > 0 ? "border-0 border-l border-solid border-slate-100" : ""}`}>
+            <span className={`flex items-center gap-1.5 text-xs font-bold ${step.done ? "text-slate-900" : "text-slate-400"}`}>
+              <span className={`grid h-4 w-4 shrink-0 place-items-center rounded-full ${step.done ? "bg-[#02665e] text-white" : "bg-slate-100"}`}>{step.done ? <Check className="h-2.5 w-2.5" aria-hidden /> : null}</span>
+              {step.label}
+            </span>
+            <span className="mt-0.5 block text-[11px] text-slate-400">{step.date ? fmtDay(step.date) : step.done ? "Done" : "Pending"}</span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="space-y-5 p-6">
+        {st.note ? <p className="m-0 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs leading-5 text-slate-600">{st.note}</p> : null}
+
+        <div>
+          <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">How the total adds up</p>
+          <dl className="m-0 mt-2 space-y-2 text-sm">
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">Price a room a night</dt><dd className="m-0 font-semibold tabular-nums text-slate-800">{tzs(claim.offeredPricePerNight, claim.currency)}</dd></div>
+            {discount ? <div className="flex justify-between gap-3"><dt className="text-slate-500">Group discount {discount}%</dt><dd className="m-0 font-semibold tabular-nums text-emerald-700">&minus;{tzs(claim.offeredPricePerNight - nightly, claim.currency)}</dd></div> : null}
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">{gb.roomsNeeded} room{gb.roomsNeeded === 1 ? "" : "s"} × {nights ?? "?"} night{nights === 1 ? "" : "s"}</dt><dd className="m-0 font-semibold tabular-nums text-slate-800">{(gb.roomsNeeded * (nights ?? 0)).toLocaleString()} room nights</dd></div>
+            <div className="flex justify-between gap-3 border-0 border-t border-dashed border-slate-200 pt-2"><dt className="font-bold text-slate-900">Total offer</dt><dd className="m-0 font-extrabold tabular-nums text-slate-900">{tzs(claim.totalAmount, claim.currency)}</dd></div>
+          </dl>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "People", value: gb.headcount, Icon: Users },
+            { label: "Rooms", value: gb.roomsNeeded, Icon: BedDouble },
+            { label: "Property", value: claim.property.title, Icon: Building2 },
+          ].map((fact) => (
+            <div key={fact.label} className="min-w-0 rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="m-0 flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-[0.1em] text-slate-400"><fact.Icon className="h-3 w-3" aria-hidden />{fact.label}</p>
+              <p className="m-0 mt-0.5 truncate text-sm font-bold text-slate-900" title={String(fact.value)}>{fact.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {offers.length > 0 && (
+          <div>
+            <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400"><Gift className="h-3.5 w-3.5" aria-hidden /> Extras you offered ({offers.length})</p>
+            <ul className="m-0 mt-2 grid list-none grid-cols-2 gap-x-3 gap-y-1.5 p-0">
+              {offers.map((offer) => (
+                <li key={offer} className="flex items-center gap-1.5 text-xs text-slate-700"><Check className="h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden /><span className="truncate">{offer}</span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {claim.notes && (
+          <blockquote className="m-0 rounded-xl bg-slate-50 px-4 py-3">
+            <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400"><MessageSquareText className="h-3.5 w-3.5" aria-hidden /> Your note</p>
+            <p className="m-0 mt-1.5 whitespace-pre-line text-sm leading-6 text-slate-700">{claim.notes}</p>
+          </blockquote>
+        )}
+
+        {s === "ACCEPTED" && (
+          <Link href="/owner/group-stays" className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#02665e] text-sm font-bold text-white no-underline hover:bg-[#014d47]">
+            Go to Assigned to me <ArrowRight className="h-4 w-4" aria-hidden />
+          </Link>
+        )}
+      </div>
+    </article>
+  );
+}

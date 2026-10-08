@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Building2, CalendarCheck, Eye, TrendingUp, Wallet, ChevronRight } from "lucide-react";
+import { Building2, CalendarCheck, TrendingUp, Wallet, ChevronRight } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import { io } from "socket.io-client";
@@ -356,129 +356,130 @@ export default function OwnerPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════════════════
-          QUICK ACTIONS
+          QUICK ACTIONS (plain cards, one brand mark per tile, no stripes)
       ══════════════════════════════════════════════════════════════ */}
       <div
-        className={`grid grid-cols-2 md:grid-cols-4 gap-3 transition-all duration-700 ease-out delay-100 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
+        className={`grid grid-cols-2 gap-3 md:grid-cols-4 transition-all duration-700 ease-out delay-100 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
       >
         {[
-          { href: "/owner/properties/approved", icon: Building2,     label: "Manage listings",    sub: "Properties", topColor: "#0ea5e9", iconBg: "rgba(14,165,233,0.1)",  iconColor: "#0ea5e9" },
-          { href: "/owner/reports/overview",    icon: TrendingUp,    label: "Trends & insights",  sub: "Reports",    topColor: "#10b981", iconBg: "rgba(16,185,129,0.1)",  iconColor: "#10b981" },
-          { href: "/owner/revenue/paid",        icon: Wallet,        label: "Payments & receipts",sub: "Revenue",    topColor: "#f59e0b", iconBg: "rgba(245,158,11,0.1)",  iconColor: "#f59e0b" },
-          { href: "/owner/properties/availability", icon: CalendarCheck, label: "External bookings", sub: "Reservations", topColor: "#02665e", iconBg: "rgba(2,102,94,0.1)", iconColor: "#02665e" },
-        ].map(({ href, icon: Icon, label, sub, topColor, iconBg, iconColor }) => (
+          { href: "/owner/properties/approved", icon: Building2, label: "My properties", hint: "Listings, rooms and prices" },
+          { href: "/owner/payouts", icon: Wallet, label: "My Payouts", hint: "Withdraw and track payments" },
+          { href: "/owner/properties/availability", icon: CalendarCheck, label: "External bookings", hint: "Block dates booked elsewhere" },
+          { href: "/owner/reports/overview", icon: TrendingUp, label: "Reports", hint: "Trends and insights" },
+        ].map(({ href, icon: Icon, label, hint }) => (
           <Link
-            key={`${sub}-${label}`}
+            key={href}
             href={href}
-            className="group relative overflow-hidden rounded-2xl bg-white no-underline block transition-all duration-200 hover:-translate-y-0.5"
-            style={{ border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 1px 3px rgba(0,0,0,0.05),0 4px 12px rgba(0,0,0,0.04)" }}
+            className="group flex min-w-0 items-center gap-3 rounded-2xl border border-solid border-slate-300/80 bg-white p-4 no-underline shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-[#02665e]/40 hover:shadow-[0_14px_32px_-22px_rgba(1,42,38,0.45)]"
           >
-            <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl" style={{ background: topColor, opacity: 0.75 }} />
-            <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ background: `linear-gradient(135deg,${topColor}10 0%,transparent 60%)` }} />
-            <div className="relative px-4 py-4 flex flex-col gap-3">
-              <div className="flex items-start justify-between">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: iconBg }}>
-                  <Icon className="h-[18px] w-[18px]" style={{ color: iconColor }} />
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 group-hover:translate-x-0.5 transition-all duration-150 mt-0.5" />
-              </div>
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-[0.18em]" style={{ color: topColor, opacity: 0.85 }}>{sub}</p>
-                <p className="text-[13px] font-bold text-slate-800 mt-0.5 leading-snug">{label}</p>
-              </div>
-            </div>
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4] transition group-hover:bg-[#02665e]">
+              <Icon className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-bold text-slate-900">{label}</span>
+              <span className="mt-0.5 block truncate text-xs text-slate-500">{hint}</span>
+            </span>
+            <ChevronRight className="hidden h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-[#02665e] sm:block" aria-hidden />
           </Link>
         ))}
       </div>
 
       {/* ══════════════════════════════════════════════════════════════
-          CHARTS
+          CHARTS (headline figure first, then the 14-day shape)
       ══════════════════════════════════════════════════════════════ */}
       <div
-        className={`grid gap-4 grid-cols-1 md:grid-cols-2 transition-all duration-700 ease-out delay-200 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
+        className={`grid grid-cols-1 gap-4 md:grid-cols-2 transition-all duration-700 ease-out delay-200 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
       >
-        {/* Revenue trend */}
-        <div className="relative overflow-hidden rounded-2xl bg-white p-5" style={{ border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 1px 3px rgba(0,0,0,0.05),0 4px 12px rgba(0,0,0,0.04)" }}>
-          <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl" style={{ background: "linear-gradient(90deg,#10b981,#06b6d4)" }} />
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-xl flex items-center justify-center" style={{ background: "rgba(16,185,129,0.1)" }}>
-                <TrendingUp className="h-4 w-4 text-emerald-600" />
+        {[
+          {
+            key: "net",
+            title: "Net revenue",
+            figure: `TZS ${fmtTZS(kpis.net)}`,
+            empty: !series.some((s: any) => s.net > 0),
+            emptyText: "No revenue in the last 14 days yet.",
+          },
+          {
+            key: "bookings",
+            title: "Bookings",
+            figure: String(kpis.bookings),
+            empty: !series.some((s: any) => s.bookings > 0),
+            emptyText: "No bookings in the last 14 days yet.",
+          },
+        ].map((c) => (
+          <section key={c.key} className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)]">
+            <div className="flex items-start justify-between gap-3 border-0 border-b border-solid border-slate-200 px-5 py-4">
+              <div className="min-w-0">
+                <p className="m-0 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{c.title} · last 14 days</p>
+                <p className="m-0 mt-1 truncate text-2xl font-bold tabular-nums text-slate-900">
+                  {loadingOverview ? <span className="text-slate-300">...</span> : c.figure}
+                </p>
               </div>
-              <div>
-                <p className="text-[13px] font-bold text-slate-900 leading-none">Net revenue</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Last 14 days</p>
+              <Link
+                href="/owner/reports/overview"
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-solid border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 no-underline transition hover:border-[#02665e]/40 hover:text-[#02665e]"
+              >
+                Report <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </div>
+            <div className="relative h-52 px-3 pb-3 pt-4">
+              {c.empty && !loadingOverview ? (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 text-center">
+                  <p className="m-0 text-sm font-semibold text-slate-700">{c.emptyText}</p>
+                  <Link href="/owner/bookings" className="text-xs font-semibold text-[#02665e] no-underline hover:underline">
+                    See your bookings
+                  </Link>
+                </div>
+              ) : null}
+              <div className={c.empty && !loadingOverview ? "h-full opacity-30" : "h-full"}>
+                <ResponsiveContainer>
+                  {c.key === "net" ? (
+                    <AreaChart data={series} margin={{ left: 0, right: 8, top: 6, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="netFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#02665e" stopOpacity={0.22} />
+                          <stop offset="100%" stopColor="#02665e" stopOpacity={0.01} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#eef2f1" vertical={false} />
+                      <XAxis dataKey="key" tickFormatter={shortDay} tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={16} />
+                      <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} width={34} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12 }}
+                        labelStyle={{ color: "#1e293b", fontWeight: 700 }}
+                        labelFormatter={(l: any) => shortDay(String(l))}
+                        formatter={(value: number) => [`TZS ${fmtTZS(value)}`, "Net"]}
+                      />
+                      <Area type="monotone" dataKey="net" stroke="#02665e" strokeWidth={2.25} fill="url(#netFill)" dot={false} activeDot={{ r: 4.5, fill: "#02665e" }} />
+                    </AreaChart>
+                  ) : (
+                    <BarChart data={series} margin={{ left: 0, right: 8, top: 6, bottom: 0 }}>
+                      <CartesianGrid stroke="#eef2f1" vertical={false} />
+                      <XAxis dataKey="key" tickFormatter={shortDay} tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={16} />
+                      <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
+                      <Tooltip
+                        cursor={{ fill: "rgba(2,102,94,0.06)" }}
+                        contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 12 }}
+                        labelStyle={{ color: "#1e293b", fontWeight: 700 }}
+                        labelFormatter={(l: any) => shortDay(String(l))}
+                        formatter={(value: number) => [value, "Bookings"]}
+                      />
+                      <Bar dataKey="bookings" fill="#012a26" radius={[5, 5, 0, 0]} maxBarSize={22} />
+                    </BarChart>
+                  )}
+                </ResponsiveContainer>
               </div>
             </div>
-            <Link href="/owner/reports/overview"
-              className="inline-flex items-center gap-1 text-[11px] font-bold no-underline transition-opacity hover:opacity-60" style={{ color: "#02665e" }}>
-              View all <Eye className="h-3 w-3" />
-            </Link>
-          </div>
-          <div className="h-52">
-            <ResponsiveContainer>
-              <AreaChart data={series} margin={{ left: 0, right: 8, top: 6, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="netFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"  stopColor="#10b981" stopOpacity={0.30} />
-                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="key" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${(v/1000).toFixed(0)}k`} width={34} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", fontSize: 12 }}
-                  labelStyle={{ color: "#1e293b", fontWeight: 700 }}
-                  formatter={(value: number) => [`TZS ${fmtTZS(value)}`, "Net"]}
-                />
-                <Area type="monotone" dataKey="net" stroke="#10b981" strokeWidth={2.5} fill="url(#netFill)" dot={false} activeDot={{ r: 5, fill: "#10b981" }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Bookings trend */}
-        <div className="relative overflow-hidden rounded-2xl bg-white p-5" style={{ border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 1px 3px rgba(0,0,0,0.05),0 4px 12px rgba(0,0,0,0.04)" }}>
-          <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-2xl" style={{ background: "linear-gradient(90deg,#8b5cf6,#ec4899)" }} />
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-xl flex items-center justify-center" style={{ background: "rgba(139,92,246,0.1)" }}>
-                <CalendarCheck className="h-4 w-4 text-violet-600" />
-              </div>
-              <div>
-                <p className="text-[13px] font-bold text-slate-900 leading-none">Bookings</p>
-                <p className="text-[10px] text-slate-400 mt-0.5">Last 14 days</p>
-              </div>
-            </div>
-            <Link href="/owner/reports/overview"
-              className="inline-flex items-center gap-1 text-[11px] font-bold no-underline transition-opacity hover:opacity-60" style={{ color: "#02665e" }}>
-              View all <Eye className="h-3 w-3" />
-            </Link>
-          </div>
-          <div className="h-52">
-            <ResponsiveContainer>
-              <BarChart data={series} margin={{ left: 0, right: 8, top: 6, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="bookFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"  stopColor="#8b5cf6" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.55} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="key" tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 10 }} axisLine={false} tickLine={false} width={24} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.08)", fontSize: 12 }}
-                  labelStyle={{ color: "#1e293b", fontWeight: 700 }}
-                  formatter={(value: number) => [value, "Bookings"]}
-                />
-                <Bar dataKey="bookings" fill="url(#bookFill)" radius={[5, 5, 0, 0]} maxBarSize={26} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+          </section>
+        ))}
       </div>
     </div>
   );
+}
+
+/** "2026-10-07" -> "07 Oct"; anything else is shown as given. */
+function shortDay(key: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(key));
+  if (!m) return String(key);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${m[3]} ${months[Number(m[2]) - 1] ?? ""}`;
 }

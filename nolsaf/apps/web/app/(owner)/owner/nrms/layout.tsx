@@ -464,6 +464,14 @@ function NrmsShell({ children }: { children: ReactNode }) {
   const paymentsHome = pathname === "/owner/nrms/payments" && !searchParams.has("property");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Hotel clock in the header: the desk always sees Tanzania time, whatever the device says.
+  // Starts empty: the server's time would never match the browser's at hydration (React error 418).
+  const [clock, setClock] = useState<Date | null>(null);
+  useEffect(() => {
+    setClock(new Date());
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [travelAgentsOpen, setTravelAgentsOpen] = useState(() => pathname.startsWith("/owner/nrms/agents"));
   const [otaChannelsOpen, setOtaChannelsOpen] = useState(() => pathname.startsWith("/owner/nrms/channels"));
   const [hotelControlsOpen, setHotelControlsOpen] = useState(() => pathname.startsWith("/owner/nrms/controls"));
@@ -917,55 +925,64 @@ function NrmsShell({ children }: { children: ReactNode }) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="mx-3 mt-3 shrink-0 overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-          <div className="flex min-h-[4.75rem] items-center gap-3 px-3 sm:px-5">
-            <button type="button" onClick={() => setMobileOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-700 lg:hidden" aria-label="Open NRMS navigation"><Menu className="h-5 w-5" /></button>
+        <header className="mx-3 mt-3 shrink-0 overflow-hidden rounded-3xl border border-solid border-slate-200 bg-white shadow-[0_14px_35px_-30px_rgba(15,23,42,0.45)]">
+          <div className="flex min-h-[4.5rem] items-center gap-3 px-3 pt-3 sm:px-5">
+            <button type="button" onClick={() => setMobileOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white text-slate-700 lg:hidden" aria-label="Open NRMS navigation"><Menu className="h-5 w-5" /></button>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2"><p className="m-0 truncate text-sm font-bold text-neutral-950">{paymentsHome ? "NoLSAF Payments" : selectedProperty?.title ?? "NRMS property"}</p>{!paymentsHome && daysLeft != null && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700">{daysLeft} days trial</span>}</div>
+              <div className="flex min-w-0 items-center gap-2">
+                <p className="m-0 truncate text-[15px] font-bold tracking-[-0.01em] text-slate-900">{paymentsHome ? "NoLSAF Payments" : selectedProperty?.title ?? "NRMS property"}</p>
+                {!paymentsHome && daysLeft != null && <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200">{daysLeft} days trial</span>}
+              </div>
               {/* The subtitle names the workspace the reader is actually in.
                   "Live property operations" was written for the owner and read
                   as boilerplate to everyone else, including a sales executive
                   who runs no operations at all. */}
-              <p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{paymentsHome ? "Payment onboarding across your properties" : accessRole === "OWNER" ? "Live property operations" : roleSubtitle}</p>
+              <p className="m-0 mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-slate-500">
+                {!paymentsHome && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />}
+                <span className="truncate">{paymentsHome ? "Payment onboarding across your properties" : accessRole === "OWNER" ? "Live property operations" : roleSubtitle}</span>
+                {clock && (
+                  <>
+                    <span className="hidden shrink-0 text-slate-300 sm:inline" aria-hidden>·</span>
+                    <span className="hidden shrink-0 tabular-nums sm:inline">
+                      {clock.toLocaleDateString("en-GB", { timeZone: "Africa/Dar_es_Salaam", weekday: "short", day: "numeric", month: "short" })}, {clock.toLocaleTimeString("en-GB", { timeZone: "Africa/Dar_es_Salaam", hour: "2-digit", minute: "2-digit" })} EAT
+                    </span>
+                  </>
+                )}
+              </p>
             </div>
             {/* Only an owner with more than one property may switch. Staff are
                 scoped to the property behind their assignment and must never be
                 offered a way to change or see another one, so they get a static
                 label, not a select. The API enforces this too; this is the UI half. */}
             {showPropertySelector ? (
-              <label className="group relative hidden h-10 min-w-0 items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-2.5 text-neutral-600 transition hover:border-neutral-300 hover:bg-white hover:text-neutral-900 sm:flex">
-                <Building2 className="h-4 w-4 shrink-0 text-emerald-700" />
-                  <select
-                    value=""
-                    onChange={(event) => {
-                      const propertyId = Number(event.target.value);
-                      const property = properties.find((candidate) => candidate.id === propertyId);
-                      if (property && property.id !== selectedPropertyId) setPendingWorkspaceChange({ kind: "PROPERTY", propertyId: property.id, propertyTitle: property.title });
-                    }}
-                    className="block max-w-40 cursor-pointer border-0 bg-transparent p-0 text-xs font-medium text-current outline-none"
-                    aria-label="Select NRMS property"
-                  >
-                    <option value="">Switch property</option>
-                    {properties.filter((property) => property.id !== selectedPropertyId).map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}
-                  </select>
+              <label className="group relative hidden h-10 min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-solid border-slate-200 bg-white pl-3 pr-2.5 text-slate-700 transition hover:border-[#02665e]/40 hover:bg-emerald-50/40 sm:flex">
+                <Building2 className="h-4 w-4 shrink-0 text-[#02665e]" />
+                <span className="text-xs font-semibold">Switch property</span>
+                <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-bold tabular-nums text-slate-600">{properties.length}</span>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400 transition group-hover:text-slate-700" aria-hidden />
+                {/* The native select sits invisibly on top, so the switcher keeps keyboard and screen-reader support. */}
+                <select
+                  value=""
+                  onChange={(event) => {
+                    const propertyId = Number(event.target.value);
+                    const property = properties.find((candidate) => candidate.id === propertyId);
+                    if (property && property.id !== selectedPropertyId) setPendingWorkspaceChange({ kind: "PROPERTY", propertyId: property.id, propertyTitle: property.title });
+                  }}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  aria-label="Select NRMS property"
+                >
+                  <option value="">Switch property</option>
+                  {properties.filter((property) => property.id !== selectedPropertyId).map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}
+                </select>
               </label>
             ) : null}
             {!paymentsHome && accessRole === "OWNER" && <NrmsBillingAttention property={selectedProperty} policy={usagePolicy} variant="indicator" />}
-            {/* Nothing stands here for a single property or for staff. The
-                switcher above earns its space because it does something; a
-                static chip would only print the property name a second time,
-                a few centimetres from the heading that already carries it. */}
-            {/* The role badge lived here while the subtitle was generic. Now
-                that the subtitle names the workspace, a chip reading
-                "SALES EXECUTIVE" beside "Sales workspace" says the same thing
-                twice. The owner keeps no badge either: the sidebar's exit to
-                the marketplace already tells them whose account this is. */}
-            <button type="button" onClick={() => setPendingWorkspaceChange({ kind: "EXIT" })} title={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} aria-label={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-white text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-900">
+            <button type="button" onClick={() => setPendingWorkspaceChange({ kind: "EXIT" })} title={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} aria-label={accessRole === "OWNER" ? "Return to Marketplace" : "Exit NRMS"} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-slate-200 bg-white text-slate-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600">
               <LogOut className="h-4 w-4" />
             </button>
           </div>
 
-          <nav className="overflow-x-auto border-t border-neutral-100 px-3 sm:px-5" aria-label="Primary NRMS operations">
+          <nav className="mt-3 overflow-x-auto border-0 border-t border-solid border-slate-100 px-3 py-2 sm:px-5" aria-label="Primary NRMS operations">
             <div className="flex w-max min-w-full gap-1">
               {(accessRole === "SALES_EXECUTIVE" ? SALES_TABS : PRIMARY_TABS).filter((tab) => roleCanSee(tab.href, accessRole, accessCapabilities)).map((tab) => {
                 const override = tab.href === "/owner/nrms/orders" ? ordersNavPresentation(accessRole)
@@ -973,7 +990,26 @@ function NrmsShell({ children }: { children: ReactNode }) {
                   : null;
                 const Icon = override?.icon ?? tab.icon;
                 const active = isActive(pathname, tab);
-                return <Link key={tab.href} href={tab.href} className={`inline-flex min-h-11 items-center gap-2 border-b-2 px-3 text-xs font-bold no-underline transition hover:no-underline ${active ? "border-emerald-700 text-emerald-800" : "border-transparent text-neutral-400 hover:text-neutral-700"}`}><Icon className="h-4 w-4" />{override?.label ?? tab.label}</Link>;
+                // Live workload on the tab itself, so the desk sees it without opening the sidebar.
+                const tabBadge = tab.href === "/owner/nrms" ? attention?.frontDesk.total ?? 0
+                  : tab.href === "/owner/nrms/orders" ? attention?.orders.placedRoom ?? 0
+                  : 0;
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    aria-current={active ? "page" : undefined}
+                    className={`inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 text-xs font-bold no-underline transition hover:no-underline ${active ? "bg-emerald-50 text-[#02665e] ring-1 ring-inset ring-emerald-200/70" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}
+                  >
+                    <Icon className={`h-4 w-4 ${active ? "text-[#02665e]" : "text-slate-400"}`} />
+                    {override?.label ?? tab.label}
+                    {tabBadge > 0 && (
+                      <span className={`min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${tab.href === "/owner/nrms/orders" ? "bg-violet-500 text-white" : "bg-rose-500 text-white"}`}>
+                        {tabBadge > 99 ? "99+" : tabBadge}
+                      </span>
+                    )}
+                  </Link>
+                );
               })}
             </div>
           </nav>

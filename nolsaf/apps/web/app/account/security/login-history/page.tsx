@@ -1,14 +1,8 @@
 "use client"
 
-import React from "react"
-import LoginHistoryTable from "@/components/security/LoginHistoryTable"
+import SecurityLoginHistory from "@/components/account-security/SecurityLoginHistory"
+import { CUSTOMER_SECURITY } from "@/components/account-security/securityData"
 
 export default function AccountLoginHistoryPage() {
-  return (
-    <LoginHistoryTable
-      apiUrl="/api/account/security/logins"
-      backHref="/account/security"
-      containerClassName="public-container w-full"
-    />
-  )
+  return <SecurityLoginHistory scope={CUSTOMER_SECURITY} />
 }

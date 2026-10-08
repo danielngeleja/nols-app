@@ -65,6 +65,8 @@ export type NrmsCapacityConsumer = {
   roomUnitCode: string | null;
   startDate: Date;
   endDate: Date;
+  /** CONFIRMED, CHECKED_IN or HELD: what the front desk still has to act on. */
+  reservationStatus: string;
 };
 
 /** External NRMS allocations that must reduce NoLSAF marketplace capacity. */
@@ -98,7 +100,7 @@ export async function getNrmsCapacityConsumers(
       endDate: true,
       roomType: { select: { name: true } },
       roomUnit: { select: { code: true } },
-      reservation: { select: { guestProfile: { select: { fullName: true } } } },
+      reservation: { select: { status: true, guestProfile: { select: { fullName: true } } } },
     },
   });
   return rows.map((row: any) => ({
@@ -111,6 +113,7 @@ export async function getNrmsCapacityConsumers(
     roomUnitCode: row.roomUnit?.code ?? null,
     startDate: row.startDate,
     endDate: row.endDate,
+    reservationStatus: String(row.reservation?.status ?? ""),
   }));
 }
 
@@ -121,6 +124,8 @@ export type NrmsMarketplaceHold = {
   roomCode: string | null;
   /** Physical room held; null for type-level holds (unassigned rooms, group blocks). */
   roomUnitCode: string | null;
+  /** NRMS room type name; matches the roomsSpec type name the marketplace counts by. */
+  roomTypeName: string;
   source: "NRMS";
   bedsBlocked: number;
   notes: string;
@@ -129,6 +134,8 @@ export type NrmsMarketplaceHold = {
   nrmsRefId: number;
   /** Guest name for a reservation; block name for a group block. */
   label: string;
+  /** Reservation status for a reservation; null for a group block. */
+  reservationStatus: string | null;
 };
 
 /**
@@ -169,12 +176,14 @@ export async function getNrmsMarketplaceHolds(
     endDate: row.endDate,
     roomCode: row.roomUnitCode ?? row.roomTypeName,
     roomUnitCode: row.roomUnitCode,
+    roomTypeName: row.roomTypeName,
     source: "NRMS",
     bedsBlocked: 1,
     notes: `NRMS reservation ${row.reservationId}`,
     nrmsKind: "RESERVATION",
     nrmsRefId: row.reservationId,
     label: row.guestName ?? "NRMS reservation",
+    reservationStatus: row.reservationStatus,
   }));
   for (const block of groupBlocks as any[]) {
     for (const room of block.rooms) {
@@ -186,12 +195,14 @@ export async function getNrmsMarketplaceHolds(
         endDate: block.checkOut,
         roomCode: room.roomType.name,
         roomUnitCode: null,
+        roomTypeName: room.roomType.name,
         source: "NRMS",
         bedsBlocked: held,
         notes: `NRMS group block ${block.reference}`,
         nrmsKind: "GROUP_BLOCK",
         nrmsRefId: block.id,
         label: `${block.name} · ${held} awaiting names`,
+        reservationStatus: null,
       });
     }
   }

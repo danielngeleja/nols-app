@@ -2,7 +2,7 @@
 
 import { TermsSection } from "./Terms";
 
-export const PRIVACY_LAST_UPDATED = "28 June 2026";
+export const PRIVACY_LAST_UPDATED = "8 October 2026";
 
 export const PRIVACY_SECTIONS: TermsSection[] = [
   {
@@ -12,7 +12,7 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Summary</h3>
           <p className="text-sm text-gray-700 leading-relaxed">
-            NoLSAF is committed to protecting your privacy and personal information. This Privacy Policy explains how we collect, use, store, and protect your data when you use our platform to book accommodations, request transport, make payments, register or onboard, arrange group stays, book tour packages, use trip planning tools, or provide services as an owner, driver, or tour operator. We collect information necessary to provide these services, including account details, booking information, payment data, location and route information, group passenger details, tour permit information, and sensitive travel compliance documents where required. We use this data to facilitate bookings, process payments, verify identities, arrange services, process permits, improve our services, and communicate with you. We implement strong security measures to protect your information and only share data with trusted service providers, verified service partners, relevant authorities where required, and as required by law. You have rights to access, update, or delete your personal information at any time, subject to legal and operational retention requirements.
+            NoLSAF is committed to protecting your privacy and personal information. This Privacy Policy explains how we collect, use, store, and protect your data when you use our platform to book accommodations, request transport, make payments, register or onboard, arrange group stays, book tour packages, use trip planning tools, or provide services as an owner, driver, or tour operator. We collect information necessary to provide these services, including account details, booking information, payment data, location and route information, group passenger details, tour permit information, and sensitive travel compliance documents where required. We use this data to facilitate bookings, process payments, verify identities, arrange services, process permits, improve our services, and communicate with you. We implement strong security measures to protect your information and only share data with trusted service providers, verified service partners, relevant authorities where required, and as required by law. You have rights to access, update, or delete your personal information at any time, subject to legal and operational retention requirements. NoLSAF is operated by NoLS Africa Company Limited, a data controller registered with the Personal Data Protection Commission under the Personal Data Protection Act, No. 11 of 2022 (Registration No. 0-000-011-671).
           </p>
         </div>
 
@@ -29,6 +29,15 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         <p>
           <strong>1.2 Consent</strong><br />
           By accessing or using our Services, you acknowledge that you have read, understood, and agree to be bound by this Privacy Policy. If you do not agree with any part of this policy, please do not use our Services. Your continued use of our Services after any changes to this policy constitutes your acceptance of those changes.
+        </p>
+
+        <p>
+          <strong>1.3 Data Controller and Registration</strong><br />
+          1.3.1 The Services are operated by NoLS Africa Company Limited, a company incorporated in the United Republic of Tanzania, of P.O. Box 16106, Dar es Salaam (&quot;NoLS Africa&quot;). For the purposes of the Personal Data Protection Act, No. 11 of 2022 (the &quot;Act&quot;) and its regulations, NoLS Africa is the data controller responsible for the personal data processed through the Services, save where this Privacy Policy states that another party acts as an independent controller.<br />
+          1.3.2 NoLS Africa is registered as a data controller with the Personal Data Protection Commission (the &quot;Commission&quot;) in accordance with the Act. Registration Number: 0-000-011-671. Date of registration: 31 August 2026. Registration valid until: 31 August 2031.<br />
+          1.3.3 NoLS Africa processes personal data in accordance with the Act, the regulations made under it and the conditions of its registration, including the principles that personal data is processed lawfully, fairly and transparently, collected for specified and lawful purposes, limited to what is necessary, kept accurate, retained no longer than necessary and protected by appropriate security safeguards.<br />
+          1.3.4 Registration with the Commission confirms that NoLS Africa is recorded as a data controller. It is not a certification or endorsement by the Commission of any particular service or practice described in this Privacy Policy.<br />
+          1.3.5 Where a property Owner, Driver, tour operator or other service partner receives your personal data to deliver a service you have booked, that partner may also act as a data controller in its own right and is responsible for its own compliance with the Act.
         </p>
 
         <p>
@@ -518,13 +527,26 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         </p>
 
         <p>
+          <strong>7.7 How to Exercise Your Rights</strong><br />
+          You may exercise any of the rights described in this section, and any other right available to you under the Act, by writing to <a href="mailto:privacy@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">privacy@nolsaf.com</a> or to the postal address in section 12.0. To protect your information, we may ask you to verify your identity before acting on a request. We will respond within the period required by the Act. Where we are unable to comply with a request, in whole or in part, we will explain the reason, including any legal ground on which we rely.
+        </p>
+
+        <p>
+          <strong>7.8 Right to Lodge a Complaint</strong><br />
+          If you believe that we have processed your personal data in a manner that does not comply with the Act, we encourage you to contact us first so that we can try to resolve the matter. You also have the right to lodge a complaint with the Personal Data Protection Commission of the United Republic of Tanzania at any time. Exercising this right does not affect any other remedy available to you under the law.
+        </p>
+
+        <p>
           <strong>8.0 Children's Privacy</strong><br />
           Our Services are not intended for individuals under the age of 18. We do not knowingly collect personal information from children. If we become aware that we have collected information from a child under 18, we will take steps to delete that information promptly. If you believe we have collected information from a child, please contact us immediately at <a href="mailto:privacy@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">privacy@nolsaf.com</a>.
         </p>
 
         <p>
           <strong>9.0 International Data Transfers</strong><br />
-          Your information may be transferred to and processed in countries other than your country of residence. These countries may have different data protection laws. When we transfer your information internationally, we ensure appropriate safeguards are in place to protect your data in accordance with this Privacy Policy and applicable laws.
+          9.1 To operate the Services, personal data may be stored or processed outside the United Republic of Tanzania. In particular, our platform is hosted with cloud infrastructure providers whose data centres may be located in other countries, including within the European Union, and some of our service providers (for example, for email, SMS delivery, payments, maps and security monitoring) may process personal data in the countries where they operate.<br />
+          9.2 Any transfer of personal data outside the United Republic of Tanzania is carried out in accordance with the requirements of the Act and its regulations on cross-border transfers. We transfer personal data only where the recipient country or the recipient provides an adequate level of protection, or where appropriate safeguards are in place, such as contractual obligations requiring the recipient to protect the data to a standard consistent with the Act, together with technical and organisational measures including encryption in transit and at rest and restricted access controls.<br />
+          9.3 Where personal data is transferred to a property Owner, Driver, tour operator or other service partner located outside the United Republic of Tanzania, the transfer is made because it is necessary to perform the service you have booked, or with your consent.<br />
+          9.4 You may contact us at the address in section 12.0 to request further information about the safeguards that apply to transfers of your personal data.
         </p>
 
         <p>
@@ -546,7 +568,9 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           If you have questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us;<br />
           <strong>Email:</strong> <a href="mailto:privacy@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">privacy@nolsaf.com</a><br />
           <strong>Support Email:</strong> <a href="mailto:support@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">support@nolsaf.com</a><br />
-          <strong>Address:</strong> NoLSAF, East Africa<br />
+          <strong>Data controller:</strong> NoLS Africa Company Limited (trading as NoLSAF)<br />
+          <strong>Address:</strong> P.O. Box 16106, Dar es Salaam, United Republic of Tanzania<br />
+          <strong>Data protection registration:</strong> Personal Data Protection Commission, Registration No. 0-000-011-671<br />
           We will respond to your inquiries within a reasonable timeframe and in accordance with applicable laws.
         </p>
 

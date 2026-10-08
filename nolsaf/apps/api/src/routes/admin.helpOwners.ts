@@ -7,6 +7,7 @@ import { getBookingValidationWindowStatus } from "../lib/bookingValidationWindow
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
 import { adminBookingReference } from "../lib/adminBookingReference.js";
 import { deliverOwnerNotice } from "../lib/ownerNotice.js";
+import { onBookingCheckedIn } from "../services/payouts/release.js";
 
 /**
  * Admin help for owners: look up a guest's check-in code and confirm the
@@ -224,11 +225,14 @@ router.post("/confirm-checkin", confirmLimiter, async (req, res) => {
       });
     }, TX_OPTIONS);
 
+    // Guest alert and payout checks follow the committed validation asynchronously.
+    onBookingCheckedIn(booking.id);
+
     let ownerNotified = false;
     if (owner && !owner.deletedAt) {
       ownerNotified = await deliverOwnerNotice(owner.id, {
         title: "Guest checked in by NoLSAF",
-        body: `NoLSAF confirmed the guest check-in for "${booking.property?.title || "your property"}" on your behalf (code ${checkinCode.codeVisible || checkinCode.code}). The booking is now marked as checked in.`,
+        body: `NoLSAF confirmed the guest check-in for "${booking.property?.title || "your property"}" on your behalf. The booking is now marked as checked in.`,
         type: "booking",
         meta: { notificationKind: "booking_checked_in_by_admin", bookingId: booking.id },
       });

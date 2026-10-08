@@ -1,45 +1,12 @@
 // apps/web/tailwind.config.ts
 const config = {
-  darkMode: ["class"],
+  darkMode: "class",
   // No prefix so core utilities like `bg-white` work unchanged
   // prefix: undefined,
-  corePlugins: { preflight: false },
   content: [
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
-  ],
-  safelist: [
-    // Ensure utilities referenced via @apply are always available
-    "bg-white",
-    "bg-white/70",
-    "rounded-2xl",
-    "rounded-xl",
-    "rounded-lg",
-    "border",
-    "border-gray-200",
-    "border-gray-300",
-    "shadow-card",
-    "text-info",
-    "bg-info/5",
-    "bg-success/5",
-    "bg-danger/5",
-    "bg-gray-50",
-    "hover:bg-gray-50",
-    "text-brand",
-    "border-brand",
-    "bg-brand",
-    "text-white",
-    "inline-flex",
-    "items-center",
-    "justify-center",
-    "rounded-full",
-    "h-6",
-    "w-6",
-    "px-3",
-    "py-2",
-    "text-sm",
-    "font-medium",
   ],
   theme: {
     extend: {

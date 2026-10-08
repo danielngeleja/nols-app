@@ -11,10 +11,18 @@ describe("shiftMoney", () => {
 });
 
 describe("shiftDayKey", () => {
-  it("keeps after-midnight activity on the prior business date until the configured close time", () => {
-    // 16:30 UTC is 19:30 EAT, before the default 20:00 hotel boundary.
-    expect(shiftDayKey(new Date("2026-07-24T16:30:00Z"))).toBe("2026-07-23");
+  it("trades the working day as its own calendar date with the default evening close", () => {
+    // 07:00 UTC is 10:00 EAT on 8 October: the regression filed this under 7 October.
+    expect(shiftDayKey(new Date("2026-10-08T07:00:00Z"))).toBe("2026-10-08");
+    // 16:30 UTC is 19:30 EAT, before the 20:00 boundary; 17:00 UTC is the boundary itself.
+    expect(shiftDayKey(new Date("2026-07-24T16:30:00Z"))).toBe("2026-07-24");
     expect(shiftDayKey(new Date("2026-07-24T17:00:00Z"))).toBe("2026-07-24");
+  });
+
+  it("keeps after-midnight activity on the prior date for an early-morning close", () => {
+    // 22:30 UTC on 24 July is 01:30 EAT on 25 July, before a 02:00 close.
+    expect(shiftDayKey(new Date("2026-07-24T22:30:00Z"), "02:00")).toBe("2026-07-24");
+    expect(shiftDayKey(new Date("2026-07-24T23:30:00Z"), "02:00")).toBe("2026-07-25");
   });
 
   it("uses a property-specific boundary", () => {
@@ -27,21 +35,31 @@ describe("hotelCalendarDayKey", () => {
   it("uses the EAT calendar date without the Night Audit cutoff", () => {
     const beforeAudit = new Date("2026-07-24T16:30:00Z");
     expect(hotelCalendarDayKey(beforeAudit)).toBe("2026-07-24");
-    expect(shiftDayKey(beforeAudit)).toBe("2026-07-23");
+    expect(shiftDayKey(beforeAudit, "02:00")).toBe("2026-07-24");
     expect(hotelCalendarDayKey(new Date("2026-07-24T21:30:00Z"))).toBe("2026-07-25");
   });
 });
 
 describe("nightAuditSchedule", () => {
-  it("does not make yesterday closable until the property's boundary", () => {
+  it("makes today closable at an evening boundary", () => {
     const before = nightAuditSchedule(new Date("2026-07-24T16:30:00Z"), "20:00");
-    expect(before.activeBusinessDate).toBe("2026-07-23");
-    expect(before.latestClosableDate).toBe("2026-07-22");
+    expect(before.activeBusinessDate).toBe("2026-07-24");
+    expect(before.latestClosableDate).toBe("2026-07-23");
     expect(before.nextCloseAt.toISOString()).toBe("2026-07-24T17:00:00.000Z");
 
     const after = nightAuditSchedule(new Date("2026-07-24T17:15:00Z"), "20:00");
     expect(after.activeBusinessDate).toBe("2026-07-24");
-    expect(after.latestClosableDate).toBe("2026-07-23");
+    expect(after.latestClosableDate).toBe("2026-07-24");
+  });
+
+  it("closes yesterday after midnight with an early-morning boundary", () => {
+    const before = nightAuditSchedule(new Date("2026-07-24T22:30:00Z"), "02:00");
+    expect(before.activeBusinessDate).toBe("2026-07-24");
+    expect(before.latestClosableDate).toBe("2026-07-23");
+
+    const after = nightAuditSchedule(new Date("2026-07-24T23:30:00Z"), "02:00");
+    expect(after.activeBusinessDate).toBe("2026-07-25");
+    expect(after.latestClosableDate).toBe("2026-07-24");
   });
 });
 
@@ -55,7 +73,7 @@ describe("nextShiftDayKey", () => {
 describe("NRMS business-day write seal", () => {
   it("allows financial writes while the day is open", async () => {
     const tx = { nrmsBusinessDay: { findUnique: vi.fn().mockResolvedValue({ status: "OPEN" }) } };
-    await expect(assertNrmsBusinessDayWritable(tx, 3, new Date("2026-07-24T10:00:00Z"))).resolves.toBe("2026-07-23");
+    await expect(assertNrmsBusinessDayWritable(tx, 3, new Date("2026-07-24T10:00:00Z"))).resolves.toBe("2026-07-24");
   });
 
   it.each(["CLOSING", "CLOSED"])("rejects financial writes when the day is %s", async (status) => {

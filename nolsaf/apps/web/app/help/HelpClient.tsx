@@ -10,13 +10,13 @@ import {
   ChevronRight,
   CreditCard,
   Home,
+  LifeBuoy,
   Mail,
   MessageCircle,
   Search,
   Shield,
-  Sparkles,
   Users,
-  LifeBuoy,
+  X,
 } from "lucide-react";
 import LayoutFrame from "@/components/LayoutFrame";
 import { HelpFooter, HelpHeader } from "./HelpChrome";
@@ -127,7 +127,7 @@ const DEFAULT_FAQS = [
   },
   {
     question: "When do I receive payment for bookings?",
-    answer: "Payments are typically released to your account 24-48 hours after guest check-in. You can view your earnings, pending payments, and payout schedule in your owner dashboard under 'Earnings'.",
+    answer: "From 28 October 2026 a stay's payout is ready as soon as you validate the guest's check-in code and NoLSAF has confirmed the guest's payment. You then withdraw it from My Payouts in your owner workspace and confirm with a one-time code.",
     category: "Property Owner"
   },
   {
@@ -332,7 +332,8 @@ const HELP_CATEGORIES = [
 ];
 
 export default function HelpCenterPage() {
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactMessage, setContactMessage] = useState("");
@@ -388,308 +389,232 @@ export default function HelpCenterPage() {
     setContactMessage('');
   }
 
+  const q = query.trim().toLowerCase();
+  const guideHits = q
+    ? HELP_CATEGORIES.flatMap((cat) => cat.links.map((link) => ({ ...link, group: cat.title, Icon: cat.icon }))).filter((g) => `${g.label} ${g.group}`.toLowerCase().includes(q))
+    : [];
+  const faqHits = q ? DEFAULT_FAQS.filter((f) => `${f.question} ${f.answer} ${f.category}`.toLowerCase().includes(q)) : [];
+
+  const faqRow = (f: (typeof DEFAULT_FAQS)[number]) => {
+    const isOpen = openFaq === f.question;
+    return (
+      <li key={f.question} className="border-0 border-t border-solid border-slate-100 first:border-t-0">
+        <button
+          type="button"
+          onClick={() => setOpenFaq(isOpen ? null : f.question)}
+          aria-expanded={isOpen}
+          className="flex w-full items-center justify-between gap-4 border-0 bg-transparent px-5 py-3.5 text-left hover:bg-slate-50/70"
+        >
+          <span className={`text-sm font-semibold leading-snug ${isOpen ? "text-[#02665e]" : "text-slate-900"}`}>{f.question}</span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180 text-[#02665e]" : ""}`} aria-hidden />
+        </button>
+        {isOpen && <p className="m-0 px-5 pb-4 text-sm leading-6 text-slate-600">{f.answer}</p>}
+      </li>
+    );
+  };
+
   return (
     <>
       <HelpHeader />
-      <div className="min-h-screen bg-[#f8fafb]">
+      <div className="min-h-screen bg-[#f6f8f7]">
         <LayoutFrame heightVariant="sm" topVariant="sm" colorVariant="muted" variant="solid" />
-        <div className="public-container py-8 sm:py-10">
+        <div className="public-container space-y-6 py-6 sm:py-8">
 
-        {/* ── Premium Hero ─────────────────────────────────────── */}
-        <div className="relative overflow-hidden rounded-3xl bg-[#02665e] text-white"
-          style={{ backgroundImage: "radial-gradient(ellipse at 85% 0%, #02b4f550 0%, transparent 55%), radial-gradient(ellipse at 0% 100%, #01332e80 0%, transparent 55%)" }}>
-          {/* diagonal white slashes */}
-          <div className="pointer-events-none absolute inset-0 opacity-[0.13]"
-            style={{ backgroundImage: "repeating-linear-gradient(-55deg, rgba(255,255,255,1) 0px, rgba(255,255,255,1) 1.5px, transparent 1.5px, transparent 22px)" }} />
-          {/* white dot grid on top */}
-          <div className="pointer-events-none absolute inset-0 opacity-[0.07]"
-            style={{ backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
-          <div className="pointer-events-none absolute -top-24 right-0 w-[500px] h-[500px] rounded-full blur-3xl opacity-20"
-            style={{ background: "radial-gradient(circle, #4dd9ac 0%, transparent 65%)" }} />
-          <div className="pointer-events-none absolute bottom-0 left-0 w-80 h-80 rounded-full blur-3xl opacity-15"
-            style={{ background: "radial-gradient(circle, #02b4f5 0%, transparent 70%)" }} />
-
-          <div className="py-12 sm:py-16 px-6 sm:px-10 relative z-10">
-            <div className="max-w-2xl mx-auto text-center">
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#4dd9ac]/25 bg-[#4dd9ac]/10 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-widest text-[#4dd9ac] mb-6">
-                <Sparkles className="h-3 w-3" /> Support &amp; Documentation
-              </div>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.05]">
-                How can we<br /><span className="text-[#4dd9ac]">help you?</span>
-              </h1>
-              <p className="mt-5 text-[15px] text-slate-300 leading-relaxed max-w-xl mx-auto">
-                Find answers to common questions, explore guides for every role, and reach our support team, all in one place.
+          {/* Hero: one clear column, search first, roles underneath */}
+          <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#010f0e] via-[#011a18] to-[#022820] px-6 py-8 text-white sm:px-10 sm:py-10">
+            <div className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(circle, #4dd9ac 0%, transparent 65%)" }} />
+            <div className="relative" style={{ maxWidth: 720 }}>
+              <p className="m-0 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-[#4dd9ac]">
+                <LifeBuoy className="h-3.5 w-3.5" aria-hidden /> Help Center
               </p>
+              <h1 className="m-0 mt-3 text-3xl font-black tracking-tight sm:text-4xl">How can we help you?</h1>
+              <p className="m-0 mt-2 text-sm text-slate-300">Search the guides and questions, or start from your role.</p>
 
-              {/* fake search bar for aesthetics */}
-              <div className="mt-8 flex items-center gap-3 bg-white/8 border border-white/15 rounded-2xl px-5 py-3.5 max-w-lg mx-auto backdrop-blur-sm">
-                <Search className="h-4 w-4 text-slate-400 flex-shrink-0" />
-                <span className="text-sm text-slate-400 flex-1 text-left">Search help articles, guides, FAQs…</span>
-                <span className="hidden sm:inline text-[11px] text-slate-500 border border-white/10 rounded-md px-2 py-0.5">Browse below ↓</span>
+              <label htmlFor="help-search" className="sr-only">Search help</label>
+              <div className="mt-5 flex h-12 items-center gap-3 rounded-2xl bg-white px-4">
+                <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+                <input
+                  id="help-search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search refunds, payouts, check-in..."
+                  autoComplete="off"
+                  className="h-full min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                />
+                {query && (
+                  <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border-0 bg-slate-100 text-slate-500 hover:text-slate-800"><X className="h-3.5 w-3.5" aria-hidden /></button>
+                )}
               </div>
 
-              {/* trust pills */}
-              <div className="mt-8 flex items-center justify-center flex-wrap gap-3">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 {[
-                  { icon: BookOpen, label: "50+ guides" },
-                  { icon: MessageCircle, label: "Live support" },
-                  { icon: Shield, label: "Secure platform" },
-                ].map(({ icon: Icon, label }) => (
-                  <div key={label} className="inline-flex items-center gap-2 rounded-full bg-white/8 border border-white/10 px-4 py-1.5 text-xs font-semibold text-slate-300">
-                    <Icon className="h-3.5 w-3.5 text-[#4dd9ac]" /> {label}
-                  </div>
+                  { href: "/help/getting-started", Icon: BookOpen, label: "Guests" },
+                  { href: "/help/owner-guide", Icon: Home, label: "Property owners" },
+                  { href: "/help/driver-tools", Icon: Car, label: "Drivers" },
+                  { href: "/help/become-agent", Icon: Users, label: "Agents" },
+                ].map((role) => (
+                  <Link
+                    key={role.href}
+                    href={withHelpCtx(role.href)}
+                    className="inline-flex h-9 items-center gap-2 rounded-full border border-solid border-white/15 bg-white/[0.06] px-3.5 text-xs font-semibold text-white no-underline transition hover:border-[#4dd9ac]/50 hover:bg-white/[0.1]"
+                  >
+                    <role.Icon className="h-3.5 w-3.5 text-[#4dd9ac]" aria-hidden />
+                    {role.label}
+                  </Link>
                 ))}
               </div>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-            {/* ── Main Content ─────────────────────────────────── */}
-            <main className="lg:col-span-2 space-y-10">
-
-              {/* Browse by Category */}
-              <section>
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[#02665e]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#02665e]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" /> Browse by Category
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+            <main className="min-w-0 space-y-6">
+              {q ? (
+                /* Search results */
+                <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                  <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4">
+                    <p className="m-0 text-sm text-slate-600"><strong className="text-slate-900">{guideHits.length + faqHits.length}</strong> result{guideHits.length + faqHits.length === 1 ? "" : "s"} for &ldquo;{query.trim()}&rdquo;</p>
+                    <button type="button" onClick={() => setQuery("")} className="border-0 bg-transparent p-0 text-xs font-bold text-[#02665e]">Clear</button>
                   </div>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  {HELP_CATEGORIES.map((cat, idx) => {
-                    const Icon = cat.icon;
-                    return (
-                      <div key={idx}
-                        className={`group relative overflow-hidden rounded-2xl border bg-white shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 ${cat.bg}`}>
-                        {/* shimmer */}
-                        <div className="pointer-events-none absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/30 to-transparent z-10" />
-                        {/* top gradient bar */}
-                        <div className={`h-[3px] w-full bg-gradient-to-r ${cat.gradient}`} />
-                        {/* watermark number */}
-                        <span className="pointer-events-none select-none absolute right-3 bottom-2 text-[4rem] font-black leading-none opacity-[0.04] text-slate-900">
-                          {String(idx + 1).padStart(2, "0")}
-                        </span>
-
-                        <div className="p-5 relative z-10">
-                          <div className="flex items-center gap-3 mb-4">
-                            <div className={`h-10 w-10 rounded-xl bg-gradient-to-br ${cat.gradient} flex items-center justify-center shadow-md group-hover:scale-110 transition-transform duration-300 flex-shrink-0`}>
-                              <Icon className="h-5 w-5 text-white drop-shadow" />
-                            </div>
-                            <h3 className="text-sm font-extrabold text-gray-900 leading-snug">{cat.title}</h3>
-                          </div>
-                          <div className="space-y-1">
-                            {cat.links.map((link, li) => (
-                              <Link key={li} href={withHelpCtx(link.href)}
-                                onClick={() => { if (isAgentContext && typeof window !== "undefined") sessionStorage.setItem("navigationContext", "agent"); }}
-                                className="group/link no-underline flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-white/80 hover:text-gray-900 transition-all duration-150">
-                                <span className="min-w-0 truncate font-medium">{link.label}</span>
-                                <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 opacity-0 group-hover/link:opacity-100 transition-opacity duration-150" style={{ color: cat.accent }} />
-                              </Link>
-                            ))}
-                          </div>
-                        </div>
+                  {guideHits.length > 0 && (
+                    <div className="px-5 py-4">
+                      <p className="m-0 mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Guides</p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {guideHits.map((g) => (
+                          <Link key={g.href + g.label} href={withHelpCtx(g.href)} className="group flex items-center gap-3 rounded-xl border border-solid border-slate-200 px-3 py-2.5 no-underline hover:border-[#02665e]/40">
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><g.Icon className="h-4 w-4" aria-hidden /></span>
+                            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-slate-900">{g.label}</span><span className="block truncate text-[11px] text-slate-500">{g.group}</span></span>
+                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-[#02665e]" aria-hidden />
+                          </Link>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              {/* FAQ Section */}
-              <section>
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-[#02665e]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#02665e]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#02665e]" /> Frequently Asked Questions
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
-                  {/* Category filter */}
-                  <div className="px-6 sm:px-8 pt-6 pb-5 border-b border-slate-100">
-                    <div className="flex flex-wrap gap-2">
-                      {categories.map((cat) => (
-                        <button key={cat}
-                          onClick={() => { setSelectedCategory(cat); setShowAllFAQs(false); setOpenFaq(null); }}
-                          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200 ${
-                            selectedCategory === cat
-                              ? "bg-[#02665e] text-white shadow-sm"
-                              : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
-                          }`}>
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* FAQ items */}
-                  <div className="divide-y divide-slate-50">
-                    {displayedFAQs.map((f, idx) => {
-                      const isOpen = openFaq === idx;
-                      return (
-                        <div key={idx} className={`transition-colors duration-200 ${isOpen ? "bg-[#f0fdfc]" : "hover:bg-slate-50/60"}`}>
-                          <button onClick={() => setOpenFaq(isOpen ? null : idx)}
-                            className="w-full flex items-center justify-between gap-4 text-left px-6 sm:px-8 py-4">
-                            <span className={`text-sm font-semibold leading-snug transition-colors duration-150 ${isOpen ? "text-[#02665e]" : "text-gray-900"}`}>
-                              {f.question}
-                            </span>
-                            <div className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center transition-all duration-200 ${isOpen ? "bg-[#02665e] text-white" : "bg-slate-100 text-slate-400"}`}>
-                              <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`} />
-                            </div>
-                          </button>
-                          {isOpen && (
-                            <div className="px-6 sm:px-8 pb-5">
-                              <div className="text-sm text-gray-600 leading-relaxed border-l-2 border-[#4dd9ac] pl-4">
-                                {f.answer}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Show more */}
-                  {hasMoreFAQs && (
-                    <div className="px-6 sm:px-8 py-5 border-t border-slate-100 bg-slate-50/50">
-                      <button
-                        onClick={() => { setShowAllFAQs(!showAllFAQs); setOpenFaq(null); }}
-                        className="inline-flex items-center gap-2 rounded-xl bg-[#02665e] text-white px-5 py-2.5 text-sm font-bold hover:bg-[#024d47] transition-all duration-200 shadow-sm hover:shadow-md">
-                        {showAllFAQs ? "Show Less" : `Show More`}
-                        <span className="text-[11px] font-normal opacity-80">
-                          ({showAllFAQs ? `${filteredFAQs.length - 10} fewer` : `${filteredFAQs.length - 10} more`})
-                        </span>
-                      </button>
                     </div>
                   )}
-                </div>
-              </section>
+                  {faqHits.length > 0 && (
+                    <div className="border-0 border-t border-solid border-slate-100">
+                      <p className="m-0 px-5 pb-1 pt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Questions</p>
+                      <ul className="m-0 list-none p-0">{faqHits.map(faqRow)}</ul>
+                    </div>
+                  )}
+                  {guideHits.length + faqHits.length === 0 && (
+                    <div className="px-6 py-10 text-center">
+                      <p className="m-0 text-sm font-bold text-slate-900">Nothing matches that yet</p>
+                      <p className="m-0 mt-1 text-xs text-slate-500">Try another word, or send us a message and we will answer you directly.</p>
+                    </div>
+                  )}
+                </section>
+              ) : (
+                <>
+                  {/* Guides by role */}
+                  <section>
+                    <h2 className="m-0 mb-3 text-base font-bold text-slate-900">Guides by topic</h2>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {HELP_CATEGORIES.map((cat) => {
+                        const Icon = cat.icon;
+                        return (
+                          <div key={cat.title} className="rounded-2xl border border-solid border-slate-200 bg-white p-4">
+                            <div className="flex items-center gap-2.5">
+                              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><Icon className="h-[18px] w-[18px]" aria-hidden /></span>
+                              <h3 className="m-0 text-sm font-bold text-slate-900">{cat.title}</h3>
+                            </div>
+                            <ul className="m-0 mt-3 list-none space-y-0.5 p-0">
+                              {cat.links.map((link) => (
+                                <li key={link.href + link.label}>
+                                  <Link
+                                    href={withHelpCtx(link.href)}
+                                    onClick={() => { if (isAgentContext && typeof window !== "undefined") sessionStorage.setItem("navigationContext", "agent"); }}
+                                    className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium text-slate-600 no-underline hover:bg-slate-50 hover:text-[#02665e]"
+                                  >
+                                    <span className="truncate">{link.label}</span>
+                                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300 group-hover:text-[#02665e]" aria-hidden />
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
 
-              {/* Quick links strip */}
-              <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#010f0e] via-[#011a18] to-[#022820] text-white p-6 sm:p-8">
-                <div className="pointer-events-none absolute inset-0 opacity-[0.03]"
-                  style={{ backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)", backgroundSize: "20px 20px" }} />
-                <div className="pointer-events-none absolute -top-10 right-0 w-48 h-48 rounded-full blur-3xl opacity-20"
-                  style={{ background: "radial-gradient(circle, #4dd9ac 0%, transparent 65%)" }} />
-                <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
-                  <div className="flex items-start gap-4">
-                    <div className="h-11 w-11 rounded-xl bg-[#4dd9ac]/15 border border-[#4dd9ac]/25 flex items-center justify-center flex-shrink-0">
-                      <LifeBuoy className="h-5 w-5 text-[#4dd9ac]" />
+                  {/* FAQ */}
+                  <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                    <div className="px-5 pt-4">
+                      <h2 className="m-0 text-base font-bold text-slate-900">Frequently asked questions</h2>
                     </div>
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-widest text-[#4dd9ac] mb-1">Need more help?</p>
-                      <h3 className="text-base font-extrabold text-white leading-snug">Our team is available around the clock.</h3>
-                      <p className="mt-1 text-sm text-slate-400">Email us directly and we will respond within 24 hours.</p>
+                    <div className="mt-2 flex gap-1 overflow-x-auto border-0 border-b border-solid border-slate-100 px-3" role="tablist">
+                      {categories.map((cat) => {
+                        const active = selectedCategory === cat;
+                        return (
+                          <button key={cat} type="button" role="tab" aria-selected={active}
+                            onClick={() => { setSelectedCategory(cat); setShowAllFAQs(false); setOpenFaq(null); }}
+                            className={`-mb-px h-10 shrink-0 whitespace-nowrap border-0 border-b-2 border-solid bg-transparent px-3 text-[13px] font-semibold ${active ? "border-[#02665e] text-[#02665e]" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
+                            {cat}
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <a href="mailto:info@nolsaf.com"
-                    className="no-underline flex-shrink-0 inline-flex items-center gap-2 rounded-xl bg-[#4dd9ac] text-[#011a14] px-5 py-2.5 text-sm font-extrabold hover:brightness-110 hover:gap-3 transition-all duration-200 shadow-xl shadow-[#4dd9ac]/20">
-                    Email support <ArrowRight className="h-4 w-4" />
-                  </a>
-                </div>
-              </section>
+                    <ul className="m-0 list-none p-0">{displayedFAQs.map(faqRow)}</ul>
+                    {hasMoreFAQs && (
+                      <div className="border-0 border-t border-solid border-slate-100 px-5 py-3">
+                        <button type="button" onClick={() => { setShowAllFAQs(!showAllFAQs); setOpenFaq(null); }} className="border-0 bg-transparent p-0 text-sm font-bold text-[#02665e]">
+                          {showAllFAQs ? "Show fewer" : `Show ${filteredFAQs.length - 10} more`}
+                        </button>
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
             </main>
 
-            {/* ── Sidebar ──────────────────────────────────────── */}
-            <aside className="space-y-5">
-              {/* Contact form card */}
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden sticky top-4">
-                {/* card header */}
-                <div className="bg-gradient-to-r from-[#02665e] to-[#024d47] p-5">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-xl bg-white/15 flex items-center justify-center">
-                      <MessageCircle className="h-4 w-4 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-extrabold text-white">Still need help?</p>
-                      <p className="text-[11px] text-white/70 mt-0.5">We typically respond within 24 hours</p>
-                    </div>
+            {/* Contact */}
+            <aside className="min-w-0 space-y-4 lg:sticky lg:top-4">
+              <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+                <div className="flex items-center gap-3 px-5 pt-5">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><MessageCircle className="h-[18px] w-[18px]" aria-hidden /></span>
+                  <div>
+                    <p className="m-0 text-sm font-bold text-slate-900">Still need help?</p>
+                    <p className="m-0 text-xs text-slate-500">We usually reply within 24 hours.</p>
                   </div>
                 </div>
+                <form onSubmit={submitContact} className="space-y-3 p-5">
+                  <input id="contact-name" type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Your name (optional)" aria-label="Your name"
+                    className="box-border h-10 w-full rounded-xl border border-solid border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+                  <input id="contact-email" type="email" required value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} placeholder="Your email" aria-label="Your email"
+                    className="box-border h-10 w-full rounded-xl border border-solid border-slate-200 bg-white px-3.5 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+                  <textarea id="contact-message" required value={contactMessage} onChange={(e) => setContactMessage(e.target.value)} rows={4} placeholder="Tell us what you need" aria-label="Message"
+                    className="box-border w-full resize-none rounded-xl border border-solid border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15" />
+                  <button type="submit" disabled={sending} className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border-0 bg-[#02665e] text-sm font-bold text-white hover:bg-[#014d47] disabled:opacity-50">
+                    Send message <ArrowRight className="h-4 w-4" aria-hidden />
+                  </button>
+                  {sent && <p className="m-0 rounded-xl bg-emerald-50 px-3 py-2.5 text-xs leading-5 text-emerald-800">{sent}</p>}
+                  {error && <p className="m-0 rounded-xl bg-rose-50 px-3 py-2.5 text-xs leading-5 text-rose-700">{error}</p>}
+                </form>
+                <a href="mailto:info@nolsaf.com" className="flex items-center gap-3 border-0 border-t border-solid border-slate-100 px-5 py-3.5 no-underline hover:bg-slate-50">
+                  <Mail className="h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />
+                  <span className="text-sm font-bold text-[#02665e]">info@nolsaf.com</span>
+                </a>
+              </section>
 
-                <div className="p-5">
-                  <form onSubmit={submitContact} className="space-y-4">
-                    <div>
-                      <label htmlFor="contact-name" className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
-                        Name <span className="text-gray-400 font-normal normal-case tracking-normal">(optional)</span>
-                      </label>
-                      <input id="contact-name" type="text" value={contactName}
-                        onChange={(e) => setContactName(e.target.value)}
-                        className="w-full box-border px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e] outline-none transition-all bg-slate-50/50 placeholder:text-slate-400"
-                        placeholder="Your name" />
-                    </div>
-                    <div>
-                      <label htmlFor="contact-email" className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
-                        Email <span className="text-rose-500">*</span>
-                      </label>
-                      <input id="contact-email" type="email" required value={contactEmail}
-                        onChange={(e) => setContactEmail(e.target.value)}
-                        className="w-full box-border px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e] outline-none transition-all bg-slate-50/50 placeholder:text-slate-400"
-                        placeholder="your@email.com" />
-                    </div>
-                    <div>
-                      <label htmlFor="contact-message" className="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
-                        Message <span className="text-rose-500">*</span>
-                      </label>
-                      <textarea id="contact-message" required value={contactMessage}
-                        onChange={(e) => setContactMessage(e.target.value)}
-                        rows={4}
-                        className="w-full box-border px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#02665e]/30 focus:border-[#02665e] outline-none transition-all resize-none bg-slate-50/50 placeholder:text-slate-400"
-                        placeholder="How can we help you?" />
-                    </div>
-                    <button type="submit" disabled={sending}
-                      className="w-full py-2.5 rounded-xl bg-[#02665e] text-white text-sm font-extrabold hover:bg-[#024d47] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md">
-                      {sending ? "Sending..." : "Send Message"}
-                    </button>
-                  </form>
-
-                  {sent && (
-                    <div className="mt-4 flex items-start gap-2.5 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 leading-relaxed">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0 mt-1" />
-                      {sent}
-                    </div>
-                  )}
-                  {error && (
-                    <div className="mt-4 flex items-start gap-2.5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 leading-relaxed">
-                      <span className="h-1.5 w-1.5 rounded-full bg-rose-500 flex-shrink-0 mt-1" />
-                      {error}
-                    </div>
-                  )}
-
-                  <div className="mt-5 pt-5 border-t border-slate-100 flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-lg bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
-                      <Mail className="h-3.5 w-3.5 text-[#02665e]" />
-                    </div>
-                    <div>
-                      <p className="text-[11px] text-gray-500 font-medium uppercase tracking-wide">Direct email</p>
-                      <a href="mailto:info@nolsaf.com"
-                        className="text-[#02665e] hover:text-[#024d47] text-sm font-bold transition-colors">
-                        info@nolsaf.com
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick links card */}
-              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500 mb-4">Popular guides</p>
-                <div className="space-y-1">
+              <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+                <p className="m-0 mb-2 text-sm font-bold text-slate-900">Popular guides</p>
+                <ul className="m-0 list-none space-y-0.5 p-0">
                   {[
-                    { href: "/help/getting-started", label: "How to make your first booking" },
+                    { href: "/help/getting-started", label: "Make your first booking" },
                     { href: "/help/payments", label: "Accepted payment methods" },
-                    { href: "/help/refunds", label: "Cancellation & refund policy" },
+                    { href: "/help/refunds", label: "Cancellations and refunds" },
                     { href: "/help/owner-guide", label: "Property owner guide" },
-                    { href: "/help/become-agent", label: "Become a NoLSAF Agent" },
+                    { href: "/help/become-agent", label: "Become a NoLSAF agent" },
                     { href: "/help/nolsaf-stand", label: "Register a safari stand" },
                   ].map(({ href, label }) => (
-                    <Link key={href} href={href}
-                      className="no-underline group flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-slate-50 hover:text-gray-900 transition-all duration-150">
-                      <span className="font-medium">{label}</span>
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-[#02665e] flex-shrink-0 transition-colors" />
-                    </Link>
+                    <li key={href}>
+                      <Link href={withHelpCtx(href)} className="group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[13px] font-medium text-slate-600 no-underline hover:bg-slate-50 hover:text-[#02665e]">
+                        <span className="truncate">{label}</span>
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300 group-hover:text-[#02665e]" aria-hidden />
+                      </Link>
+                    </li>
                   ))}
-                </div>
-              </div>
+                </ul>
+              </section>
             </aside>
           </div>
         </div>
@@ -698,4 +623,3 @@ export default function HelpCenterPage() {
     </>
   );
 }
-

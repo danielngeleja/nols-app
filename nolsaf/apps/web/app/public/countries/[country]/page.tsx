@@ -1,6 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
-import { ChevronRight } from "lucide-react";
+import { Car, ChevronRight, ShieldCheck, Wallet } from "lucide-react";
 import CountryTourismSiteList, { type TourismSite } from "@/components/CountryTourismSiteList";
 import CountryFiltersRow from "@/components/CountryFiltersRow";
 import { SITE_URL, seoKeywords } from "@/lib/seo";
@@ -185,15 +186,6 @@ export default async function CountryTourismPage({
     return Array.from(uniq.values());
   })();
 
-  const heroCtaGradient =
-    data?.id === "tanzania"
-      ? "bg-gradient-to-r from-emerald-700 via-slate-800 to-teal-700"
-      : data?.id === "kenya"
-        ? "bg-gradient-to-r from-slate-800 via-red-500 to-emerald-600"
-        : data?.id === "uganda"
-          ? "bg-gradient-to-r from-slate-800 via-amber-400 to-red-500"
-          : null;
-
   if (!data) {
     return (
       <main className="relative min-h-screen text-slate-900 header-offset overflow-hidden">
@@ -264,138 +256,83 @@ export default async function CountryTourismPage({
   }
 
   return (
-    <main className="relative min-h-screen text-slate-900 header-offset overflow-hidden">
-      <div className="pointer-events-none absolute inset-0" aria-hidden>
-        <div className="absolute inset-0 bg-gradient-to-b from-emerald-50 via-white to-slate-50" />
-        <div className="absolute -top-28 -left-28 h-[28rem] w-[28rem] rounded-full bg-emerald-200/35 blur-3xl" />
-        <div className="absolute top-24 -right-40 h-[34rem] w-[34rem] rounded-full bg-teal-200/30 blur-3xl" />
-        <div className="absolute -bottom-48 left-1/3 h-[36rem] w-[36rem] rounded-full bg-lime-200/25 blur-3xl" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-white/55" />
-      </div>
+    <main className="relative min-h-screen overflow-hidden bg-[#f6f8f7] text-slate-900 header-offset">
       <section className="public-container py-8 sm:py-10">
 
-        {/* ── hero card ─────────────────────────────────── */}
-        <div className="relative overflow-hidden rounded-[28px] shadow-[0_28px_80px_rgba(2,6,23,0.28)]">
-          {/* flag color bar */}
-          <div
-            className="h-[5px] w-full flex-shrink-0"
-            style={{
-              background:
-                data.id === 'tanzania'
-                  ? 'linear-gradient(90deg,#1C8B3C 25%,#F7D100 25%,#F7D100 50%,#1a1a1a 50%,#1a1a1a 75%,#00A3DD 75%)'
-                  : data.id === 'kenya'
-                    ? 'linear-gradient(90deg,#006600 25%,#cc0000 25%,#cc0000 50%,#1a1a1a 50%,#1a1a1a 75%,#fff 75%)'
-                    : data.id === 'uganda'
-                      ? 'linear-gradient(90deg,#000 25%,#FCDC04 25%,#FCDC04 50%,#D90000 50%,#D90000 75%,#000 75%)'
-                      : 'linear-gradient(90deg,#02665e,#024d47)',
-            }}
-          />
-
-          {/* dark card body */}
-          <div
-            className="relative px-6 py-10 sm:px-12 sm:py-14"
-            style={{ background: 'linear-gradient(135deg,#02665e 0%,#024d47 55%,#021f1c 100%)' }}
-          >
-            {/* back button — top-left overlay */}
-            <Link
-              href="/public"
-              className="absolute top-4 left-4 inline-flex items-center gap-1 rounded-full bg-white/15 ring-1 ring-white/25 text-white/80 px-3 py-1.5 text-xs font-semibold no-underline hover:no-underline motion-safe:transition hover:bg-white/22 z-10"
-            >
-              <ChevronRight className="h-3 w-3 rotate-180" aria-hidden />
-              Back
-            </Link>
-
-            {/* dot-grid texture */}
-            <div
-              className="pointer-events-none absolute inset-0 opacity-[0.07]"
-              aria-hidden
-              style={{
-                backgroundImage: 'radial-gradient(circle,rgba(255,255,255,0.9) 1px,transparent 1px)',
-                backgroundSize: '22px 22px',
-              }}
-            />
-
-            {/* ghost country code */}
-            <div
-              className="pointer-events-none absolute right-4 bottom-2 text-[120px] sm:text-[180px] font-black leading-none select-none"
-              aria-hidden
-              style={{ color: 'rgba(255,255,255,0.04)', fontFamily: 'serif', lineHeight: 1 }}
-            >
-              {data.id === 'tanzania' ? 'TZ' : data.id === 'kenya' ? 'KE' : data.id === 'uganda' ? 'UG' : data.name.slice(0, 2).toUpperCase()}
-            </div>
-
-            {/* content */}
-            <div className="relative max-w-[62ch] mx-auto text-center">
-
-              {/* country / subtitle pill */}
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 ring-1 ring-white/20 px-4 py-1.5 mb-6">
-                <span className="text-[11px] font-bold tracking-[0.12em] uppercase text-white">{data.name}</span>
-                <span className="text-white/30 text-xs">•</span>
-                <span className="text-[11px] font-normal text-white/60">{data.subtitle}</span>
-              </div>
-
-              {/* headline */}
-              <h1 className="text-white text-3xl sm:text-[2.6rem] font-extrabold tracking-tight leading-tight">
-                {data.hero.title}
-              </h1>
-
-              {/* body */}
-              <p className="mt-3 text-white/65 text-sm sm:text-base leading-relaxed">
-                {data.hero.body}
-              </p>
-
-              {/* 3-step flow */}
-              <div className="mt-8 flex items-start justify-center">
-                {[
-                  { num: '01', label: 'Choose a park' },
-                  { num: '02', label: 'Shortlist stays' },
-                  { num: '03', label: 'Book + transport' },
-                ].map((step, i) => (
-                  <div key={step.num} className="flex items-start">
-                    <div className="flex flex-col items-center text-center w-28 sm:w-32">
-                      <div
-                        className="flex items-center justify-center w-10 h-10 rounded-full text-[13px] font-bold text-white ring-1 ring-white/30"
-                        style={{ background: 'rgba(255,255,255,0.13)' }}
-                      >
-                        {step.num}
-                      </div>
-                      <div className="mt-2 text-[11px] sm:text-xs font-medium text-white/65 leading-snug px-1">
-                        {step.label}
-                      </div>
-                    </div>
-                    {i < 2 && (
-                      <div
-                        className="mt-5 h-px bg-white/20 flex-shrink-0"
-                        style={{ width: 36 }}
-                      />
-                    )}
+        {/* Hero: solid dark card, framed photo, zones as a strip along the bottom. No gradients. */}
+        {(() => {
+          const zones = data.zones ?? [];
+          const parkCount = new Set(zones.flatMap((z) => z.items.map((i) => i.slug || i.name))).size;
+          const basePath = `/public/countries/${encodeURIComponent(data.id)}`;
+          return (
+            <div className="overflow-hidden rounded-xl bg-[#012a26] text-white">
+              <div className="flex flex-col gap-8 p-6 sm:p-8 lg:flex-row lg:items-center lg:gap-12">
+                <div style={{ flex: "1 1 0%", minWidth: 0 }}>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <Link href="/public" className="inline-flex h-8 items-center gap-1 rounded-md border border-solid border-white/15 px-3 text-xs font-semibold text-white/80 no-underline hover:bg-white/[0.06] hover:no-underline">
+                      <ChevronRight className="h-3.5 w-3.5 rotate-180" aria-hidden /> Back
+                    </Link>
+                    <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">
+                      <span className="flex h-2.5 w-5 overflow-hidden rounded-[2px] ring-1 ring-white/30" aria-hidden>
+                        <span className="h-full flex-1" style={{ background: "#1C8B3C" }} />
+                        <span className="h-full w-[3px]" style={{ background: "#F7D100" }} />
+                        <span className="h-full w-[3px]" style={{ background: "#0b0b0b" }} />
+                        <span className="h-full w-[3px]" style={{ background: "#F7D100" }} />
+                        <span className="h-full flex-1" style={{ background: "#00A3DD" }} />
+                      </span>
+                      {data.name}
+                    </span>
                   </div>
-                ))}
+
+                  <h1 className="m-0 mt-5 text-[32px] font-black leading-[1.05] tracking-tight sm:text-[44px]">
+                    Plan your trip <span className="text-[#5eead4]">park by park.</span>
+                  </h1>
+                  <p className="m-0 mt-3 text-[15px] leading-7 text-white/70" style={{ maxWidth: 560 }}>{data.hero.body}</p>
+
+                  <div className="mt-6 flex flex-wrap gap-2.5">
+                    <Link href={`/public/properties?country=${encodeURIComponent(data.id)}`} className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-[#5eead4] px-5 text-sm font-bold text-[#012a26] no-underline hover:bg-[#8ff3e1] hover:no-underline">
+                      Find a stay <ChevronRight className="h-4 w-4" aria-hidden />
+                    </Link>
+                    <Link href="/public/nolscope" className="inline-flex h-11 items-center rounded-lg border border-solid border-white/20 px-5 text-sm font-semibold text-white no-underline hover:bg-white/[0.06] hover:no-underline">
+                      Estimate the full trip
+                    </Link>
+                  </div>
+                </div>
+
+                <figure className="relative m-0 overflow-hidden rounded-lg ring-1 ring-white/10" style={{ width: "100%", maxWidth: 420, aspectRatio: "16 / 10", flexShrink: 0 }}>
+                  <Image src="/assets/Toursite.jpeg" alt="Mount Kilimanjaro with elephants and zebras on the plains" fill priority sizes="(min-width: 1024px) 420px, 100vw" className="object-cover" style={{ objectPosition: "50% 65%" }} />
+                  <figcaption className="absolute bottom-3 left-3 rounded bg-[#012a26] px-2.5 py-1 text-[11px] font-semibold text-white">Kilimanjaro, Northern Zone</figcaption>
+                </figure>
               </div>
 
-              {/* CTA buttons */}
-              <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3">
-                <Link
-                  href={`/public/properties?country=${encodeURIComponent(data.id)}`}
-                  className={
-                    `inline-flex items-center justify-center rounded-full px-8 h-11 text-sm font-bold no-underline hover:no-underline shadow-[0_8px_28px_rgba(0,0,0,0.30)] motion-safe:transition ` +
-                    (heroCtaGradient
-                      ? `text-white ${heroCtaGradient}`
-                      : 'text-[#02665e] bg-white hover:bg-white/95')
-                  }
-                >
-                  Accommodation only
-                </Link>
-                <Link
-                  href="/public/nolscope"
-                  className="inline-flex items-center justify-center rounded-full px-8 h-11 bg-white/12 ring-1 ring-white/30 text-white text-sm font-semibold no-underline hover:no-underline motion-safe:transition hover:bg-white/18"
-                >
-                  Estimate full trip
-                </Link>
-              </div>
+              {zones.length > 0 && (
+                <nav aria-label="Parks by zone" className="grid grid-cols-2 border-0 border-t border-solid border-white/10 lg:grid-cols-5">
+                  <div className="col-span-2 border-0 border-b border-solid border-white/10 px-6 py-4 sm:px-8 lg:col-span-1 lg:border-b-0 lg:border-r">
+                    <p className="m-0 text-[28px] font-black leading-none tabular-nums">{parkCount}</p>
+                    <p className="m-0 mt-1.5 text-xs text-white/60">national parks across {zones.length} zones</p>
+                  </div>
+                  {zones.map((zone, index) => (
+                    <Link
+                      key={zone.title}
+                      href={`${basePath}?zone=${encodeURIComponent(zone.title)}`}
+                      scroll={false}
+                      className={`group block px-6 py-4 no-underline transition hover:bg-white/[0.04] hover:no-underline ${index % 2 === 0 ? "border-0 border-r border-solid border-white/10" : ""} ${index < 2 ? "border-0 border-b border-solid border-white/10 lg:border-b-0" : ""} ${index === 1 ? "lg:border-r" : ""} ${index === 2 ? "lg:border-r" : ""}`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold text-white">{zone.title.replace(/ Zone$/, "")}</span>
+                        <span className="flex items-center gap-1 text-xs font-bold tabular-nums text-[#5eead4]">
+                          {zone.items.length}
+                          <ChevronRight className="h-3.5 w-3.5 text-white/30 transition group-hover:translate-x-0.5 group-hover:text-[#5eead4]" aria-hidden />
+                        </span>
+                      </span>
+                      <span className="mt-1 block truncate text-[11px] text-white/55">{zone.items.slice(0, 2).map((i) => i.name.replace(/ National Park$/, "")).join(", ")}</span>
+                    </Link>
+                  ))}
+                </nav>
+              )}
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {(() => {
           const hasZones = Array.isArray(data.zones) && data.zones.length;
@@ -415,15 +352,13 @@ export default async function CountryTourismPage({
 
           return (
             <div className="mt-5">
-              <div className="rounded-2xl border border-slate-200/60 bg-white/90 backdrop-blur-md shadow-[0_4px_18px_rgba(2,6,23,0.06)] px-4 py-4 sm:px-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#02665e' }} />
-                  <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-slate-400">Filter parks &amp; zones</span>
-                </div>
+              <div className="rounded-xl border border-solid border-slate-200 bg-white px-4 py-3.5 sm:px-5">
+                <p className="m-0 mb-2.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Explore parks</p>
                 <CountryFiltersRow
                   basePath={basePath}
                   hasZones={Boolean(hasZones)}
                   zones={(data.zones ?? []).map((z) => z.title)}
+                  zoneCounts={Object.fromEntries((data.zones ?? []).map((z) => [z.title, z.items.length]))}
                   sites={uniqueSites.map((s) => ({ value: s.slug, label: s.name }))}
                   zone={zoneFilter}
                   category={categoryFilter}
@@ -468,7 +403,7 @@ export default async function CountryTourismPage({
 
             if (!filteredZones.length) {
               return (
-                <div className="mt-8 rounded-3xl bg-white/70 backdrop-blur-xl border border-slate-200/70 p-6 text-center">
+                <div className="mt-5 rounded-xl border border-solid border-slate-200 bg-white p-6 text-center">
                   <div className="text-slate-900 font-semibold">No parks match your filters</div>
                   <div className="mt-1 text-sm text-slate-600">Try clearing a filter or searching a different name.</div>
                 </div>
@@ -476,7 +411,7 @@ export default async function CountryTourismPage({
             }
 
             return (
-              <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className={`mt-5 grid grid-cols-1 gap-5 ${filteredZones.length > 1 ? "xl:grid-cols-2" : ""}`}>
                 {filteredZones.map((z) => (
                   <CountryTourismSiteList key={z.title} title={z.title} items={z.items} basePath={basePath} />
                 ))}
@@ -492,7 +427,7 @@ export default async function CountryTourismPage({
 
           if ((showMajor && !majorFiltered.length) && (showMinor && !minorFiltered.length)) {
             return (
-              <div className="mt-8 rounded-3xl bg-white/70 backdrop-blur-xl border border-slate-200/70 p-6 text-center">
+              <div className="mt-5 rounded-xl border border-solid border-slate-200 bg-white p-6 text-center">
                 <div className="text-slate-900 font-semibold">No sites match your filters</div>
                 <div className="mt-1 text-sm text-slate-600">Try clearing a filter or searching a different name.</div>
               </div>
@@ -507,85 +442,44 @@ export default async function CountryTourismPage({
           );
         })()}
 
-        {/* ── NoLSAF advantage ─────────────────────────────────── */}
-        <div className="mt-10 overflow-hidden rounded-[24px] bg-white border border-slate-100 shadow-[0_8px_40px_rgba(2,6,23,0.10)]">
-
-          {/* rainbow top strip */}
-          <div className="h-[5px] w-full grid grid-cols-3">
-            <div style={{ background: '#02665e' }} />
-            <div style={{ background: '#10b981' }} />
-            <div style={{ background: '#02b4f5' }} />
-          </div>
-
-          {/* header area */}
-          <div className="px-6 pt-8 pb-6 sm:px-10 sm:pt-10 flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-            <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 mb-4" style={{ background: 'rgba(2,102,94,0.08)' }}>
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#02665e' }} />
-                <span className="text-[10px] font-bold tracking-[0.15em] uppercase" style={{ color: '#02665e' }}>Why NoLSAF</span>
+        {/* Why NoLSAF: one plain card, pitch on the left, three proofs on the right */}
+        <div className="mt-8 overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
+          <div className="flex flex-col lg:flex-row">
+            <div className="flex flex-col justify-between gap-6 p-6 sm:p-8" style={{ flex: "1 1 0%", minWidth: 0 }}>
+              <div>
+                <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#02665e]">Why book with NoLSAF</p>
+                <h2 className="m-0 mt-2 text-2xl font-bold leading-tight tracking-tight text-slate-900 sm:text-[28px]">
+                  One booking for the stay, the ride and the help in between.
+                </h2>
+                <p className="m-0 mt-3 text-sm leading-6 text-slate-500" style={{ maxWidth: 520 }}>
+                  A safari only runs smoothly when the stay, the transport and the checks work together. NoLSAF connects them, so you do not have to.
+                </p>
               </div>
-              <h2 className="text-slate-900 text-2xl sm:text-[2rem] font-extrabold tracking-tight leading-snug">
-                The{' '}
-                <span style={{ color: '#02665e' }}>NoLSAF</span>
-                {' '}advantage
-              </h2>
-              <p className="mt-3 text-slate-500 text-sm sm:text-base leading-relaxed max-w-[54ch]">
-                A tourism trip is only smooth when stays, transport, and verification work together. NoLSAF connects the steps so you don&apos;t have to piece everything together.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3 shrink-0 md:pt-2">
-              <Link
-                href={`/public/properties?country=${encodeURIComponent(data.id)}`}
-                className="inline-flex items-center justify-center rounded-full px-7 h-11 text-sm font-bold no-underline hover:no-underline shadow-[0_6px_20px_rgba(2,102,94,0.28)] motion-safe:transition hover:opacity-90 text-white"
-                style={{ background: '#02665e' }}
-              >
-                Start booking
-              </Link>
-              <Link
-                href="/public/group-stays"
-                className="inline-flex items-center justify-center rounded-full px-7 h-11 bg-white border border-slate-200 text-slate-800 text-sm font-semibold no-underline hover:no-underline motion-safe:transition hover:border-slate-300 hover:bg-slate-50"
-              >
-                Group stays
-              </Link>
-            </div>
-          </div>
-
-          {/* divider */}
-          <div className="mx-6 sm:mx-10 border-t border-slate-100" />
-
-          {/* benefit tiles */}
-          <div className="px-4 pt-5 pb-6 sm:px-6 sm:pb-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-
-            {/* tile 1 — emerald */}
-            <div className="relative overflow-hidden rounded-2xl p-5 flex flex-col gap-3" style={{ background: 'linear-gradient(135deg,#f0fdf8 0%,#dcfce7 100%)' }}>
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-black shadow-sm" style={{ background: '#02665e' }}>
-                01
+              <div className="flex flex-wrap gap-2.5">
+                <Link href={`/public/properties?country=${encodeURIComponent(data.id)}`} className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-[#02665e] px-5 text-sm font-bold text-white no-underline hover:bg-[#014d47] hover:no-underline">
+                  Start booking <ChevronRight className="h-4 w-4" aria-hidden />
+                </Link>
+                <Link href="/public/group-stays" className="inline-flex h-11 items-center rounded-lg border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-800 no-underline hover:border-slate-300 hover:bg-slate-50 hover:no-underline">
+                  Plan a group stay
+                </Link>
               </div>
-              <div className="text-slate-900 font-bold tracking-tight">Verified stays</div>
-              <p className="text-[13px] text-slate-500 leading-relaxed">Book listings with clearer details so you can match location to your itinerary.</p>
-              <div className="pointer-events-none absolute -bottom-4 -right-4 w-20 h-20 rounded-full opacity-30" style={{ background: '#02665e' }} />
             </div>
 
-            {/* tile 2 — sky */}
-            <div className="relative overflow-hidden rounded-2xl p-5 flex flex-col gap-3" style={{ background: 'linear-gradient(135deg,#f0f9ff 0%,#e0f2fe 100%)' }}>
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-black shadow-sm" style={{ background: '#0284c7' }}>
-                02
-              </div>
-              <div className="text-slate-900 font-bold tracking-tight">Coordinated transport</div>
-              <p className="text-[13px] text-slate-500 leading-relaxed">Add pickup and move from booking to arrival with confirmation steps.</p>
-              <div className="pointer-events-none absolute -bottom-4 -right-4 w-20 h-20 rounded-full opacity-25" style={{ background: '#0284c7' }} />
-            </div>
-
-            {/* tile 3 — amber */}
-            <div className="relative overflow-hidden rounded-2xl p-5 flex flex-col gap-3" style={{ background: 'linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)' }}>
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-sm font-black shadow-sm" style={{ background: '#b45309' }}>
-                03
-              </div>
-              <div className="text-slate-900 font-bold tracking-tight">Secure payments + support</div>
-              <p className="text-[13px] text-slate-500 leading-relaxed">Pay with trusted methods and get assistance when you need it.</p>
-              <div className="pointer-events-none absolute -bottom-4 -right-4 w-20 h-20 rounded-full opacity-25" style={{ background: '#b45309' }} />
-            </div>
-
+            <ul className="m-0 list-none border-0 border-t border-solid border-slate-100 p-0 lg:border-l lg:border-t-0" style={{ flex: "1 1 0%", minWidth: 0 }}>
+              {[
+                { Icon: ShieldCheck, title: "Verified stays", body: "Every listing is reviewed before it goes live, with clear details so you can match the location to your route." },
+                { Icon: Car, title: "Transport that lines up", body: "Add a pickup when you book. Your ride is tied to the same booking, with confirmation at each step." },
+                { Icon: Wallet, title: "Secure payment, real support", body: "Pay with mobile money or card through trusted providers, and reach the NoLSAF team when you need help." },
+              ].map((item, index) => (
+                <li key={item.title} className={`flex items-start gap-4 px-6 py-5 sm:px-8 ${index > 0 ? "border-0 border-t border-solid border-slate-100" : ""}`}>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><item.Icon className="h-[18px] w-[18px]" aria-hidden /></span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-slate-900">{item.title}</span>
+                    <span className="mt-0.5 block text-[13px] leading-6 text-slate-500">{item.body}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>

@@ -1,11 +1,12 @@
-﻿"use client";
+"use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
   ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
-  CheckCircle2, Building2, BadgeCheck, TrendingUp, LogIn, LogOut, BarChart3, BedDouble,
+  CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
+  LayoutGrid, Clock, Receipt, Archive,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -44,46 +45,58 @@ function CollapseBtn({
    SUB-ITEM LINK
  */
 function SubItem({
-  href, label, Icon, count,
-}: { href: string; label: string; Icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>; count?: number }) {
-  const path = usePathname();
-  const active = path === href || (href !== "/owner" && path?.startsWith(href + "/"));
+  href, label, Icon, count, exact = false, tone = "neutral", also = [], match,
+}: {
+  href: string;
+  label: string;
+  Icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  count?: number;
+  exact?: boolean;
+  /** "alert" paints the count amber: something is waiting on the owner. */
+  tone?: "neutral" | "alert";
+  /** Extra path prefixes that also mark this item as the current page. */
+  also?: string[];
+  /** Custom rule for pages that do not share this item's URL prefix. */
+  match?: (path: string) => boolean;
+}) {
+  const path = usePathname() || "";
+  const active =
+    path === href ||
+    (!exact && href !== "/owner" && path.startsWith(href + "/")) ||
+    also.some((prefix) => path.startsWith(prefix)) ||
+    Boolean(match?.(path));
 
   return (
     <Link
       href={href}
-      className="group no-underline flex items-center justify-between rounded-xl px-3 py-[9px] transition-all duration-200"
-      style={active
-        ? { background: "rgba(255,255,255,0.14)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.10)" }
-        : { background: "transparent" }
-      }
+      aria-current={active ? "page" : undefined}
+      className="group relative flex items-center justify-between gap-2 rounded-lg py-[7px] pl-3 pr-2 no-underline transition-colors duration-150 hover:bg-white/[0.05]"
+      style={active ? { background: "rgba(94,234,212,0.08)" } : undefined}
     >
-      <div className="flex items-center gap-2.5 min-w-0">
-        {Icon && (
-          <span className="flex-shrink-0 w-[22px] h-[22px] rounded-lg flex items-center justify-center transition-all duration-200"
-            style={active
-              ? { background: "rgba(255,255,255,0.18)" }
-              : { background: "rgba(255,255,255,0.08)" }
-            }>
-            <Icon className="w-3 h-3" style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.55)" }} aria-hidden />
-          </span>
-        )}
-        <span className="text-[12.5px] font-medium truncate"
-          style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.65)" }}>
+      {/* Sits on the section's guide line: mint for the current page. */}
+      <span
+        className="absolute -left-[13px] top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full transition-colors"
+        style={{ background: active ? "#5eead4" : "transparent" }}
+        aria-hidden
+      />
+      <span className="flex min-w-0 items-center gap-2.5">
+        {Icon ? (
+          <Icon className="h-[15px] w-[15px] shrink-0" style={{ color: active ? "#5eead4" : "rgba(255,255,255,0.4)" }} aria-hidden />
+        ) : null}
+        <span className="truncate text-[12.5px]" style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.62)", fontWeight: active ? 600 : 500 }}>
           {label}
         </span>
-        {count !== undefined && count > 0 && (
-          <span className="ml-1 px-[7px] py-px rounded-full text-[9.5px] font-black leading-none flex-shrink-0"
-            style={active
-              ? { background: "rgba(255,255,255,0.22)", color: "#ffffff" }
-              : { background: "rgba(255,255,255,0.12)", color: "rgba(255,255,255,0.85)" }
-            }>
-            {count}
-          </span>
-        )}
-      </div>
-      <ChevronRight className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-50 transition-opacity duration-200"
-        style={{ color: "#ffffff" }} aria-hidden />
+      </span>
+      {count !== undefined && count > 0 ? (
+        <span
+          className="shrink-0 rounded-full px-[7px] py-px text-[10px] font-bold leading-[1.4] tabular-nums"
+          style={tone === "alert"
+            ? { background: "rgba(251,191,36,0.22)", color: "#fde68a" }
+            : { background: "rgba(94,234,212,0.16)", color: "#5eead4" }}
+        >
+          {count}
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -104,27 +117,22 @@ function Section({
   return (
     <div>
       <button
+        type="button"
         onClick={onClick}
         aria-expanded={isOpen}
-        className="w-full group flex items-center gap-3 px-2 py-2.5 rounded-2xl transition-all duration-200"
-        style={isOpen
-          ? { background: "rgba(255,255,255,0.06)" }
-          : active
-          ? { background: "rgba(255,255,255,0.08)" }
-          : { background: "transparent" }
-        }
+        className="w-full group flex appearance-none items-center gap-3 rounded-2xl border-0 bg-transparent px-2 py-2.5 transition-colors duration-200 hover:bg-white/[0.05]"
       >
         <span
           className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200"
-          style={isOpen || active
-            ? { background: "rgba(255,255,255,0.18)", boxShadow: "0 2px 8px rgba(0,0,0,0.18)" }
+          style={active
+            ? { background: "rgba(94,234,212,0.16)" }
             : { background: "rgba(255,255,255,0.07)" }
           }
         >
-          <Icon className="w-[17px] h-[17px]" style={{ color: isOpen || active ? "#ffffff" : "rgba(255,255,255,0.55)" }} aria-hidden />
+          <Icon className="w-[17px] h-[17px]" style={{ color: active ? "#5eead4" : "rgba(255,255,255,0.6)" }} aria-hidden />
         </span>
-        <span className="flex-1 text-left text-[13px] font-semibold tracking-[-0.01em]"
-          style={{ color: isOpen || active ? "#ffffff" : "rgba(255,255,255,0.75)" }}>
+        <span className="flex-1 text-left text-[13.5px] font-bold tracking-[-0.01em]"
+          style={{ color: isOpen || active ? "#ffffff" : "rgba(255,255,255,0.82)" }}>
           {label}
         </span>
         <ChevronDown
@@ -135,7 +143,7 @@ function Section({
       </button>
       <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
         <div className="min-h-0 overflow-hidden">
-          <div className="pl-2 pr-1 pt-0.5 pb-1 space-y-0.5">
+          <div className="mb-2 ml-[24px] mt-0.5 space-y-px border-0 border-l border-solid pl-3 pr-1" style={{ borderColor: "rgba(255,255,255,0.10)" }}>
             {children}
           </div>
         </div>
@@ -155,26 +163,20 @@ function TopItem({
   return (
     <Link
       href={href}
-      className="group no-underline flex items-center gap-3 px-2 py-2.5 rounded-2xl transition-all duration-200"
-      style={active
-        ? { background: "rgba(255,255,255,0.16)", boxShadow: "0 2px 12px rgba(0,0,0,0.18)" }
-        : { background: "transparent" }
-      }
+      className="group no-underline flex items-center gap-3 px-2 py-2.5 rounded-2xl transition-colors duration-200 hover:bg-white/[0.05]"
+      aria-current={active ? "page" : undefined}
+      style={active ? { background: "rgba(255,255,255,0.10)" } : { background: "transparent" }}
     >
       <span
         className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200"
-        style={active
-          ? { background: "rgba(255,255,255,0.22)", boxShadow: "0 2px 8px rgba(0,0,0,0.18)" }
-          : { background: "rgba(255,255,255,0.07)" }
-        }
+        style={active ? { background: "rgba(94,234,212,0.16)" } : { background: "rgba(255,255,255,0.07)" }}
       >
-        <Icon className="w-[17px] h-[17px]" style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.55)" }} aria-hidden />
+        <Icon className="w-[17px] h-[17px]" style={{ color: active ? "#5eead4" : "rgba(255,255,255,0.6)" }} aria-hidden />
       </span>
-      <span className="text-[13px] font-semibold tracking-[-0.01em]"
-        style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.75)" }}>
+      <span className="text-[13.5px] font-bold tracking-[-0.01em]"
+        style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.82)" }}>
         {label}
       </span>
-      {active && <span className="ml-auto w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "rgba(255,255,255,0.60)" }} />}
     </Link>
   );
 }
@@ -186,11 +188,31 @@ function Divider() {
 /* 
    MAIN EXPORT
  */
+/** Room availability (and its floor plan) is daily front-desk work, not property setup. */
+function isFrontDeskPath(path: string) {
+  return (
+    path === "/owner/bookings" ||
+    path.startsWith("/owner/bookings/") ||
+    path === "/owner/properties/availability" ||
+    /^\/owner\/properties\/[^/]+\/(availability|layout)(\/|$)/.test(path)
+  );
+}
+
 export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolean }) {
-  const [propOpen, setPropOpen] = useState(true);
-  const [bookOpen, setBookOpen] = useState(true);
-  const [revenueOpen, setRevenueOpen] = useState(true);
-  const [groupStaysOpen, setGroupStaysOpen] = useState(true);
+  const initialPath = usePathname() || "";
+  const startIn = isFrontDeskPath(initialPath)
+    ? "frontDesk"
+    : initialPath.startsWith("/owner/properties")
+      ? "properties"
+      : initialPath.startsWith("/owner/group-stays")
+        ? "groupStays"
+        : initialPath.startsWith("/owner/payouts") || initialPath.startsWith("/owner/revenue") || initialPath.startsWith("/owner/reports")
+          ? "revenue"
+          : "frontDesk";
+  const [propOpen, setPropOpen] = useState(startIn === "properties");
+  const [bookOpen, setBookOpen] = useState(startIn === "frontDesk");
+  const [revenueOpen, setRevenueOpen] = useState(startIn === "revenue");
+  const [groupStaysOpen, setGroupStaysOpen] = useState(startIn === "groupStays");
   const [checkedInCount, setCheckedInCount] = useState<number>(0);
   const [checkoutDueCount, setCheckoutDueCount] = useState<number>(0);
 
@@ -242,12 +264,13 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
     };
   }, []);
 
-  const path = usePathname();
+  const path = usePathname() || "";
+  const frontDesk = isFrontDeskPath(path);
   const sectionActive = {
-    properties: path === "/owner/properties" || path.startsWith("/owner/properties/"),
-    bookings: path === "/owner/bookings" || path.startsWith("/owner/bookings/"),
+    properties: !frontDesk && (path === "/owner/properties" || path.startsWith("/owner/properties/")),
+    bookings: frontDesk,
     groupStays: path === "/owner/group-stays" || path.startsWith("/owner/group-stays/"),
-    revenue: path === "/owner/revenue" || path.startsWith("/owner/revenue/") || path === "/owner/reports" || path.startsWith("/owner/reports/"),
+    revenue: path === "/owner/payouts" || path.startsWith("/owner/payouts/") || path.startsWith("/owner/revenue") || path === "/owner/reports" || path.startsWith("/owner/reports/"),
   };
 
   /*  COLLAPSED  */
@@ -256,17 +279,17 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
       <div
         className="flex h-full min-h-0 flex-col items-center gap-1.5 rounded-2xl p-2"
         style={{
-          background: "linear-gradient(180deg,#022a26 0%,#024d47 60%,#02584f 100%)",
-          boxShadow: "0 4px 24px rgba(2,60,54,0.40)",
+          background: "#012a26",
+          boxShadow: "0 8px 30px -12px rgba(1,42,38,0.6), inset 0 0 0 1px rgba(255,255,255,0.05)",
         }}
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
         <CollapseBtn href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
-        <CollapseBtn href="/owner/properties/approved" label="My Properties" Icon={Building2} active={sectionActive.properties} />
-        <CollapseBtn href="/owner/bookings" label="Bookings" Icon={Calendar} active={sectionActive.bookings} count={checkedInCount + checkoutDueCount || undefined} />
-        <CollapseBtn href="/owner/group-stays" label="Group Stays" Icon={Users} active={sectionActive.groupStays} />
-        <CollapseBtn href="/owner/revenue/requested" label="My Revenue" Icon={Wallet} active={sectionActive.revenue} />
+        <CollapseBtn href="/owner/bookings/checked-in" label="Front desk" Icon={Calendar} active={sectionActive.bookings} count={checkoutDueCount || undefined} />
+        <CollapseBtn href="/owner/properties/approved" label="Properties" Icon={Building2} active={sectionActive.properties} />
+        <CollapseBtn href="/owner/group-stays" label="Group stays" Icon={Users} active={sectionActive.groupStays} />
+        <CollapseBtn href="/owner/payouts" label="My Payouts" Icon={Wallet} active={sectionActive.revenue} />
         <div className="mt-auto w-full border-0 border-t border-solid border-white/10 pt-2">
           <button
             type="button"
@@ -287,8 +310,8 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
     <div
       className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl select-none"
       style={{
-        background: "linear-gradient(175deg,#021e1b 0%,#023530 30%,#024d47 65%,#025248 100%)",
-        boxShadow: "0 8px 40px rgba(2,40,36,0.55), inset 0 1px 0 rgba(255,255,255,0.06)",
+        background: "radial-gradient(120% 40% at 0% 0%, rgba(94,234,212,0.08) 0%, rgba(94,234,212,0) 60%), #012a26",
+        boxShadow: "0 8px 30px -12px rgba(1,42,38,0.6), inset 0 0 0 1px rgba(255,255,255,0.05)",
       }}
     >
       {/* Logo strip */}
@@ -302,37 +325,40 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
       </div>
 
       {/* Nav */}
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2.5 py-2.5">
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 py-3">
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
         <TopItem href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} />
         <Divider />
 
-        <Section label="My Properties" Icon={Building2} isOpen={propOpen} active={sectionActive.properties} onClick={() => setPropOpen(v => !v)}>
-          <SubItem href="/owner/properties/approved" label="Approved" Icon={BadgeCheck} />
-          <SubItem href="/owner/properties/pending" label="Pending" Icon={FileText} />
-          <SubItem href="/owner/properties/availability" label="Room Availability" Icon={CalendarDays} />
-          <SubItem href="/owner/properties/add" label="Add New" Icon={PlusSquare} />
+        <Section label="Front desk" Icon={Calendar} isOpen={bookOpen} active={sectionActive.bookings} onClick={() => setBookOpen(v => !v)}>
+          <SubItem href="/owner/bookings/validate" label="Check in a guest" Icon={LogIn} />
+          <SubItem href="/owner/bookings/checked-in" label="Guests in house" Icon={CheckCircle2} count={checkedInCount} />
+          <SubItem href="/owner/bookings/check-out" label="Departures" Icon={LogOut} count={checkoutDueCount} tone="alert" />
+          <SubItem href="/owner/properties/availability" label="Room availability" Icon={CalendarDays} match={(p) => /^\/owner\/properties\/[^/]+\/(availability|layout)(\/|$)/.test(p)} />
+          <SubItem href="/owner/bookings" label="All bookings" Icon={BadgeCheck} exact />
+          <SubItem href="/owner/bookings/checked-out" label="Check-out history" Icon={Archive} />
         </Section>
 
-        <Section label="Bookings" Icon={Calendar} isOpen={bookOpen} active={sectionActive.bookings} onClick={() => setBookOpen(v => !v)}>
-          <SubItem href="/owner/bookings/validate" label="Check-in" Icon={LogIn} />
-          <SubItem href="/owner/bookings/checked-in" label="Checked-In" Icon={CheckCircle2} count={checkedInCount} />
-          <SubItem href="/owner/bookings/check-out" label="Check-out" Icon={LogOut} count={checkoutDueCount} />
-          <SubItem href="/owner/bookings/checked-out" label="Checked-Out" Icon={CheckCircle2} />
+        <Section label="Properties" Icon={Building2} isOpen={propOpen} active={sectionActive.properties} onClick={() => setPropOpen(v => !v)}>
+          <SubItem href="/owner/properties/approved" label="My properties" Icon={Building2} />
+          <SubItem href="/owner/properties/pending" label="Awaiting approval" Icon={FileText} />
+          <SubItem href="/owner/properties/add" label="Add a property" Icon={PlusSquare} />
         </Section>
 
-        <Section label="Group Stays" Icon={Users} isOpen={groupStaysOpen} active={sectionActive.groupStays} onClick={() => setGroupStaysOpen(v => !v)}>
-          <SubItem href="/owner/group-stays" label="Assigned to Me" Icon={Users} />
-          <SubItem href="/owner/group-stays/claims" label="Available to Claim" Icon={HandHeart} />
-          <SubItem href="/owner/group-stays/claims/my-claims" label="My Claims" Icon={FileText} />
+        <Section label="Group stays" Icon={Users} isOpen={groupStaysOpen} active={sectionActive.groupStays} onClick={() => setGroupStaysOpen(v => !v)}>
+          <SubItem href="/owner/group-stays" label="Assigned to me" Icon={Users} exact />
+          <SubItem href="/owner/group-stays/claims" label="Open to claim" Icon={HandHeart} exact />
+          <SubItem href="/owner/group-stays/claims/my-claims" label="My claims" Icon={FileText} />
         </Section>
 
-        <Section label="My Revenue" Icon={Wallet} isOpen={revenueOpen} active={sectionActive.revenue} onClick={() => setRevenueOpen(v => !v)}>
-          <SubItem href="/owner/revenue/requested" label="Requested" Icon={TrendingUp} />
-          <SubItem href="/owner/revenue/paid" label="Paid Invoices" Icon={BadgeCheck} />
-          <SubItem href="/owner/revenue/rejected" label="Rejected" Icon={FileText} />
-          <SubItem href="/owner/reports/overview" label="Reports" Icon={BarChart3} />
+        <Section label="My Payouts" Icon={Wallet} isOpen={revenueOpen} active={sectionActive.revenue} onClick={() => setRevenueOpen(v => !v)}>
+          <SubItem href="/owner/payouts" label="Overview" Icon={LayoutGrid} exact />
+          <SubItem href="/owner/payouts/in-progress" label="In progress" Icon={Clock} />
+          <SubItem href="/owner/payouts/history" label="History" Icon={Receipt} />
+          <SubItem href="/owner/payouts/account" label="Payout account" Icon={Wallet} />
+          <SubItem href="/owner/payouts/older-claims" label="Older claims" Icon={Archive} />
+          <SubItem href="/owner/reports/overview" label="Reports" Icon={BarChart3} also={["/owner/reports/"]} />
         </Section>
 
       </div>

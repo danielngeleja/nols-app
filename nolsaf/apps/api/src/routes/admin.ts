@@ -9,6 +9,7 @@ import adminAuditsRouter from "./admin.audits";
 import { router as adminEmail } from "./admin.auth.email";
 import adminBonusesRouter from "./admin.bonuses";
 import adminBookingsRouter from "./admin.bookings";
+import adminGuestCodeRequestsRouter from "./admin.guestCodeRequests.js";
 import adminCancellationsRouter from "./admin.cancellations";
 import adminCareersApplicationsRouter from "./admin.careers.applications";
 import adminCareersStatsRouter from "./admin.careers.stats";
@@ -86,6 +87,7 @@ export function registerAdminGuards(app: Express): void {
 export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/admin/bookings", adminBookingsRouter);
   app.use("/api/admin/bookings", adminBookingsRouter as RequestHandler);
+  app.use("/api/admin/guest-code-requests", adminGuestCodeRequestsRouter as RequestHandler);
   app.use("/admin/invoices", adminInvoicesRouter);
   app.use("/api/admin/invoices", adminInvoicesRouter as RequestHandler);
   app.use("/admin/revenue", adminRevenueRouter);

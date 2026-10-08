@@ -10,6 +10,8 @@
     "packages/prisma"
   ],
   "devDependencies": {
+    "@eslint/compat": "2.1.1",
+    "@next/eslint-plugin-next": "14.2.35",
     "@prisma/adapter-mariadb": "7.9.1",
     "@prisma/client": "7.9.1",
     "@prisma/debug": "7.9.1",
@@ -18,8 +20,7 @@
     "@vitest/coverage-v8": "4.1.11",
     "concurrently": "^9.0.1",
     "eslint": "9.39.5",
-    "eslint-plugin-react-hooks": "7.0.1",
-    "snyk": "^1.1300.0"
+    "eslint-plugin-react-hooks": "7.0.1"
   },
   "scripts": {
     "postinstall": "node scripts/patch-minimatch-compat.mjs && prisma generate",
@@ -62,6 +63,7 @@
   "dependencies": {
     "axios": "^1.20.0",
     "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
     "pdf-parse": "^2.4.5",
     "prisma": "7.9.1"
   },
@@ -81,6 +83,7 @@
       "archiver": "8.0.0",
       "body-parser>qs": "6.16.0",
       "brace-expansion": "5.0.12",
+      "@next/eslint-plugin-next>glob": "10.5.0",
       "dompurify": "3.4.16",
       "esbuild": "0.28.1",
       "express>qs": "6.16.0",
@@ -96,10 +99,13 @@
       "nodemailer": "10.0.13",
       "postcss": "8.5.24",
       "qs": "6.16.0",
-      "sharp": "0.35.4",
-      "shell-quote": "^1.8.4",
+      "sharp": "0.35.5",
+      "shell-quote": "^1.11.0",
+      "proxy-addr": "2.0.8",
+      "source-map-js": "1.2.2",
       "unzipper": "0.12.5",
       "uuid": "11.1.1",
+      "exceljs>uuid": "11.1.1",
       "xcode": {
         "uuid": "^11.1.1"
       },
@@ -121,6 +127,9 @@
       "qs": "6.16.0"
     },
     "brace-expansion": "5.0.12",
+    "@next/eslint-plugin-next": {
+      "glob": "10.5.0"
+    },
     "dompurify": "3.4.16",
     "esbuild": "0.28.1",
     "express": {
@@ -142,10 +151,15 @@
     "nodemailer": "10.0.13",
     "postcss": "8.5.24",
     "qs": "6.16.0",
-    "sharp": "0.35.4",
-    "shell-quote": "^1.8.4",
+    "sharp": "0.35.5",
+    "shell-quote": "^1.11.0",
+    "proxy-addr": "2.0.8",
+    "source-map-js": "1.2.2",
     "unzipper": "0.12.5",
     "uuid": "11.1.1",
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
     "xcode": {
       "uuid": "^11.1.1"
     },

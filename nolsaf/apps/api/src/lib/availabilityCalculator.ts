@@ -204,6 +204,8 @@ export async function calculateAvailability(
   const blocks: any[] = await prisma.propertyAvailabilityBlock.findMany({
     where: {
       propertyId,
+      // A block NRMS migrated into a reservation is counted as that reservation.
+      migratedReservationId: null,
       AND: [
         { startDate: { lt: endDate } },
         { endDate: { gt: startDate } },
@@ -221,7 +223,9 @@ export async function calculateAvailability(
     orderBy: { startDate: 'asc' },
   });
   const nrmsHolds = await getNrmsMarketplaceHolds(prisma, propertyId, startDate, endDate);
-  blocks.push(...nrmsHolds.map(({ notes: _notes, ...row }) => row));
+  // Count NRMS holds under their room type: an assigned room's code is a unit
+  // code ("101") that would never match a roomsSpec type name.
+  blocks.push(...nrmsHolds.map(({ notes: _notes, roomTypeName, ...row }) => ({ ...row, roomCode: roomTypeName || row.roomCode })));
 
   /**
    * NRMS controls covering this range. Loaded once for the property, then

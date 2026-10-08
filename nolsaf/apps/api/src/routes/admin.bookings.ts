@@ -602,7 +602,7 @@ router.post("/:id/confirm", async (req, res) => {
 
   // notify dashboards (Socket.io instance set at app.set('io', io))
   const io = req.app.get("io");
-  if (io) io.emit("admin:code:generated", { bookingId: result.bookingId, code: result.codeVisible });
+  if (io) io.to?.("admin")?.emit?.("admin:code:generated", { bookingId: result.bookingId });
 
   // Send confirmation email to guest (best-effort, never blocks the response)
   try {
@@ -833,7 +833,7 @@ router.post("/:id/cancel", async (req, res) => {
       data: { status: "VOID", voidReason: "Booking canceled by admin", voidedAt: new Date() },
     });
     const io = req.app.get("io");
-    if (io) io.emit("admin:code:voided", { bookingId: id, code: before.code.codeVisible });
+    if (io) io.to?.("admin")?.emit?.("admin:code:voided", { bookingId: id });
   }
 
   // Send cancellation email to guest (best-effort)
@@ -939,7 +939,7 @@ router.post("/codes/:id/void", async (req, res) => {
   });
 
   const io = req.app.get("io");
-  if (io) io.emit("admin:code:voided", { bookingId: before.bookingId, code: before.codeVisible, reason });
+  if (io) io.to?.("admin")?.emit?.("admin:code:voided", { bookingId: before.bookingId, reason });
 
   res.json({ ok: true, code: updated });
 });

@@ -192,11 +192,23 @@ async function loadOwnerInvoice(sourceId: number): Promise<EligiblePayoutSource>
     );
   }
 
+  // Owner policy 6.3.3: debts from earlier refunds or chargebacks are
+  // deducted from this claim. The deductions are their own rows, so the
+  // claim keeps its original netPayable and the payable is derived here.
+  const recovered = await prisma.ownerPayoutRecoveryApplication.aggregate({
+    where: { invoiceId: sourceId },
+    _sum: { amount: true },
+  });
+  const payable = invoice.netPayable.minus(recovered._sum.amount ?? 0);
+  if (!(Number(payable) > AMOUNT_TOLERANCE)) {
+    throw new PayoutIneligibleError("OWNER_INVOICE", sourceId, "the whole claim was used to recover an earlier refund or chargeback");
+  }
+
   return {
     sourceType: "OWNER_INVOICE",
     sourceId,
     payeeUserId: invoice.ownerId,
-    amount: invoice.netPayable,
+    amount: payable,
     currency: OWNER_INVOICE_PAYOUT_CURRENCY,
   };
 }

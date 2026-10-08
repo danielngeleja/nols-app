@@ -177,22 +177,21 @@ export default function CountryTourismSiteList({
   };
 
   return (
-    <section className="rounded-3xl bg-white/55 backdrop-blur-xl overflow-hidden">
+    <section className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
       {!hideHeader ? (
-        <header className="px-5 sm:px-6 py-5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="text-slate-900 font-semibold text-lg tracking-tight">{title}</div>
-            <div className="inline-flex items-center rounded-full bg-white/70 border border-slate-200/70 px-2.5 py-1 text-xs font-semibold text-slate-700 tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
-              {items.length}
-            </div>
+        <header className="flex items-center justify-between gap-4 border-0 border-b border-solid border-slate-100 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#012a26] text-[#5eead4]"><TreePine className="h-4 w-4" aria-hidden /></span>
+            <h2 className="m-0 text-base font-bold tracking-tight text-slate-900">{title}</h2>
           </div>
+          <span className="text-xs font-semibold text-slate-500"><strong className="tabular-nums text-slate-900">{items.length}</strong> park{items.length === 1 ? "" : "s"}</span>
         </header>
       ) : null}
 
       <ul
         className={[
-          "list-none px-2 sm:px-3 pb-3 grid gap-2",
-          isFocusedSingle ? "grid-cols-1" : "grid-cols-2",
+          "m-0 list-none grid gap-px bg-slate-100 p-0",
+          isFocusedSingle ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
         ].join(" ")}
       >
         {items.map((s, i) => {
@@ -212,28 +211,13 @@ export default function CountryTourismSiteList({
             <li
               key={siteSlug}
               className={[
-                "group rounded-2xl overflow-hidden bg-gradient-to-br from-white/80 via-white/60 to-emerald-50/60 shadow-sm",
-                "motion-safe:transition-shadow motion-safe:duration-200",
-                "hover:shadow-md",
-                !isFocusedSingle && isOpen ? "col-span-2" : "",
+                "group bg-white",
+                !isFocusedSingle && isOpen ? "sm:col-span-2" : "",
               ].join(" ")}
             >
               {isFocusedSingle ? (
-                <div className="relative overflow-hidden rounded-t-2xl bg-white border border-emerald-200/80 shadow-sm">
-                  {/* Emerald dot-grid decoration */}
-                  <div
-                    className="absolute inset-0 pointer-events-none opacity-[0.15]"
-                    style={{
-                      backgroundImage: "radial-gradient(circle, #10b981 1.2px, transparent 1.2px)",
-                      backgroundSize: "20px 20px",
-                    }}
-                    aria-hidden
-                  />
-                  {/* Fade dots out from the left so text stays clean */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-white via-white/60 to-transparent pointer-events-none" aria-hidden />
-
-                  <div className="relative px-5 sm:px-6 pt-4 pb-5">
-                    {/* Back navigation — solid small button */}
+                <div className="bg-[#012a26] px-5 py-5 text-white sm:px-6">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <button
                       type="button"
                       onClick={() => {
@@ -243,55 +227,44 @@ export default function CountryTourismSiteList({
                         const qs = qp.toString();
                         router.push(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
                       }}
-                      className="group/back inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                      className="group/back inline-flex h-8 items-center gap-1.5 rounded-md border border-solid border-white/15 bg-transparent px-2.5 text-xs font-semibold text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5eead4]/40"
                       aria-label="Back to all parks"
                     >
-                      <ArrowLeft className="h-3 w-3 transition-transform duration-200 group-hover/back:-translate-x-0.5" aria-hidden />
+                      <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover/back:-translate-x-0.5" aria-hidden />
                       All parks
                     </button>
-
-                    {/* Park name + status badge */}
-                    <div className="mt-3 flex items-end justify-between gap-4">
-                      <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-tight">
-                        {s.name}
-                      </h2>
-                      {showCountBadge ? (
-                        <span
-                          className={[
-                            "shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1 mb-0.5 text-[11px] font-semibold tabular-nums",
-                            isLoading
-                              ? "bg-slate-100 text-slate-400 animate-pulse"
-                              : loadedProps && loadedProps.length > 0
-                                ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200"
-                                : "bg-slate-100 text-slate-400",
-                          ].join(" ")}
-                          aria-label={isLoading ? "Loading properties" : `${countLabel} properties`}
-                        >
-                          {!isLoading && (
-                            <span
-                              className={["h-1.5 w-1.5 rounded-full", loadedProps && loadedProps.length > 0 ? "bg-emerald-500" : "bg-slate-300"].join(" ")}
-                              aria-hidden
-                            />
-                          )}
-                          {isLoading ? "loading…" : `${countLabel} listed`}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    {/* Subtitle */}
-                    <p className="mt-1 text-sm text-slate-500 leading-relaxed">
-                      {s.note
-                        ? s.note
-                        : isLoading
-                          ? "Loading available properties…"
-                          : loadedProps && loadedProps.length > 0
-                            ? `${loadedProps.length} approved propert${loadedProps.length === 1 ? "y" : "ies"} available to book`
-                            : "No listed properties yet — check back soon"}
-                    </p>
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-[#5eead4]">
+                      <TreePine className="h-3.5 w-3.5" aria-hidden /> National park
+                    </span>
                   </div>
 
-                  {/* Bottom separator */}
-                  <div className="h-px bg-gradient-to-r from-emerald-200/80 via-emerald-100/50 to-transparent" aria-hidden />
+                  <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-2xl font-bold leading-tight tracking-tight sm:text-[28px]">{s.name}</h2>
+                      <p className="m-0 mt-1 text-sm text-white/65">
+                        {s.note
+                          ? s.note
+                          : isLoading
+                            ? "Checking which stays are open to book..."
+                            : loadedProps && loadedProps.length > 0
+                              ? `${loadedProps.length} approved propert${loadedProps.length === 1 ? "y" : "ies"} you can book for this park.`
+                              : "No stays listed for this park yet. New properties are approved regularly."}
+                      </p>
+                    </div>
+
+                    <dl className="m-0 flex shrink-0 overflow-hidden rounded-lg border border-solid border-white/10">
+                      {[
+                        { label: "Stays", value: isLoading ? "…" : loadedProps ? loadedProps.length : "-" },
+                        { label: "Inside", value: isLoading ? "…" : loadedProps ? insideProperties.length : "-" },
+                        { label: "Nearby", value: isLoading ? "…" : loadedProps ? nearbyProperties.length : "-" },
+                      ].map((stat, index) => (
+                        <div key={stat.label} className={`px-4 py-2 text-center ${index > 0 ? "border-0 border-l border-solid border-white/10" : ""}`}>
+                          <dd className="m-0 text-lg font-extrabold tabular-nums text-white">{stat.value}</dd>
+                          <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] text-white/50">{stat.label}</dt>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
                 </div>
               ) : (
                 <button
@@ -311,35 +284,31 @@ export default function CountryTourismSiteList({
                     toggle(i);
                   }}
                   className={[
-                    "w-full border-0 text-left px-3 sm:px-5 py-4 flex items-center justify-between gap-3 sm:gap-4 rounded-2xl",
-                    "bg-transparent",
-                    "motion-safe:transition motion-safe:duration-200",
-                    "hover:bg-white/80",
-                    "active:bg-white/90 active:scale-[0.995]",
-                    "focus:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200/60",
+                    "flex w-full items-center justify-between gap-3 border-0 px-5 py-3.5 text-left",
+                    isOpen ? "bg-emerald-50/60" : "bg-white hover:bg-slate-50",
+                    "motion-safe:transition-colors",
+                    "focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#02665e]/30",
                   ].join(" ")}
                   aria-expanded={isOpen}
                 >
-                  <div className="min-w-0">
-                    <div className="text-slate-900 font-medium leading-snug tracking-tight truncate">{s.name}</div>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="w-5 shrink-0 text-xs font-bold tabular-nums text-slate-400">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="min-w-0">
+                      <span className={`block truncate text-sm font-semibold leading-snug ${isOpen ? "text-[#02665e]" : "text-slate-900"}`}>{s.name.replace(/ National Park$/, "")}</span>
+                      <span className="block text-[11px] text-slate-400">National park</span>
+                    </span>
                   </div>
 
                   <div className="shrink-0 flex items-center gap-3">
                     {showCountBadge ? (
                       <div
                         className={[
-                          "inline-flex items-center justify-center",
-                          "min-w-8 h-6 rounded-full",
-                          loadedProps
-                            ? "bg-emerald-700/10 text-emerald-900 ring-1 ring-emerald-700/15"
-                            : "bg-white/70 text-slate-600 ring-1 ring-slate-200/70",
-                          "px-2 text-[11px] font-semibold tabular-nums",
-                          "motion-safe:transition-colors motion-safe:duration-200",
-                          "group-hover:bg-white/90",
+                          "inline-flex h-6 items-center justify-center rounded-md px-2 text-[11px] font-semibold tabular-nums",
+                          loadedProps && loadedProps.length > 0 ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-500",
                         ].join(" ")}
                         aria-label={loadedProps ? `Approved properties: ${countLabel}` : "Loading approved properties"}
                       >
-                        {countLabel}
+                        {loadedProps !== undefined ? `${countLabel} stay${loadedProps.length === 1 ? "" : "s"}` : countLabel}
                       </div>
                     ) : null}
 
@@ -379,11 +348,11 @@ export default function CountryTourismSiteList({
                       {isLoading ? (
                         <div className="space-y-3 animate-pulse">
                           {[0, 1].map((i) => (
-                            <div key={i} className="h-[88px] rounded-2xl bg-slate-100/90" />
+                            <div key={i} className="h-[88px] rounded-lg bg-slate-100" />
                           ))}
                         </div>
                       ) : loadError ? (
-                        <div className="flex flex-col items-start gap-2 rounded-2xl bg-rose-50/70 px-4 py-3">
+                        <div className="flex flex-col items-start gap-2 rounded-lg bg-rose-50 px-4 py-3">
                           <p className="text-sm text-rose-700">{loadError} — unable to load properties.</p>
                           <button
                             type="button"
@@ -401,7 +370,7 @@ export default function CountryTourismSiteList({
                         <div className="space-y-4">
                           {insideProperties.length ? (
                             <div>
-                              <div className="text-[11px] font-semibold text-slate-500 tracking-wider uppercase">Inside the park</div>
+                              <p className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Inside the park <span className="rounded bg-slate-100 px-1.5 tabular-nums text-slate-600">{insideProperties.length}</span></p>
                               <div
                                 className={[
                                   "mt-2 grid gap-5",
@@ -417,7 +386,7 @@ export default function CountryTourismSiteList({
 
                           {nearbyProperties.length ? (
                             <div>
-                              <div className="text-[11px] font-semibold text-slate-500 tracking-wider uppercase">Nearby</div>
+                              <p className="m-0 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Nearby <span className="rounded bg-slate-100 px-1.5 tabular-nums text-slate-600">{nearbyProperties.length}</span></p>
                               <div
                                 className={[
                                   "mt-2 grid gap-5",
@@ -433,14 +402,14 @@ export default function CountryTourismSiteList({
                         </div>
                       </div>
                     ) : !isLoading && !loadError && loadedProps !== undefined ? (
-                      <div className="mt-4 rounded-2xl bg-emerald-50/60 border border-emerald-100/80 px-5 py-8 flex flex-col items-center text-center gap-3">
-                        <span className="inline-flex items-center justify-center w-11 h-11 rounded-full bg-emerald-100/80 text-emerald-700">
+                      <div className="mt-4 flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-200 px-5 py-8 text-center">
+                        <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[#012a26] text-[#5eead4]">
                           <TreePine className="h-5 w-5" aria-hidden />
                         </span>
                         <div>
                           <p className="text-sm font-semibold text-slate-700">No properties listed yet</p>
                           <p className="mt-1 text-xs text-slate-500 max-w-[22rem] mx-auto leading-relaxed">
-                            We&apos;re building up listings for this park. Check back soon — properties are added regularly.
+                            We are adding stays for this park. Check back soon, new properties are approved regularly.
                           </p>
                         </div>
                       </div>

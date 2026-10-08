@@ -51,20 +51,39 @@ export function previousShiftDayKey(key: string): string {
 }
 
 /**
- * Hotel business date at a property-selected boundary. With a 20:00 close,
- * 19:30 on 25 July still belongs to 24 July; 20:00 starts 25 July. This keeps
- * late-night hotel operations together instead of forcing a midnight rollover.
+ * Which calendar day a Night Audit time closes. An evening time (12:00 or
+ * later, the 20:00 default) closes business date D on D itself. An early
+ * morning time (02:00) closes D after midnight, on D + 1.
+ */
+function closesOnSameDay(closeTime: string): boolean {
+  return closeMinutes(closeTime) >= 12 * 60;
+}
+
+/**
+ * Hotel business date at a property-selected boundary.
+ * - Evening close (20:00): the working day is the calendar day. 10:00 on
+ *   8 October trades as 8 October, and from 20:00 that date may be audited.
+ * - Early-morning close (02:00): after-midnight activity stays on the prior
+ *   date until the boundary, so 01:30 on 9 October still trades as 8 October.
+ * The old rule applied the early-morning logic to evening times too, which
+ * filed a whole working day under yesterday's date.
  */
 export function shiftDayKey(date: Date, closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME): string {
   const local = localClock(date);
+  if (closesOnSameDay(closeTime)) return local.day;
   return local.minutes < closeMinutes(closeTime) ? previousShiftDayKey(local.day) : local.day;
 }
 
 export function nightAuditSchedule(date = new Date(), closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME) {
   const local = localClock(date);
-  const activeBusinessDate = local.minutes < closeMinutes(closeTime) ? previousShiftDayKey(local.day) : local.day;
-  const latestClosableDate = previousShiftDayKey(activeBusinessDate);
-  const nextCloseDay = local.minutes < closeMinutes(closeTime) ? local.day : nextShiftDayKey(local.day);
+  const beforeClose = local.minutes < closeMinutes(closeTime);
+  const activeBusinessDate = shiftDayKey(date, closeTime);
+  // Evening: today becomes closable at the boundary. Early morning: the
+  // boundary on day X closes X - 1.
+  const latestClosableDate = closesOnSameDay(closeTime)
+    ? (beforeClose ? previousShiftDayKey(local.day) : local.day)
+    : previousShiftDayKey(activeBusinessDate);
+  const nextCloseDay = beforeClose ? local.day : nextShiftDayKey(local.day);
   return {
     closeTime,
     timezone: SHIFT_ZONE,
@@ -119,9 +138,14 @@ export async function assertNrmsBusinessDayWritable(tx: any, propertyId: number,
   return openKey;
 }
 
-/** Property business-date boundary. SHIFT_ZONE is fixed UTC+3, no DST. */
+/**
+ * When business date `key` starts. SHIFT_ZONE is fixed UTC+3, no DST.
+ * Evening close: it starts at the previous evening's boundary (20:00 on
+ * key - 1). Early-morning close: at the boundary on key itself.
+ */
 export function shiftDayStart(key: string, closeTime = DEFAULT_NIGHT_AUDIT_CLOSE_TIME): Date {
-  return new Date(`${key}T${closeTime}:00.000+03:00`);
+  const startDay = closesOnSameDay(closeTime) ? previousShiftDayKey(key) : key;
+  return new Date(`${startDay}T${closeTime}:00.000+03:00`);
 }
 
 /**

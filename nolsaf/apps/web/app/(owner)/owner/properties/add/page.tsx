@@ -5,6 +5,7 @@ import { twMerge } from "tailwind-merge";
 import { Plus, Check, Home, Building, Building2, TreePine, Hotel, HelpCircle, Car, Shield, Bus, Bed, BedDouble, BedSingle, CheckCircle2, AlertCircle, MapPin,
   Navigation, Crosshair, Users, X, ArrowRight, ImageIcon, Loader2, Hospital, Pill, Plane, Fuel, Route, Building as BuildingIcon, Lock, ExternalLink, Edit2, Clock, Bell } from "lucide-react";
 import axios from "axios";import apiClient from "@/lib/apiClient";
+import { ownerPropertyPath, resolveOwnerPropertyRef } from "@/lib/ownerPropertyRefs";
 import { REGIONS, REGION_BY_ID } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
 import { TotalsStep } from "./_components/TotalsStep";
@@ -235,8 +236,18 @@ export default function AddProperty() {
       const idParam = urlParams.get('id');
       
       if (idParam && !propertyId) {
-        const id = parseInt(idParam, 10);
+        // ?id= carries the opaque pp_ reference (an old numeric link still works).
+        const id = (await resolveOwnerPropertyRef(idParam)) ?? NaN;
         if (!isNaN(id)) {
+          if (/^\d+$/.test(idParam)) {
+            void ownerPropertyPath(id).then((path) => {
+              const ref = path.split("/").pop();
+              if (!ref || /^\d+$/.test(ref)) return;
+              const url = new URL(window.location.href);
+              url.searchParams.set("id", decodeURIComponent(ref));
+              window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+            });
+          }
           setLoadingProperty(true);
           try {
             const response = await api.get(`/api/owner/properties/${id}`);
@@ -1678,7 +1689,9 @@ export default function AddProperty() {
 
   const continueServerDraft = useCallback((id: number) => {
     if (typeof window === "undefined") return;
-    window.location.href = `/owner/properties/add?id=${id}`;
+    void ownerPropertyPath(id).then((path) => {
+      window.location.href = `/owner/properties/add?id=${path.split("/").pop()}`;
+    });
   }, []);
 
   const startNewListing = useCallback(() => {

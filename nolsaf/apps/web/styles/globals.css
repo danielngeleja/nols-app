@@ -2,9 +2,11 @@
 @import "mapbox-gl/dist/mapbox-gl.css";
 
 /* Tailwind layers (preflight is disabled) */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@config "../tailwind.config.js";
+@source inline("bg-white bg-white/70 rounded-2xl rounded-xl rounded-lg border border-gray-200 border-gray-300 shadow-card text-info bg-info/5 bg-success/5 bg-danger/5 bg-gray-50 hover:bg-gray-50 text-brand border-brand bg-brand text-white inline-flex items-center justify-center rounded-full h-6 w-6 px-3 py-2 text-sm font-medium");
 
 /* Disable browser scroll anchoring on all scroll containers.
    Prevents the "Scroll anchoring disabled" console warning caused by
@@ -657,8 +659,8 @@ html, body {
 
   /* Inputs */
   .input    { @apply rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand; }
-  .select   { @apply input; }
-  .textarea { @apply input; }
+  .select   { @apply rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand; }
+  .textarea { @apply rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand; }
 
   /* Auth / Register card styles: keep visual treatment consistent across auth screens */
   .auth-card {
@@ -2424,7 +2426,11 @@ select[title="Room type"] {
     background-size: 480px 100%;
     @apply animate-shimmer rounded-md;
   }
-  .skeleton-card { @apply skeleton h-28 w-full rounded-2xl border border-gray-200; }
+  .skeleton-card {
+    background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.06) 37%, rgba(0,0,0,0.04) 63%);
+    background-size: 480px 100%;
+    @apply animate-shimmer h-28 w-full rounded-2xl border border-gray-200;
+  }
 }
 
 /* ---------- Print-specific styles ---------- */
