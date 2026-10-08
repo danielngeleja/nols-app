@@ -128,6 +128,19 @@ function retryGuidance(retryClass: string): string {
   }
 }
 
+/** The queue's status filter, in the order a payout moves, with what each step means. */
+const PIPELINE: Array<{ value: string; label: string; hint: string; dot: string; on: string; kind: "path" | "end" }> = [
+  { value: "REQUESTED", label: "Requested", hint: "Waiting for review", dot: "bg-amber-400", on: "border-amber-600 bg-amber-600", kind: "path" },
+  { value: "APPROVED", label: "Approved", hint: "Ready to batch", dot: "bg-sky-400", on: "border-sky-600 bg-sky-600", kind: "path" },
+  { value: "BATCHED", label: "Batched", hint: "In a batch", dot: "bg-sky-400", on: "border-sky-600 bg-sky-600", kind: "path" },
+  { value: "AUTHORIZED", label: "Authorized", hint: "Released to send", dot: "bg-sky-400", on: "border-sky-600 bg-sky-600", kind: "path" },
+  { value: "SUBMITTED", label: "Submitted", hint: "Sent to provider", dot: "bg-indigo-400", on: "border-indigo-600 bg-indigo-600", kind: "path" },
+  { value: "PROCESSING", label: "Processing", hint: "Provider settling", dot: "bg-indigo-400", on: "border-indigo-600 bg-indigo-600", kind: "path" },
+  { value: "PAID", label: "Paid", hint: "Money arrived", dot: "bg-emerald-500", on: "border-emerald-700 bg-emerald-700", kind: "path" },
+  { value: "FAILED", label: "Failed", hint: "Needs a retry", dot: "bg-red-500", on: "border-red-600 bg-red-600", kind: "end" },
+  { value: "SECURITY_REVIEW", label: "Security review", hint: "Paused by checks", dot: "bg-red-500", on: "border-red-700 bg-red-700", kind: "end" },
+];
+
 function statusClass(status: string) {
   if (status === "PAID") return "border-emerald-100 bg-emerald-50 text-emerald-700";
   if (status === "FAILED" || status === "SECURITY_REVIEW") return "border-red-100 bg-red-50 text-red-700";
@@ -649,6 +662,44 @@ function DisbursementsView() {
           onClick={() => setFilterStatus("FAILED")}
         />
       </div>
+
+      {/* Where payouts stand: the status filter, in the order money moves */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3.5">
+          <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-neutral-400">Payout pipeline</p>
+          {status && (
+            <button type="button" onClick={() => setFilterStatus("")} className="border-0 bg-transparent p-0 text-[11px] font-bold text-emerald-700 hover:underline">
+              Show all statuses
+            </button>
+          )}
+        </div>
+        <div className="overflow-x-auto px-3 pb-3 pt-2.5">
+          <ol className="m-0 flex min-w-max list-none items-stretch gap-1.5 p-0">
+            {PIPELINE.map((step, index) => {
+              const active = status === step.value;
+              return (
+                <li key={step.value} className="flex items-center gap-1.5">
+                  {index > 0 && step.kind === "path" && PIPELINE[index - 1].kind === "path" && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-300" aria-hidden />}
+                  {index > 0 && step.kind !== "path" && PIPELINE[index - 1].kind === "path" && <span className="mx-1 h-8 w-px shrink-0 bg-neutral-200" aria-hidden />}
+                  <button
+                    type="button"
+                    onClick={() => setFilterStatus(active ? "" : step.value)}
+                    aria-pressed={active}
+                    title={step.hint}
+                    className={`flex min-w-[118px] flex-col items-start rounded-lg border border-solid px-3 py-2 text-left transition ${active ? step.on : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${step.dot}`} aria-hidden />
+                      <span className={`text-xs font-bold ${active ? "text-white" : "text-neutral-800"}`}>{step.label}</span>
+                    </span>
+                    <span className={`mt-0.5 text-[10.5px] ${active ? "text-white/75" : "text-neutral-400"}`}>{step.hint}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </section>
 
       {showCreate && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
