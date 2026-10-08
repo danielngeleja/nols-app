@@ -31,11 +31,12 @@ function renderDetail(reservation) {
 }
 const base = { id: 1, status: 'CONFIRMED', source: 'WALK_IN', checkIn: '2026-09-20', checkOut: '2026-09-22', currency: 'TZS', totalAmount: 100, amountPaid: 100, balance: 0, adults: 1, guestProfile: { fullName: 'Test guest' }, allocations: [], payments: [], charges: [] };
 const room = id => ({ id: id || 2, status: 'ACTIVE', roomTypeId: 1, roomTypeName: 'Single', roomUnitId: id, roomUnitCode: id ? 'R' + id : null });
+const checkInButton = html => (html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) || []).find(button => button.includes('Check in</button>'));
 test('Review provides assignment and blocks check-in for partial assignment', () => {
     const html = renderDetail({ ...base, allocations: [room(1), room(null)] });
     assert.match(html, /1 of 2 rooms assigned/);
     assert.match(html, />Assign room<\/button>/);
-    assert.match(html, /<button[^>]*disabled=""[^>]*>Check in<\/button>/);
+    assert.match(checkInButton(html) || '', /\sdisabled=""/);
 });
 test('missing allocation offers reservation-specific category recovery', () => {
     const html = renderDetail(base);
@@ -46,8 +47,8 @@ test('missing allocation offers reservation-specific category recovery', () => {
 });
 test('complete allocation enables check-in', () => {
     const html = renderDetail({ ...base, allocations: [room(1)] });
-    assert.doesNotMatch(html, /<button[^>]*disabled=""[^>]*>Check in<\/button>/);
-    assert.match(html, />Check in<\/button>/);
+    assert.ok(checkInButton(html));
+    assert.doesNotMatch(checkInButton(html), /\sdisabled=""/);
 });
 test('confirmed NoLSAF details expose assignment before code validation', () => {
     const html = renderDetail({ ...base, bookingId: 20, source: 'NOLSAF', marketplaceBooking: { status: 'CONFIRMED', checkInCodeStatus: 'ACTIVE' }, allocations: [room(null)] });
