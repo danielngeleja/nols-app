@@ -21,9 +21,11 @@ import {
   WifiOff,
   X,
   Check as CheckMark,
+  KeyRound,
 } from "lucide-react";
 import Support from "@/components/Support";
 import apiClient from "@/lib/apiClient";
+import GuestCodeRequestDialog from "@/components/owner-bookings/GuestCodeRequestDialog";
 import { useRouter } from "next/navigation";
 
 const api = apiClient;
@@ -273,6 +275,7 @@ export default function CheckinValidation() {
 
   // QR scan modal
   const [scanOpen, setScanOpen] = useState(false);
+  const [lostCodeOpen, setLostCodeOpen] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanActive, setScanActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -787,7 +790,18 @@ export default function CheckinValidation() {
               ) : isQrCode ? (
                 <span className="text-[#9fd8cc]">Receipt QR read. Checking it now.</span>
               ) : (
-                <span>QR scanning works in Chrome or Edge on mobile.</span>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <span>QR scanning works in Chrome or Edge on mobile.</span>
+                  <button
+                    type="button"
+                    onClick={() => setLostCodeOpen(true)}
+                    className="inline-flex h-7 appearance-none items-center gap-1.5 rounded-full border border-solid border-[#5eead4]/35 px-3 text-[11px] font-semibold text-[#5eead4] transition hover:border-[#5eead4]/60 hover:text-white"
+                    style={{ background: "rgba(94,234,212,0.08)" }}
+                  >
+                    <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                    Guest lost their code?
+                  </button>
+                </span>
               )}
               {!isLocked && typeof remainingAttempts === "number" ? (
                 <span className="shrink-0" aria-live="polite">
@@ -1230,6 +1244,7 @@ export default function CheckinValidation() {
       ) : null}
 
         {/* QR Scan Modal */}
+        <GuestCodeRequestDialog open={lostCodeOpen} onClose={() => setLostCodeOpen(false)} />
         {scanOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
             <div

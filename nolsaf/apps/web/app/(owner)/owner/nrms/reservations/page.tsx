@@ -421,95 +421,86 @@ function MarketplaceSettlement({ reservation }: { reservation: Reservation }) {
       ? "bg-blue-50 text-blue-700 ring-blue-200"
       : "bg-neutral-100 text-neutral-600 ring-neutral-200";
 
-  // Preflight is off in this app: every border here needs border-solid, and
-  // directional borders need border-0 first or they draw all four sides.
-  return <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-card">
-    <header className="flex flex-wrap items-start justify-between gap-3 px-5 pb-4 pt-5">
-      <div className="flex min-w-0 items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck className="h-5 w-5" /></span>
-        <div className="min-w-0">
-          <p className="m-0 text-sm font-bold text-neutral-950">Marketplace settlement</p>
-          <p className="mb-0 mt-0.5 text-xs leading-5 text-neutral-500">NoLSAF holds the guest&apos;s payment and releases the room payout to the property. Incidentals stay on the NRMS folio.</p>
-        </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${guestPaid ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${guestPaid ? "bg-emerald-500" : "bg-amber-500"}`} aria-hidden="true" />
-          Guest payment {customerPaymentLabel}
+  // Sized for the reservation's side column: a receipt that reads top to
+  // bottom, payout first. Preflight is off in this app: every border needs
+  // border-solid, and directional borders need border-0 first.
+  const transport = marketplace.transportFare ?? 0;
+  return <section aria-label="Marketplace settlement" className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+    <div className="bg-emerald-50/50 px-4 pb-4 pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">NoLSAF settlement</p>
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold ring-1 ring-inset ${guestPaid ? "bg-white text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-800 ring-amber-200"}`}>
+          {guestPaid ? <Check className="h-3 w-3" aria-hidden="true" /> : <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />}
+          Guest {guestPaid ? "paid" : customerPaymentLabel}
         </span>
-        <span className="font-mono text-[11px] text-neutral-400">{marketplace.invoiceNumber ?? marketplace.reference}</span>
       </div>
-    </header>
-
-    <div className="px-5 pb-5">
-      <div className={`grid gap-2 ${hasAccommodationCommission ? "sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.2fr)]" : "sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1.2fr)]"}`}>
-        <div className="rounded-xl bg-neutral-50 px-4 py-3.5">
-          <p className="m-0 text-[11px] font-semibold text-neutral-500">Guest paid</p>
-          <p className="mb-0 mt-1 text-lg font-bold tabular-nums text-neutral-950">{money(marketplace.customerPaidTotal, reservation.currency)}</p>
-          <p className="mb-0 mt-0.5 text-[11px] leading-5 text-neutral-500">
-            {marketplace.transportFare > 0
-              ? `Room ${money(marketplace.accommodationGross, reservation.currency)} · transport ${money(marketplace.transportFare, reservation.currency)}`
-              : "Collected through NoLSAF"}
-          </p>
-        </div>
-        {hasAccommodationCommission && <>
-          <span className="hidden items-center justify-center text-base font-bold text-neutral-300 sm:flex" aria-hidden="true"><Minus className="h-4 w-4" /></span>
-          <div className="rounded-xl bg-neutral-50 px-4 py-3.5">
-            <p className="m-0 text-[11px] font-semibold text-neutral-500">NoLSAF commission{marketplace.commissionPercent != null ? ` · ${percentText(marketplace.commissionPercent)}` : ""}</p>
-            <p className="mb-0 mt-1 text-lg font-bold tabular-nums text-neutral-950">{money(marketplace.commissionAmount, reservation.currency)}</p>
-            <p className="mb-0 mt-0.5 text-[11px] leading-5 text-neutral-500">Added on top of the room rate</p>
-          </div>
-        </>}
-        <span className="hidden items-center justify-center text-lg font-bold text-neutral-300 sm:flex" aria-hidden="true">=</span>
-        <div className="rounded-xl bg-emerald-50 px-4 py-3.5 ring-1 ring-inset ring-emerald-200">
-          <p className="m-0 text-[11px] font-semibold text-emerald-800">Property payout</p>
-          <p className="mb-0 mt-1 text-2xl font-bold tabular-nums leading-tight text-emerald-800">{money(marketplace.ownerPayout, reservation.currency)}</p>
-          <p className="mb-0 mt-0.5 text-[11px] leading-5 text-emerald-900/70">
-            {ownerDisbursed ? `Paid to the property${ownerDisbursement?.channel ? ` via ${ownerDisbursement.channel}` : ""}` : "Room revenue owed to the property"}
-          </p>
-        </div>
-      </div>
-
+      <p className="m-0 mt-2 text-[11px] font-semibold text-emerald-800">{ownerDisbursed ? "Paid to you" : "Your payout"}</p>
+      <p className="m-0 mt-0.5 break-words text-2xl font-extrabold leading-tight tracking-[-0.02em] tabular-nums text-emerald-800">{money(marketplace.ownerPayout, reservation.currency)}</p>
+      <p className="m-0 mt-1 text-[11px] leading-4 text-slate-500">
+        {ownerDisbursed && ownerDisbursement?.channel ? `Sent via ${ownerDisbursement.channel}` : `From ${money(marketplace.customerPaidTotal, reservation.currency)} the guest paid NoLSAF`}
+      </p>
       {hasAccommodationCommission && accommodationGross > 0 && (
-        <div className="mt-4">
-          <div className="flex h-2 overflow-hidden rounded-full bg-neutral-100" role="img" aria-label={`Property ${money(marketplace.ownerPayout, reservation.currency)}, NoLSAF ${money(marketplace.commissionAmount, reservation.currency)}`}>
-            <span className="h-full bg-emerald-600" style={{ width: `${payoutShare}%` }} />
-            <span className="h-full bg-neutral-300" style={{ width: `${100 - payoutShare}%` }} />
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-500">
-            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />Property <strong className="font-bold tabular-nums text-neutral-800">{money(marketplace.ownerPayout, reservation.currency)}</strong></span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-neutral-300" aria-hidden="true" />NoLSAF <strong className="font-bold tabular-nums text-neutral-800">{money(marketplace.commissionAmount, reservation.currency)}</strong></span>
-          </div>
+        <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-white" role="img" aria-label={`Property ${money(marketplace.ownerPayout, reservation.currency)}, NoLSAF ${money(marketplace.commissionAmount, reservation.currency)}`}>
+          <span className="h-full bg-emerald-600" style={{ width: `${payoutShare}%` }} />
+          <span className="h-full bg-slate-300" style={{ width: `${100 - payoutShare}%` }} />
         </div>
       )}
     </div>
 
-    <div className="border-0 border-t border-solid border-neutral-100 px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="m-0 text-xs font-bold text-neutral-900">Payout progress</p>
-        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize ring-1 ring-inset ${statusTone}`}>{ownerDisbursementLabel}</span>
+    <dl className="m-0 space-y-2 px-4 py-3.5 text-[13px]">
+      <div className="flex items-baseline justify-between gap-3">
+        <dt className="text-slate-500">Guest paid</dt>
+        <dd className="m-0 font-semibold tabular-nums text-slate-800">{money(marketplace.customerPaidTotal, reservation.currency)}</dd>
       </div>
-      <ol className="m-0 mt-4 grid list-none grid-cols-4 p-0" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
+      {hasAccommodationCommission && (
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-slate-500">NoLSAF fee{marketplace.commissionPercent != null ? ` · ${percentText(marketplace.commissionPercent)}` : ""}</dt>
+          <dd className="m-0 font-semibold tabular-nums text-slate-800">&minus;{money(marketplace.commissionAmount, reservation.currency)}</dd>
+        </div>
+      )}
+      {transport > 0 && (
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-slate-500">Transport</dt>
+          <dd className="m-0 font-semibold tabular-nums text-slate-800">&minus;{money(transport, reservation.currency)}</dd>
+        </div>
+      )}
+      <div className="flex items-baseline justify-between gap-3 border-0 border-t border-dashed border-slate-200 pt-2">
+        <dt className="font-semibold text-slate-700">Room payout</dt>
+        <dd className="m-0 font-bold tabular-nums text-emerald-700">{money(marketplace.ownerPayout, reservation.currency)}</dd>
+      </div>
+      {hasAccommodationCommission && <p className="m-0 text-[11px] leading-4 text-slate-400">The fee is added on top of your room rate, so the payout is your full rate.</p>}
+    </dl>
+
+    <div className="border-0 border-t border-solid border-slate-100 px-4 py-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="m-0 text-xs font-bold text-slate-900">Payout progress</p>
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-bold capitalize ring-1 ring-inset ${statusTone}`}>{ownerDisbursementLabel}</span>
+      </div>
+      <ol className="m-0 mt-3 list-none space-y-0 p-0" aria-label={`Owner payout status: ${ownerDisbursementLabel}`}>
         {ownerWorkflowStages.map((stage, index) => {
           const reached = ownerWorkflowRank >= index + 1;
           const current = index === currentStage;
-          const nextReached = ownerWorkflowRank >= index + 2;
-          return <li key={stage} className="relative flex min-w-0 flex-col items-center gap-1.5 text-center">
-            {index < ownerWorkflowStages.length - 1 && (
-              <span className={`absolute left-[calc(50%+14px)] right-[calc(-50%+14px)] top-[11px] h-0.5 rounded-full ${nextReached ? "bg-emerald-500" : "bg-neutral-200"}`} aria-hidden="true" />
-            )}
-            <span className={`relative flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${reached ? "bg-emerald-600 text-white" : current ? "bg-white text-emerald-700 ring-2 ring-emerald-500" : "bg-neutral-100 text-neutral-400"}`}>
+          const last = index === ownerWorkflowStages.length - 1;
+          return <li key={stage} className="relative flex items-start gap-3 pb-3 last:pb-0">
+            {!last && <span className={`absolute left-[11px] top-6 h-[calc(100%-18px)] w-0.5 rounded-full ${ownerWorkflowRank >= index + 2 ? "bg-emerald-500" : "bg-slate-200"}`} aria-hidden="true" />}
+            <span className={`relative grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold ${reached ? "bg-emerald-600 text-white" : current ? "bg-white text-emerald-700 ring-2 ring-emerald-500" : "bg-slate-100 text-slate-400"}`}>
               {reached ? <Check className="h-3.5 w-3.5" /> : index + 1}
             </span>
-            <span className={`truncate text-[11px] font-semibold ${reached ? "text-neutral-900" : current ? "text-emerald-700" : "text-neutral-400"}`}>{stage}</span>
+            <span className={`pt-0.5 text-xs font-semibold ${reached ? "text-slate-900" : current ? "text-emerald-700" : "text-slate-400"}`}>
+              {stage}{current ? <span className="ml-1.5 font-medium text-slate-400">next</span> : null}
+            </span>
           </li>;
         })}
       </ol>
     </div>
 
-    <footer className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-0 border-t border-solid border-neutral-100 bg-neutral-50 px-5 py-3 text-[11px] text-neutral-500">
-      <span>Incidentals on NRMS folio <strong className="font-bold tabular-nums text-neutral-800">{money(reservation.chargesTotal ?? 0, reservation.currency)}</strong> · collected by the property</span>
-      {marketplace.receiptNumber && <span className="font-mono text-neutral-400">{marketplace.receiptNumber}</span>}
+    <footer className="space-y-1 border-0 border-t border-solid border-slate-100 bg-slate-50 px-4 py-3 text-[11px] text-slate-500">
+      <p className="m-0 flex items-baseline justify-between gap-3">
+        <span>Extras on the NRMS folio</span>
+        <strong className="font-bold tabular-nums text-slate-800">{money(reservation.chargesTotal ?? 0, reservation.currency)}</strong>
+      </p>
+      <p className="m-0 text-[10.5px] text-slate-400">Collected by the property, not NoLSAF.</p>
+      {(marketplace.invoiceNumber ?? marketplace.reference) && <p className="m-0 truncate font-mono text-[10.5px] text-slate-400">{marketplace.invoiceNumber ?? marketplace.reference}{marketplace.receiptNumber ? ` · ${marketplace.receiptNumber}` : ""}</p>}
     </footer>
   </section>;
 }

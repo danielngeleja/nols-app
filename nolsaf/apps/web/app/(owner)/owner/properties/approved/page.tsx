@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import apiClient from "@/lib/apiClient";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
-import PropertyPreview from "@/components/PropertyPreview";
+import OwnerPropertyView from "@/components/owner-property/OwnerPropertyView";
 import { 
   MapPin,
   Star,
@@ -227,9 +227,10 @@ export default function ApprovedProps() {
   // If a property is selected, show PropertyPreview
   if (selectedPropertyId) {
     return (
-      <PropertyPreview
+      <OwnerPropertyView
         propertyId={selectedPropertyId}
-        mode="owner"
+        slug={list.find((p: any) => p.id === selectedPropertyId)?.slug ?? null}
+        onBack={() => setSelectedPropertyId(null)}
         onUpdated={() => {
           // Reload properties after update
           api.get<any>("/api/owner/properties/mine", { params: { status: "APPROVED" } })

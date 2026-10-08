@@ -153,113 +153,30 @@ export default function InvoiceView() {
     return Number.isFinite(p) ? p : 0;
   })();
 
-  const downloadInvoicePDF = async () => {
-    const container = document.getElementById("owner-invoice-pdf");
-    if (!container) throw new Error("Missing invoice container");
-
-    const html2pdfModule: any = await import("html2pdf.js");
-    const h2p = html2pdfModule?.default || html2pdfModule;
-    if (!h2p) throw new Error("html2pdf load failed");
-
-    const filename = `${String(invNumber || `invoice-${String(inv?.id ?? "")}`).replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`;
-    await h2p()
-      .from(container)
-      .set({
-        filename,
-        margin: 10,
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        html2canvas: { scale: Math.max(1, window.devicePixelRatio || 1) },
-      })
-      .save();
-  };
-
-  const downloadReceiptPDF = async () => {
-    const html2pdfModule: any = await import("html2pdf.js");
-    const h2p = html2pdfModule?.default || html2pdfModule;
-    if (!h2p) throw new Error("html2pdf load failed");
-
-    const receiptUrl = `${window.location.origin}/owner/revenue/receipts/${inv.id}`;
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.style.opacity = "0";
-    iframe.src = receiptUrl;
-
-    const waitForLoad = new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => reject(new Error("Receipt preview timed out")), 20000);
-      iframe.onload = () => {
-        window.clearTimeout(timeout);
-        resolve();
-      };
-      iframe.onerror = () => {
-        window.clearTimeout(timeout);
-        reject(new Error("Failed to load receipt preview"));
-      };
-    });
-
-    document.body.appendChild(iframe);
-    try {
-      await waitForLoad;
-
-      const start = Date.now();
-      while (Date.now() - start < 20000) {
-        const doc = iframe.contentDocument;
-        const root = doc?.getElementById("receipt-root");
-        if (root?.getAttribute("data-receipt-ready") === "true") break;
-        await new Promise((r) => setTimeout(r, 150));
-      }
-
-      // Give images/fonts a moment to finish painting.
-      await new Promise((r) => setTimeout(r, 500));
-
-      // Wait for QR code to render (generated async via useEffect)
-      const receiptDoc = iframe.contentDocument;
-      const qrStart = Date.now();
-      while (Date.now() - qrStart < 8000) {
-        const qrImg = receiptDoc?.querySelector('.qr-box img, [alt="Receipt QR"]') as HTMLImageElement | null;
-        if (qrImg?.src && qrImg.complete && qrImg.naturalWidth > 0) break;
-        await new Promise((r) => setTimeout(r, 300));
-      }
-      // Extra settle time after QR loads
-      await new Promise((r) => setTimeout(r, 300));
-
-      const receiptCard = receiptDoc?.getElementById("receipt-card") || receiptDoc?.body;
-      if (!receiptCard) throw new Error("Receipt content not available");
-
-      const receiptNumber = String(inv?.receiptNumber ?? "");
-      const safeBase = receiptNumber || invNumber || `receipt-${String(inv?.id ?? "")}`;
-      const filename = `${safeBase.replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`;
-
-      await h2p()
-        .from(receiptCard)
-        .set({
-          filename,
-          margin: 0,
-          image: { type: "jpeg", quality: 0.98 },
-          jsPDF: { unit: "mm", format: [148, 210], orientation: "portrait" },
-          html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-          pagebreak: { mode: ["avoid-all", "css", "legacy"] },
-        })
-        .save();
-    } finally {
-      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-    }
-  };
-
+  // Both documents come from the server in the owner document family
+  // (pdfDocuments.ts), so the download matches what NoLSAF issues everywhere:
+  // the accommodation invoice while the claim is open, the payout receipt once paid.
   const downloadPDF = async () => {
     if (pdfBusy) return;
     setPdfBusy(true);
     try {
-      if (hasReceipt) {
-        await downloadReceiptPDF();
-      } else {
-        await downloadInvoicePDF();
-      }
+      const path = hasReceipt
+        ? `/api/owner/revenue/invoices/${inv.id}/receipt.pdf`
+        : `/api/owner/invoices/${encodeURIComponent(String(inv.invoiceReference ?? idParam))}/invoice.pdf`;
+      const response = await api.get(path, { responseType: "blob" });
+      const blob = new Blob([response.data], { type: "application/pdf" });
+      const base = hasReceipt ? String(inv?.receiptNumber || invNumber || "receipt") : String(invNumber || "invoice");
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${base.replace(/[^a-zA-Z0-9._-]+/g, "-")}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (e: any) {
-      console.error("PDF generation failed", e);
-      window.alert("Unable to generate PDF. Please try again.");
+      console.error("PDF download failed", e);
+      window.alert("The PDF could not be downloaded. Try again in a moment.");
     } finally {
       setPdfBusy(false);
     }

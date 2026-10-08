@@ -51,6 +51,7 @@ router.get("/", async (req, res) => {
       lifecycleExceptions,
       channelAlerts,
       stopSellRequests,
+      guestCodeRequests,
     ] = await Promise.all([
       prisma.invoice.findMany({
         where: { status: { in: ["APPROVED", "PROCESSING"] } },
@@ -170,6 +171,17 @@ router.get("/", async (req, res) => {
           },
         },
       }),
+      // Guest code requests the system could not send on its own. Empty until
+      // the guest_code_request migration is applied.
+      (prisma as any).guestCodeRequest.findMany({
+        where: { status: { in: ["NEEDS_REVIEW", "UNREACHABLE"] } },
+        orderBy: { createdAt: "asc" },
+        take: 50,
+        select: {
+          id: true, status: true, reason: true, createdAt: true,
+          booking: { select: { guestName: true, property: { select: { title: true } } } },
+        },
+      }).catch(() => [] as any[]),
     ]);
 
     const items: ActionCenterItem[] = [];
@@ -352,6 +364,27 @@ router.get("/", async (req, res) => {
         dueAt: iso(dueAt),
         detailHref: "/admin/nrms/channels",
         actionLabel: "Review request",
+        exposure: null,
+      });
+    }
+
+    for (const request of guestCodeRequests as any[]) {
+      // A guest may be standing at the desk: 30 minutes to act.
+      const dueAt = new Date(new Date(request.createdAt).getTime() + 30 * 60 * 1000);
+      const unreachable = request.status === "UNREACHABLE";
+      items.push({
+        id: `GUEST-CODE-${request.id}`,
+        category: "BOOKINGS",
+        severity: elevateWhenOverdue("HIGH", dueAt, now),
+        title: unreachable ? "Guest cannot be reached for their check-in code" : "Guest check-in code request needs checking",
+        summary: `${request.booking?.guestName || "A guest"} at ${request.booking?.property?.title || "a property"}. ${request.reason || ""}`.trim(),
+        subject: request.booking?.property?.title || "Booking",
+        sourceType: "GUEST_CODE_REQUEST",
+        sourceId: String(request.id),
+        createdAt: iso(new Date(request.createdAt)),
+        dueAt: iso(dueAt),
+        detailHref: "/admin/bookings/code-requests",
+        actionLabel: "Handle request",
         exposure: null,
       });
     }

@@ -32,6 +32,7 @@ import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisb
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
 import { startPayoutReleaseWorker } from "./payoutRelease.js";
+import { startGuestCodeRequestReminders } from "./guestCodeRequestReminders.js";
 import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
 import { startFinalizeTourCompletionWorker } from "./finalizeTourCompletion.js";
 
@@ -105,6 +106,8 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startTravellerTripReminders({ io });
       // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
       startExpireStaleBookings();
+      // Remind admins when a guest code request waits past 30 minutes.
+      startGuestCodeRequestReminders();
       // Expire group stay offers whose 24h deposit window has passed.
       startExpireGroupBookingDeposits();
       // Flip lapsed agent request-to-book holds to EXPIRED and free their rooms.

@@ -122,6 +122,49 @@ function ConfirmModal({
 }
 
 
+/**
+ * Every owner request to get this booking's check-in code back to the guest,
+ * and how it ended. The code itself is never part of a request.
+ */
+function GuestCodeHistory({ bookingId, card }: { bookingId: number; card: string }) {
+  const [rows, setRows] = useState<Array<{ id: number; status: string; channel: string | null; destinationMasked: string | null; reason: string | null; adminNote: string | null; resolvedBy: string | null; createdAt: string; owner: { name: string } | null }> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.get<any>("/api/admin/guest-code-requests", { params: { status: "ALL", bookingId, pageSize: 20 } })
+      .then((r) => { if (alive) setRows(r.data?.requests ?? []); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [bookingId]);
+  if (!rows || rows.length === 0) return null;
+  const label: Record<string, string> = { SENT: "Sent automatically", RESOLVED: "Resent by admin", NEEDS_REVIEW: "Needs checking", UNREACHABLE: "Guest unreachable", REJECTED: "Closed" };
+  const open = rows.some((row) => row.status === "NEEDS_REVIEW" || row.status === "UNREACHABLE");
+  return (
+    <section className={card}>
+      <div className="flex items-center justify-between gap-2 border-0 border-b border-solid border-neutral-200 px-4 py-3 sm:px-5">
+        <p className="m-0 text-sm font-bold text-neutral-900">Guest code requests</p>
+        {open ? <Link href="/admin/bookings/code-requests" className="rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-800 no-underline ring-1 ring-inset ring-amber-200">Needs action</Link> : null}
+      </div>
+      <ul className="m-0 list-none space-y-2 px-4 py-3 sm:px-5">
+        {rows.map((row) => (
+          <li key={row.id} className="rounded-xl bg-neutral-50 px-3 py-2.5 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold text-neutral-800">{label[row.status] ?? row.status}</span>
+              <span className="text-neutral-400">{new Date(row.createdAt).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} EAT</span>
+            </div>
+            <p className="m-0 mt-0.5 text-neutral-500">
+              Asked by {row.owner?.name ?? "the owner"}
+              {row.channel ? ` · ${row.channel === "SMS" ? "SMS" : "inbox"}${row.destinationMasked ? ` ${row.destinationMasked}` : ""}` : ""}
+              {row.resolvedBy ? ` · ${row.resolvedBy}` : ""}
+            </p>
+            {row.reason ? <p className="m-0 mt-0.5 text-amber-700">{row.reason}</p> : null}
+            {row.adminNote ? <p className="m-0 mt-0.5 text-neutral-600">Note: {row.adminNote}</p> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function AdminBookingDetail() {
   const params = useParams<{ id?: string | string[] }>();
   const idParam = Array.isArray(params?.id) ? params?.id?.[0] : params?.id;
@@ -540,6 +583,8 @@ export default function AdminBookingDetail() {
                 )}
               </div>
             </section>
+
+            {Number.isFinite(id) && id > 0 ? <GuestCodeHistory bookingId={id} card={card} /> : null}
 
             <section className={card}>
               {sectionHead(<User className="h-4 w-4" />, "Owner")}

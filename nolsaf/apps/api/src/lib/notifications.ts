@@ -6,6 +6,14 @@ import { prisma } from "@nolsaf/prisma";
 export async function notifyAdmins(template: string, data: any) {
   try {
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      booking_guest_code_overdue: {
+        title: "Guest code request still waiting",
+        body: `A guest check-in code request for booking ${data.bookingReference || ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} has waited ${data.minutesOpen || 30} minutes. The guest may be at the desk now. Handle it under Bookings, guest code requests.`
+      },
+      booking_guest_code_review: {
+        title: "Guest check-in code needs checking",
+        body: `An owner asked NoLSAF to resend the guest check-in code for booking ${data.bookingReference || ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} (${data.reason || "needs checking"}). Handle it under Bookings, guest code requests.`
+      },
       careers_application_submitted: {
         title: "New Career Application",
         body: `A new application was submitted${data.jobTitle ? ` for "${data.jobTitle}"` : ""}${data.fullName ? ` by ${data.fullName}` : ""}${data.email ? ` (${data.email})` : ""}.`
@@ -205,6 +213,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
   try {
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      guest_code_request_resolved: {
+        title: "Guest check-in code resent",
+        body: `NoLSAF resent the check-in code to the guest for booking ${data.bookingReference || ""}${data.destinationMasked ? ` (${data.destinationMasked})` : ""}. Ask the guest to show it at the desk.`
+      },
+      guest_code_request_rejected: {
+        title: "Guest code request closed",
+        body: `NoLSAF did not resend the check-in code for booking ${data.bookingReference || ""}${data.note ? `: ${data.note}` : "."}`
+      },
       nrms_agent_booking_request: {
         title: "New agent booking request",
         body: `${data.agencyName || "A travel agent"} requested to book ${data.rooms || 1} room(s) at "${data.propertyTitle || "your property"}" (${data.checkIn || ""} to ${data.checkOut || ""}). Review it in Travel agents before the hold expires.`

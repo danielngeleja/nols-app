@@ -1,11 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
+import GuestCodeRequestDialog from "@/components/owner-bookings/GuestCodeRequestDialog";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, ArrowRight, BedDouble, CalendarCheck2, CalendarClock, CalendarX2, CircleDollarSign,
   Clock, FileText, Globe2, Lock, LogOut, Phone, ScanLine, ShieldAlert, UserRound, Wallet,
+  KeyRound,
 } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
@@ -76,6 +78,7 @@ export default function BookingDetail() {
   const [b, setB] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadedAt, setLoadedAt] = useState(0);
+  const [lostCodeOpen, setLostCodeOpen] = useState(false);
   const [invMeta, setInvMeta] = useState<{
     exists: boolean; invoiceId: number | null; invoiceReference?: string | null; status?: string | null;
   } | null>(null);
@@ -343,6 +346,16 @@ export default function BookingDetail() {
               </Link>
             ))}
 
+            {tone.key === "await" && b.bookingReference && (
+              <button
+                type="button"
+                onClick={() => setLostCodeOpen(true)}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-solid border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <KeyRound className="h-4 w-4" aria-hidden /> Guest lost their code?
+              </button>
+            )}
+
             {(isCheckedIn || tone.key === "out") && (
               <Link
                 href="/owner/payouts/in-progress"
@@ -373,6 +386,11 @@ export default function BookingDetail() {
           </div>
         </div>
       </article>
+      <GuestCodeRequestDialog
+        open={lostCodeOpen}
+        onClose={() => setLostCodeOpen(false)}
+        preset={b.bookingReference ? { bookingReference: b.bookingReference, guestName, property: b.property?.title ?? null, checkIn: b.checkIn } : null}
+      />
     </div>
   );
 }

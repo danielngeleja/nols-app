@@ -7,8 +7,6 @@ import { AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../m
 import { hideOwnerCheckinCode, redactOwnerCheckinCode } from "../lib/ownerCheckinCodePrivacy.js";
 import { presentedCheckinCode } from "../lib/ownerCheckinProof.js";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
-import { sendSms } from "../lib/sms.js";
-import { sendMail } from "../lib/mailer.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount, extractOwnerPayoutFromAccommodationGross } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
@@ -21,6 +19,7 @@ import {
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
 import { syncNoLsafBookingToNrms, updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { deliverGuestCheckinCode, recordGuestCodeRequest } from "../lib/guestCodeRequests.js";
 import {
   customerBookingReference,
   isCustomerBookingReference,
@@ -93,15 +92,31 @@ const requestCodeLimiter = rateLimit({
   message: { error: "Too many guest code requests. Please try later." },
 });
 
-/** Recover a lost code only to the booking's guest contact. The owner never receives it. */
+/** Accepts the opaque bk_ reference or a legacy numeric id, scoped to this owner's bookings. */
+async function resolveOwnerBookingId(ownerId: number, raw: unknown): Promise<number | null> {
+  const value = String(raw ?? "").trim();
+  if (/^\d+$/.test(value)) return Number(value);
+  if (!isCustomerBookingReference(value)) return null;
+  const candidates = await prisma.booking.findMany({ where: { property: { ownerId } }, select: { id: true } });
+  return candidates.find((candidate) => matchesCustomerBookingReference(value, candidate.id))?.id ?? null;
+}
+
+/**
+ * Recover a lost code only to the booking's guest contact. The owner never
+ * receives it. Every request is recorded; the cases the system must not decide
+ * on its own (owner and guest contacts overlap, or no guest contact works) go
+ * to NoLSAF's guest code queue instead of ending in a dead end.
+ */
 router.post("/:id/request-code", blockImpersonated as RequestHandler, requestCodeLimiter, (async (req: AuthedRequest, res: Response) => {
-  const id = Number(req.params.id);
-  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid booking" });
+  const ownerId = req.user!.id;
+  const id = await resolveOwnerBookingId(ownerId, req.params.id);
+  if (!id || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid booking" });
   const booking = await prisma.booking.findFirst({
-    where: { id, property: { ownerId: req.user!.id } },
+    where: { id, property: { ownerId } },
     select: {
-      id: true, status: true, guestPhone: true, guestEmail: true, userId: true,
+      id: true, status: true, guestPhone: true, guestName: true, userId: true, checkIn: true, checkOut: true,
       user: { select: { phone: true, email: true } },
+      property: { select: { title: true } },
       code: { select: { status: true, code: true } },
     },
   });
@@ -109,18 +124,10 @@ router.post("/:id/request-code", blockImpersonated as RequestHandler, requestCod
   if (!booking.code || booking.code.status !== "ACTIVE" || !["CONFIRMED", "PENDING_CHECKIN"].includes(booking.status)) {
     return res.status(409).json({ error: "This booking is not awaiting check-in" });
   }
-  const [owner, destinations] = await Promise.all([
-    prisma.user.findUnique({ where: { id: req.user!.id }, select: { phone: true, email: true } }),
-    prisma.payoutAccount.findMany({ where: { userId: req.user!.id }, select: { accountNumber: true } }),
-  ]);
-  const phoneKey = (phone: string | null | undefined) => String(phone || "").replace(/\D/g, "").slice(-9);
-  const ownerPhones = new Set([owner?.phone, ...destinations.map((d) => d.accountNumber)].map(phoneKey).filter(Boolean));
-  const guestPhones = [booking.guestPhone, booking.user?.phone].map(phoneKey).filter(Boolean);
-  const ownerEmail = String(owner?.email || "").trim().toLowerCase();
-  const guestEmails = [booking.guestEmail, booking.user?.email].map((e) => String(e || "").trim().toLowerCase()).filter(Boolean);
-  if (booking.userId === req.user!.id || guestPhones.some((p) => ownerPhones.has(p)) ||
-      (ownerEmail && guestEmails.includes(ownerEmail))) {
-    return res.status(409).json({ error: "Guest and owner contacts overlap. NoLSAF support must verify this booking." });
+  // A late guest can still check in up to the check-out day; after that the
+  // code no longer validates, so sending it would only confuse the guest.
+  if (getBookingValidationWindowStatus(new Date(booking.checkIn), new Date(booking.checkOut), new Date()).status === "AFTER_CHECKOUT") {
+    return res.status(409).json({ error: "This stay has already ended, so the code can no longer be used." });
   }
   const recent = await prisma.auditLog.findFirst({
     where: { entity: "BOOKING", entityId: id, action: "OWNER_REQUESTED_GUEST_CHECKIN_CODE", createdAt: { gte: new Date(Date.now() - 10 * 60_000) } },
@@ -128,53 +135,90 @@ router.post("/:id/request-code", blockImpersonated as RequestHandler, requestCod
   });
   if (recent) return res.status(429).json({ error: "A request was sent recently. Please wait 10 minutes." });
 
-  const message = `NoLSAF: Your property has asked you to present the check-in code for booking ${customerBookingReference(id)}. Find it in My Bookings or your booking message. Show it only if you are checking in. If unexpected, contact NoLSAF support.`;
-  const guestDelivery = `${message}\nYour check-in code: ${booking.code.code}`;
-  let channel: "IN_APP" | "SMS" | "EMAIL" | null = null;
-  if (booking.userId) {
-    try {
-      await prisma.notification.create({ data: {
-        userId: booking.userId,
-        title: "Present your check-in code",
-        body: message,
-        type: "booking",
-        unread: true,
-        meta: { bookingId: id, kind: "guest_checkin_code_requested" },
-      } });
-      channel = "IN_APP";
-    } catch (err: any) {
-      console.warn("[owner-booking] guest inbox request failed", { bookingId: id, message: err?.message });
-    }
+  const audit = (afterJson: Record<string, unknown>) =>
+    prisma.auditLog.create({ data: { actorId: ownerId, actorRole: "OWNER", action: "OWNER_REQUESTED_GUEST_CHECKIN_CODE", entity: "BOOKING", entityId: id, afterJson: { ...afterJson, codeShared: false } as any } });
+  const reference = customerBookingReference(id);
+
+  const [owner, destinations] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ownerId }, select: { phone: true, email: true } }),
+    prisma.payoutAccount.findMany({ where: { userId: ownerId }, select: { accountNumber: true } }),
+  ]);
+  const phoneKey = (phone: string | null | undefined) => String(phone || "").replace(/\D/g, "").slice(-9);
+  const ownerPhones = new Set([owner?.phone, ...destinations.map((d) => d.accountNumber)].map(phoneKey).filter(Boolean));
+  const guestPhones = [booking.guestPhone, booking.user?.phone].map(phoneKey).filter(Boolean);
+  const ownerEmail = String(owner?.email || "").trim().toLowerCase();
+  const guestEmails = [booking.user?.email].map((e) => String(e || "").trim().toLowerCase()).filter(Boolean);
+  if (booking.userId === ownerId || guestPhones.some((p) => ownerPhones.has(p)) || (ownerEmail && guestEmails.includes(ownerEmail))) {
+    const request = await recordGuestCodeRequest({ bookingId: id, ownerId, status: "NEEDS_REVIEW", reason: "The guest's contact matches the owner's own contact" });
+    await audit({ outcome: "NEEDS_REVIEW", requestId: request?.id ?? null });
+    void notifyAdmins("booking_guest_code_review", { bookingId: id, bookingReference: reference, propertyTitle: booking.property?.title ?? null, reason: "contacts overlap" });
+    return res.status(202).json({
+      ok: true,
+      status: "NEEDS_REVIEW",
+      message: "Sent to NoLSAF for checking. The guest's contact matches yours, so our team confirms the guest before resending the code. You will be notified.",
+    });
   }
-  // Recovery goes only to the contact captured on this booking. A later
-  // account-contact change must not redirect a guest-held check-in secret.
-  const phone = booking.guestPhone;
-  if (phone) {
-    try {
-      const result = await sendSms(phone, guestDelivery, { bypassEligibilityCheck: true, sensitiveContent: true });
-      if (result.success && result.provider && !["suppressed", "console"].includes(result.provider)) channel = "SMS";
-    } catch (err: any) {
-      console.warn("[owner-booking] guest SMS request failed", { bookingId: id, message: err?.message });
-    }
+
+  const delivered = await deliverGuestCheckinCode({ id, userId: booking.userId, guestPhone: booking.guestPhone, code: { code: booking.code.code } });
+  if (!delivered.channel) {
+    const request = await recordGuestCodeRequest({ bookingId: id, ownerId, status: "UNREACHABLE", reason: booking.guestPhone ? "The guest's phone could not be reached" : "The booking has no guest phone or NoLSAF account" });
+    await audit({ outcome: "UNREACHABLE", requestId: request?.id ?? null });
+    void notifyAdmins("booking_guest_code_review", { bookingId: id, bookingReference: reference, propertyTitle: booking.property?.title ?? null, reason: "guest unreachable" });
+    return res.status(202).json({
+      ok: true,
+      status: "UNREACHABLE",
+      message: "The guest could not be reached, so NoLSAF will contact them and resend the code. You will be notified.",
+    });
   }
-  if (channel !== "SMS") {
-    const email = booking.guestEmail;
-    if (email) {
-      try {
-        const result = await sendMail(email, "Present your NoLSAF check-in code", `<p>${guestDelivery.replace(/\n/g, "<br />")}</p>`, undefined,
-          { bypassEligibilityCheck: true, sensitiveContent: true });
-        if (result.success && !["suppressed", "console"].includes(result.provider)) channel = "EMAIL";
-      } catch (err: any) {
-        console.warn("[owner-booking] guest email request failed", { bookingId: id, message: err?.message });
-      }
-    }
+
+  const request = await recordGuestCodeRequest({ bookingId: id, ownerId, status: "SENT", channel: delivered.channel, destinationMasked: delivered.destinationMasked });
+  await audit({ outcome: "SENT", channel: delivered.channel, requestId: request?.id ?? null });
+  return res.json({
+    ok: true,
+    status: "SENT",
+    channel: delivered.channel,
+    destinationMasked: delivered.destinationMasked,
+    message: delivered.channel === "SMS"
+      ? `The code was sent to the guest by SMS (${delivered.destinationMasked}). Ask them to show it at the desk.`
+      : "The guest was told in their NoLSAF inbox to show the code from My Bookings.",
+  });
+}) as RequestHandler);
+
+/** The owner's recent guest code requests and how each ended. Never includes a code. */
+router.get("/code-requests", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const rows = await (prisma as any).guestCodeRequest.findMany({
+      where: { ownerId: req.user!.id, createdAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      select: {
+        id: true, status: true, channel: true, destinationMasked: true, reason: true, resolution: true, adminNote: true, createdAt: true, resolvedAt: true,
+        booking: { select: { id: true, guestName: true, checkIn: true, property: { select: { title: true } } } },
+      },
+    });
+    return res.json({
+      requests: rows.map((row: any) => ({
+        id: row.id,
+        status: row.status,
+        channel: row.channel,
+        destinationMasked: row.destinationMasked,
+        reason: row.reason,
+        resolution: row.resolution,
+        adminNote: row.adminNote,
+        createdAt: row.createdAt,
+        resolvedAt: row.resolvedAt,
+        booking: {
+          reference: customerBookingReference(row.booking.id),
+          guestName: row.booking.guestName,
+          checkIn: row.booking.checkIn,
+          propertyTitle: row.booking.property?.title ?? null,
+        },
+      })),
+    });
+  } catch {
+    // Before the migration is applied there is simply no history to show.
+    return res.json({ requests: [] });
   }
-  if (!channel) return res.status(503).json({ error: "The guest could not be reached. Contact NoLSAF support." });
-  await prisma.auditLog.create({ data: {
-    actorId: req.user!.id, actorRole: "OWNER", action: "OWNER_REQUESTED_GUEST_CHECKIN_CODE", entity: "BOOKING", entityId: id,
-    afterJson: { channel, codeShared: false },
-  } });
-  return res.json({ ok: true, message: "The guest was asked to present their code. Any resend went only to the guest's booking contact." });
 }) as RequestHandler);
 
 /** PREVIEW: validate code and return all details (no state change) */

@@ -879,6 +879,52 @@ router.patch("/:id/currency", (async (req: AuthedRequest, res) => {
   }
 }) as RequestHandler);
 
+// ---------- SET ONE ROOM PRICE ----------
+// A price change on a live listing must not unpublish it. The full PUT below
+// reverts an APPROVED listing to DRAFT (any edit needs review); a price is the
+// owner's commercial decision, exactly like the currency above, so only the
+// room's price and discount change and the status stays as it is.
+router.patch("/:id/room-price", (async (req: AuthedRequest, res) => {
+  try {
+    const ownerId = req.user!.id;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+    const parsed = z.object({
+      roomIndex: z.number().int().min(0),
+      pricePerNight: z.number().positive().max(100_000_000),
+      discountPercent: z.number().min(0).max(90).nullable().optional(),
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Enter a price above zero and a discount between 0 and 90%" });
+
+    const exists = await prisma.property.findFirst({ where: { id, ownerId }, select: { id: true, roomsSpec: true } });
+    if (!exists) return res.status(404).json({ error: "Property not found" });
+    const spec = typeof exists.roomsSpec === "string" ? JSON.parse(exists.roomsSpec as any) : exists.roomsSpec;
+    if (!Array.isArray(spec) || parsed.data.roomIndex >= spec.length) return res.status(400).json({ error: "Room not found" });
+
+    const before = spec[parsed.data.roomIndex];
+    const discount = parsed.data.discountPercent && parsed.data.discountPercent > 0 ? parsed.data.discountPercent : null;
+    const nextSpec = spec.map((room: any, index: number) =>
+      index === parsed.data.roomIndex ? { ...room, pricePerNight: parsed.data.pricePerNight, price: parsed.data.pricePerNight, discountPercent: discount } : room,
+    );
+    await prisma.property.update({ where: { id }, data: { roomsSpec: ensureRoomsSpecCodes(nextSpec) as any } });
+    await invalidateCache(cacheKeys.property(id)).catch(() => {});
+    await auditLog({
+      actorId: ownerId,
+      actorRole: req.user!.role,
+      action: "PROPERTY_ROOM_PRICE_SET",
+      entity: "PROPERTY",
+      entityId: id,
+      before: { room: before?.roomType ?? null, pricePerNight: before?.pricePerNight ?? null, discountPercent: before?.discountPercent ?? null },
+      after: { room: before?.roomType ?? null, pricePerNight: parsed.data.pricePerNight, discountPercent: discount },
+      ip: req.ip,
+      ua: req.headers["user-agent"] as string,
+    });
+    res.json({ ok: true, roomIndex: parsed.data.roomIndex, pricePerNight: parsed.data.pricePerNight, discountPercent: discount });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? "Failed to update the room price" });
+  }
+}) as RequestHandler);
+
 // ---------- UPDATE ----------
 router.put("/:id", (async (req: AuthedRequest, res) => {
   try {

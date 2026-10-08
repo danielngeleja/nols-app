@@ -1066,6 +1066,181 @@ export async function generateOwnerDisbursementPdf(data: OwnerDisbursementData):
   }, { size: "A5", margin });
 }
 
+// ─── 3b. Owner accommodation invoice (claim) ───────────────────────────────────
+
+export interface OwnerClaimInvoiceData {
+  invoiceNumber: string;
+  issuedAt: Date | string | null;
+  /** Where the claim stands, written for the owner, e.g. "Sent to NoLSAF". */
+  statusLabel: string;
+  statusTone: "draft" | "progress" | "paid" | "rejected";
+  ownerName: string;
+  ownerPhone?: string | null;
+  ownerAddress?: string | null;
+  billTo: { name: string; email?: string | null; address?: string | null };
+  propertyName: string;
+  bookingCode?: string | null;
+  checkIn: Date | string | null;
+  checkOut: Date | string | null;
+  lineDescription: string;
+  subtotal: number | string;
+  taxPercent?: number | string | null;
+  taxAmount?: number | string | null;
+  total: number | string;
+  currency?: string;
+  timeZone?: string;
+}
+
+/**
+ * The owner's accommodation invoice to NoLSAF, in the same A5 family as the
+ * owner payout receipt (generateOwnerDisbursementPdf): masthead, teal rule,
+ * amount card, labelled fact cards, footer zone with barcode. The owner is the
+ * issuer and NoLSAF the party billed; NoLSAF appears as the generator in the
+ * footer. Owners see their payout only, never the platform commission.
+ */
+export async function generateOwnerClaimInvoicePdf(data: OwnerClaimInvoiceData): Promise<Buffer> {
+  const pageWidth = 419.53;
+  const pageHeight = 595.28;
+  const margin = 34;
+  const width = pageWidth - margin * 2;
+  const cur = data.currency || "TZS";
+  const timeZone = data.timeZone || "Africa/Dar_es_Salaam";
+  const money = (value: number | string | null | undefined) =>
+    `${cur} ${Number(value ?? 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const dateOnly = (value: Date | string | null) =>
+    value ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone }) : "Not recorded";
+  const nights = data.checkIn && data.checkOut
+    ? Math.max(1, Math.ceil((new Date(data.checkOut).getTime() - new Date(data.checkIn).getTime()) / 86400000))
+    : null;
+  const tone = {
+    draft: { bg: "#f1f5f9", fg: "#475569" },
+    progress: { bg: "#e0f2fe", fg: "#075985" },
+    paid: { bg: "#dcfce7", fg: "#166534" },
+    rejected: { bg: "#fee2e2", fg: "#991b1b" },
+  }[data.statusTone];
+
+  return buildBuffer((doc) => {
+    const fonts = registerNrmsFonts(doc);
+    let y = margin;
+
+    // Masthead: the owner issues this invoice.
+    doc.font(fonts.bold).fontSize(14).fillColor(TEXT_MAIN).text(data.ownerName, margin, y, { width: width - 150, height: 18, ellipsis: true });
+    const contact = [data.ownerPhone, data.ownerAddress].filter(Boolean).join("  ·  ");
+    if (contact) doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text(contact, margin, y + 20, { width: width - 150, height: 10, ellipsis: true });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED).text(`Property owner, ${data.propertyName}`, margin, y + 33, { width: width - 150, height: 10, ellipsis: true });
+    doc.font(fonts.bold).fontSize(16).fillColor(TEAL).text("INVOICE", margin, y, { width, align: "right", lineBreak: false });
+    doc.font("Courier-Bold").fontSize(8).fillColor(TEXT_MAIN).text(data.invoiceNumber, margin, y + 24, { width, align: "right", lineBreak: false });
+    y += 58;
+    doc.strokeColor(TEAL).lineWidth(1.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+    y += 14;
+
+    // Amount card: what the owner is claiming, and where the claim stands.
+    const cardH = 76;
+    doc.roundedRect(margin, y, width, cardH, 6).fillAndStroke("#f7fbfa", BORDER);
+    doc.font(fonts.bold).fontSize(7).fillColor(TEAL).text("TOTAL PAYOUT CLAIMED", margin + 12, y + 11, { characterSpacing: 0.8, lineBreak: false });
+    doc.font(fonts.bold).fontSize(22).fillColor(TEXT_MAIN).text(money(data.total), margin + 12, y + 27, { width: width - 24, lineBreak: false });
+    doc.font(fonts.bold).fontSize(7.5);
+    const chipW = doc.widthOfString(data.statusLabel) + 16;
+    doc.roundedRect(margin + 12, y + 54, chipW, 15, 4).fill(tone.bg);
+    doc.fillColor(tone.fg).text(data.statusLabel, margin + 12, y + 58, { width: chipW, align: "center", lineBreak: false });
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MUTED)
+      .text(`Issued ${dateOnly(data.issuedAt)}`, margin + 20 + chipW, y + 58, { width: width - chipW - 40, lineBreak: false });
+    y += cardH + 16;
+
+    const section = (title: string) => {
+      doc.font(fonts.bold).fontSize(8).fillColor(TEAL).text(title, margin, y, { characterSpacing: 0.8, lineBreak: false });
+      y += 16;
+    };
+    type Fact = { label: string; value: string | null | undefined; mono?: boolean };
+    const ROW_H = 34;
+    const PAD = 12;
+    const factCard = (rows: Array<[Fact, Fact?]>) => {
+      const cardHeight = rows.length * ROW_H;
+      const half = width / 2;
+      doc.roundedRect(margin, y, width, cardHeight, 6).fillAndStroke(RCPT_BG, BORDER);
+      rows.forEach(([leftFact, rightFact], index) => {
+        const rowY = y + index * ROW_H;
+        if (index > 0) doc.strokeColor(RCPT_BORDER).lineWidth(0.6).moveTo(margin + PAD, rowY).lineTo(margin + width - PAD, rowY).stroke();
+        if (rightFact) doc.strokeColor(RCPT_BORDER).lineWidth(0.6).moveTo(margin + half, rowY + 7).lineTo(margin + half, rowY + ROW_H - 7).stroke();
+        const draw = (fact: Fact, x: number, cellW: number) => {
+          doc.font(fonts.bold).fontSize(6.2).fillColor(RCPT_LABEL).text(fact.label.toUpperCase(), x, rowY + 8, { width: cellW, characterSpacing: 0.8, lineBreak: false });
+          if (!fact.value || fact.value === "Not recorded") {
+            doc.font(fonts.regular).fontSize(8.5).fillColor(TEXT_MUTED).text("Not recorded", x, rowY + 18, { width: cellW, lineBreak: false });
+          } else {
+            doc.font(fact.mono ? "Courier" : fonts.bold).fontSize(fact.mono ? 8 : 9).fillColor(RCPT_VALUE)
+              .text(String(fact.value), x, rowY + 18, { width: cellW, height: 12, ellipsis: true });
+          }
+        };
+        draw(leftFact, margin + PAD, rightFact ? half - PAD * 2 : width - PAD * 2);
+        if (rightFact) draw(rightFact, margin + half + PAD, half - PAD * 2);
+      });
+      y += cardHeight;
+    };
+
+    section("BILLED TO");
+    factCard([
+      [{ label: data.billTo.address ? `Company, ${data.billTo.address}` : "Company", value: data.billTo.name }, { label: "Email", value: data.billTo.email }],
+    ]);
+    y += 12;
+    section("STAY");
+    factCard([
+      [{ label: "Property", value: data.propertyName }, { label: "Booking code", value: data.bookingCode, mono: true }],
+      [
+        { label: "Dates", value: data.checkIn && data.checkOut ? `${dateOnly(data.checkIn)} to ${dateOnly(data.checkOut)}` : null },
+        { label: "Nights", value: nights ? `${nights} night${nights === 1 ? "" : "s"}` : null },
+      ],
+    ]);
+    y += 12;
+
+    // Line item and totals.
+    section("CHARGES");
+    const tableTop = y;
+    doc.roundedRect(margin, tableTop, width, 22, 6).fill(LIGHT_TEAL);
+    doc.font(fonts.bold).fontSize(6.5).fillColor(DARK)
+      .text("DESCRIPTION", margin + PAD, tableTop + 8, { characterSpacing: 0.8, lineBreak: false })
+      .text("AMOUNT", margin, tableTop + 8, { width: width - PAD, align: "right", characterSpacing: 0.8, lineBreak: false });
+    y = tableTop + 30;
+    doc.font(fonts.bold).fontSize(9).fillColor(TEXT_MAIN).text(data.lineDescription, margin + PAD, y, { width: width - 130, height: 24, ellipsis: true });
+    doc.font(fonts.bold).fontSize(9).fillColor(TEXT_MAIN).text(money(data.subtotal), margin, y, { width: width - PAD, align: "right", lineBreak: false });
+    y += 22;
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, y).lineTo(margin + width, y).stroke();
+    y += 8;
+    const totalRow = (label: string, value: string, strong = false) => {
+      doc.font(strong ? fonts.bold : fonts.regular).fontSize(strong ? 10 : 8.5).fillColor(strong ? TEAL : TEXT_MUTED)
+        .text(label, margin + width / 2 - 40, y + (strong ? 1 : 0), { width: 110, lineBreak: false });
+      doc.font(fonts.bold).fontSize(strong ? 11 : 8.5).fillColor(TEXT_MAIN)
+        .text(value, margin, y, { width: width - PAD, align: "right", lineBreak: false });
+      y += strong ? 18 : 14;
+    };
+    totalRow("Subtotal", money(data.subtotal));
+    if (Number(data.taxAmount ?? 0) > 0) totalRow(`Tax (${Number(data.taxPercent ?? 0)}%)`, money(data.taxAmount));
+    totalRow("Total payout", money(data.total), true);
+
+    // Watermark, as on the payout receipt.
+    doc.save();
+    doc.opacity(0.04).fillColor(TEAL).font(fonts.bold).fontSize(54);
+    doc.rotate(-32, { origin: [pageWidth / 2, pageHeight / 2] });
+    doc.text("INVOICE", 40, pageHeight / 2 - 30, { width: pageWidth - 80, align: "center", lineBreak: false });
+    doc.restore();
+
+    doc.page.margins.bottom = 0;
+    const noteY = Math.max(y + 8, pageHeight - 104);
+    doc.font(fonts.regular).fontSize(7.5).fillColor(TEXT_MAIN)
+      .text(
+        "Owner invoice to NoLSAF for this stay's accommodation payout, released once the stay is verified. Not a fiscal tax receipt.",
+        margin, noteY, { width, align: "center" },
+      );
+    const barcodeY = pageHeight - 71;
+    drawCode128Barcode(doc, data.invoiceNumber, margin + 91, barcodeY, width - 182, 23);
+    doc.font("Courier-Bold").fontSize(7).fillColor(TEXT_MAIN)
+      .text(data.invoiceNumber, margin, barcodeY + 27, { width, align: "center", lineBreak: false });
+    doc.strokeColor(BORDER).lineWidth(0.5).moveTo(margin, pageHeight - 31).lineTo(margin + width, pageHeight - 31).stroke();
+    doc.font(fonts.regular).fontSize(7).fillColor(TEXT_MUTED)
+      .text("Generated by NoLSAF  |  payments@nolsaf.com  |  nolsaf.com", margin, pageHeight - 24, { width, align: "center", lineBreak: false });
+    doc.page.margins.bottom = margin;
+  }, { size: "A5", margin });
+}
+
 // ─── 4. NRMS Guest Invoice ────────────────────────────────────────────────────
 
 /** Room labels for a document line, counted rather than repeated: a ten-room

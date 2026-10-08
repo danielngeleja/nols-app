@@ -683,6 +683,7 @@ model Booking {
   cancellationRequests CancellationRequest[]
   tripEstimates        TripEstimate[]
   payoutReleases       PayoutRelease[]
+  guestCodeRequests    GuestCodeRequest[]
 
   /// NRMS operational view of this marketplace booking (NRMS doc section 6.5).
   /// Booking remains the commercial source of truth; the linked Reservation only
@@ -10039,4 +10040,37 @@ model PayrollRemittance {
 
   @@unique([runId, key])
   @@map("payroll_remittance")
+}
+
+/// An owner asking NoLSAF to get a guest's check-in code back to the guest.
+/// The code only ever goes to the guest's booking contact; the owner never sees
+/// it. SENT: delivered automatically. NEEDS_REVIEW: owner and guest contacts
+/// overlap, so a person checks first. UNREACHABLE: no guest contact worked.
+/// RESOLVED / REJECTED: an admin closed it.
+model GuestCodeRequest {
+  id        Int @id @default(autoincrement())
+  bookingId Int
+  ownerId   Int
+
+  status            String  @default("SENT") @db.VarChar(20)
+  channel           String? @db.VarChar(10)
+  destinationMasked String? @db.VarChar(40)
+  reason            String? @db.VarChar(255)
+
+  resolution   String?   @db.VarChar(20)
+  adminNote    String?   @db.VarChar(500)
+  resolvedById Int?
+  resolvedAt   DateTime?
+  /// When admins were reminded that this request is still open past its target.
+  remindedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([bookingId])
+  @@index([ownerId, createdAt])
+  @@map("guest_code_request")
 }

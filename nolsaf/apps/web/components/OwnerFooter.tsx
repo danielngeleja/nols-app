@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, HeartPulse, ShieldCheck } from "lucide-react";
+import { BookOpen, LifeBuoy, RefreshCw } from "lucide-react";
 
 type HealthState = "checking" | "healthy" | "unavailable";
 
@@ -81,74 +82,102 @@ export default function OwnerFooter() {
     };
   }, [checkHealth]);
 
-  const checkedTime = lastCheckedAt?.toLocaleTimeString([], {
+  const checkedTime = lastCheckedAt?.toLocaleTimeString("en-GB", {
+    timeZone: "Africa/Dar_es_Salaam",
     hour: "2-digit",
     minute: "2-digit",
   });
-  const statusLabel =
-    health === "healthy" ? "Systems operational" : health === "checking" ? "Checking systems" : "Service check unavailable";
+  // Plain words for the owner: is NoLSAF reachable right now?
+  const status = {
+    healthy: { label: "All systems running", dot: "bg-emerald-500", text: "text-emerald-700", ring: "ring-emerald-200", bg: "bg-emerald-50" },
+    checking: { label: "Checking connection", dot: "bg-amber-400", text: "text-amber-700", ring: "ring-amber-200", bg: "bg-amber-50" },
+    unavailable: { label: "Can't reach NoLSAF", dot: "bg-rose-500", text: "text-rose-700", ring: "ring-rose-200", bg: "bg-rose-50" },
+  }[health];
   const statusTitle =
     health === "healthy"
-      ? `NoLSAF and database checks passed${checkedTime ? ` · checked ${checkedTime}` : ""}`
+      ? `NoLSAF and its database answered${checkedTime ? ` at ${checkedTime} EAT` : ""}`
       : health === "checking"
-        ? "Checking NoLSAF platform readiness"
-        : `NoLSAF readiness could not be confirmed${checkedTime ? ` · checked ${checkedTime}` : ""}`;
-  const dotTone = health === "healthy" ? "bg-emerald-500" : health === "checking" ? "bg-amber-400" : "bg-rose-500";
-  const statusTone = health === "healthy" ? "text-emerald-700" : health === "checking" ? "text-amber-700" : "text-rose-700";
+        ? "Checking that NoLSAF is reachable"
+        : `NoLSAF did not answer${checkedTime ? ` at ${checkedTime} EAT` : ""}. Check your internet, then retry.`;
+  const retry = () => {
+    setHealth("checking");
+    void checkHealth();
+  };
 
   return (
     <div className="public-container py-3">
       <footer
         aria-label="Owner workspace resources"
-        className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_-22px_rgba(15,23,42,0.5)]"
+        className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-[0_8px_24px_-22px_rgba(15,23,42,0.5)]"
       >
-        <div className="grid gap-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center lg:px-5">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#02665e]/10 text-[#02665e]">
-              <ShieldCheck className="h-4 w-4" aria-hidden />
-            </span>
+        <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:gap-6 lg:px-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <Image src="/assets/NoLS2025-04.png" alt="NoLSAF" width={28} height={28} sizes="28px" className="h-7 w-7 shrink-0" />
             <div className="min-w-0 leading-tight">
-              <p className="m-0 text-xs font-bold text-slate-800">Owner workspace</p>
-              <p className="mb-0 mt-1 whitespace-nowrap text-[10px] text-slate-400">© {year} NoLSAF · v0.1.0</p>
+              <p className="m-0 text-xs font-bold text-slate-900">Owner workspace</p>
+              <p className="m-0 mt-0.5 whitespace-nowrap text-[10.5px] text-slate-400">© {year} NoLSAF · v0.1.0</p>
             </div>
           </div>
 
-          <nav aria-label="Owner policies" className="min-w-0 lg:px-3">
-            <ul className="m-0 flex list-none flex-wrap items-center gap-x-1 gap-y-0.5 p-0 lg:justify-center">
+          <nav aria-label="Owner policies" className="min-w-0 flex-1 lg:border-0 lg:border-l lg:border-solid lg:border-slate-200 lg:pl-5">
+            <ul className="m-0 flex list-none flex-wrap items-center gap-x-0.5 gap-y-0.5 p-0">
               {OWNER_POLICIES.map((policy) => (
                 <li key={policy.href}>
                   <Link
                     href={policy.href}
-                    className="inline-flex min-h-7 items-center rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 no-underline transition-colors hover:bg-slate-50 hover:text-[#02665e] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
+                    className="inline-flex min-h-7 items-center rounded-lg px-2 py-1 text-[11.5px] font-medium text-slate-600 no-underline transition-colors hover:bg-slate-50 hover:text-[#02665e] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
                   >
                     {policy.label}
                   </Link>
                 </li>
               ))}
+              <li className="mx-1 hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
               <li>
                 <Link
                   href="/owner/docs"
-                  className="inline-flex min-h-7 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-slate-600 no-underline transition-colors hover:bg-slate-50 hover:text-[#02665e] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/20"
+                  className="inline-flex min-h-7 items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-emerald-50 hover:text-[#014d47] hover:no-underline"
                 >
-                  <BookOpen className="h-3 w-3" aria-hidden />
+                  <BookOpen className="h-3.5 w-3.5" aria-hidden />
                   Docs
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/owner/support"
+                  className="inline-flex min-h-7 items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] font-semibold text-[#02665e] no-underline transition-colors hover:bg-emerald-50 hover:text-[#014d47] hover:no-underline"
+                >
+                  <LifeBuoy className="h-3.5 w-3.5" aria-hidden />
+                  Help
                 </Link>
               </li>
             </ul>
           </nav>
 
-          <div
-            role="status"
-            aria-live="polite"
-            aria-label={`${statusLabel}. ${statusTitle}`}
-            title={statusTitle}
-            className={`inline-flex w-fit items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold ${statusTone}`}
-          >
-            <span className="relative flex h-4 w-4 items-center justify-center" aria-hidden>
-              <span className={`absolute h-2 w-2 rounded-full ${dotTone} ${health === "checking" ? "animate-pulse" : ""}`} />
-              <HeartPulse className={`relative h-3.5 w-3.5 ${health === "healthy" ? "text-emerald-600" : "text-transparent"}`} />
-            </span>
-            {statusLabel}
+          <div className="flex w-fit shrink-0 items-center gap-1.5">
+            <div
+              role="status"
+              aria-live="polite"
+              aria-label={`${status.label}. ${statusTitle}`}
+              title={statusTitle}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11.5px] font-semibold ring-1 ring-inset ${status.bg} ${status.ring} ${status.text}`}
+            >
+              <span className="relative flex h-2 w-2" aria-hidden>
+                {health === "healthy" && <span className={`absolute inline-flex h-full w-full rounded-full opacity-40 ${status.dot}`} />}
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${status.dot}`} />
+              </span>
+              {status.label}
+              {checkedTime && health !== "checking" ? <span className="font-normal text-slate-400">· {checkedTime}</span> : null}
+            </div>
+            {health === "unavailable" && (
+              <button
+                type="button"
+                onClick={retry}
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-solid border-slate-200 bg-white px-3 text-[11.5px] font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                Retry
+              </button>
+            )}
           </div>
         </div>
       </footer>

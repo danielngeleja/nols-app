@@ -24,6 +24,7 @@ import {
   UserPlus,
   X,
   type LucideIcon,
+  KeyRound,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -107,6 +108,7 @@ const categoryDetails: Record<string, { label: string; Icon: LucideIcon }> = {
   APPROVALS: { label: "Approvals", Icon: Building2 },
   LIFECYCLE: { label: "Lifecycle", Icon: Activity },
   NRMS: { label: "NRMS", Icon: ShieldCheck },
+  BOOKINGS: { label: "Bookings", Icon: KeyRound },
 };
 
 const severityStyle: Record<Severity, string> = {

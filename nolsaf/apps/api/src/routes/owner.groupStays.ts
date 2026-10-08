@@ -8,9 +8,23 @@ import { notifyUser, notifyOwner } from "../lib/notifications.js";
 import { limitOwnerGroupStayMessages } from "../middleware/rateLimit.js";
 import { z } from "zod";
 import type { RequestHandler } from "express";
+import { customerRecordReference, isCustomerRecordReference, matchesCustomerRecordReference } from "../lib/customerBookingReference.js";
 
 const router = Router();
 router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
+
+/**
+ * Page URLs carry the opaque gs_ reference, never the row id. Resolves it
+ * against the group stays assigned to this owner (a legacy numeric id still
+ * works), so a reference can never open someone else's stay.
+ */
+async function resolveGroupStayId(ownerId: number, raw: unknown): Promise<number> {
+  const value = String(raw ?? "").trim();
+  if (/^\d+$/.test(value)) return Number(value);
+  if (!isCustomerRecordReference(value, "group-stay")) return NaN;
+  const candidates = await prisma.groupBooking.findMany({ where: { assignedOwnerId: ownerId }, select: { id: true } });
+  return candidates.find((row) => matchesCustomerRecordReference(value, "group-stay", row.id))?.id ?? NaN;
+}
 
 // Zod validation schema for message sending
 // Note: Owners cannot "Accept Offer" or "Request Changes" - these are admin-only actions
@@ -115,7 +129,7 @@ router.get("/", asyncHandler(async (req: Request, res: Response) => {
     ]);
 
     return res.json({
-      items,
+      items: items.map((item) => ({ ...item, reference: customerRecordReference("group-stay", item.id) })),
       total,
       page,
       pageSize,
@@ -141,7 +155,7 @@ router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
   }
 
   // Validate and sanitize ID parameter
-  const groupBookingId = Number(req.params.id);
+  const groupBookingId = await resolveGroupStayId(Number((req as AuthedRequest).user?.id), req.params.id);
   if (!groupBookingId || isNaN(groupBookingId) || groupBookingId <= 0) {
     return res.status(400).json({ error: "Invalid group stay ID" });
   }
@@ -201,7 +215,7 @@ router.get("/:id", asyncHandler(async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Group stay not found or not assigned to you" });
     }
 
-    return res.json(groupBooking);
+    return res.json({ ...groupBooking, reference: customerRecordReference("group-stay", groupBooking.id) });
   } catch (err: any) {
     console.error("Error fetching group stay details:", err);
     return res.status(500).json({ error: "Failed to fetch group stay details" });
@@ -222,7 +236,7 @@ router.get("/:id/roster", asyncHandler(async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const groupBookingId = Number(req.params.id);
+  const groupBookingId = await resolveGroupStayId(Number((req as AuthedRequest).user?.id), req.params.id);
   if (!groupBookingId || isNaN(groupBookingId) || groupBookingId <= 0) {
     return res.status(400).json({ error: "Invalid group stay ID" });
   }
@@ -320,7 +334,7 @@ router.post("/:id/message", limitOwnerGroupStayMessages, asyncHandler(async (req
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const groupBookingId = Number(req.params.id);
+  const groupBookingId = await resolveGroupStayId(Number((req as AuthedRequest).user?.id), req.params.id);
   if (!groupBookingId || isNaN(groupBookingId) || groupBookingId <= 0) {
     return res.status(400).json({ error: "Invalid group stay ID" });
   }
@@ -512,7 +526,7 @@ router.post("/:id/accept", asyncHandler(async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const groupBookingId = Number(req.params.id);
+  const groupBookingId = await resolveGroupStayId(Number((req as AuthedRequest).user?.id), req.params.id);
   if (!groupBookingId || isNaN(groupBookingId) || groupBookingId <= 0) {
     return res.status(400).json({ error: "Invalid group stay ID" });
   }
@@ -674,7 +688,7 @@ router.post("/:id/check-in", asyncHandler(async (req: Request, res: Response) =>
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const groupBookingId = Number(req.params.id);
+  const groupBookingId = await resolveGroupStayId(Number((req as AuthedRequest).user?.id), req.params.id);
   if (!groupBookingId || isNaN(groupBookingId) || groupBookingId <= 0) {
     return res.status(400).json({ error: "Invalid group stay ID" });
   }

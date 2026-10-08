@@ -202,6 +202,7 @@ const adminDetails: Item[] = [
   { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/owners", label: "Owners", Icon: Building2 },
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
+  { href: "/admin/bookings/code-requests", label: "Guest codes", Icon: KeyRound },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
   { href: "/admin/payments", label: "Payments", Icon: Wallet },
 ];

@@ -364,6 +364,9 @@ const listSchema = z.object({
   status: z.string().trim().max(20).optional(),
   sourceType: z.enum(["OWNER_INVOICE", "TOUR_BOOKING", "TOUR_ADVANCE", "DRIVER_TRIP", "SALES_PAYOUT"]).optional(),
   q: z.string().trim().max(120).optional(),
+  // AUTO: approved by the system under the automatic caps. ADMIN: everything a
+  // person approves, including rows created before lanes existed (null).
+  lane: z.enum(["AUTO", "ADMIN"]).optional(),
 });
 
 /** Matches the frontend STALE_MINUTES and the reconciliation worker's threshold. */
@@ -462,10 +465,16 @@ router.get(
         }
       : {};
 
+    const laneFilter = query.lane === "AUTO"
+      ? { releaseLane: "AUTO" }
+      : query.lane === "ADMIN"
+        ? { OR: [{ releaseLane: null }, { releaseLane: { not: "AUTO" } }] }
+        : null;
     const where = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.sourceType ? { sourceType: query.sourceType } : {}),
-      ...search,
+      // Search and lane both use OR, so they are combined under AND.
+      AND: [search, ...(laneFilter ? [laneFilter] : [])],
     };
 
     // Operations tiles are a queue-health overview, so they span every page and
@@ -473,7 +482,7 @@ router.get(
     const scope = query.sourceType ? { sourceType: query.sourceType } : {};
     const staleCutoff = new Date(Date.now() - STALE_THRESHOLD_MINUTES * 60 * 1000);
 
-    const [total, disbursements, stuck, failed] = await Promise.all([
+    const [total, disbursements, stuck, failed, autoWaiting, adminToApprove] = await Promise.all([
       prisma.disbursement.count({ where }),
       prisma.disbursement.findMany({
         where,
@@ -486,6 +495,10 @@ router.get(
         where: { ...scope, status: { in: ["SUBMITTED", "PROCESSING"] }, submittedAt: { lt: staleCutoff } },
       }),
       prisma.disbursement.count({ where: { ...scope, status: "FAILED" } }),
+      // Lane health: automatic payouts waiting for the release worker's batch,
+      // and payouts waiting for a person to approve them.
+      prisma.disbursement.count({ where: { ...scope, status: "APPROVED", batchId: null, releaseLane: "AUTO" } }),
+      prisma.disbursement.count({ where: { ...scope, status: "REQUESTED" } }),
     ]);
 
     const masked = disbursements.map((d) => ({
@@ -493,7 +506,7 @@ router.get(
       payoutAccount: { ...d.payoutAccount, accountNumber: maskAccountNumber(d.payoutAccount.accountNumber) },
     }));
 
-    res.json({ ok: true, total, page: query.page, pageSize: query.pageSize, disbursements: masked, stats: { stuck, failed } });
+    res.json({ ok: true, total, page: query.page, pageSize: query.pageSize, disbursements: masked, stats: { stuck, failed, autoWaiting, adminToApprove } });
   })
 );
 
