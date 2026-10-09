@@ -5,6 +5,8 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
+import { customerBookingReference, customerRecordReference } from "../lib/customerBookingReference.js";
+import { mergeNotificationPrefs } from "../lib/notificationPrefs.js";
 import { referralCodeFor, referralKindForRole } from "../lib/referralCode.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
 import { hashCode as hashOtpCode } from "../lib/otp.js";
@@ -3210,6 +3212,9 @@ const deleteAccount: RequestHandler = async (req, res) => {
       },
     });
 
+    // Karibu preferences (birthday, drinks, dietary needs) leave with the account.
+    try { await (prisma as any).karibuGuestPreference.deleteMany({ where: { userId } }); } catch { /* table may not be migrated yet */ }
+
     // ── 6. Alert admins in real-time if any trips returned to pool ───────
     try {
       const io = (req.app as any)?.get?.('io');
@@ -3233,12 +3238,7 @@ const deleteAccount: RequestHandler = async (req, res) => {
 };
 router.delete("/", sensitive as unknown as RequestHandler, deleteAccount as unknown as RequestHandler);
 
-const DEFAULT_NOTIFICATION_PREFS = {
-  bookings: true,
-  promotions: true,
-  referrals: true,
-};
-
+// Defaults and merge rules live in one place, shared with every optional sender.
 const notificationPrefsSchema = z.object({
   bookings: z.boolean().optional(),
   promotions: z.boolean().optional(),
@@ -3250,7 +3250,7 @@ const getNotificationPreferences: RequestHandler = async (req, res) => {
   try {
     const userId = getUserId(req as AuthedRequest);
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { notificationPrefs: true } as any });
-    const prefs = { ...DEFAULT_NOTIFICATION_PREFS, ...((user as any)?.notificationPrefs as object | null) };
+    const prefs = mergeNotificationPrefs((user as any)?.notificationPrefs);
     sendSuccess(res, { preferences: prefs });
   } catch (error: any) {
     console.error('account.notificationPreferences.get failed', error);
@@ -3267,7 +3267,7 @@ const updateNotificationPreferences: RequestHandler = async (req, res) => {
     if (!parsed.success) return sendError(res, 400, "Invalid notification preferences", parsed.error.flatten());
 
     const existing = await prisma.user.findUnique({ where: { id: userId }, select: { notificationPrefs: true } as any });
-    const current = { ...DEFAULT_NOTIFICATION_PREFS, ...((existing as any)?.notificationPrefs as object | null) };
+    const current = mergeNotificationPrefs((existing as any)?.notificationPrefs);
     const next = { ...current, ...parsed.data };
 
     await prisma.user.update({ where: { id: userId }, data: { notificationPrefs: next } as any });
@@ -3278,6 +3278,96 @@ const updateNotificationPreferences: RequestHandler = async (req, res) => {
   }
 };
 router.put("/notification-preferences", updateNotificationPreferences as unknown as RequestHandler);
+
+/**
+ * GET /account/export - a copy of the personal data this account holds, as JSON.
+ * Records are named by their opaque references, never row ids. Refused during
+ * admin impersonation, like other sensitive account actions.
+ */
+const EXPORT_ROW_LIMIT = 1000;
+const exportAccountData: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const db = prisma as any;
+    const optional = <T,>(work: Promise<T>, fallback: T) => work.catch(() => fallback);
+    const [user, bookings, rides, karibuPrefs, karibuWelcomes] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { name: true, fullName: true, email: true, phone: true, createdAt: true, preferredCurrency: true, notificationPrefs: true } }),
+      db.booking.findMany({ where: { userId }, orderBy: { checkIn: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { id: true, status: true, checkIn: true, checkOut: true, totalAmount: true, roomsQty: true, guestName: true, guestPhone: true, createdAt: true, property: { select: { title: true, city: true } } } }),
+      optional(db.transportBooking.findMany({ where: { userId }, orderBy: { scheduledDate: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { id: true, status: true, scheduledDate: true, vehicleType: true, amount: true, currency: true, fromRegion: true, fromDistrict: true, toRegion: true, toDistrict: true, toAddress: true, createdAt: true } }), [] as any[]),
+      optional<any>(db.karibuGuestPreference?.findUnique({ where: { userId } }) ?? Promise.resolve(null), null),
+      optional(db.karibuGesture.findMany({ where: { userId, status: { in: ["ORDERED", "SERVED"] } }, orderBy: { issuedAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { bookingId: true, status: true, issuedAt: true, servedAt: true, guestConfirmedReceived: true, guestFeedbackRating: true, guestFeedbackNote: true } }), [] as any[]),
+    ]);
+    if (!user) return sendError(res, 404, "Account not found");
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      exportedAt,
+      notice: "A copy of the personal data your NoLSAF account holds. Payment card numbers and passwords are never stored in readable form and are not included.",
+      profile: { name: user.fullName || user.name || null, email: user.email || null, phone: user.phone || null, memberSince: user.createdAt, preferredCurrency: user.preferredCurrency || null },
+      notificationPreferences: mergeNotificationPrefs(user.notificationPrefs),
+      stays: bookings.map((b: any) => ({ reference: customerBookingReference(b.id), property: b.property?.title ?? null, city: b.property?.city ?? null,
+        status: b.status, checkIn: b.checkIn, checkOut: b.checkOut, rooms: b.roomsQty, total: Number(b.totalAmount ?? 0), guestName: b.guestName, guestPhone: b.guestPhone, bookedAt: b.createdAt })),
+      rides: rides.map((r: any) => ({ reference: customerRecordReference("ride", r.id), status: r.status, scheduledFor: r.scheduledDate, vehicle: r.vehicleType,
+        from: [r.fromDistrict, r.fromRegion].filter(Boolean).join(", ") || null, to: r.toAddress || [r.toDistrict, r.toRegion].filter(Boolean).join(", ") || null,
+        amount: r.amount == null ? null : Number(r.amount), currency: r.currency || "TZS", bookedAt: r.createdAt })),
+      karibu: {
+        preferences: karibuPrefs ? { celebrateSpecialDays: karibuPrefs.celebrateOptIn, birthday: karibuPrefs.birthdayDay && karibuPrefs.birthdayMonth ? `${karibuPrefs.birthdayDay}/${karibuPrefs.birthdayMonth}` : null,
+          drinksEnjoyed: karibuPrefs.drinkLikes ?? [], dietaryNeeds: karibuPrefs.dietaryTags ?? [], dietaryNote: karibuPrefs.dietaryNote ?? null, shareWithProperty: karibuPrefs.shareWithProperty } : null,
+        welcomes: karibuWelcomes.map((g: any) => ({ stay: customerBookingReference(g.bookingId), status: g.status, issuedAt: g.issuedAt, servedAt: g.servedAt,
+          feedback: g.guestConfirmedReceived == null ? null : { received: g.guestConfirmedReceived, rating: g.guestFeedbackRating, note: g.guestFeedbackNote } })),
+      },
+    };
+    await audit(req as AuthedRequest, "USER_DATA_EXPORT", `user:${userId}`, null, { stays: payload.stays.length, rides: payload.rides.length });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="nolsaf-my-data-${exportedAt.slice(0, 10)}.json"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (error: any) {
+    console.error("account.export failed", error);
+    sendError(res, 500, "Your data could not be prepared. Try again.");
+  }
+};
+router.get("/export", sensitive as unknown as RequestHandler, exportAccountData as unknown as RequestHandler);
+
+/**
+ * GET /account/data-summary - what the account holds, as counts and flags, for the
+ * Privacy and data page. No record contents, no row ids.
+ */
+const dataSummary: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const db = prisma as any;
+    const optional = <T,>(work: Promise<T> | undefined, fallback: T) => (work ? work.catch(() => fallback) : Promise.resolve(fallback));
+    const [user, stays, completedStays, upcomingStays, rides, welcomes, prefs, lastExport] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { name: true, fullName: true, email: true, phone: true, createdAt: true } }),
+      db.booking.count({ where: { userId } }),
+      db.booking.count({ where: { userId, status: "CHECKED_OUT" } }),
+      db.booking.count({ where: { userId, status: { in: ["CONFIRMED", "CHECKED_IN"] }, checkOut: { gte: new Date() } } }),
+      optional(db.transportBooking?.count({ where: { userId } }), 0),
+      optional(db.karibuGesture?.count({ where: { userId, status: { in: ["ORDERED", "SERVED"] } } }), 0),
+      optional<any>(db.karibuGuestPreference?.findUnique({ where: { userId } }), null),
+      optional<any>(db.auditLog.findFirst({ where: { actorId: userId, action: "USER_DATA_EXPORT" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }), null),
+    ]);
+    if (!user) return sendError(res, 404, "Account not found");
+    res.setHeader("Cache-Control", "private, no-store");
+    sendSuccess(res, {
+      memberSince: user.createdAt,
+      profile: { hasName: Boolean(user.fullName || user.name), hasEmail: Boolean(user.email), hasPhone: Boolean(user.phone) },
+      counts: { stays, completedStays, upcomingStays, rides, welcomes },
+      welcomePreferences: prefs ? {
+        saved: true, shareWithProperty: prefs.shareWithProperty === true, celebrateOptIn: prefs.celebrateOptIn === true,
+        drinkLikes: Array.isArray(prefs.drinkLikes) ? prefs.drinkLikes : [], dietaryTags: Array.isArray(prefs.dietaryTags) ? prefs.dietaryTags : [],
+      } : { saved: false, shareWithProperty: false, celebrateOptIn: false, drinkLikes: [], dietaryTags: [] },
+      lastExportAt: lastExport?.createdAt ?? null,
+    });
+  } catch (error: any) {
+    console.error("account.dataSummary failed", error);
+    sendError(res, 500, "Your data summary could not be loaded");
+  }
+};
+router.get("/data-summary", dataSummary as unknown as RequestHandler);
 
 /** GET /account/sessions - list user sessions with pagination */
 const listSessions: RequestHandler = async (req, res) => {

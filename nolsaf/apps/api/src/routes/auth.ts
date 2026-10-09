@@ -31,6 +31,7 @@ import { requiresAccountTotp } from '../lib/accountMfaPolicy.js';
 import { resolveRegistrationSource } from '../lib/registrationLifecycle.js';
 import { attributePropertyShare } from '../lib/propertyShareAttribution.js';
 import { referralCandidates, type ReferralKind } from '../lib/referralCode.js';
+import { wantsNotification } from '../lib/notificationPrefs.js';
 
 /**
  * Who a referral code belongs to. A driver code only credits an actual driver;
@@ -1781,8 +1782,8 @@ router.post('/register', limitRegisterAttempts, async (req, res) => {
       }
     }
 
-    // Notify the referring traveller that their invite link was used
-    if (referredBy && referrerKind === 'CUSTOMER') {
+    // Notify the referring traveller that their invite link was used, if they want referral updates
+    if (referredBy && referrerKind === 'CUSTOMER' && await wantsNotification(referredBy, 'referrals')) {
       try {
         await prisma.notification.create({
           data: {

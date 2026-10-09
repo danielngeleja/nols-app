@@ -328,7 +328,7 @@ export type FiscalSource = { saleOccurredAt: Date; currency: string; grossAmount
 export async function resolveFiscalSource(db: any, propertyId: number, sourceType: string, sourceId: number): Promise<FiscalSource | null> {
   if (sourceType === "OUTLET_SALE") {
     const order = await db.nrmsOutletOrder.findFirst({
-      where: { id: sourceId, propertyId, settlementMode: "OUTLET_PAYMENT", status: "SETTLED", settledAt: { not: null } },
+      where: { id: sourceId, propertyId, settlementMode: { in: ["OUTLET_PAYMENT", "NOLSAF_KARIBU"] }, status: "SETTLED", settledAt: { not: null } },
       select: { settledAt: true, currency: true, total: true, orderNumber: true, customerLabel: true },
     });
     if (!order) return null;

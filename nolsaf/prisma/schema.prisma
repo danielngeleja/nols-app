@@ -2112,6 +2112,9 @@ model PaymentMethodAvailability {
 model SystemSetting {
   id Int @id @default(1)
 
+  /// Karibu pilot controls. Null uses the conservative defaults in lib/karibu.ts.
+  karibuSettings Json?
+
   /// Emergency NRMS QR ordering control. False rejects all public menu/order
   /// requests while leaving staff ordering and records intact.
   nrmsQrOrderingEnabled     Boolean   @default(true)
@@ -3613,10 +3616,10 @@ model PropertyShare {
 /// Service records are intentionally referenced by kind/id rather than foreign
 /// keys because a share can point at a stay, tour, group stay, or ride.
 model TripShare {
-  id          Int      @id @default(autoincrement())
-  token       String   @unique @db.VarChar(48)
+  id          Int       @id @default(autoincrement())
+  token       String    @unique @db.VarChar(48)
   userId      Int
-  serviceKind String   @db.VarChar(20) // STAY | TOUR | GROUP_STAY | RIDE
+  serviceKind String    @db.VarChar(20) // STAY | TOUR | GROUP_STAY | RIDE
   serviceId   Int
   expiresAt   DateTime
   revokedAt   DateTime?
@@ -6617,6 +6620,8 @@ model NrmsOutletOrder {
   tipConfirmedBy User?                 @relation("NrmsOrderTipConfirmedBy", fields: [tipConfirmedById], references: [id], onDelete: SetNull)
   items          NrmsOutletOrderItem[]
 
+  karibuGesture KaribuGesture?
+
   @@index([propertyId, status, createdAt])
   @@index([outletId, status, createdAt])
   @@index([reservationId, createdAt])
@@ -6961,6 +6966,102 @@ model NrmsOutletOrderItem {
   @@index([orderId])
   @@index([menuItemId])
   @@map("nrms_outlet_order_item")
+}
+
+/// A property explicitly joins the pilot. Disabled by default, including all
+/// existing NRMS properties.
+model KaribuPropertyConfig {
+  propertyId  Int       @id
+  enabled     Boolean   @default(false)
+  agreedAt    DateTime?
+  updatedById Int?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("karibu_property_config")
+}
+
+/// A property explicitly joins the pilot and agrees prices for specific menu
+/// items. Configuration changes affect future gestures only.
+model KaribuMenuOption {
+  id           Int      @id @default(autoincrement())
+  propertyId   Int
+  menuItemId   Int
+  partnerPrice Decimal  @db.Decimal(12, 2)
+  alcoholic    Boolean  @default(false)
+  enabled      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([propertyId, menuItemId])
+  @@index([propertyId, enabled])
+  @@map("karibu_menu_option")
+}
+
+/// One first-stay gesture per booking. All prices and the eligibility basis
+/// are snapshotted at issue time. A served gift creates a property payable;
+/// later booking refunds never turn it into a guest charge.
+model KaribuGesture {
+  id                     Int       @id @default(autoincrement())
+  bookingId              Int       @unique
+  propertyId             Int
+  userId                 Int
+  reservationId          Int
+  menuItemId             Int
+  orderId                Int       @unique
+  status                 String    @default("ORDERED") @db.VarChar(20)
+  contributionEstimate   Decimal   @db.Decimal(12, 2)
+  commissionSnapshot     Decimal   @db.Decimal(12, 2)
+  feeEstimate            Decimal   @db.Decimal(12, 2)
+  attributedCost         Decimal   @db.Decimal(12, 2)
+  budgetSnapshot         Decimal   @db.Decimal(12, 2)
+  partnerPrice           Decimal   @db.Decimal(12, 2)
+  currency               String    @default("TZS") @db.VarChar(3)
+  issuedById             Int?
+  servedAt               DateTime?
+  payableStatus          String    @default("NOT_DUE") @db.VarChar(20)
+  paidAt                 DateTime?
+  paymentReference       String?   @db.VarChar(120)
+  paidById               Int?
+  guestConfirmedReceived Boolean?
+  guestFeedbackRating    Int?
+  guestFeedbackNote      String?   @db.VarChar(500)
+  guestFeedbackAt        DateTime?
+  /// Reset when an unserved, cancelled order is replaced. Monthly caps use
+  /// this date rather than the first attempt's creation date.
+  issuedAt               DateTime  @default(now())
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  order NrmsOutletOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([propertyId, status, createdAt])
+  @@index([issuedAt, status])
+  @@index([propertyId, issuedAt, status])
+  @@index([payableStatus, servedAt])
+  @@index([userId, status])
+  @@map("karibu_gesture")
+}
+
+/// A guest's own Karibu preferences: optional, off by default, cleared in one
+/// action. Birthday is day and month only. Nothing here decides eligibility or
+/// budget; properties see it only while shareWithProperty is on and the guest
+/// is in-house.
+model KaribuGuestPreference {
+  userId            Int      @id
+  celebrateOptIn    Boolean  @default(false)
+  birthdayDay       Int?     @db.TinyInt
+  birthdayMonth     Int?     @db.TinyInt
+  /// Pilot drink categories, e.g. ["TEA_COFFEE","FRESH_JUICE"].
+  drinkLikes        Json?
+  /// e.g. ["NO_SUGAR","NUT_ALLERGY"].
+  dietaryTags       Json?
+  dietaryNote       String?  @db.VarChar(200)
+  shareWithProperty Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("karibu_guest_preference")
 }
 
 /// Immutable, effective-dated NRMS charging policy. A new price creates a new
@@ -8958,8 +9059,8 @@ model PayoutWithdrawalOtpGuard {
 model OwnerPayoutRecovery {
   id Int @id @default(autoincrement())
 
-  ownerId   Int
-  bookingId Int
+  ownerId         Int
+  bookingId       Int
   /// The owner claim (OINV-) that was paid for the stay.
   sourceInvoiceId Int
 
@@ -8999,10 +9100,10 @@ model OwnerPayoutRecovery {
 /// amount is netPayable minus its applications (eligibility.loadOwnerInvoice),
 /// so the invoice itself is never rewritten.
 model OwnerPayoutRecoveryApplication {
-  id         Int     @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   recoveryId Int
   invoiceId  Int
-  amount     Decimal @db.Decimal(12, 2)
+  amount     Decimal  @db.Decimal(12, 2)
   createdAt  DateTime @default(now())
 
   recovery OwnerPayoutRecovery @relation(fields: [recoveryId], references: [id], onDelete: Restrict)

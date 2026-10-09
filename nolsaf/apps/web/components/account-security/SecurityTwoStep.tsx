@@ -337,9 +337,9 @@ export default function SecurityTwoStep({ scope }: { scope: SecurityScope }) {
   if (initialLoading) {
     return (
       <div className="grid gap-5 lg:grid-cols-2" aria-busy="true">
-        <div className="h-24 rounded-2xl bg-white lg:col-span-2" />
-        <div className="h-72 rounded-2xl bg-white" />
-        <div className="h-72 rounded-2xl bg-white" />
+        <div className="h-24 rounded-xl bg-white lg:col-span-2" />
+        <div className="h-72 rounded-xl bg-white" />
+        <div className="h-72 rounded-xl bg-white" />
       </div>
     )
   }
@@ -347,7 +347,7 @@ export default function SecurityTwoStep({ scope }: { scope: SecurityScope }) {
   return (
     <div className="space-y-5">
       {/* Where things stand */}
-      <section className={`flex flex-wrap items-center gap-4 rounded-2xl p-5 ring-1 ring-inset ${anyOn ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
+      <section className={`flex flex-wrap items-center gap-4 rounded-xl p-5 ring-1 ring-inset ${anyOn ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200"}`}>
         <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-white ${anyOn ? "bg-[#02665e]" : "bg-amber-500"}`}>
           {anyOn ? <ShieldCheck className="h-5 w-5" aria-hidden /> : <CircleAlert className="h-5 w-5" aria-hidden />}
         </span>
@@ -366,7 +366,7 @@ export default function SecurityTwoStep({ scope }: { scope: SecurityScope }) {
 
       <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
         {/* Authenticator app */}
-        <section className={`overflow-hidden rounded-2xl border border-solid bg-white ${totpOn ? "border-[#02665e]/40" : "border-slate-200"}`}>
+        <section className={`overflow-hidden rounded-xl border border-solid bg-white ${totpOn ? "border-[#02665e]/40" : "border-slate-200"}`}>
           <header className="flex items-start gap-3.5 px-6 pb-4 pt-5">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><Smartphone className="h-5 w-5" aria-hidden /></span>
             <div className="min-w-0 flex-1">
@@ -408,7 +408,7 @@ export default function SecurityTwoStep({ scope }: { scope: SecurityScope }) {
             ) : (
               <div className="grid gap-5 sm:grid-cols-[180px_minmax(0,1fr)]">
                 <div>
-                  <div className="grid aspect-square w-full max-w-[180px] place-items-center overflow-hidden rounded-2xl bg-white p-2 ring-1 ring-slate-200">
+                  <div className="grid aspect-square w-full max-w-[180px] place-items-center overflow-hidden rounded-xl bg-white p-2 ring-1 ring-slate-200">
                     {twofa?.qrDataUrl ? <Image src={twofa.qrDataUrl} alt="QR code for your authenticator app" width={176} height={176} className="h-full w-full object-contain" /> : <Loader2 className="h-6 w-6 animate-spin text-slate-300" aria-hidden />}
                   </div>
                   {twofa?.secretMasked ? <p className="m-0 mt-2 text-center font-mono text-[11px] text-slate-400">Key {twofa.secretMasked}</p> : null}
@@ -427,7 +427,7 @@ export default function SecurityTwoStep({ scope }: { scope: SecurityScope }) {
         </section>
 
         {/* Text message */}
-        <section className={`overflow-hidden rounded-2xl border border-solid bg-white ${smsOn ? "border-[#02665e]/40" : "border-slate-200"}`}>
+        <section className={`overflow-hidden rounded-xl border border-solid bg-white ${smsOn ? "border-[#02665e]/40" : "border-slate-200"}`}>
           <header className="flex items-start gap-3.5 px-6 pb-4 pt-5">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><MessageSquare className="h-5 w-5" aria-hidden /></span>
             <div className="min-w-0 flex-1">

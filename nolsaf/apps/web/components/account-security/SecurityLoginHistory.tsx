@@ -83,7 +83,7 @@ export default function SecurityLoginHistory({ scope }: { scope: SecurityScope }
           { label: "Failed attempts", value: failed.length, hint: failed.length ? "check these" : "none recorded", alert: failed.length > 0 },
           { label: "Devices", value: devices, hint: "browser and system pairs" },
         ].map((stat) => (
-          <div key={stat.label} className={`rounded-2xl border border-solid bg-white p-4 ${stat.alert ? "border-rose-200" : "border-slate-200"}`}>
+          <div key={stat.label} className={`rounded-xl border border-solid bg-white p-4 ${stat.alert ? "border-rose-200" : "border-slate-200"}`}>
             <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{stat.label}</p>
             <p className={`m-0 mt-1 text-2xl font-extrabold tabular-nums ${stat.alert ? "text-rose-600" : "text-slate-900"}`}>{records === null ? "…" : stat.value}</p>
             <p className="m-0 text-[11px] text-slate-500">{stat.hint}</p>
@@ -92,7 +92,7 @@ export default function SecurityLoginHistory({ scope }: { scope: SecurityScope }
       </section>
 
       {failed.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-rose-50 px-5 py-4 ring-1 ring-inset ring-rose-200">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-rose-50 px-5 py-4 ring-1 ring-inset ring-rose-200">
           <CircleAlert className="h-5 w-5 shrink-0 text-rose-600" aria-hidden />
           <p className="m-0 min-w-0 flex-1 text-sm text-rose-900">
             <strong>Do not recognise a failed attempt?</strong> Someone may be guessing your password. Change it and turn on two-step verification.
@@ -101,7 +101,7 @@ export default function SecurityLoginHistory({ scope }: { scope: SecurityScope }
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 sm:px-5">
           <div className="flex gap-1 overflow-x-auto" role="tablist">
             {tabs.map((tab) => {
@@ -123,7 +123,7 @@ export default function SecurityLoginHistory({ scope }: { scope: SecurityScope }
           <div className="space-y-2 p-5">{[0, 1, 2, 3].map((i) => <div key={i} className="h-14 rounded-xl bg-slate-50" />)}</div>
         ) : shown.length === 0 ? (
           <div className="flex flex-col items-center px-6 py-14 text-center">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-500"><History className="h-6 w-6" aria-hidden /></span>
+            <span className="grid h-12 w-12 place-items-center rounded-xl bg-slate-100 text-slate-500"><History className="h-6 w-6" aria-hidden /></span>
             <p className="m-0 mt-3 text-sm font-bold text-slate-900">{filter === "failed" ? "No failed attempts" : "Nothing recorded yet"}</p>
             <p className="m-0 mt-1 text-xs text-slate-500">{filter === "failed" ? "Nobody has tried a wrong password on your account." : "Your sign-ins will appear here."}</p>
           </div>

@@ -28,6 +28,7 @@ import {
   ScanLine,
 } from "lucide-react";
 import Link from "next/link";
+import PreferencesPrompt from "@/app/account/karibu/PreferencesPrompt";
 
 const api = apiClient;
 
@@ -548,6 +549,9 @@ export default function BookingDetailPage() {
               </dl>
             ) : null}
           </section>
+
+          {/* Preferences invitation: upcoming paid stays only, hidden once the guest has saved any */}
+          {paid && ["CONFIRMED", "CHECKED_IN"].includes(String(booking.status).toUpperCase()) ? <PreferencesPrompt /> : null}
 
           {/* Host contact */}
           {booking.property.owner ? (

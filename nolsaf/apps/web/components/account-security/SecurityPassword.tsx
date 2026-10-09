@@ -104,7 +104,7 @@ export default function SecurityPassword({ scope }: { scope: SecurityScope }) {
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-      <form onSubmit={submit} className="rounded-2xl border border-solid border-slate-200 bg-white p-6 sm:p-7" noValidate>
+      <form onSubmit={submit} className="rounded-xl border border-solid border-slate-200 bg-white p-6 sm:p-7" noValidate>
         <h2 className="m-0 text-base font-bold text-slate-900">Change your password</h2>
         <p className="m-0 mt-1 text-xs text-slate-500">Confirm the password you use now, then choose a new one.</p>
 
@@ -158,7 +158,7 @@ export default function SecurityPassword({ scope }: { scope: SecurityScope }) {
       </form>
 
       <aside className="space-y-5 lg:sticky lg:top-24">
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+        <section className="rounded-xl border border-solid border-slate-200 bg-white p-5">
           <p className="m-0 text-sm font-bold text-slate-900">Your new password needs</p>
           {policyReady ? (
             <ul className="m-0 mt-3 list-none space-y-2 p-0">
@@ -177,7 +177,7 @@ export default function SecurityPassword({ scope }: { scope: SecurityScope }) {
             <p className="m-0 mt-3 text-xs text-slate-500">{policyStatus === "error" ? "Rules unavailable." : "Loading the rules..."}</p>
           )}
         </section>
-        <section className="rounded-2xl bg-slate-50 p-5 ring-1 ring-inset ring-slate-200">
+        <section className="rounded-xl bg-slate-50 p-5 ring-1 ring-inset ring-slate-200">
           <p className="m-0 text-sm font-bold text-slate-900">Good to know</p>
           <ul className="m-0 mt-2 list-disc space-y-1.5 pl-4 text-xs leading-5 text-slate-600">
             <li>After a change, you have to wait 30 minutes before changing it again.</li>

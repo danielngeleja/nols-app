@@ -173,7 +173,7 @@ export default function SecurityPasskeys(_props: { scope: SecurityScope }) {
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
-      <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+      <section className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-3 px-6 py-5">
           <div>
             <h2 className="m-0 text-base font-bold text-slate-900">Your passkeys</h2>
@@ -196,7 +196,7 @@ export default function SecurityPasskeys(_props: { scope: SecurityScope }) {
           <div className="space-y-2 px-6 pb-6">{[0, 1].map((i) => <div key={i} className="h-16 rounded-xl bg-slate-50" />)}</div>
         ) : keys.length === 0 ? (
           <div className="flex flex-col items-center border-0 border-t border-solid border-slate-100 px-6 py-12 text-center">
-            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-50 text-[#02665e]"><Fingerprint className="h-7 w-7" aria-hidden /></span>
+            <span className="grid h-14 w-14 place-items-center rounded-xl bg-emerald-50 text-[#02665e]"><Fingerprint className="h-7 w-7" aria-hidden /></span>
             <p className="m-0 mt-4 text-sm font-bold text-slate-900">No passkeys yet</p>
             <p className="m-0 mt-1 max-w-sm text-xs leading-5 text-slate-500">Add one on the phone or computer you use most. Next time, sign in with your fingerprint or face.</p>
             <button type="button" onClick={() => void register()} disabled={busy || Boolean(blocked)} className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-xl border-0 bg-[#02665e] px-4 text-sm font-bold text-white hover:bg-[#014d47] disabled:cursor-not-allowed disabled:opacity-50">
@@ -234,7 +234,7 @@ export default function SecurityPasskeys(_props: { scope: SecurityScope }) {
       </section>
 
       <aside className="space-y-5 lg:sticky lg:top-24">
-        <section className="overflow-hidden rounded-2xl bg-[#012a26] p-5 text-white">
+        <section className="overflow-hidden rounded-xl bg-[#012a26] p-5 text-white">
           <p className="m-0 text-sm font-bold">Add a passkey on this device</p>
           <ol className="m-0 mt-3 list-none space-y-2.5 p-0 text-xs leading-5 text-white/75">
             {[
@@ -254,7 +254,7 @@ export default function SecurityPasskeys(_props: { scope: SecurityScope }) {
             </button>
           )}
         </section>
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+        <section className="rounded-xl border border-solid border-slate-200 bg-white p-5">
           <p className="m-0 text-sm font-bold text-slate-900">Why use a passkey</p>
           <ul className="m-0 mt-3 list-none space-y-2.5 p-0 text-xs leading-5 text-slate-600">
             <li className="flex gap-2"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />Nothing to remember or type.</li>
