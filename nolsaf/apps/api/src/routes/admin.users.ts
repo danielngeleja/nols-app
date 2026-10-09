@@ -13,6 +13,8 @@ import { resolveUserRoles } from '../lib/userRoles.js';
 import { NRMS_STAFF_ROLES, nrmsStaffRoleLabel } from '../lib/nrmsStaffRoles.js';
 import { buildCustomerStatement } from '../lib/customerStatement.js';
 import { adminBookingReference } from '../lib/adminBookingReference.js';
+import { shapeKaribuPreferences } from '../lib/karibuPreferences.js';
+import { mergeNotificationPrefs } from '../lib/notificationPrefs.js';
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
@@ -1467,6 +1469,57 @@ function monthKey(value: Date | string): string {
 function isCanceled(status: unknown): boolean {
   return /CANCEL|REFUND|REJECT/i.test(String(status || ''));
 }
+
+/**
+ * GET /admin/users/:id/karibu
+ *
+ * Read-only: the customer's Karibu welcomes and feedback, their own welcome
+ * preferences, their notification choices and their last data download.
+ * Preferences are the guest's consent choices, so admin never edits them, and
+ * the birthday is reported as set or not, never as a date.
+ */
+router.get('/:id/karibu', asyncHandler(async (req: any, res: any) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
+  const db = prisma as any;
+  const optional = <T,>(work: Promise<T> | undefined, fallback: T) => (work ? work.catch(() => fallback) : Promise.resolve(fallback));
+  const [user, gestures, prefRow, lastExport, stays] = await Promise.all([
+    db.user.findUnique({ where: { id }, select: { id: true, notificationPrefs: true } }),
+    optional<any[]>(db.karibuGesture?.findMany({ where: { userId: id }, orderBy: { issuedAt: 'desc' }, take: 50,
+      select: { bookingId: true, propertyId: true, menuItemId: true, status: true, payableStatus: true, partnerPrice: true, issuedAt: true, servedAt: true, paidAt: true,
+        guestConfirmedReceived: true, guestFeedbackRating: true, guestFeedbackNote: true, guestFeedbackAt: true } }), []),
+    optional<any>(db.karibuGuestPreference?.findUnique({ where: { userId: id } }), null),
+    optional<any>(db.auditLog.findFirst({ where: { actorId: id, action: 'USER_DATA_EXPORT' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }), null),
+    db.booking.findMany({ where: { userId: id, status: 'CHECKED_OUT' }, take: 300, select: { checkIn: true, checkOut: true, propertyId: true,
+      property: { select: { city: true, district: true, regionName: true } } } }),
+  ]);
+  if (!user) return res.status(404).json({ error: 'not found' });
+
+  const [properties, items] = await Promise.all([
+    gestures.length ? db.property.findMany({ where: { id: { in: [...new Set(gestures.map((g: any) => g.propertyId))] } }, select: { id: true, title: true } }) : [],
+    gestures.length ? db.nrmsMenuItem.findMany({ where: { id: { in: [...new Set(gestures.map((g: any) => g.menuItemId))] } }, select: { id: true, name: true } }) : [],
+  ]);
+  const propertyTitle = new Map<number, string>(properties.map((p: any) => [p.id, p.title]));
+  const drinkName = new Map<number, string>(items.map((i: any) => [i.id, i.name]));
+  const prefs = shapeKaribuPreferences(prefRow);
+  const places = new Set(stays.map((s: any) => String(s.property?.city || s.property?.district || s.property?.regionName || `property:${s.propertyId}`).trim().toLowerCase()));
+  const nights = stays.reduce((sum: number, s: any) => sum + Math.max(0, Math.round((new Date(s.checkOut).getTime() - new Date(s.checkIn).getTime()) / 86_400_000)), 0);
+
+  res.json({
+    story: { completedStays: stays.length, nights, places: places.size },
+    welcomes: gestures.map((g: any) => ({
+      bookingReference: adminBookingReference(g.bookingId), property: propertyTitle.get(g.propertyId) ?? 'Property', drink: drinkName.get(g.menuItemId) ?? 'Approved drink',
+      status: g.status, payableStatus: g.payableStatus, amount: Number(g.partnerPrice ?? 0), issuedAt: g.issuedAt, servedAt: g.servedAt, paidAt: g.paidAt,
+      feedback: g.guestFeedbackAt ? { received: g.guestConfirmedReceived, rating: g.guestFeedbackRating, note: g.guestFeedbackNote, at: g.guestFeedbackAt } : null,
+    })),
+    preferences: prefRow ? {
+      saved: true, drinkLikes: prefs.drinkLikes, dietaryTags: prefs.dietaryTags, dietaryNote: prefs.dietaryNote,
+      shareWithProperty: prefs.shareWithProperty, celebrateOptIn: prefs.celebrateOptIn, birthdaySet: Boolean(prefs.birthday), updatedAt: prefs.updatedAt,
+    } : { saved: false },
+    notifications: mergeNotificationPrefs(user.notificationPrefs),
+    lastDataExportAt: lastExport?.createdAt ?? null,
+  });
+}));
 
 router.get('/:id/behaviour', asyncHandler(async (req: any, res: any) => {
   const id = Number(req.params.id);

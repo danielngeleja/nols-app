@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowLeft, Printer, Calendar, FileText, Clock, Users, Wallet, Activity } from "lucide-react";
 import DatePicker from "@/components/ui/DatePicker";
 import apiClient from "@/lib/apiClient";
+import type { CustomerKaribu } from "../CustomerKaribuPanel";
 import { escapeHtml } from "@/utils/html";
 import {
   adminReportPrintStyles,
@@ -540,6 +541,54 @@ function CustomerStatement({ customerId }: { customerId: number }) {
       <div class="tableWrap"><table><tbody><tr><td class="emptyState">Behaviour analysis was not available when this statement was produced. The rest of this document is unaffected.</td></tr></tbody></table></div>
     </section>`;
 
+      // The customer's own choices and Karibu record, so the printout matches the record page.
+      const karibu: CustomerKaribu | null = await api.get<CustomerKaribu>(`/api/admin/users/${customerId}/karibu`).then((r) => r.data).catch(() => null);
+      const DRINK: Record<string, string> = { TEA_COFFEE: "Tea or coffee", FRESH_JUICE: "Fresh juice", SOFT_DRINK: "Soft drink", WATER: "Water", MOCKTAIL: "Mocktail" };
+      const DIET: Record<string, string> = { NO_SUGAR: "No sugar", LACTOSE_FREE: "Lactose-free", NUT_ALLERGY: "Nut allergy", VEGETARIAN: "Vegetarian" };
+      const onOff = (on: boolean) => (on ? "On" : "Off");
+      const choicesSection = karibu ? (() => {
+        const prefs = karibu.preferences;
+        const welcomeRows = karibu.welcomes.length
+          ? karibu.welcomes.slice(0, PRINT_ROW_LIMIT).map((w) => `
+            <tr>
+              <td>${escapeHtml(w.property)}<br /><span class="muted">${escapeHtml(w.bookingReference)}</span></td>
+              <td>${escapeHtml(w.drink)}</td>
+              <td>${escapeHtml(w.status === "ORDERED" ? "Awaiting service" : w.status === "VOIDED" ? "Voided" : w.payableStatus === "PAID" ? "Served, property repaid" : "Served, repayment due")}</td>
+              <td>${escapeHtml(day(w.servedAt))}</td>
+              <td>${escapeHtml(!w.feedback ? "No feedback" : w.feedback.received === false ? "Reported not received" : `Received, rated ${w.feedback.rating ?? "-"}/5`)}${w.feedback?.note ? `<br /><span class="muted">${escapeHtml(w.feedback.note)}</span>` : ""}</td>
+            </tr>`).join("")
+          : empty(5, "No Karibu welcome has been issued for this customer.");
+        return `
+    <section class="reportSection">
+      <div class="sectionHead"><span class="sectionNumber">08</span><div><h2>Choices and preferences</h2><p>What the customer chose about messages and welcomes, and the welcomes issued for them.</p></div></div>
+      <div class="panelGrid panelGridTwo">
+        <div class="reportPanel">
+          <div class="panelTitle">Messages and data</div>
+          <div class="panelBody"><table><tbody>
+            <tr><td>Bookings, payments and security</td><td class="num">Always on</td></tr>
+            <tr><td>Offers and news</td><td class="num">${escapeHtml(onOff(karibu.notifications.promotions))}</td></tr>
+            <tr><td>Referral updates</td><td class="num">${escapeHtml(onOff(karibu.notifications.referrals))}</td></tr>
+            <tr><td>Own data copy downloaded</td><td class="num">${escapeHtml(karibu.lastDataExportAt ? stamp(karibu.lastDataExportAt) : "Never")}</td></tr>
+          </tbody></table></div>
+        </div>
+        <div class="reportPanel">
+          <div class="panelTitle">Welcome preferences (set by the customer, read-only)</div>
+          <div class="panelBody">${prefs.saved ? `<table><tbody>
+            <tr><td>Drinks enjoyed</td><td class="num">${escapeHtml(prefs.drinkLikes.map((d) => DRINK[d] ?? d).join(", ") || "None chosen")}</td></tr>
+            <tr><td>Dietary needs</td><td class="num">${escapeHtml(prefs.dietaryTags.map((t) => DIET[t] ?? t).join(", ") || "None")}${prefs.dietaryNote ? ` (${escapeHtml(prefs.dietaryNote)})` : ""}</td></tr>
+            <tr><td>Shared with properties</td><td class="num">${escapeHtml(prefs.shareWithProperty ? "Yes, during stays" : "No")}</td></tr>
+            <tr><td>Celebrate special days</td><td class="num">${escapeHtml(prefs.celebrateOptIn ? (prefs.birthdaySet ? "On, birthday set" : "On, no birthday") : "Off")}</td></tr>
+          </tbody></table>` : `<p class="emptyState">The customer has not set any welcome preferences.</p>`}</div>
+        </div>
+      </div>
+      <div class="tableWrap" style="margin-top:8px;"><table class="details">
+        <thead><tr><th>Stay</th><th>Drink</th><th>Status</th><th>Served</th><th>Customer feedback</th></tr></thead>
+        <tbody>${welcomeRows}</tbody>
+      </table></div>
+      <div class="reportNote">Completed stays ${escapeHtml(String(karibu.story.completedStays))}, nights ${escapeHtml(String(karibu.story.nights))}, places ${escapeHtml(String(karibu.story.places))}. Preferences are the customer's own consent choices; the birthday is recorded as set or not, never printed as a date.</div>
+    </section>`;
+      })() : "";
+
       const refundRows = data.refunds.entries.length
         ? data.refunds.entries.slice(0, PRINT_ROW_LIMIT).map((r) => `
             <tr>
@@ -662,6 +711,8 @@ function CustomerStatement({ customerId }: { customerId: number }) {
     </section>
 
     ${behaviourSections}
+
+    ${choicesSection}
 
     ${buildAdminReportFooter({
       reportRef,
