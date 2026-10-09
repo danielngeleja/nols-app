@@ -2,17 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, ArrowRight, BedDouble, Car, Check, Download, ExternalLink, FileText, Loader2, SlidersHorizontal, Trash2, UserRound, X } from "lucide-react"
+import { AlertTriangle, ArrowRight, BedDouble, Car, Check, Compass, Users, Download, ExternalLink, FileText, Loader2, SlidersHorizontal, Trash2, UserRound, X } from "lucide-react"
 import apiClient from "@/lib/apiClient"
-import { openAdminReportPrintWindow, renderAndPrintAdminReport, updateAdminReportPrintWindowStatus } from "@/lib/adminReportPrint"
+import { renderAndPrintAdminReport, updateAdminReportPrintWindowStatus } from "@/lib/adminReportPrint"
+import DataRequestDialog, { type DataFormat } from "./DataRequestDialog"
 import { buildCustomerDataReportHtml, customerDataReportReference, type AccountExport } from "@/lib/customerDataReport"
 
 type Summary = {
   memberSince: string
   profile: { hasName: boolean; hasEmail: boolean; hasPhone: boolean }
-  counts: { stays: number; completedStays: number; upcomingStays: number; rides: number; welcomes: number }
+  counts: { stays: number; completedStays: number; upcomingStays: number; rides: number; welcomes: number; tours?: number; groupStays?: number; reviews?: number; saved?: number }
   welcomePreferences: { saved: boolean; shareWithProperty: boolean; celebrateOptIn: boolean; drinkLikes: string[]; dietaryTags: string[] }
   lastExportAt: string | null
+  /** Three wrong codes lock data downloads until NoLSAF support unlocks them. */
+  exportLocked?: boolean
 }
 
 const EAT = "Africa/Dar_es_Salaam"
@@ -52,6 +55,8 @@ export default function AccountPrivacyPage() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [exporting, setExporting] = useState<"" | "pdf" | "json">("")
+  // Both formats go through the request window: questions, then a code to a verified contact.
+  const [requesting, setRequesting] = useState<DataFormat | null>(null)
   const [sharing, setSharing] = useState(false)
   const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
 
@@ -68,15 +73,15 @@ export default function AccountPrivacyPage() {
 
   const exportFailed = (cause: any) => setStatus({ tone: "error", text: cause?.response?.status === 429 ? "Too many requests. Wait a few minutes and try again." : "Your data could not be prepared. Try again." })
 
+  const grantHeader = (grant: string) => ({ headers: { "X-Data-Export-Grant": grant } })
+
   // The readable copy: our report template, saved as PDF from the print dialog (phones included).
-  async function downloadPdf() {
-    // Opened inside the click so the popup blocker allows it.
-    const printWindow = openAdminReportPrintWindow({ eyebrow: "NoLSAF personal data copy", heading: "Preparing your data", hideSteps: true })
-    if (!printWindow) return setStatus({ tone: "error", text: "Allow pop-ups for NoLSAF, then try again." })
+  // The print window was opened by the confirming click in the request window.
+  async function downloadPdf(grant: string, printWindow: Window) {
     setExporting("pdf")
     setStatus(null)
     try {
-      const { data } = await apiClient.get<AccountExport>("/api/account/export")
+      const { data } = await apiClient.get<AccountExport>("/api/account/export", grantHeader(grant))
       updateAdminReportPrintWindowStatus(printWindow, "preview")
       const generated = new Date(data.exportedAt || Date.now())
       const reportRef = customerDataReportReference(generated)
@@ -101,11 +106,11 @@ export default function AccountPrivacyPage() {
   }
 
   // The machine-readable copy, for moving data to another service.
-  async function downloadJson() {
+  async function downloadJson(grant: string) {
     setExporting("json")
     setStatus(null)
     try {
-      const r = await apiClient.get("/api/account/export", { responseType: "blob" })
+      const r = await apiClient.get("/api/account/export", { responseType: "blob", ...grantHeader(grant) })
       const url = URL.createObjectURL(r.data as Blob)
       const a = document.createElement("a")
       a.href = url
@@ -159,6 +164,8 @@ export default function AccountPrivacyPage() {
   const holdings = [
     { Icon: UserRound, label: "Profile", value: profileMissing.length ? "Incomplete" : "Complete", hint: profileMissing.length ? `Add your ${profileMissing.join(" and ")}` : "Name, email and phone", href: "/account/profile", warn: profileMissing.length > 0 },
     { Icon: BedDouble, label: "Stays", value: String(counts.stays), hint: counts.upcomingStays ? `${counts.upcomingStays} upcoming` : `${counts.completedStays} completed`, href: "/account/bookings", warn: false },
+    { Icon: Compass, label: "Tours", value: String(counts.tours ?? 0), hint: (counts.tours ?? 0) === 1 ? "Tour package" : "Tour packages", href: "/account/tour-packages", warn: false },
+    { Icon: Users, label: "Group stays", value: String(counts.groupStays ?? 0), hint: "Requested for a group", href: "/account/group-stays", warn: false },
     { Icon: Car, label: "Rides", value: String(counts.rides), hint: counts.rides === 1 ? "Ride booked" : "Rides booked", href: "/account/rides", warn: false },
     { Icon: SlidersHorizontal, label: "Welcome preferences", value: wp.saved ? "Set" : "Not set", hint: wp.saved ? (wp.shareWithProperty ? "Shared with your stay" : "Private to you") : "Optional", href: "/account/karibu#preferences", warn: false },
   ]
@@ -166,7 +173,7 @@ export default function AccountPrivacyPage() {
   return (
     <div className="space-y-5">
       {/* What the account holds: real numbers, each a door to the data itself */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="What your account holds">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6" aria-label="What your account holds">
         {holdings.map(({ Icon, label, value, hint, href, warn }) => (
           <Link key={label} href={href} className={`${card} group flex min-w-0 flex-col gap-3 p-4 no-underline transition hover:border-emerald-400 hover:no-underline`}>
             <span className="flex items-center justify-between">
@@ -221,17 +228,23 @@ export default function AccountPrivacyPage() {
               <div className="min-w-0 flex-1">
                 <p className="m-0 text-sm font-semibold text-slate-900">Download a copy of your data</p>
                 <p className="m-0 mt-0.5 text-xs leading-5 text-slate-500">
-                  Your profile, {counts.stays} {counts.stays === 1 ? "stay" : "stays"}, {counts.rides} {counts.rides === 1 ? "ride" : "rides"}, notification choices{wp.saved ? " and welcome preferences" : ""}, in one file.
+                  Your profile, every stay, tour, group stay and ride, cancellations and refunds, {counts.reviews ? `${counts.reviews} ${counts.reviews === 1 ? "review" : "reviews"}, ` : "reviews, "}saved stays, trip estimates, notification choices{wp.saved ? " and welcome preferences" : ""}, in one document.
                 </p>
+                {summary.exportLocked && (
+                  <p role="alert" className="m-0 mt-2 flex items-start gap-1.5 rounded-lg border border-solid border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-medium text-rose-800">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>Data downloads are locked on your account after too many wrong codes. Contact <a href="mailto:support@nolsaf.com" className="font-semibold text-rose-900 underline">support@nolsaf.com</a> and we will unlock them once we confirm it is you.</span>
+                  </p>
+                )}
                 <p className="m-0 mt-1 text-[11px] text-slate-400">
                   {summary.lastExportAt ? `Last downloaded ${when(summary.lastExportAt)}` : "Never downloaded"}
                   <span className="mx-1.5 text-slate-300">·</span>
-                  <button type="button" onClick={() => void downloadJson()} disabled={!!exporting} className="border-0 bg-transparent p-0 text-[11px] font-semibold text-emerald-700 hover:underline disabled:opacity-50">
+                  <button type="button" onClick={() => setRequesting("json")} disabled={!!exporting || summary.exportLocked} className="border-0 bg-transparent p-0 text-[11px] font-semibold text-emerald-700 hover:underline disabled:opacity-50">
                     {exporting === "json" ? "Preparing" : "Machine-readable copy (JSON)"}
                   </button>
                 </p>
               </div>
-              <button type="button" onClick={() => void downloadPdf()} disabled={!!exporting} className={outline}>
+              <button type="button" onClick={() => setRequesting("pdf")} disabled={!!exporting || summary.exportLocked} className={outline}>
                 {exporting === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} {exporting === "pdf" ? "Preparing" : "Download PDF"}
               </button>
             </div>
@@ -286,6 +299,16 @@ export default function AccountPrivacyPage() {
           </div>
         </aside>
       </div>
+      {requesting && (
+        <DataRequestDialog
+          format={requesting}
+          onClose={() => { setRequesting(null); void load() }}
+          onVerified={async (grant, format, printWindow) => {
+            if (format === "pdf" && printWindow) await downloadPdf(grant, printWindow)
+            else await downloadJson(grant)
+          }}
+        />
+      )}
     </div>
   )
 }

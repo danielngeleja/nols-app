@@ -73,7 +73,7 @@ export default function UserMenu({ variant = "dark" }: { variant?: "light" | "da
   ];
 
   const settingsItems = [
-    { href: "/account/security", label: "Settings", icon: Settings },
+    { href: "/account/security", label: "Account Settings", icon: Settings },
   ];
 
   const isActive = (href: string) => pathname === href || pathname?.startsWith(href + "/");

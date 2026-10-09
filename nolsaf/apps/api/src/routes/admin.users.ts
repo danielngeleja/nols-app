@@ -15,6 +15,7 @@ import { buildCustomerStatement } from '../lib/customerStatement.js';
 import { adminBookingReference } from '../lib/adminBookingReference.js';
 import { shapeKaribuPreferences } from '../lib/karibuPreferences.js';
 import { mergeNotificationPrefs } from '../lib/notificationPrefs.js';
+import { DATA_EXPORT_REASON_LABEL, DATA_EXPORT_UNLOCKED_ACTION, dataExportLockState } from '../lib/dataExportVerification.js';
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole('ADMIN') as RequestHandler, blockImpersonated as RequestHandler);
@@ -1483,7 +1484,7 @@ router.get('/:id/karibu', asyncHandler(async (req: any, res: any) => {
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
   const db = prisma as any;
   const optional = <T,>(work: Promise<T> | undefined, fallback: T) => (work ? work.catch(() => fallback) : Promise.resolve(fallback));
-  const [user, gestures, prefRow, lastExport, stays] = await Promise.all([
+  const [user, gestures, prefRow, lastExport, stays, requestLog, exportCount] = await Promise.all([
     db.user.findUnique({ where: { id }, select: { id: true, notificationPrefs: true } }),
     optional<any[]>(db.karibuGesture?.findMany({ where: { userId: id }, orderBy: { issuedAt: 'desc' }, take: 50,
       select: { bookingId: true, propertyId: true, menuItemId: true, status: true, payableStatus: true, partnerPrice: true, issuedAt: true, servedAt: true, paidAt: true,
@@ -1492,6 +1493,11 @@ router.get('/:id/karibu', asyncHandler(async (req: any, res: any) => {
     optional<any>(db.auditLog.findFirst({ where: { actorId: id, action: 'USER_DATA_EXPORT' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }), null),
     db.booking.findMany({ where: { userId: id, status: 'CHECKED_OUT' }, take: 300, select: { checkIn: true, checkOut: true, propertyId: true,
       property: { select: { city: true, district: true, regionName: true } } } }),
+    // Data copy requests: what they answered, how they proved it was them, and whether a copy was released.
+    optional<any[]>(db.auditLog.findMany({ where: { actorId: id, action: { in: ['USER_DATA_EXPORT_REQUESTED', 'USER_DATA_EXPORT_VERIFIED', 'USER_DATA_EXPORT', 'USER_DATA_EXPORT_LOCKED'] } },
+      orderBy: { createdAt: 'desc' }, take: 40, select: { action: true, createdAt: true, afterJson: true, ip: true, actorRole: true } }), []),
+    // Exact number of copies released, not limited by the request list above.
+    optional<number>(db.auditLog.count({ where: { actorId: id, action: 'USER_DATA_EXPORT' } }), 0),
   ]);
   if (!user) return res.status(404).json({ error: 'not found' });
 
@@ -1518,7 +1524,41 @@ router.get('/:id/karibu', asyncHandler(async (req: any, res: any) => {
     } : { saved: false },
     notifications: mergeNotificationPrefs(user.notificationPrefs),
     lastDataExportAt: lastExport?.createdAt ?? null,
+    dataExportCount: exportCount,
+    dataExportLock: await dataExportLockState(db, id).catch(() => ({ locked: false, since: null, lastChangeBy: null, note: null })),
+    dataRequests: requestLog.map((row: any) => {
+      const detail = (row.afterJson && typeof row.afterJson === 'object' ? row.afterJson : {}) as Record<string, any>;
+      return {
+        step: row.action === 'USER_DATA_EXPORT_REQUESTED' ? 'REQUESTED' : row.action === 'USER_DATA_EXPORT_VERIFIED' ? 'VERIFIED' : row.action === 'USER_DATA_EXPORT_LOCKED' ? 'LOCKED' : 'DOWNLOADED',
+        at: row.createdAt,
+        country: detail.country ?? null,
+        reason: detail.reason ? (DATA_EXPORT_REASON_LABEL as Record<string, string>)[detail.reason] ?? detail.reason : null,
+        otherReason: detail.otherReason ?? null,
+        format: detail.format ?? null,
+        via: detail.sentVia ?? detail.verifiedVia ?? null,
+        ip: row.ip ?? null,
+      };
+    }),
   });
+}));
+
+/**
+ * POST /admin/users/:id/data-export/unlock
+ * Lifts a data-download lock (three wrong codes) after support has confirmed
+ * with the customer that it was them. Needs a reason; recorded in the audit log.
+ */
+router.post('/:id/data-export/unlock', asyncHandler(async (req: any, res: any) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid id' });
+  const reason = String(req.body?.reason ?? '').trim();
+  if (reason.length < 5 || reason.length > 300) return res.status(400).json({ error: 'Say how you confirmed it was the customer (at least five characters).' });
+  const db = prisma as any;
+  const state = await dataExportLockState(db, id);
+  if (!state.locked) return res.status(409).json({ error: 'Data downloads are not locked on this account.' });
+  await audit(req, DATA_EXPORT_UNLOCKED_ACTION, `user:${id}`, { locked: true, since: state.since }, { reason });
+  // Let the customer know they can try again.
+  await db.notification.create({ data: { userId: id, title: 'Data downloads unlocked', body: 'NoLSAF support unlocked data downloads on your account. You can request a copy of your data again from Settings, Privacy and data.', unread: true, type: 'system' } }).catch(() => null);
+  res.json({ ok: true, dataExportLock: await dataExportLockState(db, id) });
 }));
 
 router.get('/:id/behaviour', asyncHandler(async (req: any, res: any) => {

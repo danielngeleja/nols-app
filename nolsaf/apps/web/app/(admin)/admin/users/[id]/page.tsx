@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, useMemo, Fragment, type ComponentType, type ReactNode } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import AdminRecordGate from "@/components/admin/AdminRecordGate";
 import { adminRecordRef, useAdminHref } from "@/lib/adminRecordRefs";
 import apiClient from "@/lib/apiClient";
@@ -977,7 +977,9 @@ function AdminUserDetail({ userId }: { userId: number }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [tab, setTab] = useState<ProfileTabKey>("stays");
+  // An alert can open the record on a given tab, e.g. ?tab=karibu from a data alert.
+  const requestedTab = useSearchParams()?.get("tab");
+  const [tab, setTab] = useState<ProfileTabKey>(requestedTab === "karibu" || requestedTab === "behaviour" || requestedTab === "audit" ? requestedTab : "stays");
   const [auditHistory, setAuditHistory] = useState<any[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditPage, setAuditPage] = useState(1);
@@ -1007,16 +1009,15 @@ function AdminUserDetail({ userId }: { userId: number }) {
   const [karibu, setKaribu] = useState<CustomerKaribu | null>(null);
   const [karibuLoading, setKaribuLoading] = useState(true);
   const [karibuError, setKaribuError] = useState<string | null>(null);
-  useEffect(() => {
+  const loadKaribu = useCallback(() => {
     if (!isValidUserId) return;
-    let live = true;
     setKaribuLoading(true);
     api.get<CustomerKaribu>(`/api/admin/users/${userId}/karibu`)
-      .then((r) => { if (live) { setKaribu(r.data); setKaribuError(null); } })
-      .catch((err: any) => { if (live) setKaribuError(err?.response?.data?.error || "Could not load the Karibu record."); })
-      .finally(() => { if (live) setKaribuLoading(false); });
-    return () => { live = false; };
+      .then((r) => { setKaribu(r.data); setKaribuError(null); })
+      .catch((err: any) => setKaribuError(err?.response?.data?.error || "Could not load the Karibu record."))
+      .finally(() => setKaribuLoading(false));
   }, [userId, isValidUserId]);
+  useEffect(() => { loadKaribu(); }, [loadKaribu]);
   const [copiedReferral, setCopiedReferral] = useState(false);
   // Which identifier on the customer pass was just copied, for the tick.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -1656,10 +1657,26 @@ function AdminUserDetail({ userId }: { userId: number }) {
           {karibu && (
             <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-neutral-200 bg-white px-5 py-2.5">
               <span className="mr-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-400">Choices</span>
+              {karibu.dataExportLock?.locked && (
+                <button type="button" onClick={() => setTab("karibu")} className="inline-flex items-center gap-1.5 rounded-full border-0 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100"><Lock className="h-3.5 w-3.5" />Data downloads locked · review</button>
+              )}
               <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${karibu.notifications.promotions ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-neutral-50 text-neutral-600 ring-neutral-200"}`}><Bell className="h-3.5 w-3.5" />Offers {karibu.notifications.promotions ? "on" : "off"}</span>
               <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${karibu.notifications.referrals ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-neutral-50 text-neutral-600 ring-neutral-200"}`}><Bell className="h-3.5 w-3.5" />Referral updates {karibu.notifications.referrals ? "on" : "off"}</span>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-50 px-2.5 py-1 text-[11px] font-semibold text-neutral-600 ring-1 ring-neutral-200"><Gift className="h-3.5 w-3.5" />Welcome preferences {karibu.preferences.saved ? (karibu.preferences.shareWithProperty ? "shared with properties" : "private") : "not set"}</span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-50 px-2.5 py-1 text-[11px] font-semibold text-neutral-600 ring-1 ring-neutral-200"><Download className="h-3.5 w-3.5" />Data copy {karibu.lastDataExportAt ? `downloaded ${eatStamp(karibu.lastDataExportAt)}` : "never downloaded"}</span>
+              {(() => {
+                // The reason given on the latest download, when the customer chose one.
+                const lastDownload = (karibu.dataRequests ?? []).find((r) => r.step === "DOWNLOADED");
+                const reason = lastDownload?.reason ? (lastDownload.otherReason ? `${lastDownload.reason}: ${lastDownload.otherReason}` : lastDownload.reason) : null;
+                return (
+                  <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-neutral-50 px-2.5 py-1 text-[11px] font-semibold text-neutral-600 ring-1 ring-neutral-200" title={reason ?? undefined}>
+                    <Download className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">
+                      Data copy {karibu.lastDataExportAt ? `downloaded ${(karibu.dataExportCount ?? 1) === 1 ? "once" : `${karibu.dataExportCount} times`} · last ${eatStamp(karibu.lastDataExportAt)}` : "never downloaded"}
+                      {reason && <span className="font-normal text-neutral-500"> · Reason: {reason}</span>}
+                    </span>
+                  </span>
+                );
+              })()}
             </div>
           )}
         </section>
@@ -1774,7 +1791,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
                 { key: "groups", label: "Group Stays", count: activityByTab.groups.length, total: allActivityByTab.groups, icon: Users },
                 { key: "other", label: "Other Activities", count: activityByTab.other.length, total: allActivityByTab.other, icon: MoreHorizontal },
                 { key: "behaviour", label: "Behaviour", count: null, total: null, icon: Activity },
-                { key: "karibu", label: "Karibu", count: karibu ? karibu.welcomes.length : null, total: null, icon: Gift },
+                { key: "karibu", label: "Karibu and data", count: karibu ? karibu.welcomes.length : null, total: null, icon: Gift },
                 { key: "audit", label: "Audit", count: auditHistory.length, total: null, icon: History },
               ] as { key: ProfileTabKey; label: string; count: number | null; total: number | null; icon: ComponentType<{ className?: string }> }[]).map((entry) => {
                 const active = tab === entry.key;
@@ -2227,7 +2244,7 @@ function AdminUserDetail({ userId }: { userId: number }) {
               );
             })()}
 
-            {tab === "karibu" && <CustomerKaribuPanel data={karibu} loading={karibuLoading} error={karibuError} />}
+            {tab === "karibu" && <CustomerKaribuPanel data={karibu} loading={karibuLoading} error={karibuError} userId={userId} onChanged={loadKaribu} />}
 
             {tab === "audit" && (() => {
               const totalPages = Math.max(1, Math.ceil(auditHistory.length / AUDIT_PAGE_SIZE));

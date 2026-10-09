@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BedDouble, Cake, Coffee, Gift, Loader2, MapPin, Moon, Share2, Star } from "lucide-react";
+import apiClient from "@/lib/apiClient";
+import { AlertTriangle, BedDouble, Cake, Coffee, Gift, Loader2, LockKeyhole, MapPin, Moon, Share2, Star } from "lucide-react";
 
 /** GET /api/admin/users/:id/karibu */
 export type CustomerKaribu = {
@@ -17,6 +19,9 @@ export type CustomerKaribu = {
   };
   notifications: { bookings: boolean; promotions: boolean; referrals: boolean };
   lastDataExportAt: string | null;
+  dataExportCount?: number;
+  dataExportLock?: { locked: boolean; since: string | null; lastChangeBy: "customer" | "admin" | null; note: string | null };
+  dataRequests?: Array<{ step: "REQUESTED" | "VERIFIED" | "DOWNLOADED" | "LOCKED"; at: string; country: string | null; reason: string | null; otherReason: string | null; format: string | null; via: string | null; ip: string | null }>;
 };
 
 const EAT = "Africa/Dar_es_Salaam";
@@ -37,10 +42,33 @@ function welcomeState(w: CustomerKaribu["welcomes"][number]) {
 }
 
 const card = "rounded-xl border border-solid border-neutral-300/80 bg-white";
+const STEP: Record<string, { label: string; dot: string; text: string }> = {
+  REQUESTED: { label: "Asked for a copy, code sent", dot: "bg-sky-500", text: "text-sky-700" },
+  VERIFIED: { label: "Confirmed with the code", dot: "bg-emerald-500", text: "text-emerald-700" },
+  DOWNLOADED: { label: "Copy downloaded", dot: "bg-emerald-600", text: "text-emerald-800" },
+  LOCKED: { label: "Blocked after wrong codes", dot: "bg-rose-500", text: "text-rose-700" },
+};
 const head = "px-4 py-2.5 text-left text-[11px] font-semibold text-neutral-400";
 
 /** Read-only Karibu record for one customer: story numbers, welcomes with feedback, and their own preferences. */
-export default function CustomerKaribuPanel({ data, loading, error }: { data: CustomerKaribu | null; loading: boolean; error: string | null }) {
+export default function CustomerKaribuPanel({ data, loading, error, userId, onChanged }: { data: CustomerKaribu | null; loading: boolean; error: string | null; userId?: number; onChanged?: () => void }) {
+  const [unlockReason, setUnlockReason] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState("");
+  async function unlock() {
+    if (!userId || unlockReason.trim().length < 5) return setUnlockError("Say how you confirmed it was the customer (at least five characters).");
+    setUnlocking(true);
+    setUnlockError("");
+    try {
+      await apiClient.post(`/api/admin/users/${userId}/data-export/unlock`, { reason: unlockReason.trim() });
+      setUnlockReason("");
+      onChanged?.();
+    } catch (err: any) {
+      setUnlockError(err?.response?.data?.error || "Could not unlock. Try again.");
+    } finally {
+      setUnlocking(false);
+    }
+  }
   if (loading && !data) return <div className="flex items-center justify-center gap-2 py-16 text-sm text-neutral-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading Karibu record</div>;
   if (error && !data) return <p className="m-4 rounded-lg border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>;
   if (!data) return null;
@@ -133,6 +161,62 @@ export default function CustomerKaribuPanel({ data, loading, error }: { data: Cu
           {!prefs.saved && <div className="flex items-center gap-2 border-0 border-t border-solid border-neutral-200 px-4 py-4 text-xs text-neutral-500"><Gift className="h-4 w-4 text-neutral-300" /> Welcomes for this customer use the property&apos;s approved drinks without a stated preference.</div>}
         </aside>
       </div>
+
+      {/* Data copy requests: what they answered, how it was proven, and what was released */}
+      <section className={card}>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#0b2420] text-emerald-300"><LockKeyhole className="h-4 w-4" /></span>
+            <div>
+              <h3 className="m-0 text-sm font-bold text-neutral-900">Data copy requests</h3>
+              <p className="m-0 text-xs text-neutral-500">Each copy needs the questions answered and a code sent to a verified contact.</p>
+            </div>
+          </div>
+          {(data.dataRequests ?? []).some((r) => r.step === "LOCKED") && <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700"><AlertTriangle className="h-3 w-3" /> Wrong codes recorded</span>}
+        </div>
+        {data.dataExportLock?.locked && (
+          <div className="border-0 border-t border-solid border-rose-200 bg-rose-50/70 px-4 py-4">
+            <p className="m-0 flex items-center gap-2 text-sm font-bold text-rose-900"><LockKeyhole className="h-4 w-4" /> Data downloads are locked</p>
+            <p className="m-0 mt-1 text-xs leading-5 text-rose-800">
+              Locked {data.dataExportLock.since ? eatStamp(data.dataExportLock.since) : ""} after {data.dataExportLock.note || "wrong codes"}. The customer cannot request a copy until you unlock it.
+              Call or write to the customer on their verified contact first, and unlock only if they confirm the attempt was theirs.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <input value={unlockReason} onChange={(e) => { setUnlockReason(e.target.value); setUnlockError(""); }} maxLength={300} placeholder="How you confirmed it was them, e.g. called on +255… and they confirmed" aria-label="Unlock reason"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-solid border-rose-200 bg-white px-3 text-sm text-neutral-900 outline-none focus:border-rose-400" />
+              <button type="button" onClick={() => void unlock()} disabled={unlocking || unlockReason.trim().length < 5}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border-0 bg-rose-700 px-4 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {unlocking && <Loader2 className="h-4 w-4 animate-spin" />} Unlock data downloads
+              </button>
+            </div>
+            {unlockError && <p role="alert" className="m-0 mt-2 text-xs font-semibold text-rose-700">{unlockError}</p>}
+          </div>
+        )}
+        {(data.dataRequests ?? []).length === 0 ? (
+          <p className="m-0 border-0 border-t border-solid border-neutral-200 px-4 py-8 text-center text-sm text-neutral-500">This customer has not asked for a copy of their data.</p>
+        ) : (
+          <div className="overflow-x-auto border-0 border-t border-solid border-neutral-200">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
+              <thead><tr><th className={head}>When</th><th className={head}>Step</th><th className={head}>Lives in</th><th className={head}>Reason given</th><th className={head}>Format</th><th className={head}>Code sent by</th></tr></thead>
+              <tbody>
+                {(data.dataRequests ?? []).map((r, i) => {
+                  const step = STEP[r.step] ?? STEP.REQUESTED;
+                  return (
+                    <tr key={`${r.at}-${i}`} className="border-0 border-t border-solid border-neutral-100 align-top">
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-neutral-700">{eatStamp(r.at)}{r.ip && <span className="block font-mono text-[11px] text-neutral-400">{r.ip}</span>}</td>
+                      <td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 whitespace-nowrap ${step.text}`}><span className={`h-1.5 w-1.5 rounded-full ${step.dot}`} aria-hidden />{step.label}</span></td>
+                      <td className="px-4 py-3 text-neutral-700">{r.country ?? <span className="text-neutral-400">Not asked</span>}</td>
+                      <td className="px-4 py-3 text-neutral-700">{r.reason ?? <span className="text-neutral-400">Not given</span>}{r.otherReason && <span className="block text-xs text-neutral-500">"{r.otherReason}"</span>}</td>
+                      <td className="px-4 py-3 uppercase text-neutral-600">{r.format ?? <span className="normal-case text-neutral-400">Not recorded</span>}</td>
+                      <td className="px-4 py-3 capitalize text-neutral-600">{r.via ?? <span className="normal-case text-neutral-400">Not recorded</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

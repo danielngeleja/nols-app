@@ -213,7 +213,7 @@ export default function MobilePublicNav() {
                   items: [
                     { href: "/account", label: "Profile", Icon: User },
                     { href: "/account/karibu", label: "My story", Icon: BookHeart },
-                    { href: "/account/security", label: "Security & settings", Icon: SettingsIcon },
+                    { href: "/account/security", label: "Account settings", Icon: SettingsIcon },
                   ],
                 },
                 {
