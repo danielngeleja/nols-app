@@ -100,6 +100,8 @@ export default function KaribuJourneyPage() {
   const nights = journey.totals?.nights ?? 0;
   const places = journey.totals?.places ?? 0;
   const recent = journey.recentStays ?? [];
+  // The story shows the two latest stays; the full list lives on My Bookings.
+  const shownStays = recent.slice(0, 2);
   const upcoming = journey.upcoming ?? null;
   const anniversary = journey.firstStay ? (() => { const d = new Date(journey.firstStay.completedAt); d.setUTCFullYear(d.getUTCFullYear() + 1); return d; })() : null;
   const yearReached = anniversary ? anniversary.getTime() <= Date.now() : false;
@@ -244,10 +246,10 @@ export default function KaribuJourneyPage() {
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#0b2420] text-emerald-300"><MapPin className="h-[18px] w-[18px]" /></span>
                 <div className="min-w-0">
                 <h2 className="m-0 text-base font-bold">Where you have stayed</h2>
-                <p className="m-0 mt-0.5 text-xs text-slate-500">{stays > recent.length ? `Your latest ${recent.length} of ${stays} stays` : "Your completed stays"}</p>
+                <p className="m-0 mt-0.5 text-xs text-slate-500">{stays > shownStays.length ? `Your latest ${shownStays.length} of ${stays} stays` : "Your completed stays"}</p>
                 </div>
               </div>
-              {stays > 0 && <Link href="/account/bookings" className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 no-underline hover:underline">All stays <ArrowRight className="h-3.5 w-3.5" /></Link>}
+              {stays > 0 && <Link href="/account/bookings" className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 no-underline hover:underline">{stays > shownStays.length ? `All ${stays} stays` : "All stays"} <ArrowRight className="h-3.5 w-3.5" /></Link>}
             </div>
             {recent.length === 0 ? (
               <div className={`${divider} px-6 py-12 text-center`}>
@@ -258,7 +260,7 @@ export default function KaribuJourneyPage() {
               </div>
             ) : (
               <ol className="m-0 list-none p-0">
-                {recent.map((stay, i) => {
+                {shownStays.map((stay, i) => {
                   const moment = momentFor(stay.bookingReference);
                   return (
                     <li key={stay.bookingReference} className={divider}>
