@@ -2,25 +2,19 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import type { LucideIcon } from "lucide-react-native";
 import {
-  Activity,
   Ban,
   BedDouble,
-  BookOpen,
   Calendar,
   CalendarCheck,
   CarFront,
   ChevronRight,
-  Clock,
   CreditCard,
-  FileText,
-  ListChecks,
   MapPin,
-  Sparkles,
   TicketsPlane,
   UsersRound
 } from "lucide-react-native";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
 import { BookingListItem, fetchMyBookings } from "../bookings";
@@ -29,7 +23,7 @@ import { fetchMyGroupBookings } from "../groupStays";
 import { RootStackParamList } from "../navigation/types";
 import { fetchCustomerTourBookings } from "../tours";
 import { fetchMyRides } from "../transport";
-import { colors, radius, spacing } from "../theme";
+import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MyBookings">;
 
@@ -37,24 +31,18 @@ type BadgeStatus = "paid" | "pending" | "completed" | "cancelled" | "approved";
 type FilterKey = "all" | "active" | "past" | "draft";
 type ServiceCounts = { tours: number | null; groups: number | null; rides: number | null };
 
-const FILTERS: { key: FilterKey; label: string; icon: LucideIcon }[] = [
-  { key: "all", label: "All", icon: ListChecks },
-  { key: "active", label: "Active", icon: Activity },
-  { key: "past", label: "Past", icon: Clock },
-  { key: "draft", label: "Draft", icon: FileText }
-];
-
-const STATS: { key: "total" | "active" | "draft"; label: string; icon: LucideIcon }[] = [
-  { key: "total", label: "Bookings", icon: BookOpen },
-  { key: "active", label: "Active", icon: Activity },
-  { key: "draft", label: "Draft", icon: FileText }
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "active", label: "Active" },
+  { key: "past", label: "Past" },
+  { key: "draft", label: "Draft" }
 ];
 
 function activeCountLabel(count: number | null, loading: boolean) {
-  if (loading && count == null) return "Checking...";
-  if (count == null) return "Open service";
-  if (count === 0) return "Ready when you are";
-  return `${count} active`;
+  if (loading && count == null) return { text: "Checking", live: false };
+  if (count == null) return { text: "Open", live: false };
+  if (count === 0) return { text: "None active", live: false };
+  return { text: `${count} active`, live: true };
 }
 
 function ServiceShortcut({
@@ -68,7 +56,7 @@ function ServiceShortcut({
 }: {
   title: string;
   description: string;
-  cue: string;
+  cue: { text: string; live: boolean };
   icon: LucideIcon;
   accent: string;
   tint: string;
@@ -77,28 +65,29 @@ function ServiceShortcut({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${title}. ${description}. ${cue}`}
+      accessibilityLabel={`${title}. ${description}. ${cue.text}`}
       onPress={onPress}
       style={({ pressed }) => [styles.serviceTile, pressed && styles.serviceTilePressed]}
     >
       <View style={styles.serviceTileTop}>
         <View style={[styles.serviceIcon, { backgroundColor: tint }]}>
-          <Icon color={accent} size={20} strokeWidth={2.2} />
+          <Icon color={accent} size={19} strokeWidth={2.2} />
         </View>
-        <View style={[styles.serviceArrow, { borderColor: tint }]}>
-          <ChevronRight color={accent} size={15} strokeWidth={2.5} />
-        </View>
+        <ChevronRight color={colors.softText} size={16} strokeWidth={2.2} />
       </View>
-      <AppText variant="body" weight="extraBold" numberOfLines={1}>
+      <AppText variant="bodySmall" weight="extraBold" numberOfLines={1}>
         {title}
       </AppText>
-      <AppText variant="caption" tone="muted" numberOfLines={2} style={styles.serviceDescription}>
-        {description}
-      </AppText>
-      <View style={[styles.serviceCue, { backgroundColor: tint }]}>
-        <View style={[styles.serviceCueDot, { backgroundColor: accent }]} />
-        <AppText variant="caption" weight="bold" style={{ color: accent }} numberOfLines={1}>
-          {cue}
+      <View style={styles.serviceCue}>
+        {cue.live ? <View style={[styles.serviceCueDot, { backgroundColor: accent }]} /> : null}
+        <AppText
+          variant="caption"
+          weight={cue.live ? "bold" : "medium"}
+          tone={cue.live ? "default" : "soft"}
+          style={cue.live ? { color: accent } : undefined}
+          numberOfLines={1}
+        >
+          {cue.text}
         </AppText>
       </View>
     </Pressable>
@@ -336,46 +325,31 @@ export function MyBookingsScreen({ navigation }: Props) {
   return (
     <View style={styles.root}>
       <SafeScreen contentStyle={styles.screen}>
-        <AppStack gap={5}>
+        <AppStack gap={6}>
           <View style={styles.hero}>
-            <View style={styles.heroIconWrap}>
-              <BookOpen color={colors.white} size={26} />
+            <View style={styles.heroTop}>
+              <View style={styles.flex}>
+                <AppText variant="headline" weight="extraBold" tone="inverse">
+                  My Stay
+                </AppText>
+                <AppText variant="bodySmall" style={styles.heroSubtitle}>
+                  Your stays, payments and transport in one place.
+                </AppText>
+              </View>
+              <View style={styles.heroIconWrap}>
+                <CalendarCheck color={colors.white} size={22} />
+              </View>
             </View>
-            <View style={styles.heroTitleRow}>
-              <AppText variant="headline" weight="extraBold" tone="inverse">
-                My Stay
-              </AppText>
-              {items.length > 0 ? (
-                <View style={styles.heroCount}>
-                  <View style={styles.heroCountDot} />
-                  <AppText variant="caption" weight="extraBold" tone="inverse">
-                    {items.length} {items.length === 1 ? "booking" : "bookings"}
-                  </AppText>
-                </View>
-              ) : null}
-            </View>
-            <AppText variant="bodySmall" style={styles.heroSubtitle}>
-              View confirmed stays, draft payments, past bookings, and transport options in one place.
-            </AppText>
           </View>
 
-          <View style={styles.travelHub}>
-            <View style={styles.travelHubAccent} />
-            <View style={styles.travelHubHeader}>
-              <View style={styles.travelHubMark}>
-                <Sparkles color={colors.primary} size={19} />
-              </View>
-              <View style={styles.flex}>
-                <AppText variant="caption" weight="extraBold" tone="primary" style={styles.travelHubEyebrow}>
-                  NOLSAF CONNECT
-                </AppText>
-                <AppText variant="title" weight="extraBold">
-                  My Travel
-                </AppText>
-                <AppText variant="bodySmall" tone="muted" style={styles.travelHubSubtitle}>
-                  Every service keeps its own space. Jump straight to what you need.
-                </AppText>
-              </View>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <AppText variant="titleSm" weight="extraBold">
+                My travel
+              </AppText>
+              <AppText variant="caption" tone="soft">
+                Tours, groups, rides and payments
+              </AppText>
             </View>
 
             <View style={styles.serviceGrid}>
@@ -409,7 +383,7 @@ export function MyBookingsScreen({ navigation }: Props) {
               <ServiceShortcut
                 title="Payments"
                 description="Methods and payment guidance"
-                cue="Secure options"
+                cue={{ text: "Secure methods", live: false }}
                 icon={CreditCard}
                 accent="#6d28d9"
                 tint="#ede9fe"
@@ -436,45 +410,38 @@ export function MyBookingsScreen({ navigation }: Props) {
             />
           ) : (
             <AppStack gap={5}>
-              <View style={styles.statsRow}>
-                {STATS.map(({ key, label, icon: Icon }) => (
-                  <View key={key} style={styles.statChip}>
-                    <View style={styles.statIconWrap}>
-                      <Icon color={colors.primary} size={17} />
-                    </View>
-                    <AppText variant="titleSm" weight="extraBold" tone="primary">
-                      {counts[key]}
-                    </AppText>
-                    <AppText variant="caption" tone="muted">
-                      {label}
-                    </AppText>
-                  </View>
-                ))}
-              </View>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <AppText variant="titleSm" weight="extraBold">
+                    Your stays
+                  </AppText>
+                  <AppText variant="caption" tone="soft">
+                    {counts.total} {counts.total === 1 ? "booking" : "bookings"}
+                  </AppText>
+                </View>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-                {FILTERS.map(({ key, label, icon: Icon }) => {
-                  const active = filter === key;
-                  return (
-                    <Pressable
-                      key={key}
-                      accessibilityRole="button"
-                      onPress={() => setFilter(key)}
-                      style={[styles.filterPill, active && styles.filterPillActive]}
-                    >
-                      <Icon color={active ? colors.white : colors.softText} size={14} />
-                      <AppText variant="caption" weight="bold" tone={active ? "inverse" : "muted"}>
-                        {label}
-                      </AppText>
-                      <View style={[styles.filterCount, active && styles.filterCountActive]}>
-                        <AppText variant="caption" weight="extraBold" tone={active ? "primary" : "muted"} style={styles.filterCountText}>
+                <View style={styles.segment}>
+                  {FILTERS.map(({ key, label }) => {
+                    const active = filter === key;
+                    return (
+                      <Pressable
+                        key={key}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setFilter(key)}
+                        style={[styles.segmentItem, active && styles.segmentItemActive]}
+                      >
+                        <AppText variant="caption" weight={active ? "extraBold" : "semiBold"} tone={active ? "primary" : "soft"} numberOfLines={1}>
+                          {label}
+                        </AppText>
+                        <AppText variant="caption" weight="bold" tone={active ? "primary" : "soft"} style={styles.segmentCount}>
                           {counts[key]}
                         </AppText>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
 
               {visibleItems.length === 0 ? (
                 <StateView title="No stays in this view" message="Try a different filter to see the rest of your bookings." />
@@ -631,147 +598,79 @@ const styles = StyleSheet.create({
     minWidth: 0
   },
   hero: {
-    alignItems: "center",
+    gap: spacing[5],
     borderRadius: radius.xl,
     backgroundColor: colors.primaryDeep,
-    paddingHorizontal: spacing[5],
-    paddingVertical: spacing[6],
+    padding: spacing[5],
     overflow: "hidden"
   },
-  heroIconWrap: {
-    width: 54,
-    height: 54,
-    borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    marginBottom: spacing[3]
-  },
-  heroTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
-    gap: spacing[2]
-  },
-  heroCount: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1]
-  },
-  heroCountDot: {
-    width: 7,
-    height: 7,
-    borderRadius: radius.full,
-    backgroundColor: colors.brand[300]
-  },
-  heroSubtitle: {
-    color: colors.brand[200],
-    textAlign: "center",
-    marginTop: spacing[2]
-  },
-  travelHub: {
-    position: "relative",
-    overflow: "hidden",
-    gap: spacing[4],
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.white,
-    padding: spacing[4]
-  },
-  travelHubAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 4,
-    backgroundColor: colors.primary
-  },
-  travelHubHeader: {
+  heroTop: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: spacing[3],
-    paddingTop: spacing[1]
+    gap: spacing[3]
   },
-  travelHubMark: {
-    width: 42,
-    height: 42,
+  heroIconWrap: {
+    width: 44,
+    height: 44,
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.brand[50],
+    backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1,
-    borderColor: colors.brand[100]
+    borderColor: "rgba(255,255,255,0.14)"
   },
-  travelHubEyebrow: {
-    letterSpacing: 1
-  },
-  travelHubSubtitle: {
+  heroSubtitle: {
+    color: colors.brand[200],
     marginTop: 2
+  },
+  section: {
+    gap: spacing[3]
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: spacing[2],
+    paddingHorizontal: 2
   },
   serviceGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing[2]
+    gap: spacing[3]
   },
   serviceTile: {
     flexGrow: 1,
-    flexBasis: "47%",
+    flexBasis: "46%",
     minWidth: 136,
-    minHeight: 166,
+    gap: 2,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing[3]
+    backgroundColor: colors.white,
+    padding: spacing[4],
+    ...shadows.card
   },
   serviceTilePressed: {
-    opacity: 0.76,
+    opacity: 0.8,
     transform: [{ scale: 0.985 }]
   },
   serviceTileTop: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     marginBottom: spacing[3]
   },
   serviceIcon: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center"
   },
-  serviceArrow: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.white
-  },
-  serviceDescription: {
-    minHeight: 34,
-    marginTop: 2
-  },
   serviceCue: {
-    alignSelf: "flex-start",
-    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    marginTop: spacing[2],
-    paddingHorizontal: spacing[2],
-    paddingVertical: 4
+    gap: 6
   },
   serviceCueDot: {
     width: 6,
@@ -784,62 +683,28 @@ const styles = StyleSheet.create({
     gap: spacing[3],
     padding: spacing[6]
   },
-  statsRow: {
+  segment: {
     flexDirection: "row",
-    gap: spacing[2]
-  },
-  statChip: {
-    flex: 1,
-    alignItems: "center",
-    gap: spacing[1],
     borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.white,
-    paddingVertical: spacing[4]
+    backgroundColor: colors.brand[50],
+    padding: 4,
+    gap: 4
   },
-  statIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.full,
+  segmentItem: {
+    flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.brand[50],
-    marginBottom: spacing[1]
-  },
-  filterRow: {
-    gap: spacing[2],
-    paddingRight: spacing[4]
-  },
-  filterPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    paddingHorizontal: spacing[3],
+    gap: 5,
+    borderRadius: radius.md,
     paddingVertical: spacing[2]
   },
-  filterPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
+  segmentItemActive: {
+    backgroundColor: colors.white,
+    ...shadows.card
   },
-  filterCount: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing[1],
-    backgroundColor: colors.surface
-  },
-  filterCountActive: {
-    backgroundColor: colors.white
-  },
-  filterCountText: {
-    lineHeight: 14
+  segmentCount: {
+    opacity: 0.8
   },
   bookingCard: {
     borderLeftWidth: 3

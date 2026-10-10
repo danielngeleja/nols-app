@@ -3,24 +3,24 @@ import {
   AlertTriangle,
   CalendarDays,
   Camera,
+  Check,
   CheckCircle2,
   Eye,
   EyeOff,
-  Fingerprint,
+  ImageIcon,
+  LockKeyhole,
   Mail,
-  MapPin,
   Phone,
-  ShieldCheck,
-  User
+  UserRound
 } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ActivityIndicator, Alert, Image, Platform, Pressable, StyleSheet, View } from "react-native";
 
 import { confirmContactChange, requestContactChange } from "../auth/authApi";
 import { ContactField } from "../auth/types";
 import { useAuth } from "../auth";
-import { AppButton, AppCard, AppInput, AppStack, AppText, PhoneNumberField, SafeScreen, ScreenHeader } from "../components";
+import { AppButton, AppInput, AppStack, AppText, PhoneNumberField, SafeScreen, ScreenHeader } from "../components";
 import { useSecureScreen } from "../lib/secureScreen";
 import { apiUploadFile, getErrorMessage } from "../lib/apiClient";
 import { DEFAULT_PHONE_COUNTRY_CODE } from "../lib/phone";
@@ -28,12 +28,18 @@ import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ProfileCompletion">;
-type IconType = typeof User;
+type IconType = typeof UserRound;
 
 function fmtDate(value?: string | null) {
   if (!value) return "Not recorded";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "Not recorded" : d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  return Number.isNaN(d.getTime()) ? "Not recorded" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function memberSince(value?: string | null) {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -60,13 +66,29 @@ export function ProfileCompletionScreen({ navigation }: Props) {
   const [saveStatus, setSaveStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [showTin, setShowTin] = useState(false);
 
-  const displayName = fullName.trim() || user?.fullName || user?.name || user?.email || "NoLSAF customer";
+  const displayName = user?.fullName || user?.name || user?.email || "NoLSAF customer";
   const initial = String(displayName).trim().charAt(0).toUpperCase() || "N";
-  const completion = useMemo(() => {
-    const checks = [user?.avatarUrl, fullName.trim(), user?.email, user?.phone, user?.emailVerifiedAt, user?.phoneVerifiedAt, user?.twoFactorEnabled];
-    const done = checks.filter(Boolean).length;
-    return { done, total: checks.length, percent: Math.round((done / checks.length) * 100) };
-  }, [fullName, user?.avatarUrl, user?.email, user?.emailVerifiedAt, user?.phone, user?.phoneVerifiedAt, user?.twoFactorEnabled]);
+  const since = memberSince(user?.createdAt);
+
+  // Same checklist as the web account page, read from what is saved, so both agree on "complete".
+  const checks = [
+    { done: Boolean(user?.fullName || user?.name), label: "Add your name" },
+    { done: Boolean(user?.emailVerifiedAt), label: user?.email ? "Verify your email" : "Add an email" },
+    { done: Boolean(user?.phone), label: "Link a phone number" },
+    { done: Boolean(user?.avatarUrl), label: "Add a profile photo" },
+    { done: Boolean(String(user?.address || "").trim()), label: "Add your address" },
+    { done: Boolean(String(user?.nationality || "").trim()), label: "Add your nationality" }
+  ];
+  const done = checks.filter((c) => c.done).length;
+  const percent = Math.round((done / checks.length) * 100);
+  const nextStep = checks.find((c) => !c.done);
+
+  const dirty =
+    fullName.trim() !== (user?.fullName || user?.name || "").trim() ||
+    address.trim() !== (user?.address || "").trim() ||
+    nationality.trim() !== (user?.nationality || "").trim() ||
+    tin.trim() !== (user?.tin || "").trim() ||
+    gender !== (user?.gender || "");
 
   async function uploadTravellerPhoto() {
     if (!token) {
@@ -114,7 +136,7 @@ export function ProfileCompletionScreen({ navigation }: Props) {
         nationality: nationality.trim() || undefined,
         gender: gender || undefined
       });
-      setSaveStatus({ type: "success", message: "Your traveller profile has been updated." });
+      setSaveStatus({ type: "success", message: "Your profile has been updated." });
     } catch (e) {
       setSaveStatus({ type: "error", message: getErrorMessage(e, "Failed to update profile. Please try again.") });
     } finally {
@@ -124,16 +146,12 @@ export function ProfileCompletionScreen({ navigation }: Props) {
 
   return (
     <SafeScreen contentStyle={styles.screen}>
-      <AppStack gap={4}>
-        <ScreenHeader
-          title="My Profile"
-          subtitle="Traveller identity, contacts, verification, and account readiness."
-          onBack={() => navigation.goBack()}
-        />
+      <View style={styles.content}>
+        <ScreenHeader title="My Profile" onBack={() => navigation.goBack()} />
 
-        <AppCard style={styles.hero}>
+        <View style={styles.hero}>
           <View style={styles.heroRow}>
-            <Pressable accessibilityRole="button" onPress={uploadTravellerPhoto} style={styles.avatarWrap}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Change profile photo" onPress={uploadTravellerPhoto} style={styles.avatarWrap}>
               <View style={styles.avatar}>
                 {user?.avatarUrl ? (
                   <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
@@ -149,54 +167,44 @@ export function ProfileCompletionScreen({ navigation }: Props) {
                 ) : null}
               </View>
               <View style={styles.cameraBadge}>
-                <Camera color={colors.white} size={15} />
+                <Camera color={colors.primary} size={13} strokeWidth={2.5} />
               </View>
             </Pressable>
             <View style={styles.flex}>
-              <AppText variant="title" weight="extraBold" numberOfLines={2}>
+              <AppText variant="title" weight="extraBold" tone="inverse" numberOfLines={2}>
                 {displayName}
               </AppText>
-              <AppText variant="bodySmall" tone="muted">
-                Your {roleLabel(user?.role)} profile
+              <AppText variant="caption" style={styles.heroMeta} numberOfLines={1}>
+                {roleLabel(user?.role)}
+                {since ? ` · Member since ${since}` : ""}
               </AppText>
-              <View style={styles.progressWrap}>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${completion.percent}%` }]} />
-                </View>
-                <AppText variant="caption" weight="extraBold" tone="primary">
-                  {completion.percent}% ready
-                </AppText>
-              </View>
             </View>
           </View>
-        </AppCard>
 
-        <ScrollStatusCards
-          items={[
-            { Icon: Mail, label: "Email", value: user?.email || "Not added", verified: Boolean(user?.emailVerifiedAt) },
-            { Icon: Phone, label: "Phone", value: user?.phone || "Not added", verified: Boolean(user?.phoneVerifiedAt) },
-            { Icon: Fingerprint, label: "2FA / MFA", value: user?.twoFactorEnabled ? "Enabled" : "Not enabled", verified: Boolean(user?.twoFactorEnabled) },
-            { Icon: CalendarDays, label: "Joined", value: fmtDate(user?.createdAt), verified: Boolean(user?.createdAt) }
-          ]}
-        />
-
-        <AppCard>
-          <AppStack gap={4}>
-            <View style={styles.sectionTitle}>
-              <View style={styles.sectionIcon}>
-                <User color={colors.primary} size={18} />
-              </View>
-              <View style={styles.flex}>
-                <AppText variant="titleSm" weight="extraBold">
-                  Identity and contacts
-                </AppText>
-                <AppText variant="caption" tone="muted">
-                  Used for bookings, receipts, tour documents, and customer support.
-                </AppText>
-              </View>
+          <View style={styles.heroMeter}>
+            <View style={styles.meterTop}>
+              <AppText variant="caption" weight="semiBold" style={styles.heroMeta}>
+                {nextStep ? `Profile ${percent}% complete` : "Profile complete"}
+              </AppText>
+              <AppText variant="caption" weight="extraBold" tone="inverse">
+                {done}/{checks.length}
+              </AppText>
             </View>
-            <AppInput label="Full name" value={fullName} onChangeText={setFullName} placeholder="Full name" textContentType="name" />
+            <View style={styles.meterTrack}>
+              <View style={[styles.meterFill, { width: `${percent}%` }]} />
+            </View>
+            {nextStep ? (
+              <AppText variant="caption" style={styles.heroMeta}>
+                Next: {nextStep.label}
+              </AppText>
+            ) : null}
+          </View>
+        </View>
+
+        <Section title="Contact" hint="Used for bookings, receipts and sign-in codes. Changes are confirmed with a code.">
+          <View style={styles.group}>
             <ContactChangeRow
+              Icon={Mail}
               field="email"
               label="Email"
               currentValue={user?.email}
@@ -207,6 +215,7 @@ export function ProfileCompletionScreen({ navigation }: Props) {
               onChanged={refreshProfile}
             />
             <ContactChangeRow
+              Icon={Phone}
               field="phone"
               label="Phone"
               currentValue={user?.phone}
@@ -215,7 +224,14 @@ export function ProfileCompletionScreen({ navigation }: Props) {
               keyboardType="phone-pad"
               token={token}
               onChanged={refreshProfile}
+              divider
             />
+          </View>
+        </Section>
+
+        <Section title="Personal details" hint="Shown on tour documents and invoices. Only you and NoLSAF see them.">
+          <View style={[styles.group, styles.form]}>
+            <AppInput label="Full name" value={fullName} onChangeText={setFullName} placeholder="Full name" textContentType="name" />
             <AppInput label="Address" value={address} onChangeText={setAddress} placeholder="City, country or billing address" />
             <AppInput
               label="Nationality"
@@ -224,8 +240,8 @@ export function ProfileCompletionScreen({ navigation }: Props) {
               placeholder="e.g. Tanzanian"
               autoCapitalize="words"
             />
-            <View>
-              <AppText variant="label" weight="semiBold" tone="muted" style={styles.genderLabel}>
+            <View style={styles.fieldBlock}>
+              <AppText variant="label" weight="semiBold" tone="muted">
                 Gender
               </AppText>
               <View style={styles.segment}>
@@ -235,10 +251,11 @@ export function ProfileCompletionScreen({ navigation }: Props) {
                     <Pressable
                       key={option}
                       accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
                       onPress={() => setGender(active ? "" : option)}
                       style={[styles.segmentItem, active && styles.segmentItemOn]}
                     >
-                      <AppText variant="caption" weight="semiBold" tone={active ? "inverse" : "muted"}>
+                      <AppText variant="caption" weight={active ? "extraBold" : "semiBold"} tone={active ? "primary" : "soft"}>
                         {option}
                       </AppText>
                     </Pressable>
@@ -255,7 +272,7 @@ export function ProfileCompletionScreen({ navigation }: Props) {
               secureTextEntry={Platform.OS !== "web" && !showTin}
               hint={
                 Platform.OS !== "web" ? (
-                  <Pressable accessibilityRole="button" onPress={() => setShowTin((current) => !current)} hitSlop={8}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={showTin ? "Hide tax ID" : "Show tax ID"} onPress={() => setShowTin((current) => !current)} hitSlop={8}>
                     {showTin ? <EyeOff color={colors.softText} size={18} /> : <Eye color={colors.softText} size={18} />}
                   </Pressable>
                 ) : undefined
@@ -263,81 +280,93 @@ export function ProfileCompletionScreen({ navigation }: Props) {
             />
             {saveStatus ? (
               <View style={[styles.saveStatus, saveStatus.type === "success" ? styles.saveStatusSuccess : styles.saveStatusError]}>
-                {saveStatus.type === "success" ? (
-                  <CheckCircle2 color={colors.success} size={18} />
-                ) : (
-                  <AlertTriangle color={colors.danger} size={18} />
-                )}
-                <AppText variant="bodySmall" weight="bold" tone={saveStatus.type === "success" ? "success" : "danger"} style={styles.flex}>
+                {saveStatus.type === "success" ? <CheckCircle2 color={colors.success} size={17} /> : <AlertTriangle color={colors.danger} size={17} />}
+                <AppText variant="caption" weight="bold" tone={saveStatus.type === "success" ? "success" : "danger"} style={styles.flex}>
                   {saveStatus.message}
                 </AppText>
               </View>
             ) : null}
-            <AppButton title="Save profile" loading={loading} onPress={submit} />
-          </AppStack>
-        </AppCard>
+            <AppButton title="Save changes" loading={loading} disabled={!dirty} onPress={submit} icon={<Check color={colors.white} size={16} />} />
+          </View>
+        </Section>
 
-        <AppCard style={styles.accountCard}>
-          <AppStack gap={3}>
-            <View style={styles.sectionTitle}>
-              <View style={styles.sectionIcon}>
-                <ShieldCheck color={colors.primary} size={18} />
-              </View>
-              <View style={styles.flex}>
-                <AppText variant="titleSm" weight="extraBold">
-                  Account record
-                </AppText>
-                <AppText variant="caption" tone="muted">
-                  Read-only details NoLSAF uses to connect your sessions and support history.
-                </AppText>
-              </View>
-            </View>
-            <ProfileFact Icon={CheckCircle2} label="Profile status" value={`${completion.done}/${completion.total} checks complete`} />
-            <ProfileFact Icon={ShieldCheck} label="Role" value={roleLabel(user?.role)} />
-            <ProfileFact Icon={CalendarDays} label="Created" value={fmtDate(user?.createdAt)} />
-            <ProfileFact Icon={MapPin} label="Profile photo" value={user?.avatarUrl ? "Uploaded" : "Not uploaded"} />
-          </AppStack>
-        </AppCard>
-      </AppStack>
+        <Section title="Account record">
+          <View style={styles.group}>
+            <FactRow Icon={UserRound} label="Account type" value={roleLabel(user?.role)} />
+            <FactRow Icon={CalendarDays} label="Member since" value={fmtDate(user?.createdAt)} divider />
+            <FactRow Icon={ImageIcon} label="Profile photo" value={user?.avatarUrl ? "Uploaded" : "Not uploaded"} divider />
+            <FactRow
+              Icon={LockKeyhole}
+              label="Two-step verification"
+              value={user?.twoFactorEnabled ? "On" : "Off"}
+              valueTone={user?.twoFactorEnabled ? "success" : "warning"}
+              divider
+              onPress={() => navigation.navigate("AccountSecurity", { mode: "2fa" })}
+            />
+          </View>
+        </Section>
+      </View>
     </SafeScreen>
   );
 }
 
-function ScrollStatusCards({
-  items
-}: {
-  items: Array<{ Icon: IconType; label: string; value: string; verified: boolean }>;
-}) {
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <View style={styles.statusRail}>
-      {items.map((item) => (
-        <View key={item.label} style={styles.statusCard}>
-          <View style={styles.statusTop}>
-            <View style={[styles.statusIcon, item.verified && styles.statusIconVerified]}>
-              <item.Icon color={item.verified ? colors.success : colors.softText} size={15} />
-            </View>
-            {item.verified ? (
-              <View style={styles.verifiedPill}>
-                <CheckCircle2 color={colors.success} size={12} />
-                <AppText variant="caption" weight="extraBold" tone="success">
-                  Verified
-                </AppText>
-              </View>
-            ) : null}
-          </View>
-          <AppText variant="caption" weight="bold" tone="soft" style={styles.infoLabel}>
-            {item.label}
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <AppText variant="titleSm" weight="extraBold">
+          {title}
+        </AppText>
+        {hint ? (
+          <AppText variant="caption" tone="soft">
+            {hint}
           </AppText>
-          <AppText variant="bodySmall" weight="extraBold" numberOfLines={2}>
-            {item.value}
-          </AppText>
-        </View>
-      ))}
+        ) : null}
+      </View>
+      {children}
     </View>
   );
 }
 
+function FactRow({
+  Icon,
+  label,
+  value,
+  valueTone = "default",
+  divider,
+  onPress
+}: {
+  Icon: IconType;
+  label: string;
+  value: string;
+  valueTone?: "default" | "success" | "warning";
+  divider?: boolean;
+  onPress?: () => void;
+}) {
+  const body = (
+    <View style={[styles.row, divider && styles.rowDivider]}>
+      <View style={styles.rowIcon}>
+        <Icon color={colors.primary} size={16} />
+      </View>
+      <AppText variant="bodySmall" weight="semiBold" style={styles.flex}>
+        {label}
+      </AppText>
+      <AppText variant="caption" weight="bold" tone={valueTone === "default" ? "soft" : valueTone}>
+        {value}
+      </AppText>
+    </View>
+  );
+  return onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [pressed && styles.rowPressed]}>
+      {body}
+    </Pressable>
+  ) : (
+    body
+  );
+}
+
 function ContactChangeRow({
+  Icon,
   field,
   label,
   currentValue,
@@ -345,8 +374,10 @@ function ContactChangeRow({
   placeholder,
   keyboardType,
   token,
-  onChanged
+  onChanged,
+  divider
 }: {
+  Icon: IconType;
   field: ContactField;
   label: string;
   currentValue?: string | null;
@@ -355,6 +386,7 @@ function ContactChangeRow({
   keyboardType: "email-address" | "phone-pad";
   token: string | null;
   onChanged: () => Promise<void>;
+  divider?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [step, setStep] = useState<"value" | "otp">("value");
@@ -436,146 +468,137 @@ function ContactChangeRow({
     }
   }
 
-  if (!editing) {
-    return (
-      <View style={styles.contactRow}>
-        <View style={styles.contactInfo}>
-          <AppText variant="caption" weight="bold" tone="soft" style={styles.infoLabel}>
+  return (
+    <View style={divider && styles.rowDivider}>
+      <View style={styles.row}>
+        <View style={styles.rowIcon}>
+          <Icon color={colors.primary} size={16} />
+        </View>
+        <View style={styles.flex}>
+          <AppText variant="caption" tone="soft">
             {label}
           </AppText>
           <AppText variant="bodySmall" weight="extraBold" numberOfLines={1}>
             {currentValue || "Not added"}
           </AppText>
           {currentValue ? (
-            verified ? (
-              <View style={styles.verifiedPill}>
-                <CheckCircle2 color={colors.success} size={12} />
-                <AppText variant="caption" weight="extraBold" tone="success">
-                  Verified
-                </AppText>
-              </View>
-            ) : (
-              <View style={styles.unverifiedPill}>
-                <AppText variant="caption" weight="extraBold" tone="danger">
-                  Unverified
-                </AppText>
-              </View>
-            )
+            <View style={styles.statusLine}>
+              {verified ? <CheckCircle2 color={colors.success} size={12} /> : <AlertTriangle color={colors.warning} size={12} />}
+              <AppText variant="caption" weight="bold" tone={verified ? "success" : "warning"}>
+                {verified ? "Verified" : "Not verified"}
+              </AppText>
+            </View>
           ) : null}
         </View>
-        <View style={styles.contactButtonGroup}>
-          {currentValue && !verified ? (
-            <AppButton title="Verify" variant="secondary" onPress={startVerify} style={styles.contactChangeButton} />
-          ) : null}
-          <AppButton title={currentValue ? "Change" : "Add"} variant="secondary" onPress={startEdit} style={styles.contactChangeButton} />
-        </View>
+        {!editing ? (
+          <View style={styles.rowActions}>
+            {currentValue && !verified ? (
+              <Pressable accessibilityRole="button" onPress={startVerify} style={[styles.smallBtn, styles.smallBtnPrimary]} hitSlop={4}>
+                <AppText variant="caption" weight="extraBold" tone="inverse">
+                  Verify
+                </AppText>
+              </Pressable>
+            ) : null}
+            <Pressable accessibilityRole="button" onPress={startEdit} style={styles.smallBtn} hitSlop={4}>
+              <AppText variant="caption" weight="extraBold" tone="primary">
+                {currentValue ? "Change" : "Add"}
+              </AppText>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
-    );
-  }
 
-  return (
-    <AppStack gap={2} style={styles.contactEdit}>
-      {step === "value" ? (
-        <>
-          {field === "phone" ? (
-            <PhoneNumberField
-              label={`New ${label.toLowerCase()}`}
-              countryCode={countryCode}
-              onCountryCodeChange={setCountryCode}
-              value={value}
-              onChangeText={setValue}
-            />
+      {editing ? (
+        <AppStack gap={2} style={styles.contactEdit}>
+          {step === "value" ? (
+            <>
+              {field === "phone" ? (
+                <PhoneNumberField
+                  label={`New ${label.toLowerCase()}`}
+                  countryCode={countryCode}
+                  onCountryCodeChange={setCountryCode}
+                  value={value}
+                  onChangeText={setValue}
+                />
+              ) : (
+                <AppInput
+                  label={`New ${label.toLowerCase()}`}
+                  value={value}
+                  onChangeText={setValue}
+                  placeholder={placeholder}
+                  keyboardType={keyboardType}
+                  autoCapitalize="none"
+                  textContentType="emailAddress"
+                />
+              )}
+              {error ? (
+                <AppText variant="caption" tone="danger">
+                  {error}
+                </AppText>
+              ) : null}
+              <View style={styles.contactActions}>
+                <AppButton title="Cancel" variant="ghost" onPress={cancelEdit} style={styles.flex} />
+                <AppButton title="Send code" loading={loading} onPress={sendCode} style={styles.flex} />
+              </View>
+            </>
           ) : (
-            <AppInput
-              label={`New ${label.toLowerCase()}`}
-              value={value}
-              onChangeText={setValue}
-              placeholder={placeholder}
-              keyboardType={keyboardType}
-              autoCapitalize="none"
-              textContentType="emailAddress"
-            />
+            <>
+              <AppText variant="caption" tone="muted">
+                Enter the code we sent to {value.trim()}.
+              </AppText>
+              <AppInput label="Verification code" value={otp} onChangeText={setOtp} placeholder="6-digit code" keyboardType="number-pad" />
+              {error ? (
+                <AppText variant="caption" tone="danger">
+                  {error}
+                </AppText>
+              ) : null}
+              <View style={styles.contactActions}>
+                <AppButton title="Cancel" variant="ghost" onPress={cancelEdit} style={styles.flex} />
+                <AppButton title="Confirm" loading={loading} onPress={confirmCode} style={styles.flex} />
+              </View>
+            </>
           )}
-          {error ? (
-            <AppText variant="bodySmall" tone="danger">
-              {error}
-            </AppText>
-          ) : null}
-          <View style={styles.contactActions}>
-            <AppButton title="Send code" loading={loading} onPress={sendCode} style={styles.flex} />
-            <AppButton title="Cancel" variant="secondary" onPress={cancelEdit} style={styles.flex} />
-          </View>
-        </>
-      ) : (
-        <>
-          <AppText variant="bodySmall" tone="muted">
-            Enter the code we sent to {value.trim()}.
-          </AppText>
-          <AppInput label="Verification code" value={otp} onChangeText={setOtp} placeholder="6-digit code" keyboardType="number-pad" />
-          {error ? (
-            <AppText variant="bodySmall" tone="danger">
-              {error}
-            </AppText>
-          ) : null}
-          <View style={styles.contactActions}>
-            <AppButton title="Confirm" loading={loading} onPress={confirmCode} style={styles.flex} />
-            <AppButton title="Cancel" variant="secondary" onPress={cancelEdit} style={styles.flex} />
-          </View>
-        </>
-      )}
-    </AppStack>
-  );
-}
-
-function ProfileFact({ Icon, label, value }: { Icon: IconType; label: string; value: string }) {
-  return (
-    <View style={styles.factRow}>
-      <View style={styles.factIcon}>
-        <Icon color={colors.primary} size={16} />
-      </View>
-      <View style={styles.flex}>
-        <AppText variant="caption" weight="bold" tone="soft" style={styles.infoLabel}>
-          {label}
-        </AppText>
-        <AppText variant="bodySmall" weight="extraBold">
-          {value}
-        </AppText>
-      </View>
+        </AppStack>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
-    paddingBottom: spacing[8]
+    paddingBottom: spacing[10]
+  },
+  content: {
+    gap: spacing[6]
   },
   flex: {
     flex: 1,
     minWidth: 0
   },
   hero: {
-    borderColor: colors.brand[100],
-    backgroundColor: "#f7fffc"
+    gap: spacing[4],
+    borderRadius: radius.xl,
+    backgroundColor: colors.primaryDeep,
+    padding: spacing[5]
   },
   heroRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing[4],
-    minWidth: 0
+    gap: spacing[4]
   },
   avatarWrap: {
     position: "relative"
   },
   avatar: {
-    width: 96,
-    height: 96,
+    width: 76,
+    height: 76,
     borderRadius: radius.full,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    backgroundColor: colors.primaryDeep,
-    borderWidth: 1,
-    borderColor: colors.brand[100]
+    backgroundColor: colors.primary,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.18)"
   },
   avatarImage: {
     width: "100%",
@@ -589,175 +612,140 @@ const styles = StyleSheet.create({
   },
   cameraBadge: {
     position: "absolute",
-    right: 2,
-    bottom: 4,
-    width: 34,
-    height: 34,
+    right: -2,
+    bottom: -2,
+    width: 28,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.full,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.white,
     borderWidth: 2,
-    borderColor: colors.white
+    borderColor: colors.primaryDeep
   },
-  progressWrap: {
-    gap: spacing[1],
-    marginTop: spacing[2]
+  heroMeta: {
+    color: colors.brand[200],
+    marginTop: 2
   },
-  progressTrack: {
-    height: 8,
-    overflow: "hidden",
+  heroMeter: {
+    gap: spacing[2],
+    borderRadius: radius.lg,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    padding: spacing[3]
+  },
+  meterTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  meterTrack: {
+    height: 6,
     borderRadius: radius.full,
-    backgroundColor: "#dbe7e5"
+    backgroundColor: "rgba(255,255,255,0.14)",
+    overflow: "hidden"
   },
-  progressFill: {
+  meterFill: {
     height: "100%",
     borderRadius: radius.full,
-    backgroundColor: colors.primary
+    backgroundColor: colors.brand[200]
   },
-  statusRail: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing[2]
+  section: {
+    gap: spacing[3]
   },
-  statusCard: {
-    width: "48.5%",
-    minHeight: 106,
-    gap: spacing[1],
-    borderRadius: radius.md,
+  sectionHeader: {
+    gap: 2,
+    paddingHorizontal: 2
+  },
+  group: {
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    padding: spacing[3]
+    overflow: "hidden",
+    ...shadows.card
   },
-  statusTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing[2]
+  form: {
+    gap: spacing[4],
+    padding: spacing[4]
   },
-  statusIcon: {
-    width: 30,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "#f8fafc"
-  },
-  statusIconVerified: {
-    borderColor: colors.brand[100],
-    backgroundColor: "#e9f7ef"
-  },
-  verifiedPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    backgroundColor: "#e9f7ef",
-    paddingHorizontal: spacing[2],
-    paddingVertical: 2
-  },
-  infoLabel: {
-    textTransform: "uppercase",
-    letterSpacing: 1
-  },
-  sectionTitle: {
+  row: {
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[3],
-    minWidth: 0
+    paddingHorizontal: spacing[4],
+    paddingVertical: spacing[3]
   },
-  sectionIcon: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.brand[50]
+  rowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border
   },
-  accountCard: {
-    backgroundColor: "#fbfaff",
-    borderColor: "#ede9fe"
+  rowPressed: {
+    backgroundColor: colors.surface
   },
-  factRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[3],
-    borderRadius: radius.md,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing[3]
-  },
-  factIcon: {
+  rowIcon: {
     width: 34,
     height: 34,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.full,
     backgroundColor: colors.brand[50]
   },
-  contactRow: {
-    gap: spacing[2],
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    padding: spacing[3]
+  statusLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2
   },
-  contactInfo: {
-    gap: spacing[1]
-  },
-  unverifiedPill: {
-    alignSelf: "flex-start",
-    borderRadius: radius.full,
-    backgroundColor: "#fdecea",
-    paddingHorizontal: spacing[2],
-    paddingVertical: 2
-  },
-  contactChangeButton: {
-    flex: 1
-  },
-  contactButtonGroup: {
+  rowActions: {
     flexDirection: "row",
     gap: spacing[2]
   },
+  smallBtn: {
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.brand[100],
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing[3],
+    paddingVertical: 6
+  },
+  smallBtnPrimary: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary
+  },
   contactEdit: {
+    marginHorizontal: spacing[4],
+    marginBottom: spacing[4],
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#f8fafc",
+    backgroundColor: colors.surface,
     padding: spacing[3]
   },
   contactActions: {
     flexDirection: "row",
     gap: spacing[2]
   },
-  genderLabel: {
-    marginBottom: spacing[2]
+  fieldBlock: {
+    gap: spacing[2]
   },
   segment: {
     flexDirection: "row",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.white,
-    overflow: "hidden"
+    gap: 4,
+    borderRadius: radius.lg,
+    backgroundColor: colors.brand[50],
+    padding: 4
   },
   segmentItem: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: spacing[2],
-    paddingVertical: spacing[2]
+    minHeight: 38,
+    borderRadius: radius.md
   },
   segmentItemOn: {
-    backgroundColor: colors.primary
+    backgroundColor: colors.white,
+    ...shadows.card
   },
   saveStatus: {
     flexDirection: "row",

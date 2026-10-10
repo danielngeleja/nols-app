@@ -7,6 +7,8 @@ import { PendingBookingsCart } from "../components/PendingBookingsCart";
 import { webOrigin } from "../lib/webOrigin";
 import { AccountScreen } from "../screens/AccountScreen";
 import { AccountPreferencesScreen } from "../screens/AccountPreferencesScreen";
+import { KaribuStoryScreen } from "../screens/KaribuStoryScreen";
+import { PrivacyDataScreen } from "../screens/PrivacyDataScreen";
 import { AccountResourcesScreen } from "../screens/AccountResourcesScreen";
 import { AccountSecurityScreen } from "../screens/AccountSecurityScreen";
 import { BusinessAccessScreen } from "../screens/BusinessAccessScreen";
@@ -131,6 +133,8 @@ export function AppNavigator() {
             <Stack.Screen name="AddTransport" component={AddTransportScreen} />
             <Stack.Screen name="Account" component={AccountScreen} />
             <Stack.Screen name="AccountPreferences" component={AccountPreferencesScreen} />
+            <Stack.Screen name="KaribuStory" component={KaribuStoryScreen} />
+            <Stack.Screen name="PrivacyData" component={PrivacyDataScreen} />
             <Stack.Screen name="BusinessAccess" component={BusinessAccessScreen} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="SafetyCenter" component={SafetyCenterScreen} />

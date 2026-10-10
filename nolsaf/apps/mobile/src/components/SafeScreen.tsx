@@ -1,4 +1,4 @@
-import { PropsWithChildren } from "react";
+import { PropsWithChildren, Ref } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -16,9 +16,11 @@ type SafeScreenProps = PropsWithChildren<{
   scroll?: boolean;
   padded?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
+  /** The screen's ScrollView, so a screen can scroll to a section it was opened for. */
+  scrollRef?: Ref<ScrollView>;
 }>;
 
-export function SafeScreen({ children, scroll = true, padded = true, contentStyle }: SafeScreenProps) {
+export function SafeScreen({ children, scroll = true, padded = true, contentStyle, scrollRef }: SafeScreenProps) {
   const content = (
     <View style={[styles.content, padded && styles.padded, contentStyle]}>
       {children}
@@ -33,6 +35,7 @@ export function SafeScreen({ children, scroll = true, padded = true, contentStyl
       >
         {scroll ? (
           <ScrollView
+            ref={scrollRef}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
