@@ -1,6 +1,7 @@
 import { Check, Search, X, type LucideIcon } from "lucide-react-native";
 import { useMemo, useRef, useState } from "react";
-import { Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Animated, PanResponder, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { AppText } from "./AppText";
@@ -34,6 +35,8 @@ export function OptionPickerSheet({
   onClose,
   appearance = "list"
 }: Props) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[3]);
   const [query, setQuery] = useState("");
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -65,10 +68,10 @@ export function OptionPickerSheet({
   const searchable = options.length > 8;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <Animated.View style={[styles.sheet, appearance === "cards" && styles.cardSheet, { transform: [{ translateY }] }]}>
+        <Animated.View style={[styles.sheet, appearance === "cards" && styles.cardSheet, { paddingBottom: bottomInset, transform: [{ translateY }] }]}>
           <View {...panResponder.panHandlers}>
             <View style={styles.handleWrap}>
               <View style={styles.handle} />
@@ -176,7 +179,7 @@ export function OptionPickerSheet({
           </ScrollView>
         </Animated.View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

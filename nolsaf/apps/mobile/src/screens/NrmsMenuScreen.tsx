@@ -1,7 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -16,7 +16,7 @@ import {
   XCircle
 } from "lucide-react-native";
 
-import { AppButton, AppCard, AppStack, AppText, SafeScreen, ScreenHeader } from "../components";
+import { AppButton, AppCard, AppStack, AppText, SafeScreen, ScreenHeader, SheetModal, useSheetBottomInset } from "../components";
 import { ApiError, getErrorMessage } from "../lib/apiClient";
 import { RootStackParamList } from "../navigation/types";
 import {
@@ -107,6 +107,8 @@ function statusCopy(status: string): { label: string; note: string } {
 }
 
 export function NrmsMenuScreen({ navigation, route }: Props) {
+  // Bottom sheets clear the phone navigation bar (edge-to-edge Android).
+  const bottomInset = useSheetBottomInset(spacing[5]);
   const token = String(route.params?.token || "").trim();
   const [menu, setMenu] = useState<NrmsMenuData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -404,9 +406,9 @@ export function NrmsMenuScreen({ navigation, route }: Props) {
         </Pressable>
       ) : null}
 
-      <Modal visible={cartOpen} animationType="slide" transparent onRequestClose={() => setCartOpen(false)}>
+      <SheetModal visible={cartOpen} animationType="slide" onRequestClose={() => setCartOpen(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
             <View style={styles.sheetHeader}>
               <AppText variant="titleSm" weight="bold" style={styles.flex}>
                 Your order
@@ -531,7 +533,7 @@ export function NrmsMenuScreen({ navigation, route }: Props) {
             </View>
           </View>
         </View>
-      </Modal>
+      </SheetModal>
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import { apiRequest } from "../lib/apiClient";
+import type { AccountExport } from "./dataReport";
 
 /** What the account holds, as counts and flags (GET /api/account/data-summary). No record contents. */
 export type DataSummary = {
@@ -69,5 +70,5 @@ export async function verifyDataExport(token: string, code: string) {
 
 /** Step 3: the copy itself, released only with the grant. */
 export async function downloadDataExport(token: string, grant: string) {
-  return apiRequest<Record<string, unknown>>("/api/account/export", { token, headers: { "X-Data-Export-Grant": grant } });
+  return apiRequest<AccountExport>("/api/account/export", { token, headers: { "X-Data-Export-Grant": grant } });
 }

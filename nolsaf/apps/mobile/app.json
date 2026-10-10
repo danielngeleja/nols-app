@@ -12,7 +12,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "6",
+      "buildNumber": "7",
       "bundleIdentifier": "com.nolsaf.app",
       "associatedDomains": [
         "webcredentials:nolsaf.com",
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.nolsaf.app",
-      "versionCode": 36,
+      "versionCode": 37,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -83,7 +83,8 @@
           "imageWidth": 240
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

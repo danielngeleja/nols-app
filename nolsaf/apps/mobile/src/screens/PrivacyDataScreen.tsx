@@ -5,10 +5,11 @@ import {
   BedDouble,
   CarFront,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Download,
-  ExternalLink,
+  FileJson,
   FileText,
   LockKeyhole,
   Mail,
@@ -21,22 +22,28 @@ import {
   X
 } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, Linking, Modal, Pressable, Share, StyleSheet, Switch, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from "react-native";
 
 import { useAuth } from "../auth";
-import { AppButton, AppText, OptionPickerSheet, SafeScreen, ScreenHeader, StateView } from "../components";
+import { AppButton, AppText, OptionPickerSheet, SafeScreen, ScreenHeader, SheetModal, StateView, useSheetBottomInset } from "../components";
 import { KARIBU_DIETARY, KARIBU_DRINKS, setKaribuSharing } from "../karibu";
 import { ApiError, getErrorMessage } from "../lib/apiClient";
-import { webOrigin } from "../lib/webOrigin";
 import { RootStackParamList } from "../navigation/types";
 import {
   DATA_EXPORT_COUNTRIES,
   DATA_EXPORT_REASONS,
   DataExportReason,
+  DataFormat,
   DataSummary,
+  PreparedCopy,
+  canMakePdf,
+  discardCopy,
   downloadDataExport,
+  exportCounts,
   fetchDataSummary,
+  prepareCopy,
   requestDataExport,
+  shareCopy,
   verifyDataExport
 } from "../privacy";
 import { colors, radius, shadows, spacing } from "../theme";
@@ -200,7 +207,7 @@ export function PrivacyDataScreen({ navigation }: Props) {
                   <AppText variant="bodySmall" weight="extraBold">Download a copy of your data</AppText>
                   <AppText variant="caption" tone="soft">
                     Your profile and up to 1,000 recent records in each category: stays, tours, group stays, rides, cancellations, reviews, saved stays,
-                    trip estimates, notification choices, and Karibu preferences and welcomes.
+                    trip estimates, notification choices, and Karibu preferences and welcomes. As a readable PDF or a machine-readable JSON file.
                   </AppText>
                 </View>
               </View>
@@ -222,11 +229,6 @@ export function PrivacyDataScreen({ navigation }: Props) {
                 onPress={() => setRequesting(true)}
                 icon={<LockKeyhole color={colors.primary} size={16} />}
               />
-              <Pressable accessibilityRole="link" onPress={() => Linking.openURL(`${webOrigin()}/account/security/privacy`).catch(() => undefined)} style={styles.webLink} hitSlop={6}>
-                <FileText color={colors.primary} size={13} />
-                <AppText variant="caption" weight="extraBold" tone="primary">Need a readable PDF? Get it on nolsaf.com</AppText>
-                <ExternalLink color={colors.primary} size={12} />
-              </Pressable>
             </View>
           </View>
         </View>
@@ -292,15 +294,28 @@ export function PrivacyDataScreen({ navigation }: Props) {
 }
 
 /**
- * Before a copy is released: where the person lives, why (optional), then a code
- * sent to a contact already verified on the account. The app receives the
- * machine-readable copy and hands it to the phone's share sheet to save or send.
+ * Before a copy is released: where the person lives, why (optional), the
+ * format, then a code sent to a contact already verified on the account. Each
+ * stage after the code is shown, ending on a ready screen with the file.
  */
+type SheetStep = "questions" | "code" | "working" | "ready" | "failed";
+type WorkStage = "verifying" | "downloading" | "building";
+
+const WORK_STAGES: { key: WorkStage; label: string }[] = [
+  { key: "verifying", label: "Checking your code" },
+  { key: "downloading", label: "Collecting your records" },
+  { key: "building", label: "Preparing your file" }
+];
+
 function DataRequestSheet({ token, onClose, onDownloaded }: { token: string; onClose: () => void; onDownloaded: () => void }) {
-  const [step, setStep] = useState<"questions" | "code">("questions");
+  const bottomInset = useSheetBottomInset(spacing[5]);
+  const pdfAvailable = canMakePdf();
+  const [step, setStep] = useState<SheetStep>("questions");
+  const [stage, setStage] = useState<WorkStage>("verifying");
   const [country, setCountry] = useState("Tanzania");
   const [reason, setReason] = useState<DataExportReason | null>(null);
   const [otherReason, setOtherReason] = useState("");
+  const [format, setFormat] = useState<DataFormat>(pdfAvailable ? "pdf" : "json");
   const [picker, setPicker] = useState<"country" | "reason" | null>(null);
   const [sentTo, setSentTo] = useState<{ via: "email" | "phone"; to: string; minutes: number } | null>(null);
   const [code, setCode] = useState("");
@@ -308,6 +323,17 @@ function DataRequestSheet({ token, onClose, onDownloaded }: { token: string; onC
   const [error, setError] = useState<string | null>(null);
   // Three wrong codes lock downloads until support unlocks them.
   const [locked, setLocked] = useState(false);
+  const [copy, setCopy] = useState<PreparedCopy | null>(null);
+  const [counts, setCounts] = useState<{ label: string; count: number }[]>([]);
+  const [sharing, setSharing] = useState(false);
+  const [shared, setShared] = useState(false);
+  const working = step === "working";
+
+  function close() {
+    if (working) return;
+    discardCopy(copy);
+    onClose();
+  }
 
   async function sendCode() {
     if (reason === "OTHER" && otherReason.trim().length < 3) {
@@ -321,7 +347,7 @@ function DataRequestSheet({ token, onClose, onDownloaded }: { token: string; onC
         country,
         reason,
         otherReason: reason === "OTHER" ? otherReason.trim() : null,
-        format: "json"
+        format
       });
       setSentTo({ via: res.sentVia, to: res.sentTo, minutes: res.expiresInMinutes ?? 10 });
       setCode("");
@@ -335,108 +361,237 @@ function DataRequestSheet({ token, onClose, onDownloaded }: { token: string; onC
   }
 
   async function confirm(entered: string) {
-    if (busy || entered.length !== 6) return;
-    setBusy(true);
+    if (working || entered.length !== 6) return;
     setError(null);
+    setStep("working");
+    setStage("verifying");
+    let grant: string;
     try {
-      const { grant } = await verifyDataExport(token, entered);
-      const data = await downloadDataExport(token, grant);
-      const date = new Date().toISOString().slice(0, 10);
-      await Share.share({ title: `nolsaf-my-data-${date}.json`, message: JSON.stringify(data, null, 2) });
-      onDownloaded();
-      onClose();
+      grant = (await verifyDataExport(token, entered)).grant;
     } catch (err) {
+      // A wrong code goes back to the code box with the server's message (tries left, or locked).
       if (isLocked(err)) setLocked(true);
       setError(getErrorMessage(err, "That code could not be checked. Try again."));
       setCode("");
-    } finally {
-      setBusy(false);
+      setStep("code");
+      return;
+    }
+    try {
+      setStage("downloading");
+      const data = await downloadDataExport(token, grant);
+      setCounts(exportCounts(data));
+      setStage("building");
+      const prepared = await prepareCopy(data, format);
+      setCopy(prepared);
+      setStep("ready");
+      onDownloaded();
+      // Open the save/share sheet straight away; the ready screen stays for a second try.
+      void share(prepared);
+    } catch (err) {
+      if (isLocked(err)) setLocked(true);
+      setError(getErrorMessage(err, "Your copy could not be prepared. Try again."));
+      setStep("failed");
     }
   }
 
+  async function share(target: PreparedCopy | null = copy) {
+    if (!target) return;
+    setSharing(true);
+    setError(null);
+    try {
+      await shareCopy(target);
+      setShared(true);
+    } catch (err) {
+      setError(getErrorMessage(err, "Your copy could not be shared. Try again."));
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  function startOver() {
+    setError(null);
+    setCode("");
+    setStep("questions");
+  }
+
   const reasonLabel = DATA_EXPORT_REASONS.find(([value]) => value === reason)?.[1];
+  const subtitle =
+    step === "questions"
+      ? "A few questions first. This keeps your data safe."
+      : step === "code"
+        ? "Confirm it is you."
+        : step === "working"
+          ? "Please keep the app open."
+          : step === "ready"
+            ? "Your copy is ready."
+            : "Something went wrong.";
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={() => { if (!busy) onClose(); }}>
+    <SheetModal visible animationType="slide" onRequestClose={close}>
       <View style={styles.overlay}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
           <View style={styles.sheetHead}>
             <View style={styles.darkTile}><LockKeyhole color={colors.brand[200]} size={16} /></View>
             <View style={styles.flex}>
               <AppText variant="titleSm" weight="extraBold">Request your personal data</AppText>
-              <AppText variant="caption" tone="soft">{step === "questions" ? "A few questions first. This keeps your data safe." : "Confirm it is you."}</AppText>
+              <AppText variant="caption" tone="soft">{subtitle}</AppText>
             </View>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} disabled={busy} style={styles.closeBtn}>
-              <X color={colors.softText} size={18} />
-            </Pressable>
+            {!working ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={close} style={styles.closeBtn}>
+                <X color={colors.softText} size={18} />
+              </Pressable>
+            ) : null}
           </View>
 
-          {locked ? (
-            <View style={styles.lockedBox}>
-              <LockKeyhole color={colors.danger} size={15} />
-              <AppText variant="caption" weight="semiBold" style={styles.lockedText}>
-                Too many wrong codes were entered, so we locked data downloads on your account to keep your data safe. Contact support@nolsaf.com. Once we confirm it is you, we unlock it and you can try again.
-              </AppText>
-            </View>
-          ) : error ? (
-            <AppText variant="caption" weight="bold" tone="danger">{error}</AppText>
-          ) : null}
-
-          {locked ? (
-            <AppButton title="Close" variant="secondary" onPress={onClose} />
-          ) : step === "questions" ? (
-            <View style={styles.sheetBody}>
-              <FieldButton label="Where do you live?" value={country} onPress={() => setPicker("country")} />
-              <FieldButton label="Why do you need it? (optional)" value={reasonLabel || "Choose a reason"} placeholder={!reasonLabel} onPress={() => setPicker("reason")} />
-              {reason === "OTHER" ? (
-                <TextInput
-                  value={otherReason}
-                  onChangeText={setOtherReason}
-                  maxLength={200}
-                  placeholder="Tell us briefly why"
-                  placeholderTextColor={colors.softText}
-                  style={styles.input}
-                />
-              ) : null}
-              <AppText variant="caption" tone="muted" style={styles.noteBox}>
-                We send a code to the email or phone already verified on your account. Your data is released only after you enter it. You get a machine-readable copy (JSON) to save to your files or send. We record the request and download, and alert your verified email or phone.
-              </AppText>
-              <AppButton title="Send code" loading={busy} onPress={sendCode} />
-            </View>
-          ) : (
-            <View style={styles.sheetBody}>
-              <View style={styles.sentBox}>
-                {sentTo?.via === "phone" ? <MessageSquare color={colors.primary} size={15} /> : <Mail color={colors.primary} size={15} />}
-                <AppText variant="caption" weight="semiBold" tone="primary" style={styles.flex}>
-                  We sent a 6-digit code to {sentTo?.to}. It expires in {sentTo?.minutes ?? 10} minutes.
+          <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled">
+            {locked ? (
+              <View style={styles.lockedBox}>
+                <LockKeyhole color={colors.danger} size={15} />
+                <AppText variant="caption" weight="semiBold" style={styles.lockedText}>
+                  Too many wrong codes were entered, so we locked data downloads on your account to keep your data safe. Contact support@nolsaf.com. Once we confirm it is you, we unlock it and you can try again.
                 </AppText>
               </View>
-              <TextInput
-                value={code}
-                onChangeText={(text) => {
-                  const digits = text.replace(/\D/g, "").slice(0, 6);
-                  setCode(digits);
-                  setError(null);
-                  if (digits.length === 6) void confirm(digits);
-                }}
-                editable={!busy}
-                autoFocus
-                keyboardType="number-pad"
-                textContentType="oneTimeCode"
-                autoComplete="sms-otp"
-                maxLength={6}
-                placeholder="000000"
-                placeholderTextColor={colors.border}
-                style={styles.codeInput}
+            ) : error && step !== "failed" ? (
+              <AppText variant="caption" weight="bold" tone="danger">{error}</AppText>
+            ) : null}
+
+            {locked ? null : step === "questions" ? (
+              <>
+                <FieldButton label="Where do you live?" value={country} onPress={() => setPicker("country")} />
+                <FieldButton label="Why do you need it? (optional)" value={reasonLabel || "Choose a reason"} placeholder={!reasonLabel} onPress={() => setPicker("reason")} />
+                {reason === "OTHER" ? (
+                  <TextInput
+                    value={otherReason}
+                    onChangeText={setOtherReason}
+                    maxLength={200}
+                    placeholder="Tell us briefly why"
+                    placeholderTextColor={colors.softText}
+                    style={styles.input}
+                  />
+                ) : null}
+                <View style={styles.field}>
+                  <AppText variant="caption" weight="bold">Format</AppText>
+                  <View style={styles.formatRow}>
+                    <FormatOption
+                      Icon={FileText}
+                      title="Readable PDF"
+                      text={pdfAvailable ? "To read or print" : "Update the app to use"}
+                      on={format === "pdf"}
+                      disabled={!pdfAvailable}
+                      onPress={() => setFormat("pdf")}
+                    />
+                    <FormatOption Icon={FileJson} title="JSON file" text="To move your data" on={format === "json"} onPress={() => setFormat("json")} />
+                  </View>
+                </View>
+                <AppText variant="caption" tone="muted" style={styles.noteBox}>
+                  We send a code to the email or phone already verified on your account. Your data is released only after you enter it. We record the request and download, and alert your verified email or phone.
+                </AppText>
+              </>
+            ) : step === "code" ? (
+              <>
+                <View style={styles.sentBox}>
+                  {sentTo?.via === "phone" ? <MessageSquare color={colors.primary} size={15} /> : <Mail color={colors.primary} size={15} />}
+                  <AppText variant="caption" weight="semiBold" tone="primary" style={styles.flex}>
+                    We sent a 6-digit code to {sentTo?.to}. It expires in {sentTo?.minutes ?? 10} minutes.
+                  </AppText>
+                </View>
+                <TextInput
+                  value={code}
+                  onChangeText={(text) => {
+                    const digits = text.replace(/\D/g, "").slice(0, 6);
+                    setCode(digits);
+                    setError(null);
+                    if (digits.length === 6) void confirm(digits);
+                  }}
+                  autoFocus
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
+                  maxLength={6}
+                  placeholder="000000"
+                  placeholderTextColor={colors.border}
+                  style={styles.codeInput}
+                />
+                <AppText variant="caption" tone="soft" style={styles.centerText}>
+                  It confirms on its own once all six digits are in.
+                </AppText>
+                <Pressable accessibilityRole="button" onPress={startOver} style={styles.linkRow} hitSlop={6}>
+                  <AppText variant="caption" weight="extraBold" tone="primary">Did not get it? Send a new code</AppText>
+                </Pressable>
+              </>
+            ) : step === "working" ? (
+              <View style={styles.progressList}>
+                {WORK_STAGES.map((s, i) => {
+                  const current = WORK_STAGES.findIndex((w) => w.key === stage);
+                  const done = i < current;
+                  const active = i === current;
+                  return (
+                    <View key={s.key} style={styles.progressRow}>
+                      <View style={[styles.progressDot, done && styles.progressDotDone, active && styles.progressDotActive]}>
+                        {done ? <Check color={colors.white} size={13} strokeWidth={3} /> : active ? <ActivityIndicator color={colors.primary} size="small" /> : null}
+                      </View>
+                      <AppText variant="bodySmall" weight={active ? "extraBold" : "semiBold"} tone={done || active ? "default" : "soft"}>
+                        {s.label}
+                      </AppText>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : step === "ready" && copy ? (
+              <>
+                <View style={styles.readyHero}>
+                  <View style={styles.readyIcon}><CheckCircle2 color={colors.success} size={26} /></View>
+                  <AppText variant="bodySmall" weight="extraBold">{copy.fileName}</AppText>
+                  <AppText variant="caption" tone="soft">
+                    {copy.format === "pdf" ? "Readable PDF" : "JSON file"} · {copy.sizeLabel}
+                  </AppText>
+                </View>
+                <View style={styles.countGrid}>
+                  {counts.map((c) => (
+                    <View key={c.label} style={styles.countCell}>
+                      <AppText variant="bodySmall" weight="extraBold">{c.count}</AppText>
+                      <AppText variant="caption" tone="soft" numberOfLines={1}>{c.label}</AppText>
+                    </View>
+                  ))}
+                </View>
+                {error ? <AppText variant="caption" weight="bold" tone="danger">{error}</AppText> : null}
+                <AppText variant="caption" tone="muted" style={styles.noteBox}>
+                  {shared
+                    ? "Saved or sent. Keep this copy private: it holds your contact details and travel history. We sent a download alert to your verified email or phone."
+                    : "Choose where to keep it: Files, Drive, or send it to yourself. Keep it private. We sent a download alert to your verified email or phone."}
+                </AppText>
+              </>
+            ) : step === "failed" ? (
+              <View style={styles.readyHero}>
+                <View style={[styles.readyIcon, styles.failedIcon]}><AlertTriangle color={colors.danger} size={24} /></View>
+                <AppText variant="bodySmall" weight="extraBold">Your copy was not prepared</AppText>
+                <AppText variant="caption" tone="soft" style={styles.centerText}>{error || "Try again in a moment."}</AppText>
+              </View>
+            ) : null}
+          </ScrollView>
+
+          {/* Actions stay pinned under the scrolling content, clear of the navigation bar. */}
+          {locked ? (
+            <AppButton title="Close" variant="secondary" onPress={close} />
+          ) : step === "questions" ? (
+            <AppButton title="Send code" loading={busy} onPress={sendCode} />
+          ) : step === "ready" ? (
+            <View style={styles.footerRow}>
+              <AppButton title="Done" variant="ghost" onPress={close} style={styles.flex} />
+              <AppButton
+                title={shared ? "Share again" : "Save or share"}
+                loading={sharing}
+                onPress={() => void share()}
+                icon={<Download color={colors.white} size={16} />}
+                style={styles.flex}
               />
-              <AppText variant="caption" tone={busy ? "primary" : "soft"} style={styles.centerText}>
-                {busy ? "Checking your code and preparing your data" : "It confirms on its own once all six digits are in."}
-              </AppText>
-              <Pressable accessibilityRole="button" onPress={() => { setStep("questions"); setError(null); }} disabled={busy} style={styles.webLink} hitSlop={6}>
-                <AppText variant="caption" weight="extraBold" tone="primary">Did not get it? Send a new code</AppText>
-              </Pressable>
             </View>
-          )}
+          ) : step === "failed" ? (
+            <View style={styles.footerRow}>
+              <AppButton title="Close" variant="ghost" onPress={close} style={styles.flex} />
+              <AppButton title="Try again" onPress={startOver} style={styles.flex} />
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -457,7 +612,37 @@ function DataRequestSheet({ token, onClose, onDownloaded }: { token: string; onC
         onSelect={(value) => { setReason(value as DataExportReason); setError(null); setPicker(null); }}
         onClose={() => setPicker(null)}
       />
-    </Modal>
+    </SheetModal>
+  );
+}
+
+function FormatOption({
+  Icon,
+  title,
+  text,
+  on,
+  disabled,
+  onPress
+}: {
+  Icon: IconType;
+  title: string;
+  text: string;
+  on: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected: on, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.formatOption, on && styles.formatOptionOn, disabled && styles.formatOptionDisabled]}
+    >
+      <Icon color={on ? colors.primary : colors.softText} size={18} />
+      <AppText variant="caption" weight="extraBold" tone={on ? "primary" : "default"}>{title}</AppText>
+      <AppText variant="caption" tone="soft" numberOfLines={1}>{text}</AppText>
+    </Pressable>
   );
 }
 
@@ -495,7 +680,6 @@ const styles = StyleSheet.create({
   pill: { borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing[2], paddingVertical: 2 },
   lockedBox: { flexDirection: "row", alignItems: "flex-start", gap: spacing[2], borderRadius: radius.md, borderWidth: 1, borderColor: "#fecaca", backgroundColor: "#fef2f2", padding: spacing[3] },
   lockedText: { flex: 1, color: "#991b1b" },
-  webLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, alignSelf: "center" },
   tableRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: spacing[3], paddingVertical: spacing[3] },
   tableHead: { paddingVertical: spacing[2] },
   tableWhat: { flex: 1.6, minWidth: 0 },
@@ -505,10 +689,27 @@ const styles = StyleSheet.create({
   dangerTile: { width: 34, height: 34, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: "#fef2f2" },
   warnBox: { flexDirection: "row", alignItems: "flex-start", gap: spacing[2], borderRadius: radius.md, backgroundColor: "#fffbeb", padding: spacing[3] },
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(2,12,10,0.58)" },
-  sheet: { gap: spacing[4], borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, backgroundColor: colors.white, padding: spacing[5], paddingBottom: spacing[8], ...shadows.sheet },
+  sheet: { gap: spacing[4], borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, backgroundColor: colors.white, padding: spacing[5], maxHeight: "90%", ...shadows.sheet },
   sheetHead: { flexDirection: "row", alignItems: "center", gap: spacing[3] },
   closeBtn: { width: 36, height: 36, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  sheetScroll: { flexGrow: 0 },
   sheetBody: { gap: spacing[3] },
+  linkRow: { alignSelf: "center" },
+  footerRow: { flexDirection: "row", gap: spacing[2] },
+  formatRow: { flexDirection: "row", gap: spacing[2] },
+  formatOption: { flex: 1, minWidth: 0, gap: 2, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, padding: spacing[3] },
+  formatOptionOn: { borderColor: colors.primary, backgroundColor: colors.brand[50] },
+  formatOptionDisabled: { opacity: 0.5 },
+  progressList: { gap: spacing[4], paddingVertical: spacing[4] },
+  progressRow: { flexDirection: "row", alignItems: "center", gap: spacing[3] },
+  progressDot: { width: 28, height: 28, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.white },
+  progressDotActive: { borderColor: colors.brand[100], backgroundColor: colors.brand[50] },
+  progressDotDone: { borderColor: colors.primary, backgroundColor: colors.primary },
+  readyHero: { alignItems: "center", gap: spacing[1], paddingVertical: spacing[2] },
+  readyIcon: { width: 52, height: 52, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: "#ecfdf5", marginBottom: spacing[1] },
+  failedIcon: { backgroundColor: "#fef2f2" },
+  countGrid: { flexDirection: "row", flexWrap: "wrap", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  countCell: { width: "25%", alignItems: "center", gap: 1, paddingVertical: spacing[2], paddingHorizontal: 2 },
   field: { gap: spacing[1] },
   input: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: spacing[2], borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, paddingHorizontal: spacing[3], color: colors.ink, fontSize: 14 },
   noteBox: { borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing[3] },

@@ -1,13 +1,13 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Bell, Gift, Shield, ShieldAlert, Tag, Trash2 } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Switch, View } from "react-native";
+import { ActivityIndicator, Alert, Switch, View } from "react-native";
 import { StyleSheet } from "react-native";
 
 import { useAuth } from "../auth";
 import { deleteMyAccount, fetchNotificationPreferences, updateNotificationPreferences } from "../accountPreferences";
 import { NotificationPreferences } from "../accountPreferences/types";
-import { AppButton, AppCard, AppInput, AppStack, AppText, ConfirmSheet, CurrencySelector, SafeScreen, ScreenHeader } from "../components";
+import { AppButton, AppCard, AppInput, AppStack, AppText, ConfirmSheet, CurrencySelector, SafeScreen, ScreenHeader, SheetModal, useSheetBottomInset } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
@@ -28,6 +28,8 @@ const DELETE_WARNINGS = [
 ];
 
 export function AccountPreferencesScreen({ navigation }: Props) {
+  // Bottom sheets clear the phone navigation bar (edge-to-edge Android).
+  const bottomInset = useSheetBottomInset(spacing[4]);
   const { token, user, signOut } = useAuth();
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [loading, setLoading] = useState(true);
@@ -174,8 +176,8 @@ export function AccountPreferencesScreen({ navigation }: Props) {
         onConfirm={() => setDeleteStep("verify")}
       />
 
-      <Modal visible={deleteStep === "verify"} transparent animationType="fade" onRequestClose={closeDeleteFlow}>
-        <View style={styles.overlay}>
+      <SheetModal visible={deleteStep === "verify"} animationType="fade" onRequestClose={closeDeleteFlow}>
+        <View style={[styles.overlay, { paddingBottom: bottomInset }]}>
           <View style={styles.sheet}>
             <AppStack gap={4}>
               <View style={styles.verifyIcon}>
@@ -216,7 +218,7 @@ export function AccountPreferencesScreen({ navigation }: Props) {
             </AppStack>
           </View>
         </View>
-      </Modal>
+      </SheetModal>
     </SafeScreen>
   );
 }

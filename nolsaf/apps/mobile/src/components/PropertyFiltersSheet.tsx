@@ -1,6 +1,7 @@
 import { X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { AppButton } from "./AppButton";
@@ -70,6 +71,8 @@ type PropertyFiltersSheetProps = {
  * button says how many stays the choice will show before it is applied.
  */
 export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, priceCurrency, prices, typeCounts, stays, onApply, onClose }: PropertyFiltersSheetProps) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[4]);
   const [draft, setDraft] = useState<PropertyFilters>(value);
   const [gridWidth, setGridWidth] = useState(0);
 
@@ -110,10 +113,10 @@ export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, price
   const dirty = countAdvancedFilters(draft) > 0;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable accessibilityLabel="Close filters" style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
           <View style={styles.grabber} />
           <View style={styles.header}>
             <AppText variant="title" weight="bold">
@@ -217,7 +220,7 @@ export function PropertyFiltersSheet({ visible, value, priceMin, priceMax, price
           </View>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

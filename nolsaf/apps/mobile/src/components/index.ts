@@ -37,6 +37,7 @@ export * from "./RouteSummaryCard";
 export * from "./SafeScreen";
 export * from "./ScreenHeader";
 export * from "./ShareTripButton";
+export * from "./SheetModal";
 export * from "./StateView";
 export * from "./StatusBadge";
 export * from "./FeaturedTourOperatorCard";

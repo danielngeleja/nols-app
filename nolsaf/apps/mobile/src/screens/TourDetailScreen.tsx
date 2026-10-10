@@ -26,11 +26,11 @@ import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ActivityIndicator, Alert, Animated, Easing, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, Easing, Linking, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop, Text as SvgText } from "react-native-svg";
 
 import { useAuth } from "../auth";
-import { AmountText, AppButton, AppInput, AppText, SafeScreen, ShareTripButton, StateView } from "../components";
+import { AmountText, AppButton, AppInput, AppText, SafeScreen, ShareTripButton, SheetModal, StateView, useSheetBottomInset } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import {
   createTourTimelineInvite,
@@ -1568,11 +1568,13 @@ function MeetupValidationSheet({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  // Bottom sheets clear the phone navigation bar (edge-to-edge Android).
+  const bottomInset = useSheetBottomInset(spacing[6]);
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalRoot}>
         <Pressable style={styles.modalBackdrop} onPress={onClose} />
-        <View style={styles.meetupSheet}>
+        <View style={[styles.meetupSheet, { paddingBottom: bottomInset }]}>
           <View style={styles.resultHandle} />
           <View style={styles.meetupSheetHero}>
             <View style={styles.meetupSheetIcon}>
@@ -1614,7 +1616,7 @@ function MeetupValidationSheet({
           </View>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
@@ -1631,11 +1633,13 @@ function DocumentResultSheet({
   onUploadDocument: (slot: RequiredDocumentSlot) => void;
   onClose: () => void;
 }) {
+  // Bottom sheets clear the phone navigation bar (edge-to-edge Android).
+  const bottomInset = useSheetBottomInset(spacing[6]);
   return (
-    <Modal visible={Boolean(result)} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={Boolean(result)} animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalRoot}>
         <Pressable style={styles.modalBackdrop} onPress={onClose} />
-        <View style={styles.resultSheet}>
+        <View style={[styles.resultSheet, { paddingBottom: bottomInset }]}>
           <View style={styles.resultHandle} />
           <View style={styles.resultHeader}>
             <View style={styles.resultIcon}>
@@ -1660,7 +1664,7 @@ function DocumentResultSheet({
           <AppButton title="Done" onPress={onClose} />
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

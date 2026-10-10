@@ -1,6 +1,7 @@
 import { Bus, Check, MapPin, Plane, Search, Ship, TrainFront, X } from "lucide-react-native";
 import { ReactNode, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { PICKUP_CATEGORY_LABELS, PickupCategory, PickupPoint } from "../transport";
 import { colors, radius, shadows, spacing } from "../theme";
@@ -41,6 +42,8 @@ type Props = {
 };
 
 export function PickupPickerSheet({ visible, selectedId, points, title, subtitle, onClose, onSelect }: Props) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[3]);
   const [query, setQuery] = useState("");
 
   const groups = useMemo(() => {
@@ -61,9 +64,9 @@ export function PickupPickerSheet({ visible, selectedId, points, title, subtitle
   }, [query, points]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
           <View style={styles.header}>
             <View style={styles.flex}>
               <AppText variant="titleSm" weight="bold">
@@ -164,7 +167,7 @@ export function PickupPickerSheet({ visible, selectedId, points, title, subtitle
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

@@ -1,6 +1,7 @@
 import { ArrowUpDown, Check, MapPin, Search, Tag, X } from "lucide-react-native";
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { TourismSite, TourSortKey } from "../tours";
@@ -60,6 +61,8 @@ type TourFiltersSheetProps = {
 /** Bottom sheet of tour filters: Category, Parks and sites (searchable), and Sort.
  *  Chips wrap so nothing is clipped, and a search narrows the long places list. */
 export function TourFiltersSheet({ visible, value, categories, sites, getCount, onApply, onClose }: TourFiltersSheetProps) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[4]);
   const [draft, setDraft] = useState<TourFilterValue>(value);
   const [siteQuery, setSiteQuery] = useState("");
 
@@ -80,10 +83,10 @@ export function TourFiltersSheet({ visible, value, categories, sites, getCount, 
   }, [sites, siteQuery]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <Pressable style={styles.overlayTap} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
           <View style={styles.handle} />
 
           <View style={styles.header}>
@@ -202,7 +205,7 @@ export function TourFiltersSheet({ visible, value, categories, sites, getCount, 
           </View>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

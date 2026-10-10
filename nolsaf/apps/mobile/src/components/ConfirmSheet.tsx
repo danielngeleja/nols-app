@@ -1,4 +1,5 @@
-import { Modal, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { AppButton } from "./AppButton";
@@ -28,9 +29,11 @@ export function ConfirmSheet({
   onConfirm,
   onCancel
 }: ConfirmSheetProps) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[3]);
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.overlay}>
+    <SheetModal visible={visible} animationType="fade" onRequestClose={onCancel}>
+      <View style={[styles.overlay, { paddingBottom: bottomInset }]}>
         <View style={styles.sheet}>
           <AppStack gap={5}>
             <AppStack gap={2}>
@@ -53,7 +56,7 @@ export function ConfirmSheet({
           </AppStack>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

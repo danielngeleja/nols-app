@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { AppButton } from "./AppButton";
@@ -47,6 +48,8 @@ type CalendarRangeSheetProps = {
  * which compare correctly with simple string comparison.
  */
 export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onApply, mode = "range", title = "Select dates" }: CalendarRangeSheetProps) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[5]);
   const [inDate, setInDate] = useState(checkIn);
   const [outDate, setOutDate] = useState(checkOut);
   const [view, setView] = useState(() => {
@@ -98,9 +101,9 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
   const canApply = mode === "single" ? Boolean(inDate) : Boolean(inDate && outDate);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
           <View style={styles.header}>
             <AppText variant="title" weight="bold">
               {title}
@@ -200,7 +203,7 @@ export function CalendarRangeSheet({ visible, checkIn, checkOut, onClose, onAppl
           </View>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 

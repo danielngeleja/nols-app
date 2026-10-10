@@ -1,6 +1,7 @@
 import { Star, X } from "lucide-react-native";
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { SheetModal, useSheetBottomInset } from "./SheetModal";
 
 import { colors, radius, shadows, spacing } from "../theme";
 import { AppButton } from "./AppButton";
@@ -41,6 +42,8 @@ function StarRow({ value, onChange, size = 30 }: { value: number; onChange: (n: 
 
 /** Form for a guest to leave an overall rating, optional title, comment, and per category ratings. */
 export function ReviewSheet({ visible, submitting, error, onClose, onSubmit }: ReviewSheetProps) {
+  // Clears the phone navigation bar, which edge-to-edge Android draws over.
+  const bottomInset = useSheetBottomInset(spacing[5]);
   const [rating, setRating] = useState(0);
   const [title, setTitle] = useState("");
   const [comment, setComment] = useState("");
@@ -56,9 +59,9 @@ export function ReviewSheet({ visible, submitting, error, onClose, onSubmit }: R
   }, [visible]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <SheetModal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: bottomInset }]}>
           <View style={styles.header}>
             <AppText variant="title" weight="bold">
               Write a review
@@ -157,7 +160,7 @@ export function ReviewSheet({ visible, submitting, error, onClose, onSubmit }: R
           </View>
         </View>
       </View>
-    </Modal>
+    </SheetModal>
   );
 }
 
