@@ -7,6 +7,7 @@ import http from "http";
 import morgan from "morgan";
 import { adminOriginGuard } from "./middleware/adminOriginGuard.js";
 import { csrfProtection, csrfTokenHeader } from "./middleware/csrf.js";
+import { ownerSupportReadOnly } from "./middleware/auth.js";
 import { performanceMiddleware } from "./middleware/performance.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { getRedis } from "./lib/redis.js";
@@ -95,6 +96,7 @@ app.use(express.urlencoded({
   limit: "100kb",
   parameterLimit: 50,
 }));
+app.use(ownerSupportReadOnly as express.RequestHandler);
 app.use(
   process.env.NODE_ENV === "production"
     ? morgan(':remote-addr :method :safe-url :status :res[content-length] - :response-time ms', {

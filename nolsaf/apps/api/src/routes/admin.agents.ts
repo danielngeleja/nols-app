@@ -3,7 +3,7 @@ import { Router, Response } from "express";
 import type { RequestHandler } from "express";
 import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, getTokenFromRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
 import { sanitizeText } from "../lib/sanitize.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
@@ -13,7 +13,8 @@ import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { Prisma } from "@prisma/client";
 import { sendMail } from "../lib/mailer.js";
 import { getAgentSuspensionEmail, getAgentRestorationEmail, getOperatorProfileApprovedEmail, getOperatorProfileRejectedEmail } from "../lib/authEmailTemplates.js";
-import { signUserJwt } from "../lib/sessionManager.js";
+import { setAuthCookie, setImpersonationHandoffCookie, signUserJwt } from "../lib/sessionManager.js";
+import { createSupportHandoff } from "../lib/supportImpersonation.js";
 import crypto from "crypto";
 import { revokeUserAuthorization } from "../lib/authorizationInvalidation.js";
 import { ACCOMMODATION_BRIDGE_TX_OPTIONS, bridgeApprovedOperatorToAccommodation } from "../lib/nrmsPartnerCapability.js";
@@ -2230,7 +2231,7 @@ router.post(
 
 // ============================================================
 // POST /api/admin/agents/:id/impersonate
-// Issue a short-lived AGENT JWT for support troubleshooting.
+// Start a short-lived, read-only AGENT support session.
 // ============================================================
 router.post(
   "/:id/impersonate",
@@ -2250,14 +2251,25 @@ router.post(
       }
       const reason = sanitizeText(rawReason);
 
-      const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, userId: true } });
+      const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true, userId: true, status: true } });
       if (!agent) return sendError(res, 404, "Agent not found");
+      if (agent.status !== "ACTIVE") return sendError(res, 409, "Support sign-in requires an active tour operator account");
+      const agentUser = await prisma.user.findUnique({
+        where: { id: agent.userId },
+        select: { id: true, role: true, email: true, suspendedAt: true, isDisabled: true },
+      });
+      if (!agentUser || agentUser.role !== "AGENT" || agentUser.suspendedAt || agentUser.isDisabled) {
+        return sendError(res, 409, "Agent account is not available for support access");
+      }
+      const adminToken = getTokenFromRequest(req);
+      if (!adminToken) return sendError(res, 401, "Administrator session required");
 
       const ttlSec = 10 * 60;
       const token = await signUserJwt(
-        { id: agent.userId, role: "AGENT" },
-        { impersonated: true, expiresInSeconds: ttlSec },
+        { id: agentUser.id, role: "AGENT", email: agentUser.email },
+        { impersonated: true, impersonatorId: req.user.id, expiresInSeconds: ttlSec },
       );
+      const handoffHandle = await createSupportHandoff(adminToken, req.user, token, "AGENT");
 
       await audit(req as AuthedRequest, "AGENT_IMPERSONATE_ISSUE", `agent:${agentId}`, { reason }, { ttlSec });
       await prisma.adminAudit.create({
@@ -2269,7 +2281,10 @@ router.post(
         },
       });
 
-      return sendSuccess(res, { token, expiresIn: ttlSec }, "Impersonation token issued.");
+      await setAuthCookie(res, token, "AGENT");
+      setImpersonationHandoffCookie(res, handoffHandle);
+      res.setHeader("Cache-Control", "private, no-store");
+      return sendSuccess(res, { ok: true, redirectTo: "/account/agent", expiresIn: ttlSec }, "Support session started.");
     } catch (err: any) {
       console.error("[POST /admin/agents/:id/impersonate] Error:", err);
       sendError(res, 500, "Failed to issue impersonation token.");

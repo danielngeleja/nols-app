@@ -974,6 +974,29 @@ model Session {
   @@map("session")
 }
 
+/// One-use return path from a read-only admin support session. Only a hash of
+/// the browser's random handle is stored; no administrator JWT is persisted.
+model SupportImpersonationHandoff {
+  id                String    @id @default(uuid())
+  handleHash        String    @unique @db.VarChar(64)
+  adminId           Int
+  adminSessionId    String    @db.VarChar(191)
+  adminIssuedAt     Int
+  adminExpiresAt    Int
+  adminMfa          String    @db.VarChar(12)
+  supportUserId     Int
+  supportSessionId  String    @db.VarChar(191)
+  supportRole       String    @db.VarChar(20)
+  expiresAt         DateTime
+  usedAt            DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@index([adminId, expiresAt])
+  @@index([supportSessionId])
+  @@index([expiresAt, usedAt])
+  @@map("support_impersonation_handoff")
+}
+
 // =========================================================
 //  ADMIN OTP MODEL - short-lived OTPs for admin actions
 // =========================================================

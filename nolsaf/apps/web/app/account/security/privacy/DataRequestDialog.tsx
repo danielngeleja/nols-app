@@ -173,7 +173,7 @@ export default function DataRequestDialog({ format, onClose, onVerified }: {
                   ))}
                 </div>
               </fieldset>
-              <p className="m-0 rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">We send a code to the email or phone already verified on your account. Your data is released only after you enter it, and we email you each time a copy is downloaded. Every request is recorded on your account.</p>
+              <p className="m-0 rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">We send a code to the email or phone already verified on your account. Your data is released only after you enter it. We record the request and download, and try to alert your verified email or phone after a copy is downloaded.</p>
             </>
           ) : (
             <>

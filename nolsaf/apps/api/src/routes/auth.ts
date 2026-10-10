@@ -11,7 +11,8 @@ import { sendSms } from '../lib/sms.js';
 import { addPasswordToHistory, getPasswordChangeCooldownRemaining, isPasswordReused, recordPasswordChangeSuccess } from '../lib/security.js';
 import { getPublicPasswordPolicy, validatePasswordWithSettings } from '../lib/securitySettings.js';
 import { getRoleSessionMaxMinutes } from '../lib/securitySettings.js';
-import { signUserJwt, setAuthCookie, clearAuthCookie } from '../lib/sessionManager.js';
+import { signUserJwt, setAuthCookie, clearAuthCookie, clearImpersonationHandoffCookie } from '../lib/sessionManager.js';
+import { consumeSupportHandoff, getActiveSupportHandoff, supportHandoffMatchesUser } from '../lib/supportImpersonation.js';
 import { getWebAuthnRp } from '../lib/webauthnRp.js';
 import { verifyOwnerReportPrintHandoff } from '../lib/ownerReportPrintHandoff.js';
 import { audit } from '../lib/audit.js';
@@ -1515,6 +1516,66 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
 
 // POST /api/auth/logout
 // Use maybeAuth to optionally extract user for audit logging
+async function restorableSupportHandoff(req: any) {
+  const current = req.user;
+  if (!current?.imp || !current.sessionId || !current.impersonatorId) return null;
+  const handoff = await getActiveSupportHandoff(req.headers.cookie);
+  if (!handoff || !supportHandoffMatchesUser(handoff, current)) return null;
+  return handoff;
+}
+
+router.get("/impersonation/status", maybeAuth, async (req, res) => {
+  const handoff = await restorableSupportHandoff(req);
+  const current = (req as any).user;
+  const token = current?.imp ? getAuthTokenFromRequest(req) : null;
+  const claims = token ? jwt.decode(token) as jwt.JwtPayload | null : null;
+  res.setHeader("Cache-Control", "private, no-store");
+  return res.json({
+    impersonated: Boolean(current?.imp),
+    canReturn: Boolean(handoff),
+    targetRole: current?.imp ? current.role : null,
+    ownerEmail: current?.imp ? current.email ?? null : null,
+    expiresAt: current?.imp && typeof claims?.exp === "number" ? claims.exp * 1000 : null,
+  });
+});
+
+router.post("/impersonation/end", maybeAuth, async (req, res) => {
+  const handoff = await restorableSupportHandoff(req);
+  if (!handoff) {
+    clearImpersonationHandoffCookie(res);
+    return res.status(403).json({ error: "Support return has expired. Sign in again." });
+  }
+  const current = (req as any).user;
+  if (!(await consumeSupportHandoff(handoff.handleHash))) {
+    clearImpersonationHandoffCookie(res);
+    return res.status(403).json({ error: "Support return was already used" });
+  }
+  await prisma.adminAudit.create({
+    data: {
+      adminId: handoff.adminId,
+      targetUserId: current.id,
+      action: "IMPERSONATE_END",
+      details: "Support session ended",
+    },
+  });
+  await prisma.session.updateMany({
+    where: { id: handoff.supportSessionId, userId: handoff.supportUserId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  await prisma.session.updateMany({
+    where: { id: handoff.adminSessionId, userId: handoff.adminId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  const adminToken = await signUserJwt(
+    { id: handoff.adminId, role: "ADMIN" },
+    { adminMfa: handoff.adminMfa as "passkey" | "totp" },
+  );
+  await setAuthCookie(res, adminToken, "ADMIN");
+  res.setHeader("Cache-Control", "private, no-store");
+  const redirectTo = handoff.supportRole === "OWNER" ? `/admin/owners/${current.id}` : "/admin/agents";
+  return res.json({ ok: true, redirectTo });
+});
+
 function safeNextPath(raw: any): string {
   const v = typeof raw === "string" ? raw.trim() : "";
   if (!v) return "/account/login";
@@ -1531,7 +1592,7 @@ function safeOwnerReportPrintNext(raw: any): string {
   return v;
 }
 
-router.get("/owner-report-print-handoff", asyncHandler(async (req, res) => {
+router.get("/owner-report-print-handoff", maybeAuth, blockImpersonated, asyncHandler(async (req, res) => {
   const rawToken = String((req as any).query?.token || "").trim();
   if (!rawToken) return res.status(400).send("Missing print handoff token.");
 

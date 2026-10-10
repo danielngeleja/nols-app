@@ -228,7 +228,7 @@ export default function AccountPrivacyPage() {
               <div className="min-w-0 flex-1">
                 <p className="m-0 text-sm font-semibold text-slate-900">Download a copy of your data</p>
                 <p className="m-0 mt-0.5 text-xs leading-5 text-slate-500">
-                  Your profile, every stay, tour, group stay and ride, cancellations and refunds, {counts.reviews ? `${counts.reviews} ${counts.reviews === 1 ? "review" : "reviews"}, ` : "reviews, "}saved stays, trip estimates, notification choices{wp.saved ? " and welcome preferences" : ""}, in one document.
+                  Your profile and up to 1,000 recent records in each category: stays, tours, group stays, rides, cancellations, reviews, saved stays, trip estimates, notification choices, and Karibu preferences and welcomes. For a broader copy, contact privacy@nolsaf.com.
                 </p>
                 {summary.exportLocked && (
                   <p role="alert" className="m-0 mt-2 flex items-start gap-1.5 rounded-lg border border-solid border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-medium text-rose-800">

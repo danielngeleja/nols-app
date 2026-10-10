@@ -43,7 +43,7 @@ import {
   ArrowRight,
   Lock,
 } from "lucide-react";
-import apiClient from "@/lib/apiClient";
+import apiClient, { clearAuthToken } from "@/lib/apiClient";
 import TableRow from "@/components/TableRow";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
@@ -481,9 +481,13 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   useEffect(() => { setMounted(true); }, []);
   const [showSuspendForm, setShowSuspendForm] = useState(false);
   const [suspendReason, setSuspendReason] = useState("");
+  const [showRestoreConfirmation, setShowRestoreConfirmation] = useState(false);
+  const [restoreError, setRestoreError] = useState("");
+  const [pageNotice, setPageNotice] = useState("");
   const [notifyAgent, setNotifyAgent] = useState(true);
   const [showImpersonateForm, setShowImpersonateForm] = useState(false);
   const [impersonateReason, setImpersonateReason] = useState("");
+  const [impersonateError, setImpersonateError] = useState("");
   const [showNotificationForm, setShowNotificationForm] = useState(false);
   const [notificationSubject, setNotificationSubject] = useState("");
   const [notificationMessage, setNotificationMessage] = useState("");
@@ -630,7 +634,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       setNoteText("");
       await loadNotes(agent.id);
     } catch (err: any) {
-      alert(err?.response?.data?.error || err?.message || "Failed to save note");
+      setPageNotice(err?.response?.data?.error || err?.message || "Failed to save note");
     } finally {
       setSavingNote(false);
     }
@@ -753,7 +757,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       await loadDocuments(agent.id);
       await load();
     } catch (err: any) {
-      alert(err?.response?.data?.error || err?.message || "Failed to approve document");
+      setPageNotice(err?.response?.data?.error || err?.message || "Failed to approve document");
     } finally {
       setDocActionLoadingId(null);
     }
@@ -762,7 +766,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   async function suspendAgent() {
     if (!agent) return;
     if (!suspendReason.trim()) {
-      alert("Please provide a reason for suspension.");
+      setPageNotice("Please provide a reason for suspension.");
       return;
     }
     try {
@@ -778,22 +782,29 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
         window.open(`mailto:${agent.user.email}?subject=${subject}&body=${body}`, "_blank");
       }
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to suspend tour operator");
+      setPageNotice(err?.response?.data?.message || "Failed to suspend tour operator");
     } finally {
       setActionLoading(false);
     }
   }
 
+  function requestRestore() {
+    if (actionLoading) return;
+    setRestoreError("");
+    setShowRestoreConfirmation(true);
+  }
+
   async function restoreAgent() {
     if (!agent) return;
-    if (!window.confirm(`Restore ${agent.user.fullName || agent.user.name || "this tour operator"}?`)) return;
     try {
       setActionLoading(true);
+      setRestoreError("");
       authify();
       await api.post(`/api/admin/agents/${agent.id}/restore`, { notes: "Restored by admin from detail page" });
+      setShowRestoreConfirmation(false);
       await load();
     } catch (err: any) {
-      alert(err?.response?.data?.message || "Failed to restore tour operator");
+      setRestoreError(err?.response?.data?.message || "Failed to restore tour operator");
     } finally {
       setActionLoading(false);
     }
@@ -851,11 +862,11 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
 
   function sendNotification() {
     if (!agent?.user.email) {
-      alert("Tour operator email is not available");
+      setPageNotice("Tour operator email is not available");
       return;
     }
     if (!notificationSubject.trim() || !notificationMessage.trim()) {
-      alert("Please provide both subject and message.");
+      setPageNotice("Please provide both subject and message.");
       return;
     }
 
@@ -871,34 +882,39 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   function handleImpersonateClick() {
     setShowImpersonateForm(true);
     setImpersonateReason("");
+    setImpersonateError("");
   }
 
   function cancelImpersonate() {
     setShowImpersonateForm(false);
     setImpersonateReason("");
+    setImpersonateError("");
   }
 
   async function confirmImpersonate() {
     if (!agent) return;
-    if (!impersonateReason.trim()) {
-      alert("Please provide a reason for impersonation. This action will be logged.");
+    if (impersonateReason.trim().length < 10) {
+      setImpersonateError("Enter a reason of at least 10 characters.");
+      return;
+    }
+    if (String(agent.status).toUpperCase() !== "ACTIVE" || agent.suspendedAt) {
+      setImpersonateError("Support sign-in is available only while this tour operator account is active.");
       return;
     }
 
     try {
       setActionLoading(true);
+      setImpersonateError("");
       authify();
-      const r = await api.post<{ token: string; expiresIn: number }>(`/api/admin/agents/${agent.id}/impersonate`, {
+      const r = await api.post<{ ok: boolean; redirectTo: string; expiresIn: number }>(`/api/admin/agents/${agent.id}/impersonate`, {
         reason: impersonateReason.trim(),
       });
-      const payload = unwrapApiData<{ token: string; expiresIn: number }>(r.data);
-      if (!payload?.token) throw new Error("No token returned from impersonation endpoint");
-      await navigator.clipboard.writeText(payload.token);
-      setImpersonateReason("");
-      setShowImpersonateForm(false);
-      alert("Temporary AGENT token copied to clipboard (10 min). Use in a private tab for support.");
+      const payload = unwrapApiData<{ ok: boolean; redirectTo: string; expiresIn: number }>(r.data);
+      if (!payload?.ok || payload.redirectTo !== "/account/agent") throw new Error("Support session was not started");
+      clearAuthToken();
+      window.location.assign(payload.redirectTo);
     } catch (err: any) {
-      alert(err?.response?.data?.error || err?.response?.data?.message || err?.message || "Failed to impersonate tour operator");
+      setImpersonateError(err?.response?.data?.error || err?.response?.data?.message || err?.message || "Could not start the support session.");
     } finally {
       setActionLoading(false);
     }
@@ -1040,6 +1056,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const docsAwaitingReview = requiredDocumentCards.filter(({ doc }) => doc?.id && String(doc.status || "PENDING").toUpperCase() === "PENDING").length;
   const docsMissing = requiredDocumentCards.filter(({ doc }) => !doc).length;
   const isSuspended = Boolean(agent?.suspendedAt) || String(agent?.status || "").toUpperCase() === "SUSPENDED";
+  const canImpersonateTourAgent = String(agent?.status || "").toUpperCase() === "ACTIVE" && !agent?.suspendedAt;
   const profileWord = submittedProfileReviewStatus === "APPROVED" ? "Approved" : submittedProfileReviewStatus === "REJECTED" ? "Rejected" : "In review";
 
   type StageState = "done" | "waiting" | "blocked" | "locked";
@@ -1067,7 +1084,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
 
   // The one thing an admin should do next, worked out from the state above
   const nextStep: { tone: "red" | "amber" | "teal" | "green"; title: string; text: string; action?: { label: string; run: () => void } } = isSuspended
-    ? { tone: "red", title: "Account suspended", text: "The operator can't take tours. Restore the account once the issue is resolved.", action: { label: "Restore account", run: () => void restoreAgent() } }
+    ? { tone: "red", title: "Account suspended", text: "The operator can't take tours. Restore the account once the issue is resolved.", action: { label: "Restore account", run: requestRestore } }
     : docsKnown && docsAwaitingReview > 0
       ? { tone: "amber", title: `Review ${docsAwaitingReview} uploaded ${docsAwaitingReview === 1 ? "document" : "documents"}`, text: "Uploaded and waiting for your approval.", action: { label: "Open documents", run: () => setTab("documents") } }
       : submittedProfileReviewStatus !== "APPROVED" && submittedProfileReviewStatus !== "REJECTED"
@@ -1096,6 +1113,36 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
     <div id="operator-detail" className="w-full min-w-0 space-y-4">
       {/* Preflight is disabled in this project; scope border-box so w-full pieces don't overflow */}
       <style>{`#operator-detail, #operator-detail * { box-sizing: border-box; }`}</style>
+      {mounted && pageNotice && createPortal(
+        <div role="alert" className="fixed bottom-4 right-4 z-[110] flex w-[calc(100vw-2rem)] max-w-sm items-start gap-3 rounded-xl border border-red-200 bg-white p-4 text-sm text-red-800 shadow-xl">
+          <span className="min-w-0 flex-1">{pageNotice}</span>
+          <button type="button" onClick={() => setPageNotice("")} aria-label="Dismiss message" className="shrink-0 rounded-md p-1 text-red-700 hover:bg-red-50">
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>,
+        document.body,
+      )}
+      {mounted && agent && showRestoreConfirmation && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-neutral-950/60 p-4" role="presentation">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="restore-agent-title" aria-describedby="restore-agent-description" className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-5 w-5" aria-hidden /></span>
+              <div className="min-w-0">
+                <h2 id="restore-agent-title" className="m-0 text-lg font-bold text-neutral-950">Restore tour operator?</h2>
+                <p id="restore-agent-description" className="m-0 mt-2 text-sm leading-6 text-neutral-600">
+                  Restore <strong className="break-words text-neutral-900">{displayName}</strong> and reinstate access to the tour operator account. This action is recorded in the audit trail.
+                </p>
+              </div>
+            </div>
+            {restoreError && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{restoreError}</p>}
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" autoFocus onClick={() => setShowRestoreConfirmation(false)} disabled={actionLoading} className="rounded-lg border border-neutral-300 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Keep suspended</button>
+              <button type="button" onClick={() => void restoreAgent()} disabled={actionLoading} className="rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50">{actionLoading ? "Restoring..." : "Restore account"}</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
       {loading ? (
         <AgentDetailSkeleton />
       ) : error || !agent ? (
@@ -1437,7 +1484,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                       {agent.suspendedAt ? (
                         <button
                           className="w-full px-4 py-2.5 sm:py-3 bg-green-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-green-700 active:bg-green-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                          onClick={() => void restoreAgent()}
+                          onClick={requestRestore}
                           disabled={actionLoading}
                         >
                           {actionLoading ? (
@@ -1524,14 +1571,21 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                       )}
 
                       {!showImpersonateForm ? (
+                        <div>
                         <button
                           className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
                           onClick={handleImpersonateClick}
-                          disabled={actionLoading}
+                          disabled={actionLoading || !canImpersonateTourAgent}
                         >
-                          <Copy className="h-4 w-4" />
-                          Sign in as this operator
+                          <ShieldCheck className="h-4 w-4" />
+                          Start read-only support session
                         </button>
+                        {!canImpersonateTourAgent && (
+                          <p className="mb-0 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" role="status">
+                            Support sign-in requires an active tour operator account. This account is {isSuspended ? "suspended" : String(agent.status || "inactive").toLowerCase()}.
+                          </p>
+                        )}
+                        </div>
                       ) : (
                         <div className="space-y-3 p-3 sm:p-4 bg-[#02665e]/5 rounded-lg border border-[#02665e]/20">
                           <div>
@@ -1542,15 +1596,18 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                               className="w-full min-h-[80px] px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-all resize-none text-xs sm:text-sm box-border"
                               placeholder="Please provide a reason for impersonating this tour operator (e.g., customer support, troubleshooting, etc.)"
                               value={impersonateReason}
-                              onChange={(e) => setImpersonateReason(e.target.value)}
+                              onChange={(e) => { setImpersonateReason(e.target.value); setImpersonateError(""); }}
                             />
-                            <p className="text-xs text-gray-500 mt-1">This action will be logged in the audit trail.</p>
+                            <p className="text-xs text-gray-500 mt-1">Opens the tour operator workspace in read-only mode for 10 minutes. This action is logged.</p>
+                            {impersonateError && (
+                              <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">{impersonateError}</p>
+                            )}
                           </div>
                           <div className="flex gap-2">
                             <button
                               className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-[#02665e] text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-[#02665e]/90 active:bg-[#02665e]/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 sm:gap-2"
                               onClick={() => void confirmImpersonate()}
-                              disabled={actionLoading || !impersonateReason.trim()}
+                              disabled={actionLoading || !canImpersonateTourAgent || impersonateReason.trim().length < 10}
                             >
                               {actionLoading ? (
                                 <>
@@ -1560,7 +1617,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                                 </>
                               ) : (
                                 <>
-                                  <Copy className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+                                  <ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
                                   <span className="hidden sm:inline">Confirm Impersonation</span>
                                   <span className="sm:hidden">Confirm</span>
                                 </>
@@ -1749,7 +1806,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                               window.open(doc.url, "_blank", "noopener,noreferrer");
                               return;
                             }
-                            alert("This file is uploaded but no preview URL is available yet.");
+                            setPageNotice("This file is uploaded but no preview URL is available yet.");
                           }}
                           disabled={!isUploaded}
                           className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium border transition-colors ${

@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { addDays, eachDay, fmtKey, GroupBy, startOfDayTZ } from "../lib/reporting";
 import { withCache, makeKey } from "../lib/cache";
@@ -34,6 +34,7 @@ function ownerRevenueVisibilityClause() {
 
 router.get(
   "/print-token",
+  blockImpersonated,
   asyncHandler(async (req, res) => {
     const r = req as AuthedRequest;
     const token = signOwnerReportPrintHandoff(r.user!.id);

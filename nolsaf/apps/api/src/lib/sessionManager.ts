@@ -65,6 +65,7 @@ export async function signUserJwt(
   user: { id: number; role?: string | null; email?: string | null },
   options: {
     impersonated?: boolean;
+    impersonatorId?: number;
     expiresInSeconds?: number;
     /** Required authentication method for a usable ADMIN session. */
     adminMfa?: "passkey" | "totp";
@@ -105,6 +106,7 @@ export async function signUserJwt(
         role: user.role ? String(user.role).toUpperCase() : undefined,
         sid: session.id,
         ...(options.impersonated ? { imp: true } : {}),
+        ...(options.impersonated && options.impersonatorId ? { act: options.impersonatorId } : {}),
         ...(options.adminMfa ? { amr: options.adminMfa } : {}),
         ...(options.accountMfa ? { mfa: options.accountMfa.method, mfaBinding: options.accountMfa.binding } : {}),
         iat: Math.floor(Date.now() / 1000), // Issued at time
@@ -160,6 +162,9 @@ export async function setAuthCookie(
       maxAge,
       ...(cookieDomain ? { domain: cookieDomain } : {}),
     };
+
+    // A normal login or restored admin session must discard any old support handoff.
+    clearImpersonationHandoffCookie(res);
     
     // Set the JWT token cookie
     res.cookie("nolsaf_token", token, cookieOptions);
@@ -199,5 +204,39 @@ export function clearAuthCookie(res: any): void {
   res.clearCookie("nolsaf_token", baseOpts);
   res.clearCookie("token", baseOpts);
   res.clearCookie("role", baseOpts);
+  clearImpersonationHandoffCookie(res);
+}
+
+const SUPPORT_HANDOFF_COOKIE = "nolsaf_support_handoff";
+const LEGACY_SUPPORT_ADMIN_COOKIE = "nolsaf_support_admin";
+const SUPPORT_HANDOFF_PATH = "/api/auth/impersonation";
+
+export function setImpersonationHandoffCookie(res: any, handle: string): void {
+  const isProd = process.env.NODE_ENV === "production";
+  clearImpersonationHandoffCookie(res);
+  res.cookie(SUPPORT_HANDOFF_COOKIE, handle, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    path: SUPPORT_HANDOFF_PATH,
+    maxAge: 10 * 60 * 1000,
+  });
+}
+
+export function clearImpersonationHandoffCookie(res: any): void {
+  const cookieDomain = (process.env.COOKIE_DOMAIN || "").trim() || undefined;
+  res.clearCookie(SUPPORT_HANDOFF_COOKIE, { path: SUPPORT_HANDOFF_PATH });
+  // Clear the former raw-JWT backup during rolling deployments.
+  res.clearCookie(LEGACY_SUPPORT_ADMIN_COOKIE, { path: "/", ...(cookieDomain ? { domain: cookieDomain } : {}) });
+}
+
+export function getImpersonationHandoffHandle(cookieHeader: string | undefined): string | null {
+  for (const part of String(cookieHeader || "").split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0 || part.slice(0, separator).trim() !== SUPPORT_HANDOFF_COOKIE) continue;
+    const value = part.slice(separator + 1).trim();
+    try { return decodeURIComponent(value); } catch { return value; }
+  }
+  return null;
 }
 

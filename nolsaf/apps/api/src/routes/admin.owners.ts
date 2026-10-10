@@ -2,8 +2,9 @@
 import { Router, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { buildOwnerNrmsBillingRecords, type OwnerNrmsBillingRecord } from "../lib/ownerNrmsBillingReport.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
-import { signUserJwt } from "../lib/sessionManager.js";
+import { getTokenFromRequest, requireAuth, requireRole, type AuthedUser } from "../middleware/auth.js";
+import { setAuthCookie, setImpersonationHandoffCookie, signUserJwt } from "../lib/sessionManager.js";
+import { createSupportHandoff } from "../lib/supportImpersonation.js";
 import { Prisma } from "@prisma/client";
 import { toCsv } from "../lib/csv.js";
 import { sanitizeUserDocument } from "../lib/userDocumentSecurity.js";
@@ -1354,36 +1355,45 @@ router.post("/:id/documents/:docId/reject", async (req, res) => {
   res.json({ ok: true });
 });
 
-/** POST /admin/owners/:id/impersonate {reason} -> short-lived owner JWT */
+/** POST /admin/owners/:id/impersonate {reason} -> short-lived owner support session. */
 router.post("/:id/impersonate", async (req, res) => {
   const id = Number(req.params.id);
-  const reason = String(req.body?.reason ?? "");
+  const reason = String(req.body?.reason ?? "").trim();
   
-  if (!reason || !reason.trim()) {
-    return res.status(400).json({ error: "Reason is required for impersonation" });
+  if (reason.length < 10 || reason.length > 1000) {
+    return res.status(400).json({ error: "Provide a reason between 10 and 1000 characters" });
   }
+  const adminToken = getTokenFromRequest(req);
+  if (!adminToken) return res.status(401).json({ error: "Administrator session required" });
 
   const owner = await prisma.user.findUnique({ where: { id } });
   if (!owner || owner.role !== "OWNER") {
     return res.status(404).json({ error: "Owner not found" });
   }
+  if (owner.suspendedAt || owner.isDisabled) {
+    return res.status(409).json({ error: "This owner account is not available for support access" });
+  }
 
   const ttlSec = 10 * 60; // 10 minutes
   const token = await signUserJwt(
     { id: owner.id, role: "OWNER", email: owner.email },
-    { impersonated: true, expiresInSeconds: ttlSec },
+    { impersonated: true, impersonatorId: (req.user as any).id, expiresInSeconds: ttlSec },
   );
+  const handoffHandle = await createSupportHandoff(adminToken, req.user as AuthedUser, token, "OWNER");
   
   await prisma.adminAudit.create({
     data: { 
       adminId: (req.user as any).id, 
       targetUserId: id, 
       action: "IMPERSONATE_ISSUE",
-      details: reason.trim()
+      details: reason
     },
   });
-  
-  res.json({ token, expiresIn: ttlSec });
+
+  await setAuthCookie(res, token, "OWNER");
+  setImpersonationHandoffCookie(res, handoffHandle);
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ ok: true, redirectTo: "/owner", expiresIn: ttlSec });
 });
 
 /** POST /admin/owners/:id/notes {text} */
