@@ -11,6 +11,7 @@ import AgentAccountSidebar from "@/components/AgentAccountSidebar";
 import AgentWorkspaceHeader from "@/components/AgentWorkspaceHeader";
 import AgentOperationalFooter from "@/components/AgentOperationalFooter";
 import MobileAgentNav from "@/components/MobileAgentNav";
+import TourSupportBanner from "@/components/TourSupportBanner";
 
 const LegalModal = dynamic(() => import("@/components/LegalModal"), { ssr: false });
 
@@ -45,6 +46,7 @@ export default function CustomerAccountLayout({ children }: { children: ReactNod
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 sm:px-4">
           <AgentWorkspaceHeader />
+          <TourSupportBanner />
           <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-20 md:pb-2">
             {children}
           </main>

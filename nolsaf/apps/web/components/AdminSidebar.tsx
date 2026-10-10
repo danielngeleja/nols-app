@@ -253,6 +253,7 @@ const cancellationsDetails: Item[] = [
 
 const nrmsDetails: Item[] = [
   { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/karibu", label: "Karibu NoLSAF", Icon: Handshake },
   { href: "/admin/nrms/agents", label: "Agency verification", Icon: Users },
   { href: "/admin/nrms/merchants", label: "Merchant onboarding", Icon: BadgeCheck },
   { href: "/admin/nrms/partnerships", label: "Partnership oversight", Icon: Handshake },

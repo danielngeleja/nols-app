@@ -439,6 +439,16 @@ export const limitContactChangeOtp = rateLimit({
   },
 });
 
+// A copy of personal data is sensitive: at most three codes per account every 15 minutes.
+export const limitDataExportCode = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many code requests. Wait a few minutes and try again." },
+  keyGenerator: (req: any) => `data-export-code:${req.user?.id ?? req.ip ?? "unknown"}`,
+});
+
 // Code confirmations are separately limited so the three-request issuance
 // budget is not consumed by the required authorize + verify stages. The
 // challenge itself additionally locks after five wrong codes.

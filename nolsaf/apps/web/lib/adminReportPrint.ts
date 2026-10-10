@@ -23,6 +23,10 @@ type ReportHeaderOptions = {
   generatedAt: string;
   preparedBy?: string;
   classification?: string;
+  /** Label for the from/to row. Defaults to "Report period". */
+  periodLabel?: string;
+  /** The three cells under the cover. Defaults to the management reporting scope. */
+  scope?: Array<{ label: string; value: string }>;
 };
 
 type ReportFooterOptions = {
@@ -197,7 +201,7 @@ export function buildAdminReportHeader(options: ReportHeaderOptions) {
           </div>
         </div>
         <div class="reportMeta">
-          <div class="reportMetaRow"><span>Report period</span><strong>${escapeHtml(options.from)} to ${escapeHtml(options.to)}</strong></div>
+          <div class="reportMetaRow"><span>${escapeHtml(options.periodLabel || "Report period")}</span><strong>${escapeHtml(options.from)} to ${escapeHtml(options.to)}</strong></div>
           <div class="reportMetaRow"><span>Generated</span><strong>${escapeHtml(options.generatedAt)}</strong></div>
           <div class="reportMetaRow"><span>Prepared by</span><strong>${escapeHtml(preparedBy)}</strong></div>
           <div class="reportMetaRow"><span>Report ID</span><strong>${escapeHtml(options.reportId)}</strong></div>
@@ -205,9 +209,11 @@ export function buildAdminReportHeader(options: ReportHeaderOptions) {
         </div>
       </div>
       <div class="reportScope">
-        <div><span>Entity</span><strong>NoLS Africa Co Ltd</strong></div>
-        <div><span>Coverage</span><strong>All selected NoLSAF records</strong></div>
-        <div><span>Control basis</span><strong>Recorded platform transactions and activity</strong></div>
+        ${(options.scope ?? [
+          { label: "Entity", value: "NoLS Africa Co Ltd" },
+          { label: "Coverage", value: "All selected NoLSAF records" },
+          { label: "Control basis", value: "Recorded platform transactions and activity" },
+        ]).map((cell) => `<div><span>${escapeHtml(cell.label)}</span><strong>${escapeWithBrand(cell.value)}</strong></div>`).join("")}
       </div>
     </header>`;
 }
@@ -225,7 +231,8 @@ export function buildAdminReportFooter(options: ReportFooterOptions) {
     </section>`;
 }
 
-export function openAdminReportPrintWindow() {
+/** Loader copy can be changed for non-management documents, e.g. a guest data copy that is not sealed. */
+export function openAdminReportPrintWindow(loader?: { eyebrow?: string; heading?: string; hideSteps?: boolean }) {
   const printWindow = window.open("", "_blank");
   if (!printWindow) return null;
   printWindow.document.open();
@@ -258,10 +265,10 @@ export function openAdminReportPrintWindow() {
 </head>
 <body>
   <main class="loader" aria-busy="true" aria-labelledby="report-loader-title">
-    <div class="brand"><div class="mark" aria-hidden="true">N</div><div><div class="eyebrow">NoLSAF verified report</div><h1 id="report-loader-title">Building your report preview</h1></div></div>
+    <div class="brand"><div class="mark" aria-hidden="true">N</div><div><div class="eyebrow">${escapeHtml(loader?.eyebrow ?? "NoLSAF verified report")}</div><h1 id="report-loader-title">${escapeHtml(loader?.heading ?? "Building your report preview")}</h1></div></div>
     <div class="status" data-report-loader-status aria-live="polite"><span class="pulse" aria-hidden="true"></span>Preparing report data…</div>
     <div class="track" role="progressbar" aria-label="Report preparation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="18"><div class="bar" data-report-loader-bar></div></div>
-    <div class="steps" data-report-loader-steps><span data-state="active">Prepare</span><span>Seal</span><span>Verify</span><span>Preview</span></div>
+    <div class="steps" data-report-loader-steps${loader?.hideSteps ? " hidden" : ""}><span data-state="active">Prepare</span><span>Seal</span><span>Verify</span><span>Preview</span></div>
     <p class="hint">Keep this window open. The print dialog will appear automatically when the verified preview is ready.</p>
   </main>
 </body>

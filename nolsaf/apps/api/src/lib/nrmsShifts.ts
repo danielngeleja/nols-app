@@ -159,7 +159,7 @@ export function shiftDayStart(key: string, closeTime = DEFAULT_NIGHT_AUDIT_CLOSE
 export async function shiftHandoverSummary(db: any, shift: any, until = new Date()) {
   const window = { gte: shift.openedAt, lte: until };
   const dayStart = shiftDayStart(shiftDayKey(until));
-  const unpaidWhere = { propertyId: shift.propertyId, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] }, voidedAt: null };
+  const unpaidWhere = { propertyId: shift.propertyId, status: { in: ["PLACED", "CONFIRMED", "PREPARING", "SERVING"] }, settlementMode: { not: "NOLSAF_KARIBU" }, voidedAt: null };
   const [myTenders, myFolioPayments, folioPosted, unpaidTotal, unpaidOrders, daySettled, dayPosted] = await Promise.all([
     db.nrmsOutletOrder.groupBy({
       by: ["settlementMethod"],

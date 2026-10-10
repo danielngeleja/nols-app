@@ -6,11 +6,14 @@ import apiClient from "@/lib/apiClient";
 import { AlertTriangle, Check, ChefHat, Loader2, MessageSquareText, Minus, Plus, ReceiptText, RefreshCw, ShoppingBasket, Trash2, UtensilsCrossed, Wine } from "lucide-react";
 import { useNrms } from "../_components/NrmsProvider";
 import OrderHistoryPanel from "../_components/OrderHistoryPanel";
+import KaribuPanel from "../_components/KaribuPanel";
 import { tallyRoomLabels } from "@/lib/roomLabels";
 
 type MenuItem = { id: number; name: string; category: string | null; price: number; status: string; inStock?: boolean; description?: string | null };
 type Outlet = { id: number; name: string; code: string; type: string; currency: string; menuItems: MenuItem[] };
-type InHouse = { id: number; currency: string; guestProfile: { fullName: string } | null; allocations: Array<{ roomUnit: { code: string } | null; roomType: { name: string } | null }> };
+type InHouse = { id: number; currency: string; guestProfile: { fullName: string } | null; allocations: Array<{ roomUnit: { code: string } | null; roomType: { name: string } | null }>;
+  /** Drinks and dietary needs the guest chose to share with this property, e.g. "Likes fresh juice · Nut allergy". */
+  guestPreferences?: string | null };
 type TablePoint = { id: number; type: "ROOM" | "TABLE"; label: string; active: boolean };
 type Order = {
   id: number; orderNumber: string; status: string; settlementMode: string; currency: string; total: number; createdAt: string;
@@ -118,6 +121,11 @@ export default function NrmsOrdersPage() {
     } catch { /* keep the last live board; the next refresh retries */ }
   }, [requestedOutletId, selectedPropertyId]);
 
+  // Karibu totals refresh only when a gift order joins or leaves the live board, not on every poll.
+  const karibuLiveIds = useMemo(() => orders.filter((order) => order.settlementMode === "NOLSAF_KARIBU").map((order) => order.id).join(","), [orders]);
+  const [karibuRefresh, setKaribuRefresh] = useState(0);
+  useEffect(() => { setKaribuRefresh((n) => n + 1); }, [karibuLiveIds]);
+
   useEffect(() => {
     if (view === "history") {
       setLoading(false);
@@ -187,6 +195,9 @@ export default function NrmsOrdersPage() {
 
   const isWalkIn = selection === WALK_IN;
   const selectedReservationId = selection.startsWith("res-") ? Number(selection.slice(4)) : null;
+  // Shared guest preferences, found by reservation so live order cards can show them too.
+  const guestPreferencesFor = (reservationId: number | null | undefined) => (reservationId ? guests.find((g) => g.id === reservationId)?.guestPreferences ?? null : null);
+  const selectedGuestPreferences = guestPreferencesFor(selectedReservationId);
   const selectedTableId = selection.startsWith("table-") ? Number(selection.slice(6)) : null;
   const isGenericWalkIn = isWalkIn && !selectedTableId;
 
@@ -277,6 +288,12 @@ export default function NrmsOrdersPage() {
                 {tablePoints.length > 0 && <optgroup label="Tables">{tablePoints.map((point) => <option key={point.id} value={`table-${point.id}`}>{point.label}</option>)}</optgroup>}
                 {guests.length > 0 && <optgroup label="Checked-in room guests">{guests.map((guest) => <option key={guest.id} value={`res-${guest.id}`}>{roomLabel(guest)} · {guest.guestProfile?.fullName ?? "Guest"}</option>)}</optgroup>}
               </select></label>
+              {selectedGuestPreferences && (
+                <p className="m-0 mt-2 flex items-start gap-1.5 rounded-lg border border-solid border-sky-200 bg-sky-50 px-2.5 py-2 text-[11px] font-medium text-sky-900">
+                  <MessageSquareText className="mt-px h-3.5 w-3.5 shrink-0 text-sky-600" />
+                  <span><strong className="font-bold">Guest prefers:</strong> {selectedGuestPreferences}</span>
+                </p>
+              )}
             </div>
             {isGenericWalkIn && (
               <label className="mx-4 mt-4 block min-w-0 text-[10px] font-bold uppercase tracking-wide text-neutral-500">Customer name or reference <span className="font-medium normal-case tracking-normal text-neutral-400">(optional)</span><input value={customerLabel} onChange={(event) => setCustomerLabel(event.target.value)} maxLength={120} placeholder="For example, Asha or counter guest" autoComplete="off" className="mt-1.5 box-border !h-10 w-full min-w-0 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-0 text-sm font-semibold normal-case tracking-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-500/10" /></label>
@@ -356,6 +373,7 @@ export default function NrmsOrdersPage() {
         </div>
       )}
 
+      <KaribuPanel propertyId={selectedPropertyId ?? null} refreshKey={karibuRefresh} />
       <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between"><div><h3 className="m-0 text-sm font-bold text-neutral-900">Live order queue · {outletScoped ? outlet?.name : "in-room"}</h3><p className="mb-0 mt-0.5 text-[10px] text-neutral-400">{outletScoped ? `Only active room and in-house guest orders from ${outlet?.name}.` : "Room and in-house guest orders. Table and walk-in orders live in Tables & tabs."}</p></div><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-bold text-neutral-500">{orders.length} orders</span></div>
         <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
@@ -370,8 +388,12 @@ export default function NrmsOrdersPage() {
                   <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status === "PLACED" ? "NEW · QR" : order.status.replaceAll("_", " ")}</span>
                 </div>
                 <div className="mt-3 space-y-1">{order.items.map((item) => <div key={item.id} className="flex justify-between gap-3 text-[11px] text-neutral-600"><span className="truncate">{item.quantity}× {item.nameSnapshot}</span><span className="shrink-0 tabular-nums">{money(item.lineTotal, order.currency)}</span></div>)}</div>
+                {order.settlementMode !== "NOLSAF_KARIBU" && order.reservation && guestPreferencesFor(order.reservation.id) && (
+                  <div className="mt-3 flex gap-2 rounded-lg border border-solid border-sky-200 bg-sky-50 px-2.5 py-2 text-[10px] text-sky-900"><MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" /><span><strong className="font-bold">Guest prefers:</strong> {guestPreferencesFor(order.reservation.id)}</span></div>
+                )}
+                {order.settlementMode === "NOLSAF_KARIBU" && <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[11px] font-semibold text-emerald-900">Karibu welcome gift. Serve it free: do not charge the guest or the room. NoLSAF repays the agreed price.</div>}
                 {order.note && (
-                  <div className="mt-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900"><MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" /><span><strong className="font-bold">Guest note:</strong> {order.note}</span></div>
+                  <div className="mt-3 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] text-amber-900"><MessageSquareText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" /><span><strong className="font-bold">{order.settlementMode === "NOLSAF_KARIBU" ? "Service note:" : "Guest note:"}</strong> {order.note}</span></div>
                 )}
                 {order.settlementMode === "OUTLET_PAYMENT" && order.guestPaymentMethod && (
                   <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-[10px] text-blue-800"><span><strong>Guest selected:</strong> {tenderLabel(order.guestPaymentMethod)}</span><span className="shrink-0 font-semibold text-blue-600">Not yet confirmed</span></div>
@@ -386,10 +408,10 @@ export default function NrmsOrdersPage() {
                   </label>
                 )}
                 <div className="mt-3 flex items-center justify-between border-t border-neutral-100 pt-3">
-                  <strong className="text-sm tabular-nums">{money(order.total, order.currency)}</strong>
+                  <strong className="text-sm tabular-nums">{money(order.total, order.currency)}{order.settlementMode === "NOLSAF_KARIBU" && <span className="ml-1 text-[10px] font-medium text-slate-500">paid by NoLSAF</span>}</strong>
                   <div className="flex gap-1.5">
                     <button type="button" onClick={() => setReasonAction({ orderId: order.id })} className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 bg-white px-2 text-[10px] font-bold text-red-600"><Trash2 className="h-3 w-3" />{order.status === "PLACED" ? "Decline" : "Cancel"}</button>
-                    {role !== "FRONT_DESK" && <button type="button" onClick={() => void advance(order)} disabled={advanceDisabled} title={tenderRequired && !tenderSelected ? "Confirm the payment method actually received before completing service" : order.status === "PREPARING" ? "Start delivery without recording payment" : undefined} className={`inline-flex h-8 items-center gap-1 rounded-lg border-0 px-2.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 ${order.status === "PLACED" ? "bg-violet-700 hover:bg-violet-800" : order.status === "PREPARING" ? "bg-cyan-700 hover:bg-cyan-800" : "bg-neutral-900"}`}>{busy === `advance-${order.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : order.status === "PLACED" ? <Check className="h-3 w-3" /> : order.status === "CONFIRMED" ? <ChefHat className="h-3 w-3" /> : <ReceiptText className="h-3 w-3" />}{order.status === "PLACED" ? "Accept" : order.status === "CONFIRMED" ? "Prepare" : order.status === "PREPARING" ? "Take to guest" : order.settlementMode === "ROOM_FOLIO" ? "Complete & post" : "Confirm served & paid"}</button>}
+                    {role !== "FRONT_DESK" && <button type="button" onClick={() => void advance(order)} disabled={advanceDisabled} title={tenderRequired && !tenderSelected ? "Confirm the payment method actually received before completing service" : order.status === "PREPARING" ? "Start delivery without recording payment" : undefined} className={`inline-flex h-8 items-center gap-1 rounded-lg border-0 px-2.5 text-[10px] font-bold text-white disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400 ${order.status === "PLACED" ? "bg-violet-700 hover:bg-violet-800" : order.status === "PREPARING" ? "bg-cyan-700 hover:bg-cyan-800" : "bg-neutral-900"}`}>{busy === `advance-${order.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : order.status === "PLACED" ? <Check className="h-3 w-3" /> : order.status === "CONFIRMED" ? <ChefHat className="h-3 w-3" /> : <ReceiptText className="h-3 w-3" />}{order.status === "PLACED" ? "Accept" : order.status === "CONFIRMED" ? "Prepare" : order.status === "PREPARING" ? "Take to guest" : order.settlementMode === "ROOM_FOLIO" ? "Complete & post" : order.settlementMode === "NOLSAF_KARIBU" ? "Confirm served" : "Confirm served & paid"}</button>}
                   </div>
                 </div>
               </article>

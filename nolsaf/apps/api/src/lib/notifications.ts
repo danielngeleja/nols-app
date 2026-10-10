@@ -139,6 +139,19 @@ export async function notifyAdmins(template: string, data: any) {
           title: "Admin access blocked by the IP allowlist",
           body: `A request to the admin area from ${data.ip || "an unknown address"} was refused because it is not on the IP allowlist.`
         },
+        // A customer's own copy of their data: the alert never carries the data, only who, why and where to look.
+        data_export_legal: {
+          title: "Customer took their data for legal reasons",
+          body: `${data.customerName || "A customer"} downloaded a copy of their personal data and said they need it for legal reasons${data.otherReason ? ` ("${data.otherReason}")` : ""}. A formal request or claim may follow. Open their record, Karibu and data tab. Asking for their data is their right: treat them as usual.`
+        },
+        data_export_dispute: {
+          title: "Customer took their data for a dispute",
+          body: `${data.customerName || "A customer"} downloaded a copy of their personal data for a support or dispute matter${data.otherReason ? ` ("${data.otherReason}")` : ""}. Check for an open refund, cancellation or booking issue on their record and reach out first.`
+        },
+        security_data_export_locked: {
+          title: "Data downloads locked after wrong codes",
+          body: `Someone entered ${data.attempts || 3} wrong codes while asking for ${data.customerName || "a customer"}'s personal data, so data downloads on that account are locked. Confirm with the customer that it was them before unlocking it from their record, Karibu and data tab.`
+        },
         payment_unmatched: {
           title: "Payment received but not matched",
           body: `A ${data.status || "SUCCESS"} callback for ${Number(data.amount || 0).toLocaleString("en-US")} TZS matched no invoice, tour, group booking or NRMS token. Find it under Payments, unmatched events.`

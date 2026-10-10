@@ -341,8 +341,9 @@ describe("resolveFiscalSource", () => {
     const db = { nrmsOutletOrder: { findFirst: vi.fn().mockResolvedValue(null) } };
     await resolveFiscalSource(db, 12, "OUTLET_SALE", 1);
     expect(db.nrmsOutletOrder.findFirst.mock.calls[0][0].where).toMatchObject({
-      settlementMode: "OUTLET_PAYMENT",
+      settlementMode: { in: ["OUTLET_PAYMENT", "NOLSAF_KARIBU"] },
       status: "SETTLED",
+      settledAt: { not: null },
     });
   });
 

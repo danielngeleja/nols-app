@@ -5,6 +5,8 @@ import { z } from "zod";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, blockImpersonated } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
+import { customerBookingReference, customerRecordReference } from "../lib/customerBookingReference.js";
+import { mergeNotificationPrefs } from "../lib/notificationPrefs.js";
 import { referralCodeFor, referralKindForRole } from "../lib/referralCode.js";
 import { hashPassword, verifyPassword, encrypt, decrypt, hashCode, verifyCode } from "../lib/crypto.js";
 import { hashCode as hashOtpCode } from "../lib/otp.js";
@@ -14,10 +16,14 @@ import { authenticator } from "otplib";
 import { backupCodeCandidates, generateBackupCodes, verifyTotp as verifyTotpCode } from "../lib/totp.js";
 import QRCode from "qrcode";
 import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
-import { limitContactChangeOtp, limitContactChangeConfirm } from "../middleware/rateLimit.js";
+import { limitContactChangeOtp, limitContactChangeConfirm, limitDataExportCode } from "../middleware/rateLimit.js";
+import { cancelDataExportChallenge, DATA_EXPORT_REASON_LABEL, DATA_EXPORT_LOCKED_ACTION, DATA_EXPORT_MAX_ATTEMPTS, dataExportLockState, dataExportRequestInput, maskDestination, readDataExportGrant, startDataExportChallenge, verifyDataExportCode } from "../lib/dataExportVerification.js";
+import { notifyAdmins } from "../lib/notifications.js";
+
+const DATA_EXPORT_LOCKED_MESSAGE = "Data downloads are locked on your account after too many wrong codes. Contact NoLSAF support at support@nolsaf.com to unlock them.";
 import { sendSms } from "../lib/sms.js";
 import { sendMail, SECURITY_EMAIL_FROM } from "../lib/mailer.js";
-import { getVerificationCodeEmail } from "../lib/authEmailTemplates.js";
+import { getDataExportAlertEmail, getVerificationCodeEmail } from "../lib/authEmailTemplates.js";
 import {
   generateOtp as generateContactChangeOtp,
   storeContactChangeChallenge,
@@ -3210,6 +3216,9 @@ const deleteAccount: RequestHandler = async (req, res) => {
       },
     });
 
+    // Karibu preferences (birthday, drinks, dietary needs) leave with the account.
+    try { await (prisma as any).karibuGuestPreference.deleteMany({ where: { userId } }); } catch { /* table may not be migrated yet */ }
+
     // ── 6. Alert admins in real-time if any trips returned to pool ───────
     try {
       const io = (req.app as any)?.get?.('io');
@@ -3233,12 +3242,7 @@ const deleteAccount: RequestHandler = async (req, res) => {
 };
 router.delete("/", sensitive as unknown as RequestHandler, deleteAccount as unknown as RequestHandler);
 
-const DEFAULT_NOTIFICATION_PREFS = {
-  bookings: true,
-  promotions: true,
-  referrals: true,
-};
-
+// Defaults and merge rules live in one place, shared with every optional sender.
 const notificationPrefsSchema = z.object({
   bookings: z.boolean().optional(),
   promotions: z.boolean().optional(),
@@ -3250,7 +3254,7 @@ const getNotificationPreferences: RequestHandler = async (req, res) => {
   try {
     const userId = getUserId(req as AuthedRequest);
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { notificationPrefs: true } as any });
-    const prefs = { ...DEFAULT_NOTIFICATION_PREFS, ...((user as any)?.notificationPrefs as object | null) };
+    const prefs = mergeNotificationPrefs((user as any)?.notificationPrefs);
     sendSuccess(res, { preferences: prefs });
   } catch (error: any) {
     console.error('account.notificationPreferences.get failed', error);
@@ -3267,7 +3271,7 @@ const updateNotificationPreferences: RequestHandler = async (req, res) => {
     if (!parsed.success) return sendError(res, 400, "Invalid notification preferences", parsed.error.flatten());
 
     const existing = await prisma.user.findUnique({ where: { id: userId }, select: { notificationPrefs: true } as any });
-    const current = { ...DEFAULT_NOTIFICATION_PREFS, ...((existing as any)?.notificationPrefs as object | null) };
+    const current = mergeNotificationPrefs((existing as any)?.notificationPrefs);
     const next = { ...current, ...parsed.data };
 
     await prisma.user.update({ where: { id: userId }, data: { notificationPrefs: next } as any });
@@ -3278,6 +3282,238 @@ const updateNotificationPreferences: RequestHandler = async (req, res) => {
   }
 };
 router.put("/notification-preferences", updateNotificationPreferences as unknown as RequestHandler);
+
+/**
+ * GET /account/export - a copy of the personal data this account holds, as JSON.
+ * Records are named by their opaque references, never row ids. Refused during
+ * admin impersonation, like other sensitive account actions.
+ */
+const EXPORT_ROW_LIMIT = 1000;
+
+/**
+ * POST /account/export/request - step 1 of a data copy: the person says where
+ * they live and why (optional), and a code goes to a contact already verified
+ * on the account. Nothing is released until the code is confirmed.
+ */
+const requestDataExport: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const parsed = dataExportRequestInput.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 400, "Tell us where you live to continue");
+    const answers = { ...parsed.data, otherReason: parsed.data.reason === "OTHER" ? parsed.data.otherReason : null };
+    if ((await dataExportLockState(prisma, userId)).locked) return sendError(res, 423, DATA_EXPORT_LOCKED_MESSAGE, { code: "DATA_EXPORT_LOCKED" });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true } });
+    if (!user) return sendError(res, 404, "Account not found");
+    const via: "email" | "phone" | null = user.email && user.emailVerifiedAt ? "email" : user.phone && user.phoneVerifiedAt ? "phone" : null;
+    if (!via) return sendError(res, 409, "Verify your email or phone first, so we can send you a code.", { code: "NO_VERIFIED_CONTACT" });
+    const destination = via === "email" ? user.email! : user.phone!;
+    const { code, expiresInMinutes } = await startDataExportChallenge(userId, answers, via, destination);
+    try {
+      if (via === "phone") {
+        const sent = await sendSms(destination, `Your NoLSAF code to download a copy of your data is ${code}. It expires in ${expiresInMinutes} minutes. If this was not you, do not share it.`);
+        if (!sent?.success) throw new Error("SMS delivery failed");
+      } else {
+        const { subject, html } = getVerificationCodeEmail(code, { purpose: "data", expiryMinutes: expiresInMinutes });
+        await sendMail(destination, subject, html, undefined, { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" });
+      }
+    } catch {
+      await cancelDataExportChallenge(userId);
+      return sendError(res, 502, "We could not send your code. Try again in a moment.");
+    }
+    await audit(req as AuthedRequest, "USER_DATA_EXPORT_REQUESTED", `user:${userId}`, null, { country: answers.country, reason: answers.reason, otherReason: answers.otherReason, format: answers.format, sentVia: via });
+    sendSuccess(res, { sentVia: via, sentTo: maskDestination(via, destination), expiresInMinutes });
+  } catch (error: any) {
+    console.error("account.export.request failed", error);
+    sendError(res, 500, "We could not start your request. Try again.");
+  }
+};
+router.post("/export/request", sensitive as unknown as RequestHandler, limitDataExportCode as unknown as RequestHandler, requestDataExport as unknown as RequestHandler);
+
+/** POST /account/export/verify - step 2: the code. A right code returns a 10-minute download grant. */
+const verifyDataExport: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const code = String((req.body as any)?.code ?? "").replace(/\D/g, "");
+    if (code.length !== 6) return sendError(res, 400, "Enter the 6-digit code");
+    const outcome = await verifyDataExportCode(userId, code);
+    if (outcome.result === "INVALID") return sendError(res, 400, `That code is not right. ${outcome.attemptsLeft} ${outcome.attemptsLeft === 1 ? "try" : "tries"} left.`);
+    if (outcome.result !== "VALID") {
+      if (outcome.result === "LOCKED") {
+        await audit(req as AuthedRequest, DATA_EXPORT_LOCKED_ACTION, `user:${userId}`, null, { reason: `${DATA_EXPORT_MAX_ATTEMPTS} wrong codes` });
+        const who = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, fullName: true, email: true } }).catch(() => null);
+        void notifyAdmins("security_data_export_locked", {
+          userId, customerName: who?.fullName || who?.name || who?.email || `Customer ${userId}`, attempts: DATA_EXPORT_MAX_ATTEMPTS,
+          country: outcome.request.country, reasonLabel: outcome.request.reason ? DATA_EXPORT_REASON_LABEL[outcome.request.reason] : null,
+          otherReason: outcome.request.otherReason ?? null, format: outcome.request.format, sentVia: outcome.request.sentVia,
+          ip: req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || req.socket?.remoteAddress || null,
+        });
+        return sendError(res, 423, DATA_EXPORT_LOCKED_MESSAGE, { code: "DATA_EXPORT_LOCKED" });
+      }
+      return sendError(res, 410, "That code has expired. Ask for a new one.");
+    }
+    await audit(req as AuthedRequest, "USER_DATA_EXPORT_VERIFIED", `user:${userId}`, null, { sentVia: outcome.request.sentVia });
+    sendSuccess(res, { grant: outcome.grant, expiresInMinutes: 10 });
+  } catch (error: any) {
+    console.error("account.export.verify failed", error);
+    sendError(res, 500, "We could not check your code. Try again.");
+  }
+};
+router.post("/export/verify", sensitive as unknown as RequestHandler, limitContactChangeConfirm as unknown as RequestHandler, verifyDataExport as unknown as RequestHandler);
+
+function deviceFromUserAgent(ua: string): string {
+  const browser = /Edg\//.test(ua) ? "Edge" : /OPR\/|Opera/.test(ua) ? "Opera" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : /okhttp|Expo|ReactNative/i.test(ua) ? "NoLSAF app" : "A browser";
+  const os = /Android/.test(ua) ? "Android" : /iPhone|iPad|iOS/.test(ua) ? "iPhone or iPad" : /Windows/.test(ua) ? "Windows" : /Mac OS X|Macintosh/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? `${browser} on ${os}` : browser;
+}
+
+/** Best effort: a failed alert never blocks or undoes the download, but it is logged. */
+async function sendDataExportAlert(req: Request, to: { email: string | null; phone: string | null }, format: string, exportedAt: string) {
+  try {
+    const when = `${new Date(exportedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT`;
+    const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || req.socket?.remoteAddress || null;
+    const device = deviceFromUserAgent(String(req.headers["user-agent"] || ""));
+    const formatLabel = format === "json" ? "Machine-readable copy (JSON)" : "Readable document (PDF)";
+    if (to.email) {
+      const origin = String(process.env.WEB_ORIGIN || process.env.APP_ORIGIN || "https://www.nolsaf.com").replace(/\/$/, "");
+      const { subject, html } = getDataExportAlertEmail({ when, format: formatLabel, device, ip, securityUrl: `${origin}/account/security` });
+      await sendMail(to.email, subject, html, undefined, { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" });
+    } else if (to.phone) {
+      await sendSms(to.phone, `NoLSAF security: a copy of your account data was downloaded on ${when} (${device}). If this was not you, change your password and contact support.`);
+    }
+  } catch (error) {
+    console.warn("account.export.alert failed", error);
+  }
+}
+
+const exportAccountData: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    // Released only to a verified request: questions answered and a code confirmed in the last 10 minutes.
+    const grant = await readDataExportGrant(userId, String(req.headers["x-data-export-grant"] ?? ""));
+    if (!grant) return sendError(res, 403, "Confirm it is you before downloading your data.", { code: "DATA_EXPORT_VERIFICATION_REQUIRED" });
+    if ((await dataExportLockState(prisma, userId)).locked) return sendError(res, 423, DATA_EXPORT_LOCKED_MESSAGE, { code: "DATA_EXPORT_LOCKED" });
+    const db = prisma as any;
+    const optional = <T,>(work: Promise<T>, fallback: T) => work.catch(() => fallback);
+    const [user, bookings, rides, karibuPrefs, karibuWelcomes] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { name: true, fullName: true, email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true, createdAt: true, preferredCurrency: true, notificationPrefs: true } }),
+      db.booking.findMany({ where: { userId }, orderBy: { checkIn: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { id: true, status: true, checkIn: true, checkOut: true, totalAmount: true, roomsQty: true, guestName: true, guestPhone: true, createdAt: true, property: { select: { title: true, city: true } } } }),
+      optional(db.transportBooking.findMany({ where: { userId }, orderBy: { scheduledDate: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { id: true, status: true, scheduledDate: true, vehicleType: true, amount: true, currency: true, fromRegion: true, fromDistrict: true, toRegion: true, toDistrict: true, toAddress: true, createdAt: true } }), [] as any[]),
+      optional<any>(db.karibuGuestPreference?.findUnique({ where: { userId } }) ?? Promise.resolve(null), null),
+      optional(db.karibuGesture.findMany({ where: { userId, status: { in: ["ORDERED", "SERVED"] } }, orderBy: { issuedAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { bookingId: true, status: true, issuedAt: true, servedAt: true, guestConfirmedReceived: true, guestFeedbackRating: true, guestFeedbackNote: true } }), [] as any[]),
+    ]);
+    if (!user) return sendError(res, 404, "Account not found");
+    // Everything else this person has done on NoLSAF, read the same way the admin customer statement reads it.
+    const [tours, groupStays, cancellations, reviews, saved, estimates, referralsJoined] = await Promise.all([
+      optional(db.tourBooking.findMany({ where: { customerId: userId }, orderBy: { createdAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { id: true, title: true, destination: true, startDate: true, status: true, grossAmount: true, currency: true, createdAt: true } }), [] as any[]),
+      optional(db.groupBooking.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { id: true, groupType: true, accommodationType: true, fromRegion: true, toRegion: true, headcount: true, checkIn: true, checkOut: true, status: true, totalAmount: true, currency: true, createdAt: true } }), [] as any[]),
+      optional(db.cancellationRequest.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { bookingId: true, status: true, reason: true, refundAmount: true, refundedAt: true, createdAt: true } }), [] as any[]),
+      optional(db.propertyReview.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { rating: true, title: true, comment: true, createdAt: true, property: { select: { title: true } } } }), [] as any[]),
+      optional(db.savedProperty.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { createdAt: true, property: { select: { title: true, city: true } } } }), [] as any[]),
+      optional(db.tripEstimate.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: EXPORT_ROW_LIMIT,
+        select: { destination: true, startDate: true, endDate: true, travelers: true, totalCost: true, currency: true, createdAt: true } }), [] as any[]),
+      optional(db.user.count({ where: { referredBy: userId } }), 0),
+    ]);
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      exportedAt,
+      notice: "A copy of the personal data your NoLSAF account holds. Payment card numbers and passwords are never stored in readable form and are not included.",
+      profile: { name: user.fullName || user.name || null, email: user.email || null, phone: user.phone || null, memberSince: user.createdAt, preferredCurrency: user.preferredCurrency || null },
+      notificationPreferences: mergeNotificationPrefs(user.notificationPrefs),
+      stays: bookings.map((b: any) => ({ reference: customerBookingReference(b.id), property: b.property?.title ?? null, city: b.property?.city ?? null,
+        status: b.status, checkIn: b.checkIn, checkOut: b.checkOut, rooms: b.roomsQty, total: Number(b.totalAmount ?? 0), guestName: b.guestName, guestPhone: b.guestPhone, bookedAt: b.createdAt })),
+      rides: rides.map((r: any) => ({ reference: customerRecordReference("ride", r.id), status: r.status, scheduledFor: r.scheduledDate, vehicle: r.vehicleType,
+        from: [r.fromDistrict, r.fromRegion].filter(Boolean).join(", ") || null, to: r.toAddress || [r.toDistrict, r.toRegion].filter(Boolean).join(", ") || null,
+        amount: r.amount == null ? null : Number(r.amount), currency: r.currency || "TZS", bookedAt: r.createdAt })),
+      tours: tours.map((t: any) => ({ reference: customerRecordReference("tour", t.id), title: t.title, destination: t.destination ?? null, startDate: t.startDate ?? null,
+        status: t.status, amount: Number(t.grossAmount ?? 0), currency: t.currency || "TZS", bookedAt: t.createdAt })),
+      groupStays: groupStays.map((g: any) => ({ reference: customerRecordReference("group-stay", g.id), groupType: g.groupType, accommodation: g.accommodationType,
+        from: g.fromRegion ?? null, to: g.toRegion ?? null, people: g.headcount, checkIn: g.checkIn ?? null, checkOut: g.checkOut ?? null,
+        status: g.status, amount: g.totalAmount == null ? null : Number(g.totalAmount), currency: g.currency || "TZS", requestedAt: g.createdAt })),
+      cancellations: cancellations.map((c: any) => ({ stay: c.bookingId ? customerBookingReference(c.bookingId) : null, status: c.status, reason: c.reason ?? null,
+        refundAmount: c.refundAmount == null ? null : Number(c.refundAmount), refundedAt: c.refundedAt ?? null, requestedAt: c.createdAt })),
+      reviews: reviews.map((r: any) => ({ property: r.property?.title ?? null, rating: r.rating, title: r.title ?? null, comment: r.comment ?? null, writtenAt: r.createdAt })),
+      savedStays: saved.map((s: any) => ({ property: s.property?.title ?? null, city: s.property?.city ?? null, savedAt: s.createdAt })),
+      tripEstimates: estimates.map((e: any) => ({ destination: e.destination, startDate: e.startDate, endDate: e.endDate, travellers: e.travelers,
+        estimatedTotal: e.totalCost == null ? null : Number(e.totalCost), currency: e.currency || "USD", createdAt: e.createdAt })),
+      referrals: { peopleJoinedWithYourInvite: referralsJoined },
+      karibu: {
+        preferences: karibuPrefs ? { celebrateSpecialDays: karibuPrefs.celebrateOptIn, birthday: karibuPrefs.birthdayDay && karibuPrefs.birthdayMonth ? `${karibuPrefs.birthdayDay}/${karibuPrefs.birthdayMonth}` : null,
+          drinksEnjoyed: karibuPrefs.drinkLikes ?? [], dietaryNeeds: karibuPrefs.dietaryTags ?? [], dietaryNote: karibuPrefs.dietaryNote ?? null, shareWithProperty: karibuPrefs.shareWithProperty } : null,
+        welcomes: karibuWelcomes.map((g: any) => ({ stay: customerBookingReference(g.bookingId), status: g.status, issuedAt: g.issuedAt, servedAt: g.servedAt,
+          feedback: g.guestConfirmedReceived == null ? null : { received: g.guestConfirmedReceived, rating: g.guestFeedbackRating, note: g.guestFeedbackNote } })),
+      },
+    };
+    await audit(req as AuthedRequest, "USER_DATA_EXPORT", `user:${userId}`, null, { stays: payload.stays.length, rides: payload.rides.length, tours: payload.tours.length, groupStays: payload.groupStays.length, country: grant.country, reason: grant.reason, otherReason: grant.otherReason, format: grant.format, verifiedVia: grant.sentVia });
+    // Tell the owner a copy left the account, so a download they did not make never goes unnoticed. Never contains the data.
+    void sendDataExportAlert(req, { email: user.emailVerifiedAt ? user.email : null, phone: user.phoneVerifiedAt ? user.phone : null }, grant.format, exportedAt);
+    if (grant.reason === "LEGAL" || grant.reason === "SUPPORT_OR_DISPUTE") {
+      void notifyAdmins(grant.reason === "LEGAL" ? "data_export_legal" : "data_export_dispute", {
+        userId, customerName: user.fullName || user.name || user.email || `Customer ${userId}`, otherReason: grant.otherReason ?? null,
+        country: grant.country, reasonLabel: DATA_EXPORT_REASON_LABEL[grant.reason], format: grant.format, sentVia: grant.sentVia, downloadedAt: exportedAt,
+        ip: req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() || req.socket?.remoteAddress || null,
+      });
+    }
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="nolsaf-my-data-${exportedAt.slice(0, 10)}.json"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (error: any) {
+    console.error("account.export failed", error);
+    sendError(res, 500, "Your data could not be prepared. Try again.");
+  }
+};
+router.get("/export", sensitive as unknown as RequestHandler, exportAccountData as unknown as RequestHandler);
+
+/**
+ * GET /account/data-summary - what the account holds, as counts and flags, for the
+ * Privacy and data page. No record contents, no row ids.
+ */
+const dataSummary: RequestHandler = async (req, res) => {
+  try {
+    const userId = getUserId(req as AuthedRequest);
+    const db = prisma as any;
+    const optional = <T,>(work: Promise<T> | undefined, fallback: T) => (work ? work.catch(() => fallback) : Promise.resolve(fallback));
+    const [user, stays, completedStays, upcomingStays, rides, welcomes, prefs, lastExport, tours, groupStays, reviews, saved] = await Promise.all([
+      db.user.findUnique({ where: { id: userId }, select: { name: true, fullName: true, email: true, phone: true, createdAt: true } }),
+      db.booking.count({ where: { userId } }),
+      db.booking.count({ where: { userId, status: "CHECKED_OUT" } }),
+      db.booking.count({ where: { userId, status: { in: ["CONFIRMED", "CHECKED_IN"] }, checkOut: { gte: new Date() } } }),
+      optional(db.transportBooking?.count({ where: { userId } }), 0),
+      optional(db.karibuGesture?.count({ where: { userId, status: { in: ["ORDERED", "SERVED"] } } }), 0),
+      optional<any>(db.karibuGuestPreference?.findUnique({ where: { userId } }), null),
+      optional<any>(db.auditLog.findFirst({ where: { actorId: userId, action: "USER_DATA_EXPORT" }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }), null),
+      optional(db.tourBooking?.count({ where: { customerId: userId } }), 0),
+      optional(db.groupBooking?.count({ where: { userId } }), 0),
+      optional(db.propertyReview?.count({ where: { userId } }), 0),
+      optional(db.savedProperty?.count({ where: { userId } }), 0),
+    ]);
+    if (!user) return sendError(res, 404, "Account not found");
+    res.setHeader("Cache-Control", "private, no-store");
+    sendSuccess(res, {
+      memberSince: user.createdAt,
+      profile: { hasName: Boolean(user.fullName || user.name), hasEmail: Boolean(user.email), hasPhone: Boolean(user.phone) },
+      counts: { stays, completedStays, upcomingStays, rides, welcomes, tours, groupStays, reviews, saved },
+      welcomePreferences: prefs ? {
+        saved: true, shareWithProperty: prefs.shareWithProperty === true, celebrateOptIn: prefs.celebrateOptIn === true,
+        drinkLikes: Array.isArray(prefs.drinkLikes) ? prefs.drinkLikes : [], dietaryTags: Array.isArray(prefs.dietaryTags) ? prefs.dietaryTags : [],
+      } : { saved: false, shareWithProperty: false, celebrateOptIn: false, drinkLikes: [], dietaryTags: [] },
+      lastExportAt: lastExport?.createdAt ?? null,
+      exportLocked: (await dataExportLockState(prisma, userId).catch(() => ({ locked: false }))).locked,
+    });
+  } catch (error: any) {
+    console.error("account.dataSummary failed", error);
+    sendError(res, 500, "Your data summary could not be loaded");
+  }
+};
+router.get("/data-summary", dataSummary as unknown as RequestHandler);
 
 /** GET /account/sessions - list user sessions with pagination */
 const listSessions: RequestHandler = async (req, res) => {

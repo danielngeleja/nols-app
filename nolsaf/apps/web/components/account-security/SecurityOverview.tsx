@@ -52,33 +52,35 @@ export default function SecurityOverview({ scope }: { scope: SecurityScope }) {
     : score === 2 ? { label: "Good", tone: "text-sky-700", ring: "#0284c7", note: "One more step makes your account strong." }
       : { label: "Basic", tone: "text-amber-700", ring: "#d97706", note: `Only a password protects ${scope.protects}.` }
 
-  const radius = 42
-  const circumference = 2 * Math.PI * radius
-
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
       <div className="min-w-0 space-y-5">
-        {/* Protection level */}
-        <section className="flex flex-col gap-6 rounded-2xl border border-solid border-slate-200 bg-white p-6 sm:flex-row sm:items-center">
-          <div className="relative mx-auto h-[112px] w-[112px] shrink-0 sm:mx-0">
-            <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden>
-              <circle cx="50" cy="50" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="9" />
-              <circle cx="50" cy="50" r={radius} fill="none" stroke={loading ? "#e2e8f0" : level.ring} strokeWidth="9" strokeLinecap="round" strokeDasharray={`${(circumference * score) / 3} ${circumference}`} className="transition-all duration-700" />
-            </svg>
-            <span className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-2xl font-extrabold tabular-nums text-slate-900">{loading ? "…" : `${score}/3`}</span>
-              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">steps</span>
-            </span>
+        {/* Protection level: one segment per protection, each filled when that protection is on */}
+        <section className="rounded-xl border border-solid border-slate-300/80 bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.06)] sm:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Protection level</p>
+              <p className={`m-0 mt-1 text-2xl font-bold ${loading ? "text-slate-300" : level.tone}`}>{loading ? "Checking" : level.label}</p>
+            </div>
+            <p className="m-0 text-sm font-semibold tabular-nums text-slate-500">{loading ? "" : `${score} of 3 steps`}</p>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="m-0 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Protection level</p>
-            <p className={`m-0 mt-1 text-2xl font-bold ${loading ? "text-slate-300" : level.tone}`}>{loading ? "Checking" : level.label}</p>
-            <p className="m-0 mt-1 text-sm text-slate-600">{loading ? "Reading your security settings." : level.note}</p>
+          <div className="mt-4 grid grid-cols-3 gap-1.5" aria-hidden>
+            {checks.map((c) => (
+              <span key={c.label} className="h-2 rounded-full bg-slate-200">
+                <span className="block h-full rounded-full transition-all duration-500" style={{ width: !loading && c.done ? "100%" : "0%", backgroundColor: level.ring }} />
+              </span>
+            ))}
           </div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            {checks.map((c) => (
+              <span key={c.label} className={`truncate text-[11px] font-medium ${!loading && c.done ? "text-slate-700" : "text-slate-400"}`}>{c.label}</span>
+            ))}
+          </div>
+          <p className="m-0 mt-3 text-sm text-slate-600">{loading ? "Reading your security settings." : level.note}</p>
         </section>
 
         {/* Checklist */}
-        <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+        <section className="overflow-hidden rounded-xl border border-solid border-slate-200 bg-white">
           <h2 className="m-0 px-6 pb-2 pt-5 text-base font-bold text-slate-900">Your protection</h2>
           <ul className="m-0 list-none p-0">
             {checks.map((check) => (
@@ -106,7 +108,7 @@ export default function SecurityOverview({ scope }: { scope: SecurityScope }) {
             { href: `${scope.base}/passkeys`, Icon: Fingerprint, title: "Passkeys", body: "Fingerprint, face or device PIN sign-in." },
             { href: `${scope.base}/login-history`, Icon: History, title: "Sign-in history", body: "Where and when your account was used." },
           ].map((item) => (
-            <Link key={item.href} href={item.href} className="group flex items-center gap-3.5 rounded-2xl border border-solid border-slate-200 bg-white p-4 no-underline transition hover:border-[#02665e]/40">
+            <Link key={item.href} href={item.href} className="group flex items-center gap-3.5 rounded-xl border border-solid border-slate-200 bg-white p-4 no-underline transition hover:border-[#02665e]/40">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#012a26] text-[#5eead4]"><item.Icon className="h-[18px] w-[18px]" aria-hidden /></span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-bold text-slate-900">{item.title}</span>
@@ -120,7 +122,7 @@ export default function SecurityOverview({ scope }: { scope: SecurityScope }) {
 
       {/* Recent activity */}
       <aside className="min-w-0 space-y-5 xl:sticky xl:top-24">
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+        <section className="rounded-xl border border-solid border-slate-200 bg-white p-5">
           <p className="m-0 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Last sign-in</p>
           {loading ? (
             <div className="mt-3 h-14 rounded-xl bg-slate-50" />
@@ -143,7 +145,7 @@ export default function SecurityOverview({ scope }: { scope: SecurityScope }) {
           <Link href={`${scope.base}/login-history`} className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-[#02665e] no-underline">See all sign-ins <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
         </section>
 
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+        <section className="rounded-xl border border-solid border-slate-200 bg-white p-5">
           <p className="m-0 text-sm font-bold text-slate-900">Good habits</p>
           <ul className="m-0 mt-3 list-none space-y-2.5 p-0 text-xs leading-5 text-slate-600">
             <li className="flex gap-2"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />Never share a sign-in code with anyone, even someone who says they are from NoLSAF.</li>

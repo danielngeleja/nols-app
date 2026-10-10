@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, Clock3, Cpu, Power, QrCode, RefreshCw, ShieldAlert, X, XCircle } from "lucide-react";
 import apiClient from "@/lib/apiClient";
@@ -325,8 +326,9 @@ export default function NrmsHealthPage() {
         </section>
       </div>
 
-      {qrDialogOpen && qrTarget !== null && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-neutral-950/60 px-3 py-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="qr-control-dialog-title" onMouseDown={() => { if (!qrSaving) setQrDialogOpen(false); }}>
+      {/* Mounted on <body> with an inline backdrop: the admin layout otherwise cancels the dim. */}
+      {qrDialogOpen && qrTarget !== null && createPortal(
+        <div className="fixed inset-0 z-[1000] box-border flex items-center justify-center overflow-y-auto px-3 py-4 [&_*]:box-border" style={{ backgroundColor: "rgba(2, 12, 10, 0.58)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }} role="dialog" aria-modal="true" aria-labelledby="qr-control-dialog-title" onMouseDown={() => { if (!qrSaving) setQrDialogOpen(false); }}>
           <div className="my-auto w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_28px_80px_rgba(0,0,0,0.3)]" onMouseDown={(e) => e.stopPropagation()}>
             <div className={`flex items-start gap-3 px-5 py-4 ${qrTarget ? "bg-emerald-600" : "bg-rose-600"} text-white`}>
               <span className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white/15"><Power className="h-5 w-5" /></span>
@@ -386,7 +388,8 @@ export default function NrmsHealthPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

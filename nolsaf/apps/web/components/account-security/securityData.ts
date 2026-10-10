@@ -65,6 +65,8 @@ export type SecurityScope = {
   protects: string;
   /** One line under the Overview title. */
   overviewBlurb: string;
+  /** Settings sections beyond security, shown as extra tabs (guests only today). */
+  extraSections?: Array<{ slug: string; label: string; title: string; blurb: string; icon: "notifications" | "privacy" }>;
 };
 
 export const OWNER_SECURITY: SecurityScope = {
@@ -79,4 +81,8 @@ export const CUSTOMER_SECURITY: SecurityScope = {
   profileHref: "/account/profile",
   protects: "your account and your bookings",
   overviewBlurb: "Your account holds your bookings, payments and travel details. Keep it locked to you.",
+  extraSections: [
+    { slug: "notifications", label: "Notifications", title: "Notifications", blurb: "Choose which messages NoLSAF sends you. Booking and security messages always reach you.", icon: "notifications" },
+    { slug: "privacy", label: "Privacy and data", title: "Privacy and data", blurb: "See what we keep, download a copy, and control who sees your preferences.", icon: "privacy" },
+  ],
 };

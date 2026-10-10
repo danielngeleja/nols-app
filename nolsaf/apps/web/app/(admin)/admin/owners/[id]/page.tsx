@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import apiClient from "@/lib/apiClient";
+import apiClient, { clearAuthToken } from "@/lib/apiClient";
 import { io, Socket } from "socket.io-client";
 import Link from "next/link";
 import Image from "next/image";
@@ -509,20 +509,19 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
   }
   
   async function confirmImpersonate(){
-    if (!impersonateReason.trim()) {
-      showToast("error", "Please provide a reason for impersonation. This action will be logged.");
+    if (impersonateReason.trim().length < 10) {
+      showToast("error", "Please provide a reason of at least 10 characters. This action will be logged.");
       return;
     }
     
     setActionLoading(true);
     try {
-      const r = await api.post<{token:string; expiresIn:number}>(`/api/admin/owners/${ownerId}/impersonate`, {
+      const r = await api.post<{ok:boolean; redirectTo:string; expiresIn:number}>(`/api/admin/owners/${ownerId}/impersonate`, {
         reason: impersonateReason.trim()
       });
-      navigator.clipboard.writeText(r.data.token);
-      setImpersonateReason("");
-      setShowImpersonateForm(false);
-      showToast("success", "Temporary OWNER token copied to clipboard (10 min). Use in a private tab for support.");
+      if (!r.data.ok || r.data.redirectTo !== "/owner") throw new Error("Support session was not started");
+      clearAuthToken();
+      window.location.assign(r.data.redirectTo);
     } catch (err: any) {
       showToast("error", err?.response?.data?.error || "Failed to impersonate owner");
     } finally {
@@ -2034,7 +2033,7 @@ function OwnerDetail({ ownerId }: { ownerId: number }) {
                     <button
                       className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-brand text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand/90 active:bg-brand/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 sm:gap-2"
                       onClick={confirmImpersonate}
-                      disabled={actionLoading || !impersonateReason.trim()}
+                      disabled={actionLoading || impersonateReason.trim().length < 10}
                     >
                       {actionLoading ? (
                         <>
