@@ -321,8 +321,13 @@ export type TourGroupMember = {
   fullName: string;
   documentType?: TourGroupMemberDocumentType | null;
   documentNumber?: string | null;
+  /** YYYY-MM-DD; with dateOfBirth, what an operator's guest manifest needs. */
+  documentExpiry?: string | null;
   nationality?: string | null;
+  /** YYYY-MM-DD. */
+  dateOfBirth?: string | null;
   phone?: string | null;
+  email?: string | null;
   relation?: TourGroupMemberRelation | string | null;
   notes?: string | null;
   photoUrl?: string | null;

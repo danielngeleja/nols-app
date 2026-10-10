@@ -1,32 +1,29 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Activity, Banknote, Calendar, ChevronRight, CircleCheck, CircleX, Clock, Clock3, ListChecks, MapPin, Plus, Sparkles, Users } from "lucide-react-native";
+import { Banknote, Calendar, ChevronRight, Clock3, MapPin, Plus, Sparkles, Users } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import type { LucideIcon } from "lucide-react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
 import { AppCard, AppStack, AppText, SafeScreen, ScreenHeader, StateView, StatusBadge } from "../components";
 import { ACCOMMODATION_TYPE_OPTIONS, fetchMyGroupBookings, GROUP_TYPE_OPTIONS, GroupBookingListItem } from "../groupStays";
 import { RootStackParamList } from "../navigation/types";
-import { colors, radius, spacing } from "../theme";
+import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MyGroupStays">;
 
-type FilterKey = "all" | "pending" | "active" | "completed" | "cancelled";
+/** Four groups so the switch reads on one line: still open, confirmed, and finished either way. */
+type FilterKey = "all" | "open" | "confirmed" | "past";
 
-const FILTERS: { key: FilterKey; label: string; icon: LucideIcon }[] = [
-  { key: "all", label: "All", icon: ListChecks },
-  { key: "pending", label: "Pending", icon: Clock },
-  { key: "active", label: "Active", icon: Activity },
-  { key: "completed", label: "Completed", icon: CircleCheck },
-  { key: "cancelled", label: "Cancelled", icon: CircleX }
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "open", label: "Open" },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "past", label: "Past" }
 ];
 
-const STAT_CARDS: { key: "total" | "active" | "pending"; label: string; icon: LucideIcon }[] = [
-  { key: "total", label: "Total", icon: ListChecks },
-  { key: "active", label: "Active", icon: Activity },
-  { key: "pending", label: "Pending", icon: Clock }
-];
+const OPEN = ["PENDING", "AWAITING_DEPOSIT"];
+const CONFIRMED = ["CONFIRMED", "PROCESSING"];
+const PAST = ["COMPLETED", "CANCELED", "CANCELLED", "EXPIRED"];
 
 function labelFor(options: { value: string; label: string }[], value: string) {
   return options.find((o) => o.value === value)?.label || value;
@@ -50,11 +47,9 @@ function badgeLabel(status: string): string | undefined {
 
 function matchesFilter(status: string, filter: FilterKey) {
   const s = status.toUpperCase();
-  if (filter === "all") return true;
-  if (filter === "pending") return s === "PENDING" || s === "AWAITING_DEPOSIT";
-  if (filter === "active") return s === "CONFIRMED" || s === "PROCESSING";
-  if (filter === "completed") return s === "COMPLETED";
-  if (filter === "cancelled") return s === "CANCELED" || s === "CANCELLED" || s === "EXPIRED";
+  if (filter === "open") return OPEN.includes(s);
+  if (filter === "confirmed") return CONFIRMED.includes(s);
+  if (filter === "past") return PAST.includes(s);
   return true;
 }
 
@@ -117,13 +112,26 @@ export function MyGroupStaysScreen({ navigation }: Props) {
   }, [load]);
 
   const counts = useMemo(() => {
-    const total = items.length;
-    const pending = items.filter((b) => ["PENDING", "AWAITING_DEPOSIT"].includes(b.status.toUpperCase())).length;
-    const active = items.filter((b) => ["CONFIRMED", "PROCESSING"].includes(b.status.toUpperCase())).length;
-    const completed = items.filter((b) => b.status.toUpperCase() === "COMPLETED").length;
-    const cancelled = items.filter((b) => ["CANCELED", "CANCELLED", "EXPIRED"].includes(b.status.toUpperCase())).length;
-    return { all: total, total, pending, active, completed, cancelled };
+    const of = (list: string[]) => items.filter((b) => list.includes(b.status.toUpperCase())).length;
+    return {
+      all: items.length,
+      open: of(OPEN),
+      confirmed: of(CONFIRMED),
+      past: of(PAST),
+      depositDue: of(["AWAITING_DEPOSIT"]),
+      waiting: of(["PENDING"])
+    };
   }, [items]);
+
+  // The one line worth reading first: what needs the traveller, else where things stand.
+  const headline =
+    counts.depositDue > 0
+      ? { text: `${counts.depositDue === 1 ? "1 offer is" : `${counts.depositDue} offers are`} waiting for your deposit`, alert: true }
+      : counts.waiting > 0
+        ? { text: `${counts.waiting === 1 ? "1 request is" : `${counts.waiting} requests are`} with our team for offers`, alert: false }
+        : counts.confirmed > 0
+          ? { text: `${counts.confirmed === 1 ? "1 group stay is" : `${counts.confirmed} group stays are`} confirmed`, alert: false }
+          : null;
 
   const visibleItems = useMemo(() => items.filter((b) => matchesFilter(b.status, filter)), [items, filter]);
 
@@ -131,60 +139,75 @@ export function MyGroupStaysScreen({ navigation }: Props) {
     <View style={styles.root}>
       <SafeScreen contentStyle={styles.screen}>
         <AppStack gap={5}>
-          <ScreenHeader
-            title="My group stay"
-            subtitle="Track the group stay requests you have sent us."
-            onBack={() => navigation.goBack()}
-            action={
-              <Pressable accessibilityRole="button" onPress={() => navigation.navigate("GroupStayRequest")} style={styles.newButton}>
-                <Plus color={colors.white} size={20} />
-              </Pressable>
-            }
-          />
+          <ScreenHeader title="My group stays" onBack={() => navigation.goBack()} />
 
-          {!loading && !error && items.length > 0 ? (
-            <View style={styles.statsRow}>
-              {STAT_CARDS.map(({ key, label, icon: Icon }) => (
-                <View key={key} style={styles.statChip}>
-                  <View style={styles.statIconWrap}>
-                    <Icon color={colors.primary} size={18} />
-                  </View>
-                  <AppText variant="titleSm" weight="extraBold" tone="primary">
-                    {counts[key]}
-                  </AppText>
-                  <AppText variant="caption" tone="muted">
-                    {label}
-                  </AppText>
-                </View>
-              ))}
+          <View style={styles.hero}>
+            <View style={styles.heroTop}>
+              <View style={styles.heroIcon}>
+                <Users color={colors.white} size={20} />
+              </View>
+              <View style={styles.flex}>
+                <AppText variant="titleSm" weight="extraBold" tone="inverse">
+                  Group stay requests
+                </AppText>
+                <AppText variant="caption" style={styles.heroSub}>
+                  Tell us about your group, we gather offers, you confirm with a deposit.
+                </AppText>
+              </View>
             </View>
-          ) : null}
+            {headline ? (
+              <View style={[styles.heroNote, headline.alert && styles.heroNoteAlert]}>
+                <View style={[styles.heroDot, headline.alert && styles.heroDotAlert]} />
+                <AppText variant="caption" weight="bold" style={headline.alert ? styles.heroNoteAlertText : styles.heroSub}>
+                  {headline.text}
+                </AppText>
+              </View>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => navigation.navigate("GroupStayRequest")}
+              style={({ pressed }) => [styles.newRequest, pressed && styles.cardPressed]}
+            >
+              <Plus color={colors.primaryDeep} size={17} strokeWidth={2.5} />
+              <AppText variant="bodySmall" weight="extraBold" style={styles.newRequestText}>
+                New group request
+              </AppText>
+            </Pressable>
+          </View>
 
           {!loading && !error && items.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-              {FILTERS.map((f) => {
-                const active = filter === f.key;
-                const Icon = f.icon;
-                return (
-                  <Pressable
-                    key={f.key}
-                    accessibilityRole="button"
-                    onPress={() => setFilter(f.key)}
-                    style={[styles.filterPill, active && styles.filterPillActive]}
-                  >
-                    <Icon color={active ? colors.white : colors.softText} size={14} />
-                    <AppText variant="caption" weight="bold" tone={active ? "inverse" : "muted"}>
-                      {f.label}
-                    </AppText>
-                    <View style={[styles.filterCount, active && styles.filterCountActive]}>
-                      <AppText variant="caption" weight="extraBold" tone={active ? "primary" : "muted"} style={styles.filterCountText}>
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <AppText variant="titleSm" weight="extraBold">
+                  Your requests
+                </AppText>
+                <AppText variant="caption" tone="soft">
+                  {counts.all} {counts.all === 1 ? "request" : "requests"}
+                </AppText>
+              </View>
+
+              <View style={styles.segment}>
+                {FILTERS.map((f) => {
+                  const active = filter === f.key;
+                  return (
+                    <Pressable
+                      key={f.key}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: active }}
+                      onPress={() => setFilter(f.key)}
+                      style={[styles.segmentItem, active && styles.segmentItemActive]}
+                    >
+                      <AppText variant="caption" weight={active ? "extraBold" : "semiBold"} tone={active ? "primary" : "soft"} numberOfLines={1}>
+                        {f.label}
+                      </AppText>
+                      <AppText variant="caption" weight="bold" tone={active ? "primary" : "soft"} style={styles.segmentCount}>
                         {counts[f.key]}
                       </AppText>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
           ) : null}
 
           {loading ? (
@@ -360,70 +383,101 @@ const styles = StyleSheet.create({
   viewDetails: { flexDirection: "row", alignItems: "center", gap: spacing[1] },
   cardPressed: { opacity: 0.7 },
   loading: { alignItems: "center", gap: spacing[2], paddingVertical: spacing[8] },
-  newButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary
+  section: {
+    gap: spacing[3]
   },
-  statsRow: {
+  sectionHeader: {
     flexDirection: "row",
-    gap: spacing[2]
-  },
-  statChip: {
-    flex: 1,
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    backgroundColor: colors.white,
-    paddingVertical: spacing[4]
-  },
-  statIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand[50],
-    marginBottom: spacing[1]
-  },
-  filterRow: {
+    alignItems: "baseline",
+    justifyContent: "space-between",
     gap: spacing[2],
-    paddingRight: spacing[4]
+    paddingHorizontal: 2
   },
-  filterPill: {
+  segment: {
+    flexDirection: "row",
+    borderRadius: radius.lg,
+    backgroundColor: colors.brand[50],
+    padding: 4,
+    gap: 4
+  },
+  segmentItem: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
+    justifyContent: "center",
+    gap: 5,
+    borderRadius: radius.md,
+    paddingVertical: spacing[2],
+    paddingHorizontal: 2
+  },
+  segmentItemActive: {
     backgroundColor: colors.white,
+    ...shadows.card
+  },
+  segmentCount: {
+    opacity: 0.8
+  },
+  hero: {
+    gap: spacing[4],
+    borderRadius: radius.xl,
+    backgroundColor: colors.primaryDeep,
+    padding: spacing[5]
+  },
+  heroTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing[3]
+  },
+  heroIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)"
+  },
+  heroSub: {
+    color: colors.brand[200],
+    marginTop: 2
+  },
+  heroNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[2],
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255,255,255,0.07)",
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[2]
   },
-  filterPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
+  heroNoteAlert: {
+    backgroundColor: "rgba(252,211,77,0.14)"
   },
-  filterCount: {
-    minWidth: 20,
-    height: 20,
+  heroNoteAlertText: {
+    color: "#fcd34d"
+  },
+  heroDot: {
+    width: 7,
+    height: 7,
     borderRadius: radius.full,
+    backgroundColor: colors.brand[200]
+  },
+  heroDotAlert: {
+    backgroundColor: "#fcd34d"
+  },
+  newRequest: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: spacing[1],
-    backgroundColor: colors.surface
+    gap: spacing[2],
+    borderRadius: radius.lg,
+    backgroundColor: colors.white,
+    paddingVertical: spacing[3]
   },
-  filterCountActive: {
-    backgroundColor: colors.white
-  },
-  filterCountText: {
-    lineHeight: 14
+  newRequestText: {
+    color: colors.primaryDeep
   },
   offerBanner: {
     flexDirection: "row",

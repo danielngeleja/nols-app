@@ -30,11 +30,14 @@ export type RootStackParamList = {
   };
   Account: undefined;
   AccountPreferences: undefined;
+  /** Karibu travel story; `focus: "preferences"` scrolls to the preferences card. */
+  KaribuStory: { focus?: "preferences" } | undefined;
+  PrivacyData: undefined;
   BusinessAccess: undefined;
   Notifications: undefined;
   SafetyCenter: undefined;
   SavedProperties: undefined;
-  AccountSecurity: { mode: "password" | "passkeys" | "2fa" | "applock" };
+  AccountSecurity: { mode: "password" | "passkeys" | "2fa" | "applock" | "sessions" | "logins" };
   AccountResources: { mode: "policies" | "help" | "support" };
   TravellerGroups: { tourBookingId?: number; tourBookingRef?: string | null; tourBookingTitle?: string } | undefined;
   GroupStayRequest: undefined;

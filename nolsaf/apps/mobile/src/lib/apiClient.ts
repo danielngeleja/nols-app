@@ -7,6 +7,8 @@ type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   token?: string | null;
+  /** Extra request headers, e.g. a short-lived grant; cannot override auth or client headers. */
+  headers?: Record<string, string>;
 };
 
 export type ApiError = Error & {
@@ -70,6 +72,7 @@ function connectionMessage(baseUrl: string): string {
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
+    ...options.headers,
     Accept: "application/json",
     "X-NoLSAF-Client": "TRAVELLER_APP"
   };

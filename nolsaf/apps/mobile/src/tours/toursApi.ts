@@ -824,8 +824,13 @@ export type TourGroupMemberInput = {
   fullName: string;
   documentType?: string;
   documentNumber?: string;
+  /** YYYY-MM-DD */
+  documentExpiry?: string;
   nationality?: string;
+  /** YYYY-MM-DD */
+  dateOfBirth?: string;
   phone?: string;
+  email?: string;
   relation?: string;
   notes?: string;
   photoUrl?: string;

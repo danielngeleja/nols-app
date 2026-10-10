@@ -6,8 +6,11 @@ import {
   Eye,
   EyeOff,
   Fingerprint,
+  History,
   KeyRound,
   LockKeyhole,
+  LogOut,
+  MonitorSmartphone,
   ShieldCheck,
   Smartphone,
   Trash2
@@ -17,6 +20,14 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { useAuth } from "../auth";
+import {
+  AccountSession,
+  LoginRecord,
+  fetchAccountSessions,
+  fetchLoginHistory,
+  revokeAccountSession,
+  revokeOtherAccountSessions
+} from "../accountPreferences";
 import {
   Account2faStatus,
   AccountPasskey,
@@ -35,13 +46,48 @@ import { RootStackParamList } from "../navigation/types";
 import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AccountSecurity">;
-type Mode = "password" | "passkeys" | "2fa" | "applock";
+type Mode = RootStackParamList["AccountSecurity"]["mode"];
 
 function titleForMode(mode: Mode) {
   if (mode === "password") return "Password";
   if (mode === "passkeys") return "Passkeys";
   if (mode === "applock") return "App Lock";
+  if (mode === "sessions") return "Active sessions";
+  if (mode === "logins") return "Login history";
   return "2FA / MFA";
+}
+
+function fmtDateTime(value?: string | null) {
+  if (!value) return "Time not recorded";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime())
+    ? "Time not recorded"
+    : d.toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Short device name from a user agent, e.g. "Chrome on Windows" or "NoLSAF app on Android". */
+function deviceLabel(userAgent?: string | null) {
+  const ua = String(userAgent || "");
+  if (!ua) return "Unknown device";
+  const os = /android/i.test(ua) ? "Android" : /iphone|ipad|ios/i.test(ua) ? "iOS" : /windows/i.test(ua) ? "Windows" : /mac os/i.test(ua) ? "macOS" : /linux/i.test(ua) ? "Linux" : null;
+  const app = /okhttp|expo|nolsaf|cfnetwork|darwin/i.test(ua)
+    ? "NoLSAF app"
+    : /edg\//i.test(ua) ? "Edge" : /chrome\//i.test(ua) ? "Chrome" : /firefox\//i.test(ua) ? "Firefox" : /safari\//i.test(ua) ? "Safari" : null;
+  if (app && os) return `${app} on ${os}`;
+  return app || os || "Unknown device";
+}
+
+/** The session id this app's token is bound to (the `sid` claim), so its own row is never offered for revoke. */
+function currentSessionId(token?: string | null) {
+  try {
+    const part = String(token || "").split(".")[1];
+    if (!part || typeof globalThis.atob !== "function") return null;
+    const json = globalThis.atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    const sid = JSON.parse(json)?.sid;
+    return typeof sid === "string" && sid ? sid : null;
+  } catch {
+    return null;
+  }
 }
 
 function fmtDate(value?: string | null) {
@@ -64,6 +110,8 @@ export function AccountSecurityScreen({ route, navigation }: Props) {
         {mode === "passkeys" ? <PasskeysPanel /> : null}
         {mode === "2fa" ? <TwoFactorPanel /> : null}
         {mode === "applock" ? <AppLockPanel /> : null}
+        {mode === "sessions" ? <SessionsPanel /> : null}
+        {mode === "logins" ? <LoginHistoryPanel /> : null}
       </AppStack>
     </SafeScreen>
   );
@@ -278,6 +326,187 @@ function PasskeysPanel() {
           ))}
           {message ? <AppText variant="bodySmall" tone="muted">{message}</AppText> : null}
           <AppButton title="Add passkey" loading={registering} onPress={addPasskey} icon={<Fingerprint color={colors.white} size={16} />} />
+        </AppStack>
+      </AppCard>
+    </>
+  );
+}
+
+function SessionsPanel() {
+  const { token } = useAuth();
+  const [items, setItems] = useState<AccountSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const currentId = currentSessionId(token);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setItems(await fetchAccountSessions(token));
+    } catch (err) {
+      setError(getErrorMessage(err, "Could not load your sessions."));
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function confirmRevoke(session: AccountSession) {
+    Alert.alert("Sign out this device?", `${deviceLabel(session.userAgent)} will need to sign in again.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: async () => {
+          if (!token) return;
+          setBusy(session.id);
+          try {
+            await revokeAccountSession(token, session.id);
+            setItems((current) => current.filter((item) => item.id !== session.id));
+          } catch (err) {
+            Alert.alert("Active sessions", getErrorMessage(err, "Could not sign out that device."));
+          } finally {
+            setBusy(null);
+          }
+        }
+      }
+    ]);
+  }
+
+  function confirmRevokeOthers() {
+    Alert.alert("Sign out other devices?", "Every device except this one will need to sign in again.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign out others",
+        style: "destructive",
+        onPress: async () => {
+          if (!token) return;
+          setBusy("others");
+          try {
+            await revokeOtherAccountSessions(token);
+            await load();
+          } catch (err) {
+            Alert.alert("Active sessions", getErrorMessage(err, "Could not sign out other devices."));
+          } finally {
+            setBusy(null);
+          }
+        }
+      }
+    ]);
+  }
+
+  const others = items.filter((item) => item.id !== currentId);
+
+  return (
+    <>
+      <SecurityHero Icon={MonitorSmartphone} title="Signed-in devices" text="Review where your account is open. Sign out any device you don't recognise." />
+      <AppCard>
+        <AppStack gap={3}>
+          <View style={styles.sectionHead}>
+            <AppText variant="titleSm" weight="extraBold">Active sessions</AppText>
+            {loading ? <ActivityIndicator color={colors.primary} /> : null}
+          </View>
+          {error ? <AppText variant="bodySmall" tone="danger">{error}</AppText> : null}
+          {!loading && !error && !items.length ? (
+            <View style={styles.emptyBox}>
+              <MonitorSmartphone color={colors.primary} size={22} />
+              <AppText variant="bodySmall" weight="extraBold">No other sessions</AppText>
+              <AppText variant="caption" tone="muted">Only this device is signed in.</AppText>
+            </View>
+          ) : null}
+          {items.map((item) => {
+            const isCurrent = item.id === currentId;
+            return (
+              <View key={item.id} style={styles.passkeyRow}>
+                <View style={[styles.roundIcon, isCurrent && styles.roundIconSuccess]}>
+                  <Smartphone color={isCurrent ? colors.success : colors.primary} size={16} />
+                </View>
+                <View style={styles.flex}>
+                  <AppText variant="bodySmall" weight="extraBold" numberOfLines={1}>{deviceLabel(item.userAgent)}</AppText>
+                  <AppText variant="caption" tone="muted" numberOfLines={1}>
+                    {isCurrent ? "This device" : `Last active ${fmtDateTime(item.lastSeenAt || item.createdAt)}`}
+                    {item.ip ? ` · ${item.ip}` : ""}
+                  </AppText>
+                </View>
+                {isCurrent ? null : busy === item.id ? (
+                  <ActivityIndicator color={colors.danger} />
+                ) : (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Sign out this device" onPress={() => confirmRevoke(item)} style={styles.iconButton}>
+                    <LogOut color={colors.danger} size={16} />
+                  </Pressable>
+                )}
+              </View>
+            );
+          })}
+          {others.length > 1 ? (
+            <AppButton title="Sign out all other devices" variant="danger" loading={busy === "others"} onPress={confirmRevokeOthers} />
+          ) : null}
+        </AppStack>
+      </AppCard>
+    </>
+  );
+}
+
+function LoginHistoryPanel() {
+  const { token } = useAuth();
+  const [items, setItems] = useState<LoginRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    fetchLoginHistory(token)
+      .then(setItems)
+      .catch((err) => setError(getErrorMessage(err, "Could not load your login history.")))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  return (
+    <>
+      <SecurityHero Icon={History} title="Recent sign-ins" text="The last 50 sign-in events on your account. Change your password if one isn't yours." />
+      <AppCard>
+        <AppStack gap={3}>
+          <View style={styles.sectionHead}>
+            <AppText variant="titleSm" weight="extraBold">Login history</AppText>
+            {loading ? <ActivityIndicator color={colors.primary} /> : null}
+          </View>
+          {error ? <AppText variant="bodySmall" tone="danger">{error}</AppText> : null}
+          {!loading && !error && !items.length ? (
+            <View style={styles.emptyBox}>
+              <History color={colors.primary} size={22} />
+              <AppText variant="bodySmall" weight="extraBold">No sign-ins recorded yet</AppText>
+            </View>
+          ) : null}
+          {items.map((item) => {
+            const failed = item.success === false;
+            const method = /Method: ([^\n]+)/.exec(item.details || "")?.[1];
+            const event = /Event: ([^\n]+)/.exec(item.details || "")?.[1];
+            const title = event === "logout" ? "Signed out" : failed ? "Failed sign-in" : "Signed in";
+            return (
+              <View key={item.id} style={styles.passkeyRow}>
+                <View style={[styles.roundIcon, failed ? styles.roundIconDanger : styles.roundIconSuccess]}>
+                  {failed ? <AlertTriangle color={colors.danger} size={16} /> : <CheckCircle2 color={colors.success} size={16} />}
+                </View>
+                <View style={styles.flex}>
+                  <AppText variant="bodySmall" weight="extraBold" tone={failed ? "danger" : "default"}>
+                    {title}
+                    {method ? ` · ${method}` : ""}
+                  </AppText>
+                  <AppText variant="caption" tone="muted" numberOfLines={1}>
+                    {fmtDateTime(item.at)}
+                    {item.platform ? ` · ${item.platform}` : ""}
+                    {item.ip ? ` · ${item.ip}` : ""}
+                  </AppText>
+                </View>
+              </View>
+            );
+          })}
         </AppStack>
       </AppCard>
     </>
@@ -627,6 +856,7 @@ const styles = StyleSheet.create({
   passkeyRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, padding: spacing[3] },
   roundIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: radius.full, borderWidth: 1, borderColor: colors.brand[100], backgroundColor: colors.brand[50] },
   roundIconSuccess: { backgroundColor: "#e9f7ef" },
+  roundIconDanger: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
   iconButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: radius.full, backgroundColor: "#fef2f2", borderWidth: 1, borderColor: "#fecaca" },
   statusLine: { flexDirection: "row", alignItems: "center", gap: spacing[3], borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: "#f8fafc", padding: spacing[3] },
   qr: { width: 190, height: 190, alignSelf: "center", borderRadius: radius.md },
