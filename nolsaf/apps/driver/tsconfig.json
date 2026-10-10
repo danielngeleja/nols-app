@@ -3,6 +3,10 @@
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"]
+    },
     "ignoreDeprecations": "6.0",
     "moduleSuffixes": [".ios", ".android", ".native", ""]
   },
