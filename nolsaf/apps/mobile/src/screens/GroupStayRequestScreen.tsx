@@ -2,6 +2,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
   Bus,
   Calendar,
+  Check,
   CheckCircle2,
   ChevronDown,
   Coffee,
@@ -60,7 +61,7 @@ import { colors, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "GroupStayRequest">;
 
-const STEP_LABELS = ["Details", "Accommodation", "Roster", "Review"];
+const STEP_LABELS = ["Details", "Stay", "Roster", "Review"];
 
 const ARRANGEMENT_ICONS: Record<ArrangementKey, typeof Truck> = {
   pickup: Truck,
@@ -540,7 +541,7 @@ export function GroupStayRequestScreen({ navigation }: Props) {
       <SafeScreen contentStyle={styles.body}>
         <ScreenHeader
           title="Request a group stay"
-          subtitle="Share your group's details and let property owners bid for your stay with their best price. You pick the offer that excites you most."
+          subtitle="Owners bid for your group. You pick the best offer."
           onBack={() => navigation.goBack()}
           action={
             currentStep === 1 ? (
@@ -592,24 +593,42 @@ export function GroupStayRequestScreen({ navigation }: Props) {
           </View>
         ) : null}
 
-        <View style={styles.stepRow}>
-          {STEP_LABELS.map((label, index) => {
-            const step = index + 1;
-            const active = step === currentStep;
-            const done = step < currentStep;
-            return (
-              <View key={label} style={styles.stepItem}>
-                <View style={[styles.stepDot, (active || done) && styles.stepDotOn]}>
-                  <AppText variant="caption" weight="bold" tone={active || done ? "inverse" : "soft"}>
-                    {step}
-                  </AppText>
+        <View style={styles.stepper}>
+          <View style={styles.stepHead}>
+            <AppText variant="caption" weight="extraBold" tone="primary">
+              Step {currentStep} of {STEP_LABELS.length}
+            </AppText>
+            <AppText variant="caption" tone="soft">
+              {STEP_LABELS[currentStep - 1]}
+            </AppText>
+          </View>
+          <View style={styles.stepRow}>
+            {STEP_LABELS.map((label, index) => {
+              const step = index + 1;
+              const active = step === currentStep;
+              const done = step < currentStep;
+              return (
+                <View
+                  key={label}
+                  style={styles.stepItem}
+                  accessibilityLabel={`Step ${step}, ${label}${done ? ", done" : active ? ", current" : ""}`}
+                >
+                  <View style={[styles.stepBar, (active || done) && styles.stepBarOn]} />
+                  <View style={styles.stepLabelRow}>
+                    {done ? <Check color={colors.primary} size={12} strokeWidth={3} /> : null}
+                    <AppText
+                      variant="caption"
+                      weight={active ? "extraBold" : "semiBold"}
+                      tone={active || done ? "primary" : "soft"}
+                      numberOfLines={1}
+                    >
+                      {label}
+                    </AppText>
+                  </View>
                 </View>
-                <AppText variant="caption" weight={active ? "bold" : "regular"} tone={active ? "primary" : "soft"} numberOfLines={1}>
-                  {label}
-                </AppText>
-              </View>
-            );
-          })}
+              );
+            })}
+          </View>
         </View>
 
         {currentStep === 1 ? (
@@ -1241,19 +1260,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary
   },
-  stepRow: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: spacing[1] },
-  stepItem: { flex: 1, alignItems: "center", gap: spacing[1] },
-  stepDot: {
-    width: 26,
-    height: 26,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  stepDotOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  stepper: { gap: spacing[2] },
+  stepHead: { flexDirection: "row", alignItems: "baseline", gap: spacing[2] },
+  stepRow: { flexDirection: "row", gap: spacing[2] },
+  stepItem: { flex: 1, minWidth: 0, gap: 6 },
+  stepBar: { height: 4, borderRadius: radius.full, backgroundColor: colors.border },
+  stepBarOn: { backgroundColor: colors.primary },
+  stepLabelRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   fieldWrap: { gap: spacing[2], minWidth: 0 },
   selectInput: {
     minHeight: 52,

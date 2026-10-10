@@ -14,9 +14,11 @@ import { OptionPickerSheet } from "./OptionPickerSheet";
 
 type CurrencySelectorProps = {
   compact?: boolean;
+  /** A slim chip (flag, code, chevron) for dark header bands. */
+  onDark?: boolean;
 };
 
-export function CurrencySelector({ compact = false }: CurrencySelectorProps) {
+export function CurrencySelector({ compact = false, onDark = false }: CurrencySelectorProps) {
   const { currency, setCurrency, isLoading } = useCurrency();
   const [open, setOpen] = useState(false);
   const options = useMemo(
@@ -32,26 +34,42 @@ export function CurrencySelector({ compact = false }: CurrencySelectorProps) {
 
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Display currency ${currency}`}
-        disabled={isLoading}
-        onPress={() => setOpen(true)}
-        style={({ pressed }) => [styles.button, compact && styles.buttonCompact, pressed && styles.buttonPressed]}
-      >
-        <View style={[styles.icon, compact && styles.iconCompact]}>
-          <AppText style={styles.flag}>{CURRENCY_META[currency].flag}</AppText>
-        </View>
-        <View style={styles.labelWrap}>
-          <AppText variant="caption" tone="muted" numberOfLines={1}>
-            {compact ? "Currency" : "Display currency"}
+      {onDark ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Display currency ${currency}. Change`}
+          disabled={isLoading}
+          onPress={() => setOpen(true)}
+          style={({ pressed }) => [styles.darkChip, pressed && styles.darkChipPressed]}
+        >
+          <AppText style={styles.darkFlag}>{CURRENCY_META[currency].flag}</AppText>
+          <AppText variant="caption" weight="extraBold" tone="inverse">
+            {currency}
           </AppText>
-          <AppText variant="bodySmall" weight="extraBold" tone="primary" numberOfLines={1}>
-            {compact ? `${currency} · ${CURRENCY_META[currency].symbol}` : currency}
-          </AppText>
-        </View>
-        <ChevronDown color={colors.primary} size={compact ? 15 : 18} />
-      </Pressable>
+          <ChevronDown color={colors.brand[200]} size={14} />
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Display currency ${currency}`}
+          disabled={isLoading}
+          onPress={() => setOpen(true)}
+          style={({ pressed }) => [styles.button, compact && styles.buttonCompact, pressed && styles.buttonPressed]}
+        >
+          <View style={[styles.icon, compact && styles.iconCompact]}>
+            <AppText style={styles.flag}>{CURRENCY_META[currency].flag}</AppText>
+          </View>
+          <View style={styles.labelWrap}>
+            <AppText variant="caption" tone="muted" numberOfLines={1}>
+              {compact ? "Currency" : "Display currency"}
+            </AppText>
+            <AppText variant="bodySmall" weight="extraBold" tone="primary" numberOfLines={1}>
+              {compact ? `${currency} · ${CURRENCY_META[currency].symbol}` : currency}
+            </AppText>
+          </View>
+          <ChevronDown color={colors.primary} size={compact ? 15 : 18} />
+        </Pressable>
+      )}
 
       <OptionPickerSheet
         visible={open}
@@ -116,5 +134,23 @@ const styles = StyleSheet.create({
   flag: {
     fontSize: 18,
     lineHeight: 22
+  },
+  darkChip: {
+    height: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: spacing[2]
+  },
+  darkChipPressed: {
+    backgroundColor: "rgba(255,255,255,0.16)"
+  },
+  darkFlag: {
+    fontSize: 15,
+    lineHeight: 19
   }
 });

@@ -1,15 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { ArrowRight, ArrowUpRight, Building2, Car, Clock, Compass, TicketsPlane, UsersRound, Wallet } from "lucide-react-native";
+import { ArrowRight, Building2, Car, ChevronRight, Clock, Compass, Search, TicketsPlane, UsersRound, Wallet, X } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from "react-native";
 
 import { useAuth } from "../auth";
 import { fetchSystemCommission } from "../bookings/checkoutApi";
 import {
-  AppButton,
-  AppCard,
-  AppInput,
   AppStack,
   AppText,
   FeaturedOperatorCarousel,
@@ -21,7 +18,7 @@ import {
 } from "../components";
 import { RootStackParamList } from "../navigation/types";
 import { fetchPublicProperties, PublicPropertyCard } from "../properties";
-import { colors, radius, spacing } from "../theme";
+import { colors, radius, shadows, spacing } from "../theme";
 import { applyFeaturedTourFilters, FeaturedTourOperator, fetchAllFeaturedTourOperators } from "../tours";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Search">;
@@ -52,92 +49,84 @@ export function SearchScreen({ navigation, route }: Props) {
         <AppStack gap={5}>
           <ScreenHeader title="NoLSAF" subtitle="Why we exist, and where to start." onBack={() => navigation.goBack()} />
 
-          <AppCard tone="brand">
-            <AppStack gap={2}>
-              <AppText variant="titleSm" weight="extraBold" tone="inverse">
-                Our mission
-              </AppText>
-              <AppText variant="bodySmall" tone="inverse">
-                NoLSAF exists to bring trusted travel across Africa into one place: verified stays, curated tours,
-                group trips, rides, and payments, all in a single click with no fragmentation.
-              </AppText>
-            </AppStack>
-          </AppCard>
+          <View style={styles.mission}>
+            <AppText variant="caption" weight="bold" style={styles.missionEyebrow}>
+              Our mission
+            </AppText>
+            <AppText variant="title" weight="extraBold" tone="inverse">
+              Trusted travel across Africa, in one place.
+            </AppText>
+            <AppText variant="bodySmall" style={styles.missionBody}>
+              Verified stays, curated tours, group trips, rides and payments, together in one account with no fragmentation.
+            </AppText>
+            <View style={styles.missionPills}>
+              {["Verified", "Curated", "One account"].map((label) => (
+                <View key={label} style={styles.missionPill}>
+                  <View style={styles.missionDot} />
+                  <AppText variant="caption" weight="bold" tone="inverse">
+                    {label}
+                  </AppText>
+                </View>
+              ))}
+            </View>
+          </View>
 
           <AppStack gap={3}>
             <View style={styles.sectionHeading}>
               <AppText variant="titleSm" weight="extraBold">
                 Our services
               </AppText>
-              <AppText variant="caption" tone="muted">
+              <AppText variant="caption" tone="soft">
                 Trusted essentials for every part of your journey.
               </AppText>
             </View>
             <View style={styles.serviceGrid}>
               <ServiceCard
                 Icon={Building2}
-                eyebrow="ACCOMMODATION"
                 title="Verified Stays"
-                text="Approved hotels, lodges and stays"
+                text="Hotels, lodges and stays"
                 {...SERVICE_TONES.stays}
                 onPress={() => navigation.navigate("VerifiedStays")}
               />
               <ServiceCard
                 Icon={TicketsPlane}
-                eyebrow="EXPERIENCES"
                 title="Tour Packages"
-                text="Curated tours from trusted operators"
+                text="From trusted operators"
                 {...SERVICE_TONES.tours}
                 onPress={() => navigation.navigate("TourPackages")}
               />
               <ServiceCard
                 Icon={UsersRound}
-                eyebrow="GROUP TRAVEL"
                 title="Group Stays"
-                text="Plan and book trips together"
+                text="Book trips together"
                 {...SERVICE_TONES.groups}
                 onPress={() => navigation.navigate(isAuthed ? "GroupStayRequest" : "Login")}
               />
               <ServiceCard
                 Icon={Car}
-                eyebrow="TRANSPORT"
                 title="Rides"
-                text="Airport transfers and local rides"
+                text="Airport and local rides"
                 {...SERVICE_TONES.rides}
                 onPress={() => navigation.navigate(isAuthed ? "MyRides" : "Login")}
               />
             </View>
           </AppStack>
 
-          <AppButton
-            title="Payments"
-            icon={<Wallet color={colors.primary} size={18} />}
-            variant="secondary"
-            onPress={() => navigation.navigate("Payments")}
-          />
-
-          <AppCard>
-            <AppStack gap={2} style={styles.placesRow}>
-              <View style={styles.placesIcon}>
-                <Compass color={colors.primary} size={18} />
-              </View>
-              <View style={styles.flex}>
-                <AppText variant="bodySmall" weight="bold">
-                  Browse destinations
-                </AppText>
-                <AppText variant="caption" tone="muted">
-                  Regions, parks and countries across Africa.
-                </AppText>
-              </View>
-              <Pressable
-                accessibilityRole="button"
+          <AppStack gap={3}>
+            <AppText variant="titleSm" weight="extraBold" style={styles.sectionHeading}>
+              More
+            </AppText>
+            <View style={styles.moreGroup}>
+              <MoreRow Icon={Wallet} title="Payments" text="Methods and payment guidance" onPress={() => navigation.navigate("Payments")} />
+              <MoreRow
+                Icon={Compass}
+                title="Browse destinations"
+                text="Regions, parks and countries across Africa"
+                divider
                 onPress={() => navigation.navigate("Search", { filter: "places" })}
-                hitSlop={8}
-              >
-                <ArrowRight color={colors.primary} size={20} />
-              </Pressable>
-            </AppStack>
-          </AppCard>
+              />
+            </View>
+          </AppStack>
         </AppStack>
       </SafeScreen>
 
@@ -148,7 +137,6 @@ export function SearchScreen({ navigation, route }: Props) {
 
 function ServiceCard({
   Icon,
-  eyebrow,
   title,
   text,
   accent,
@@ -156,7 +144,6 @@ function ServiceCard({
   onPress
 }: {
   Icon: IconType;
-  eyebrow: string;
   title: string;
   text: string;
   accent: string;
@@ -172,22 +159,36 @@ function ServiceCard({
     >
       <View style={styles.serviceTopRow}>
         <View style={[styles.serviceIcon, { backgroundColor: tint }]}>
-          <Icon color={accent} size={19} strokeWidth={2.1} />
+          <Icon color={accent} size={19} strokeWidth={2.2} />
         </View>
-        <AppText variant="label" weight="extraBold" style={[styles.serviceEyebrow, { color: accent }]} numberOfLines={1}>
-          {eyebrow}
-        </AppText>
-        <View style={[styles.serviceArrow, { backgroundColor: tint }]}>
-          <ArrowUpRight color={accent} size={16} strokeWidth={2.3} />
-        </View>
+        <ChevronRight color={colors.softText} size={16} strokeWidth={2.2} />
       </View>
-      <View style={styles.serviceCopy}>
-        <AppText variant="titleSm" weight="extraBold" numberOfLines={1}>
-          {title}
-        </AppText>
-        <AppText variant="caption" tone="muted" numberOfLines={2}>
-          {text}
-        </AppText>
+      <AppText variant="bodySmall" weight="extraBold" numberOfLines={1}>
+        {title}
+      </AppText>
+      <AppText variant="caption" tone="soft" numberOfLines={1}>
+        {text}
+      </AppText>
+    </Pressable>
+  );
+}
+
+function MoreRow({ Icon, title, text, divider, onPress }: { Icon: IconType; title: string; text: string; divider?: boolean; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.moreRow, pressed && styles.moreRowPressed]}>
+      <View style={styles.moreIcon}>
+        <Icon color={colors.primary} size={17} />
+      </View>
+      <View style={[styles.moreBody, divider && styles.moreDivider]}>
+        <View style={styles.flex}>
+          <AppText variant="bodySmall" weight="bold">
+            {title}
+          </AppText>
+          <AppText variant="caption" tone="soft" numberOfLines={1}>
+            {text}
+          </AppText>
+        </View>
+        <ChevronRight color={colors.softText} size={17} />
       </View>
     </Pressable>
   );
@@ -291,66 +292,99 @@ function PlacesSearch({ navigation, route }: Props) {
         <AppStack gap={5}>
           <ScreenHeader
             title="Browse destinations"
-            subtitle="Type any place in Tanzania, a city, town, or national park like Serengeti or Ngorongoro, to browse verified stays and tour packages around it."
+            subtitle="Verified stays and tours around any place in Tanzania."
             onBack={() => navigation.goBack()}
           />
 
-          <AppCard>
-            <AppStack gap={4}>
-              <AppInput
-                label="Destination"
-                value={destination}
-                onChangeText={setDestination}
-                placeholder="Dar es Salaam, Arusha, Zanzibar..."
-                returnKeyType="search"
-                onSubmitEditing={() => submitSearch()}
-              />
-              <AppButton title="Search" loading={loading} onPress={() => submitSearch()} />
+          <View style={styles.searchBar}>
+            <Search color={colors.softText} size={18} />
+            <TextInput
+              value={destination}
+              onChangeText={setDestination}
+              placeholder="City, town or national park"
+              placeholderTextColor={colors.softText}
+              returnKeyType="search"
+              onSubmitEditing={() => submitSearch()}
+              autoCorrect={false}
+              style={styles.searchInput}
+            />
+            {destination ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setDestination("")} hitSlop={8} style={styles.searchClear}>
+                <X color={colors.softText} size={14} strokeWidth={2.5} />
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Search"
+              onPress={() => submitSearch()}
+              disabled={loading}
+              style={({ pressed }) => [styles.searchGo, (!destination.trim() || loading) && styles.searchGoIdle, pressed && styles.pressed]}
+            >
+              {loading ? <ActivityIndicator color={colors.white} size="small" /> : <ArrowRight color={colors.white} size={18} strokeWidth={2.5} />}
+            </Pressable>
+          </View>
 
-              {recentSearches.length > 0 ? (
-                <AppStack gap={2}>
-                  <View style={styles.recentHeader}>
-                    <AppText variant="caption" weight="bold" tone="muted">
-                      Recent searches
+          {!searched && recentSearches.length > 0 ? (
+            <AppStack gap={3}>
+              <View style={styles.recentHeader}>
+                <AppText variant="titleSm" weight="extraBold">
+                  Recent searches
+                </AppText>
+                <Pressable accessibilityRole="button" onPress={clearRecentSearches} hitSlop={8}>
+                  <AppText variant="caption" weight="extraBold" tone="primary">
+                    Clear
+                  </AppText>
+                </Pressable>
+              </View>
+              <View style={styles.moreGroup}>
+                {recentSearches.map((term, index) => (
+                  <Pressable
+                    key={term}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setDestination(term);
+                      void submitSearch(term);
+                    }}
+                    style={({ pressed }) => [styles.recentRowItem, index > 0 && styles.moreDivider, pressed && styles.moreRowPressed]}
+                  >
+                    <Clock color={colors.softText} size={16} />
+                    <AppText variant="bodySmall" weight="semiBold" numberOfLines={1} style={styles.flex}>
+                      {term}
                     </AppText>
-                    <Pressable accessibilityRole="button" onPress={clearRecentSearches} hitSlop={8}>
-                      <AppText variant="caption" weight="bold" tone="primary">
-                        Clear
-                      </AppText>
-                    </Pressable>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentRow}>
-                    {recentSearches.map((term) => (
-                      <Pressable
-                        key={term}
-                        accessibilityRole="button"
-                        onPress={() => {
-                          setDestination(term);
-                          void submitSearch(term);
-                        }}
-                        style={({ pressed }) => [styles.recentChip, pressed && styles.pressed]}
-                      >
-                        <Clock color={colors.softText} size={14} />
-                        <AppText variant="bodySmall" weight="semiBold">
-                          {term}
-                        </AppText>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </AppStack>
-              ) : null}
+                    <ChevronRight color={colors.softText} size={16} />
+                  </Pressable>
+                ))}
+              </View>
             </AppStack>
-          </AppCard>
+          ) : null}
+
+          {searched && query && !loading ? (
+            <View style={styles.resultsHead}>
+              <AppText variant="bodySmall" tone="muted" numberOfLines={1} style={styles.flex}>
+                Results for <AppText variant="bodySmall" weight="extraBold">"{query}"</AppText>
+              </AppText>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setDestination("");
+                  void submitSearch("");
+                }}
+                hitSlop={8}
+              >
+                <AppText variant="caption" weight="extraBold" tone="primary">
+                  New search
+                </AppText>
+              </Pressable>
+            </View>
+          ) : null}
 
           {loading ? (
-            <AppCard>
-              <AppStack gap={3} style={{ alignItems: "center" }}>
-                <ActivityIndicator color={colors.primary} />
-                <AppText variant="bodySmall" tone="muted">
-                  Searching NoLSAF approved stays...
-                </AppText>
-              </AppStack>
-            </AppCard>
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color={colors.primary} />
+              <AppText variant="bodySmall" tone="muted">
+                Searching verified stays and tours
+              </AppText>
+            </View>
           ) : error ? (
             <StateView title="Search failed" message={error} actionLabel="Try again" onAction={submitSearch} />
           ) : searched && items.length === 0 && tourResults.length === 0 ? (
@@ -362,9 +396,14 @@ function PlacesSearch({ navigation, route }: Props) {
             <>
               {items.length > 0 ? (
                 <AppStack gap={3}>
-                  <AppText variant="titleSm" weight="bold">
-                    Stays
-                  </AppText>
+                  <View style={styles.recentHeader}>
+                    <AppText variant="titleSm" weight="extraBold">
+                      Stays
+                    </AppText>
+                    <AppText variant="caption" tone="soft">
+                      {items.length} {items.length === 1 ? "stay" : "stays"}
+                    </AppText>
+                  </View>
                   {items.map((property) => (
                     <PropertyCard
                       key={property.id}
@@ -381,9 +420,14 @@ function PlacesSearch({ navigation, route }: Props) {
 
               {tourResults.length > 0 ? (
                 <AppStack gap={3}>
-                  <AppText variant="titleSm" weight="bold">
-                    Tour packages
-                  </AppText>
+                  <View style={styles.recentHeader}>
+                    <AppText variant="titleSm" weight="extraBold">
+                      Tour packages
+                    </AppText>
+                    <AppText variant="caption" tone="soft">
+                      {tourResults.length} {tourResults.length === 1 ? "operator" : "operators"}
+                    </AppText>
+                  </View>
                   <FeaturedOperatorCarousel
                     operators={tourResults}
                     onPressOperator={(op) => {
@@ -412,93 +456,178 @@ const styles = StyleSheet.create({
     paddingBottom: spacing[4]
   },
   sectionHeading: {
-    gap: spacing[1]
+    gap: 2,
+    paddingHorizontal: 2
+  },
+  mission: {
+    gap: spacing[3],
+    borderRadius: radius.xl,
+    backgroundColor: colors.primaryDeep,
+    padding: spacing[5]
+  },
+  missionEyebrow: {
+    color: colors.brand[200]
+  },
+  missionBody: {
+    color: colors.brand[200]
+  },
+  missionPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing[2],
+    marginTop: spacing[1]
+  },
+  missionPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: spacing[3],
+    paddingVertical: 5
+  },
+  missionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.brand[200]
   },
   serviceGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing[3]
   },
+  // Same tile as My Stay's "My travel" grid.
   serviceTile: {
-    flexBasis: "47%",
     flexGrow: 1,
-    minWidth: 150,
-    minHeight: 148,
-    gap: spacing[3],
-    borderRadius: radius.md,
+    flexBasis: "46%",
+    minWidth: 136,
+    gap: 2,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[3],
-    overflow: "hidden"
+    padding: spacing[4],
+    ...shadows.card
   },
   serviceTopRow: {
-    minWidth: 0,
     flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[2]
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: spacing[3]
   },
   serviceIcon: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.sm
+    borderRadius: radius.md
   },
-  serviceEyebrow: {
+  moreGroup: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    overflow: "hidden",
+    ...shadows.card
+  },
+  moreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[3],
+    paddingLeft: spacing[4]
+  },
+  moreRowPressed: {
+    backgroundColor: colors.surface
+  },
+  moreIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand[50]
+  },
+  moreBody: {
     flex: 1,
     minWidth: 0,
-    fontSize: 11,
-    letterSpacing: 0.6
-  },
-  serviceArrow: {
-    width: 30,
-    height: 30,
+    minHeight: 62,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.sm
+    gap: spacing[2],
+    paddingRight: spacing[3]
   },
-  serviceCopy: {
-    flex: 1,
-    justifyContent: "flex-end",
-    gap: spacing[1]
+  moreDivider: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border
   },
   serviceTilePressed: {
     opacity: 0.86,
     transform: [{ scale: 0.985 }]
-  },
-  placesRow: {
-    flexDirection: "row",
-    alignItems: "center"
-  },
-  placesIcon: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.full,
-    backgroundColor: colors.brand[50]
   },
   recentHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between"
   },
-  recentRow: {
-    gap: spacing[2],
-    paddingRight: spacing[2]
-  },
-  recentChip: {
+  searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
+    gap: spacing[2],
+    minHeight: 56,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
+    paddingLeft: spacing[4],
+    paddingRight: 6,
+    ...shadows.card
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 52,
+    color: colors.ink,
+    fontSize: 15
+  },
+  searchClear: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface
+  },
+  searchGo: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary
+  },
+  searchGoIdle: {
+    opacity: 0.55
+  },
+  recentRowItem: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[3],
+    paddingHorizontal: spacing[4]
+  },
+  resultsHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[3],
+    paddingHorizontal: 2
+  },
+  loadingBox: {
+    alignItems: "center",
+    gap: spacing[3],
+    paddingVertical: spacing[8]
   },
   flex: {
     flex: 1,

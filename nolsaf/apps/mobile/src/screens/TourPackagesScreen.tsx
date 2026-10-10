@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { ArrowLeft, BadgeCheck, Compass, Scale, Search, ShieldCheck, SlidersHorizontal, TicketsPlane, X } from "lucide-react-native";
+import { ArrowLeft, Search, ShieldCheck, SlidersHorizontal, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -78,7 +78,7 @@ export function TourPackagesScreen({ navigation }: Props) {
 
   // Collapse the hero as the (tall) operator card is scrolled, expand on scroll up.
   const scrollY = useRef(new Animated.Value(0)).current;
-  const heroMaxHeight = scrollY.interpolate({ inputRange: [0, 150], outputRange: [320, 0], extrapolate: "clamp" });
+  const heroMaxHeight = scrollY.interpolate({ inputRange: [0, 150], outputRange: [200, 0], extrapolate: "clamp" });
   const heroOpacity = scrollY.interpolate({ inputRange: [0, 95], outputRange: [1, 0], extrapolate: "clamp" });
   const heroTranslateY = scrollY.interpolate({ inputRange: [0, 150], outputRange: [0, -16], extrapolate: "clamp" });
 
@@ -88,7 +88,7 @@ export function TourPackagesScreen({ navigation }: Props) {
         <Animated.View
           style={[styles.headerWrap, { maxHeight: heroMaxHeight, opacity: heroOpacity, transform: [{ translateY: heroTranslateY }] }]}
         >
-          <TourHero onBack={() => navigation.goBack()} count={operators.length} />
+          <TourHero onBack={() => navigation.goBack()} count={operators.length} loading={loading} />
         </Animated.View>
 
         {/* Search + filters control */}
@@ -236,61 +236,38 @@ export function TourPackagesScreen({ navigation }: Props) {
   );
 }
 
-function TourHero({ onBack, count }: { onBack: () => void; count: number }) {
+function TourHero({ onBack, count, loading }: { onBack: () => void; count: number; loading: boolean }) {
   return (
     <View style={styles.hero}>
       <View style={styles.heroTop}>
-        <Pressable accessibilityRole="button" onPress={onBack} style={styles.heroBack} hitSlop={6}>
-          <ArrowLeft color={colors.ink} size={20} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={onBack} style={styles.heroBack} hitSlop={6}>
+          <ArrowLeft color={colors.white} size={20} />
         </Pressable>
-        <View style={styles.heroBadge}>
-          <ShieldCheck color={colors.primary} size={12} />
-          {count > 0 ? (
-            <View style={styles.heroBadgeCount}>
-              <AnimatedCounter value={count} variant="caption" weight="bold" tone="primary" />
-              <AppText variant="caption" weight="bold" tone="primary">
-                {` verified ${count === 1 ? "operator" : "operators"}`}
-              </AppText>
-            </View>
-          ) : (
-            <AppText variant="caption" weight="bold" tone="primary">
-              Verified operators
-            </AppText>
-          )}
-        </View>
-      </View>
-
-      <View style={styles.heroRow}>
-        <View style={styles.heroIcon}>
-          <TicketsPlane color={colors.white} size={24} />
-        </View>
         <View style={styles.flex}>
-          <AppText variant="title" weight="extraBold">
+          <AppText variant="title" weight="extraBold" tone="inverse" numberOfLines={1}>
             Tour Packages
+          </AppText>
+          <AppText variant="caption" style={styles.heroSub} numberOfLines={2}>
+            Safari, beach, cultural and city packages from approved operators.
           </AppText>
         </View>
       </View>
 
-      <AppText variant="bodySmall" tone="muted" style={styles.heroSubtitle}>
-        Browse approved operators and compare safari, beach, cultural, and city packages in one place.
-      </AppText>
-
-      <View style={styles.heroChips}>
-        <HeroChip Icon={Compass} label="Discover" />
-        <HeroChip Icon={Scale} label="Compare" />
-        <HeroChip Icon={BadgeCheck} label="Verified" />
+      <View style={styles.heroCount}>
+        {loading && count === 0 ? (
+          <AppText variant="bodySmall" weight="semiBold" style={styles.heroSub}>
+            Finding operators
+          </AppText>
+        ) : (
+          <>
+            <ShieldCheck color={colors.brand[200]} size={16} />
+            <AnimatedCounter value={count} variant="titleSm" weight="extraBold" tone="inverse" />
+            <AppText variant="bodySmall" weight="semiBold" style={styles.heroSub}>
+              {count === 1 ? "verified operator" : "verified operators"}
+            </AppText>
+          </>
+        )}
       </View>
-    </View>
-  );
-}
-
-function HeroChip({ Icon, label }: { Icon: typeof Compass; label: string }) {
-  return (
-    <View style={styles.heroChip}>
-      <Icon color={colors.primary} size={13} />
-      <AppText variant="caption" weight="bold" tone="primary">
-        {label}
-      </AppText>
     </View>
   );
 }
@@ -300,59 +277,24 @@ const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   headerWrap: { paddingHorizontal: spacing[4], paddingTop: spacing[4], overflow: "hidden" },
   hero: {
+    gap: spacing[4],
     borderRadius: radius.xl,
-    backgroundColor: colors.brand[50],
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    padding: spacing[4],
-    ...shadows.card
+    backgroundColor: colors.primaryDeep,
+    padding: spacing[4]
   },
-  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing[3] },
+  heroTop: { flexDirection: "row", alignItems: "center", gap: spacing[3] },
   heroBack: {
     width: 40,
     height: 40,
     borderRadius: radius.full,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.white,
+    backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1,
-    borderColor: colors.brand[100]
+    borderColor: "rgba(255,255,255,0.14)"
   },
-  heroBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    paddingHorizontal: spacing[3],
-    paddingVertical: 5
-  },
-  heroBadgeCount: { flexDirection: "row", alignItems: "center" },
-  heroRow: { flexDirection: "row", alignItems: "center", gap: spacing[3], minWidth: 0 },
-  heroIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.primary,
-    ...shadows.card
-  },
-  heroSubtitle: { marginTop: spacing[2] },
-  heroChips: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing[2], marginTop: spacing[3] },
-  heroChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[1],
-    borderRadius: radius.full,
-    backgroundColor: colors.white,
-    borderWidth: 1,
-    borderColor: colors.brand[100],
-    paddingHorizontal: spacing[3],
-    paddingVertical: 5
-  },
+  heroSub: { color: colors.brand[200] },
+  heroCount: { flexDirection: "row", alignItems: "center", gap: 6 },
   controls: { flexDirection: "row", alignItems: "center", gap: spacing[2], paddingHorizontal: spacing[4], paddingTop: spacing[3] },
   searchBox: {
     flex: 1,
@@ -361,7 +303,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[2],
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
@@ -372,7 +314,7 @@ const styles = StyleSheet.create({
   filterButton: {
     width: 50,
     height: 50,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
@@ -399,7 +341,7 @@ const styles = StyleSheet.create({
     minHeight: 38,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.full,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,

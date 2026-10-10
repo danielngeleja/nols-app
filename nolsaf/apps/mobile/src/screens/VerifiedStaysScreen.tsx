@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { ArrowLeft, CalendarDays, ChevronDown, Search, SearchX, ShieldCheck, SlidersHorizontal, X } from "lucide-react-native";
+import { ArrowLeft, ArrowUpDown, CalendarDays, ChevronDown, Search, SearchX, ShieldCheck, SlidersHorizontal, X } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -8,7 +8,6 @@ import { useAuth } from "../auth";
 import { fetchSystemCommission } from "../bookings/checkoutApi";
 import {
   AnimatedCounter,
-  AppCard,
   AppStack,
   AppText,
   countAdvancedFilters,
@@ -25,7 +24,7 @@ import {
 import { TANZANIA_REGIONS as REGIONS } from "../data/destinations";
 import { RootStackParamList } from "../navigation/types";
 import { fetchPropertiesAvailability, fetchPublicProperties, PublicPropertyCard, useSavedProperties } from "../properties";
-import { colors, radius, spacing } from "../theme";
+import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "VerifiedStays">;
 
@@ -248,116 +247,130 @@ export function VerifiedStaysScreen({ navigation, route }: Props) {
 
   const header = (
     <AppStack gap={5}>
-      <AppCard tone="success" style={styles.heroCard}>
-        <AppStack gap={4}>
-          <View style={styles.topRow}>
-            <Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.backButton}>
-              <ArrowLeft color={colors.ink} size={22} />
+      <View style={styles.hero}>
+        <View style={styles.topRow}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => navigation.goBack()} style={styles.backButton}>
+            <ArrowLeft color={colors.white} size={20} />
+          </Pressable>
+          <View style={styles.titleText}>
+            <AppText variant="title" weight="extraBold" tone="inverse" numberOfLines={1}>
+              Verified stays
+            </AppText>
+            <AppText variant="caption" style={styles.heroSub} numberOfLines={1}>
+              Approved NoLSAF stays, ready to book.
+            </AppText>
+          </View>
+        </View>
+
+        <View style={styles.heroFooter}>
+          <View style={styles.flex}>
+            {loading && total === 0 ? (
+              <AppText variant="bodySmall" weight="semiBold" style={styles.heroSub}>
+                Finding stays
+              </AppText>
+            ) : (
+              <View style={styles.countRow}>
+                <ShieldCheck color={colors.brand[200]} size={16} />
+                <AnimatedCounter value={total} variant="titleSm" weight="extraBold" tone="inverse" />
+                <AppText variant="bodySmall" weight="semiBold" style={styles.heroSub}>
+                  {total === 1 ? "verified stay" : "verified stays"}
+                </AppText>
+              </View>
+            )}
+          </View>
+          <CurrencySelector onDark />
+        </View>
+      </View>
+
+      <AppStack gap={3}>
+        <View style={styles.searchBar}>
+          <Search color={colors.softText} size={18} />
+          <TextInput
+            accessibilityLabel="Search stays"
+            placeholder="Where to? Area or stay name"
+            placeholderTextColor={colors.softText}
+            value={query}
+            onChangeText={setQuery}
+            returnKeyType="search"
+            autoCorrect={false}
+            style={styles.searchInput}
+          />
+          {query ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery("")} hitSlop={10} style={styles.searchClear}>
+              <X color={colors.softText} size={13} strokeWidth={2.5} />
             </Pressable>
-            <View style={styles.titleText}>
-              <AppText variant="title" weight="bold" numberOfLines={1}>
-                Verified stays
-              </AppText>
-              <AppText variant="bodySmall" tone="muted" numberOfLines={2}>
-                Approved NoLSAF stays, ready to book.
-              </AppText>
-            </View>
-            <View style={styles.iconWrap}>
-              <ShieldCheck color={colors.primary} size={22} />
-            </View>
-          </View>
+          ) : null}
+        </View>
 
-          <View style={styles.heroFooter}>
-            <AnimatedCounter value={total} variant="display" weight="extraBold" tone="primary" />
-            <CurrencySelector compact />
-          </View>
-        </AppStack>
-      </AppCard>
+        {/* Bleeds to the screen edge so the row reads as scrollable, not cut off. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.bleed}
+          contentContainerStyle={[styles.chipRow, styles.bleedContent]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <FilterChip label="Anywhere" active={region === ""} onPress={() => selectRegion("")} />
+          {REGIONS.map((r) => (
+            <FilterChip key={r} label={r} active={region === r} onPress={() => selectRegion(r)} />
+          ))}
+        </ScrollView>
 
-      <AppCard style={styles.filtersCard}>
-        <AppStack gap={3}>
-          <View style={styles.searchBar}>
-            <Search color={colors.primary} size={18} />
-            <TextInput
-              accessibilityLabel="Search stays"
-              placeholder="Where to? Area or stay name"
-              placeholderTextColor={colors.softText}
-              value={query}
-              onChangeText={setQuery}
-              returnKeyType="search"
-              autoCorrect={false}
-              style={styles.searchInput}
-            />
-            {query ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery("")} hitSlop={10} style={styles.searchClear}>
-                <X color={colors.white} size={12} />
-              </Pressable>
+        {/* One control row: date, filters, sort. The day strip opens only on demand. */}
+        <View style={styles.controlRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: daysOpen }}
+            onPress={() => setDaysOpen((open) => !open)}
+            style={[styles.controlButton, (availabilityDate || daysOpen) && styles.controlButtonActive]}
+          >
+            <CalendarDays color={colors.primary} size={15} />
+            <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
+              {availabilityDate ? DAY_OPTIONS.find((d) => d.value === availabilityDate)?.label ?? "Date" : "Any day"}
+            </AppText>
+            <ChevronDown color={colors.primary} size={14} style={daysOpen ? styles.chevronOpen : undefined} />
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} style={[styles.controlButton, advancedCount > 0 && styles.controlButtonActive]}>
+            <SlidersHorizontal color={colors.primary} size={15} />
+            <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
+              Filters
+            </AppText>
+            {advancedCount > 0 ? (
+              <View style={styles.badge}>
+                <AppText variant="caption" weight="bold" tone="inverse">
+                  {advancedCount}
+                </AppText>
+              </View>
             ) : null}
-          </View>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Sort: ${sortLabel}`}
+            onPress={() => setFiltersVisible(true)}
+            style={[styles.controlButton, filters.sort !== "newest" && styles.controlButtonActive]}
+          >
+            <ArrowUpDown color={colors.primary} size={15} />
+            <AppText variant="caption" weight="bold" tone="primary" numberOfLines={1} style={styles.flexText}>
+              {sortLabel}
+            </AppText>
+          </Pressable>
+        </View>
 
+        {daysOpen ? (
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipRow}
+            style={styles.bleed}
+            contentContainerStyle={[styles.chipRow, styles.bleedContent]}
             keyboardShouldPersistTaps="handled"
           >
-            <FilterChip label="Anywhere" active={region === ""} onPress={() => selectRegion("")} />
-            {REGIONS.map((r) => (
-              <FilterChip key={r} label={r} active={region === r} onPress={() => selectRegion(r)} />
+            <FilterChip label="Any day" active={availabilityDate === ""} onPress={() => pickDay("")} />
+            {DAY_OPTIONS.map((day) => (
+              <FilterChip key={day.value} label={day.label} active={availabilityDate === day.value} onPress={() => pickDay(day.value)} />
             ))}
           </ScrollView>
-
-          {/* One control row: date, filters, sort. The day strip opens only on demand. */}
-          <View style={styles.controlRow}>
-            <View style={styles.controlGroup}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: daysOpen }}
-                onPress={() => setDaysOpen((open) => !open)}
-                style={[styles.controlButton, (availabilityDate || daysOpen) && styles.controlButtonActive]}
-              >
-                <CalendarDays color={colors.primary} size={15} />
-                <AppText variant="bodySmall" weight="semiBold" tone="primary" numberOfLines={1}>
-                  {availabilityDate ? DAY_OPTIONS.find((d) => d.value === availabilityDate)?.label ?? "Date" : "Any day"}
-                </AppText>
-                <ChevronDown color={colors.primary} size={14} style={daysOpen ? styles.chevronOpen : undefined} />
-              </Pressable>
-              <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} style={[styles.controlButton, advancedCount > 0 && styles.controlButtonActive]}>
-                <SlidersHorizontal color={colors.primary} size={15} />
-                <AppText variant="bodySmall" weight="semiBold" tone="primary">
-                  Filters
-                </AppText>
-                {advancedCount > 0 ? (
-                  <View style={styles.badge}>
-                    <AppText variant="caption" weight="bold" tone="inverse">
-                      {advancedCount}
-                    </AppText>
-                  </View>
-                ) : null}
-              </Pressable>
-            </View>
-            <Pressable accessibilityRole="button" onPress={() => setFiltersVisible(true)} hitSlop={8}>
-              <AppText variant="caption" tone="muted" numberOfLines={1}>
-                {sortLabel}
-              </AppText>
-            </Pressable>
-          </View>
-
-          {daysOpen ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipRow}
-              keyboardShouldPersistTaps="handled"
-            >
-              <FilterChip label="Any day" active={availabilityDate === ""} onPress={() => pickDay("")} />
-              {DAY_OPTIONS.map((day) => (
-                <FilterChip key={day.value} label={day.label} active={availabilityDate === day.value} onPress={() => pickDay(day.value)} />
-              ))}
-            </ScrollView>
-          ) : null}
-        </AppStack>
-      </AppCard>
+        ) : null}
+      </AppStack>
 
       {activeChips.length > 0 ? (
         <ScrollView
@@ -516,11 +529,14 @@ const styles = StyleSheet.create({
   rowSeparator: {
     height: spacing[5]
   },
-  heroCard: {
-    borderRadius: radius.sm
+  hero: {
+    gap: spacing[4],
+    borderRadius: radius.xl,
+    backgroundColor: colors.primaryDeep,
+    padding: spacing[4]
   },
-  filtersCard: {
-    borderRadius: radius.sm
+  heroSub: {
+    color: colors.brand[200]
   },
   topRow: {
     minWidth: 0,
@@ -535,32 +551,38 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing[3]
   },
+  countRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.sm,
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.white,
+    backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: "rgba(255,255,255,0.14)"
   },
   titleText: {
     flex: 1,
     minWidth: 0,
-    gap: spacing[1]
-  },
-  iconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.sm,
-    backgroundColor: colors.white,
-    alignItems: "center",
-    justifyContent: "center"
+    gap: 2
   },
   chipRow: {
     gap: spacing[2],
     paddingRight: spacing[2]
+  },
+  bleed: {
+    marginHorizontal: -spacing[4]
+  },
+  bleedContent: {
+    paddingHorizontal: spacing[4]
+  },
+  flexText: {
+    flexShrink: 1
   },
   chip: {
     borderRadius: radius.sm,
@@ -582,19 +604,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing[3]
+    gap: spacing[2]
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing[2],
-    height: 48,
-    borderRadius: radius.sm,
+    height: 52,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing[3]
+    paddingHorizontal: spacing[4],
+    ...shadows.card
   },
   searchInput: {
     flex: 1,
@@ -604,30 +626,26 @@ const styles = StyleSheet.create({
     color: colors.ink
   },
   searchClear: {
-    width: 20,
-    height: 20,
+    width: 24,
+    height: 24,
     borderRadius: radius.full,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.softText
-  },
-  controlGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing[2],
-    flexShrink: 1,
-    minWidth: 0
+    backgroundColor: colors.surface
   },
   controlButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
-    paddingHorizontal: spacing[3],
-    paddingVertical: spacing[2]
+    paddingHorizontal: spacing[2]
   },
   controlButtonActive: {
     borderColor: colors.brand[100],
