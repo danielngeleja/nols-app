@@ -13,7 +13,8 @@ import {
   Settings, 
   LogOut,
   ChevronRight,
-  ClipboardList
+  ClipboardList,
+  BookHeart
 } from 'lucide-react';
 
 export default function UserMenu({ variant = "dark" }: { variant?: "light" | "dark" }) {
@@ -67,10 +68,12 @@ export default function UserMenu({ variant = "dark" }: { variant?: "light" | "da
     { href: "/account/rides", label: "My Rides", icon: Car },
     { href: "/account/group-stays", label: "My Group Stay", icon: Users },
     { href: "/account/tour-packages", label: "My Tour Packages", icon: ClipboardList },
+    // Karibu travel story and the guest's welcome preferences.
+    { href: "/account/karibu", label: "My Story", icon: BookHeart },
   ];
 
   const settingsItems = [
-    { href: "/account/security", label: "Settings", icon: Settings },
+    { href: "/account/security", label: "Account Settings", icon: Settings },
   ];
 
   const isActive = (href: string) => pathname === href || pathname?.startsWith(href + "/");

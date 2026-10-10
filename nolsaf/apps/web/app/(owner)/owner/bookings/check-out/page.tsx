@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import apiClient from "@/lib/apiClient";
 import Link from "next/link";
-import { Calendar, Loader2, PhoneCall, Mail, CheckCircle2, Clock, X, History, Star, Search, RotateCw } from "lucide-react";
-import TableRow from "@/components/TableRow";
+import { AlarmClock, AlertTriangle, ArrowRight, BedDouble, CheckCircle2, Clock, DoorOpen, History, Loader2, LogOut, Mail, PhoneCall, RotateCw, Search, Star, X } from "lucide-react";
 
 // Use same-origin calls + secure httpOnly cookie session.
 const api = apiClient;
@@ -53,6 +52,21 @@ function hoursLeft(checkOut: any) {
   if (!Number.isFinite(t)) return null;
   const diffH = (t - Date.now()) / 3600000;
   return diffH;
+}
+
+/** "2h 15m", "45m" or "3d 4h": short enough for the countdown box. */
+function duration(hours: number) {
+  const mins = Math.max(0, Math.round(hours * 60));
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  if (h < 24) return `${h}h ${mins % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+function formatEat(v: any) {
+  const d = new Date(String(v ?? ""));
+  if (!Number.isFinite(d.getTime())) return "";
+  return `${d.toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })} EAT`;
 }
 
 export default function OwnerCheckoutPage() {
@@ -112,7 +126,7 @@ export default function OwnerCheckoutPage() {
       const name = String(b.guestName ?? "").toLowerCase();
       const phone = String(b.guestPhone ?? "").toLowerCase();
       const email = String(b.guestEmail ?? "").toLowerCase();
-      const code = String(b.codeVisible ?? "").toLowerCase();
+      const code = String((b as any).bookingReference ?? b.id ?? "").toLowerCase();
       const prop = String(b.property?.title ?? "").toLowerCase();
       return name.includes(q) || phone.includes(q) || email.includes(q) || code.includes(q) || prop.includes(q);
     });
@@ -182,20 +196,35 @@ export default function OwnerCheckoutPage() {
     }
   }
 
+  const styles = `
+    #owner-departures, #owner-departures * { box-sizing: border-box; }
+    @keyframes od-shimmer { 0% { background-position: -400px 0 } 100% { background-position: 400px 0 } }
+    #owner-departures .od-sk { background: linear-gradient(90deg, #eef2f1 0%, #f8faf9 40%, #eef2f1 80%); background-size: 800px 100%; animation: od-shimmer 1.3s linear infinite; }
+    #owner-departures .od-sk-dark { background: linear-gradient(90deg, rgba(255,255,255,.06) 0%, rgba(255,255,255,.14) 40%, rgba(255,255,255,.06) 80%); background-size: 800px 100%; animation: od-shimmer 1.3s linear infinite; }
+  `;
+
   if (loading) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4">
-        <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-emerald-100 mb-4">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+      <div id="owner-departures" className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6" aria-busy="true" aria-label="Loading check-outs">
+        <style>{styles}</style>
+        <div className="rounded-3xl bg-[#012a26] px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+          <div className="space-y-2.5">
+            <div className="od-sk-dark h-3 w-24 rounded-full" />
+            <div className="od-sk-dark h-8 w-44 rounded-lg" />
+            <div className="od-sk-dark h-3.5 w-72 rounded-full" />
+          </div>
+          <div className="mt-6 grid grid-cols-3 gap-3">
+            {[0, 1, 2].map((i) => <div key={i} className="od-sk-dark h-[76px] rounded-2xl" />)}
+          </div>
         </div>
-        <h1 className="text-3xl font-bold text-slate-900">Check-out</h1>
-        <p className="text-sm text-slate-600 mt-2 max-w-2xl">Loading upcoming check-outs…</p>
+        {[0, 1, 2].map((i) => <div key={i} className="od-sk h-[92px] rounded-2xl" />)}
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+    <div id="owner-departures" className="w-full min-w-0 space-y-5 px-3 pb-12 sm:px-5 lg:px-6">
+      <style>{styles}</style>
       {/* Confirm modal (rating required) */}
       {confirmOpen && confirmTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-[3px]">
@@ -320,7 +349,7 @@ export default function OwnerCheckoutPage() {
                 <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Audit History</div>
                 <div className="text-lg font-bold text-slate-900 truncate">{auditTarget.property?.title ?? "—"}</div>
                 <div className="text-xs text-slate-600 mt-1">
-                  Booking #{auditTarget.id} • Code <span className="font-mono font-semibold text-slate-900">{auditTarget.codeVisible ?? "—"}</span>
+                  Booking reference <span className="font-mono font-semibold text-slate-900">{(auditTarget as any).bookingReference ?? `#${auditTarget.id}`}</span>
                 </div>
               </div>
               <button
@@ -378,265 +407,202 @@ export default function OwnerCheckoutPage() {
         </div>
       ) : null}
 
-      {/* Header (clean, consistent) */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex flex-col items-center text-center">
-          <div className="h-16 w-16 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center mb-4">
-            <Calendar className="h-8 w-8 text-emerald-700" aria-hidden />
+      {/* ── Header band ── */}
+      <header className="relative overflow-hidden rounded-3xl bg-[#012a26] text-white">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.07]"
+          style={{ backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)", backgroundSize: "28px 28px", maskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)", WebkitMaskImage: "radial-gradient(ellipse at 85% 20%, #000 0%, transparent 65%)" }}
+          aria-hidden
+        />
+        <div className="relative px-5 pb-6 pt-6 sm:px-8 sm:pt-7">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9fd8cc]">Front desk</p>
+              <h1 className="m-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-white sm:text-[32px]">Departures</h1>
+              <p className="m-0 mt-1.5 max-w-xl text-sm text-white/60">
+                Guests due to leave within the next 7 hours, or already past their check-out. Confirm each one once the guest has gone.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => load({ silent: true })}
+                disabled={refreshing}
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-white/15 bg-white/[0.06] px-3.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+              >
+                <RotateCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden /> Refresh
+              </button>
+              <Link
+                href="/owner/bookings/checked-out"
+                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#5eead4] px-3.5 text-sm font-bold text-[#012a26] no-underline transition hover:bg-[#8ff3e1]"
+              >
+                <History className="h-4 w-4" aria-hidden /> History
+              </Link>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Check-out</h1>
-          <p className="text-sm text-gray-500 mt-1 max-w-2xl">
-            Bookings appear here automatically when they are within <span className="font-semibold text-gray-900">7 hours</span> of check-out (or overdue).
-            Use this page to remind guests and confirm check-out once they leave.
-          </p>
-        </div>
-      </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-3 sm:gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 shadow-sm min-w-0">
-          <div className="text-[11px] sm:text-xs font-medium text-gray-500">Total in queue</div>
-          <div className="mt-1 text-xl sm:text-2xl font-bold text-gray-900 truncate">{stats.total.toLocaleString()}</div>
+          <div className="mt-6 grid grid-cols-3 gap-2.5 sm:gap-3">
+            {[
+              { label: "Due to leave", value: stats.total - stats.urgent - stats.overdue, Icon: Clock, tone: "text-[#5eead4]", ring: "border-white/10 bg-white/[0.04]" },
+              { label: "Within 1 hour", value: stats.urgent, Icon: AlarmClock, tone: "text-amber-300", ring: stats.urgent ? "border-amber-300/40 bg-amber-300/[0.07]" : "border-white/10 bg-white/[0.04]" },
+              { label: "Past check-out", value: stats.overdue, Icon: AlertTriangle, tone: "text-rose-300", ring: stats.overdue ? "border-rose-300/40 bg-rose-400/[0.08]" : "border-white/10 bg-white/[0.04]" },
+            ].map((s) => (
+              <div key={s.label} className={`min-w-0 rounded-2xl border border-solid px-4 py-3 ${s.ring}`}>
+                <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                  <s.Icon className={`h-3.5 w-3.5 ${s.tone}`} aria-hidden />
+                  <span className="truncate">{s.label}</span>
+                </span>
+                <span className={`mt-1 block text-2xl font-bold tabular-nums ${s.value > 0 ? "text-white" : "text-white/35"}`}>{s.value}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 shadow-sm min-w-0">
-          <div className="text-[11px] sm:text-xs font-medium text-gray-500">Urgent (≤ 1h)</div>
-          <div className="mt-1 text-xl sm:text-2xl font-bold text-amber-700 truncate">{stats.urgent.toLocaleString()}</div>
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 shadow-sm min-w-0">
-          <div className="text-[11px] sm:text-xs font-medium text-gray-500">Overdue</div>
-          <div className="mt-1 text-xl sm:text-2xl font-bold text-red-700 truncate">{stats.overdue.toLocaleString()}</div>
-        </div>
-      </div>
+      </header>
 
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {error}
-        </div>
+        <div className="rounded-2xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
       ) : null}
 
-      {/* List */}
-      {filtered.length === 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 p-10 sm:p-12 text-center shadow-sm">
-          <Clock className="h-12 w-12 text-gray-300 mx-auto mb-4" aria-hidden />
-          <p className="text-sm text-gray-700 font-semibold">No bookings are ready for check-out.</p>
-          <p className="text-xs text-gray-500 mt-2">This list updates automatically as check-outs get close.</p>
-          <div className="mt-4 flex items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => load({ silent: true })}
-              disabled={refreshing}
-              className="inline-flex items-center justify-center h-10 w-10 rounded-md border border-gray-200 bg-white text-gray-700 shadow-sm hover:bg-gray-50 active:scale-[0.99] transition disabled:opacity-60"
-              aria-label="Refresh"
-              title="Refresh"
-            >
-              <RotateCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
-            </button>
+      {list.length === 0 ? (
+        <section className="grid overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] md:grid-cols-2">
+          <div className="p-7">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+              <DoorOpen className="h-6 w-6" aria-hidden />
+            </span>
+            <p className="m-0 mt-4 text-lg font-bold text-slate-900">No departures in the next 7 hours</p>
+            <p className="m-0 mt-1.5 max-w-sm text-sm leading-relaxed text-slate-500">
+              A guest appears here automatically 7 hours before their check-out, and stays until you confirm they have left.
+            </p>
+          </div>
+          <div className="flex flex-col justify-center gap-2.5 border-0 border-t border-solid border-slate-200 bg-slate-50 p-7 md:border-l md:border-t-0">
             <Link
               href="/owner/bookings/checked-in"
-              className="no-underline inline-flex items-center justify-center h-10 w-10 rounded-md bg-emerald-700 text-white shadow-sm hover:bg-emerald-800 active:scale-[0.99] transition"
-              aria-label="Checked-In"
-              title="Checked-In"
+              className="group inline-flex h-12 items-center justify-between gap-2 rounded-xl bg-[#012a26] pl-5 pr-2 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
             >
-              <Calendar className="h-4 w-4" aria-hidden />
+              See guests in house
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#5eead4] text-[#012a26]">
+                <ArrowRight className="h-4 w-4" aria-hidden />
+              </span>
             </Link>
-
             <Link
               href="/owner/bookings/checked-out"
-              className="no-underline inline-flex items-center justify-center h-10 w-10 rounded-md bg-slate-900 text-white shadow-sm hover:bg-slate-800 active:scale-[0.99] transition"
-              aria-label="Checked-Out"
-              title="Checked-Out"
+              className="inline-flex h-12 items-center justify-between gap-2 rounded-xl border border-solid border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 no-underline hover:bg-slate-100"
             >
-              <CheckCircle2 className="h-4 w-4" aria-hidden />
+              Check-out history
+              <ArrowRight className="h-4 w-4 text-slate-400" aria-hidden />
             </Link>
           </div>
-        </div>
+        </section>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="sticky top-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-gray-900">Upcoming check-outs</div>
-              <div className="text-xs text-gray-500 mt-0.5">Confirm check-out after the guest leaves.</div>
-            </div>
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 text-sm text-slate-600">
+              <span className="font-bold text-slate-900">{filtered.length}</span> {filtered.length === 1 ? "departure" : "departures"}, soonest to leave at the top
+            </p>
+            <label className="relative block w-full sm:w-72">
+              <span className="sr-only">Search departures</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search guest, phone or property"
+                className="h-10 w-full rounded-xl border border-solid border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/10"
+              />
+            </label>
+          </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" aria-hidden />
-                {search ? (
-                  <button
-                    type="button"
-                    onClick={() => setSearch("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-4 w-4 rounded text-slate-400 hover:text-slate-700 transition"
-                    aria-label="Clear search"
+          <ul className={`m-0 list-none space-y-3 p-0 transition-opacity ${refreshing ? "opacity-60" : ""}`}>
+            {[...filtered]
+              .sort((a, b) => new Date(String(a.checkOut ?? "")).getTime() - new Date(String(b.checkOut ?? "")).getTime())
+              .map((b) => {
+                const h = hoursLeft(b.checkOut);
+                const overdue = typeof h === "number" && h < 0;
+                const urgent = typeof h === "number" && h >= 0 && h <= 1;
+                const phone = String(b.guestPhone ?? "").trim();
+                const email = String(b.guestEmail ?? "").trim();
+                const name = b.guestName ?? "Guest";
+                const initials = name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "G";
+                const clock = overdue
+                  ? { big: duration(Math.abs(h as number)), small: "past check-out", box: "bg-rose-600 text-white", bar: "shadow-[inset_4px_0_0_#e11d48]" }
+                  : urgent
+                    ? { big: duration(h as number), small: "left", box: "bg-amber-500 text-white", bar: "shadow-[inset_4px_0_0_#f59e0b]" }
+                    : { big: typeof h === "number" ? duration(h) : "Soon", small: "left", box: "bg-[#012a26] text-white", bar: "" };
+                return (
+                  <li
+                    key={b.id}
+                    className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 rounded-2xl border border-solid border-slate-300/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-26px_rgba(15,23,42,0.4)] sm:p-5 lg:grid-cols-[auto_minmax(0,1fr)_auto] ${clock.bar}`}
                   >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
-                ) : null}
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search…"
-                  className="h-8 w-36 sm:w-48 pl-8 pr-6 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 focus:bg-white transition-all duration-200"
-                  aria-label="Search check-out queue"
-                />
-              </div>
+                    {/* Countdown */}
+                    <div className={`flex w-[92px] flex-col items-center justify-center rounded-xl px-2 py-2.5 text-center ${clock.box}`}>
+                      <span className="text-lg font-bold leading-tight tabular-nums">{clock.big}</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] opacity-80">{clock.small}</span>
+                    </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => load({ silent: true })}
-                  disabled={refreshing}
-                  className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 active:scale-[0.99] transition disabled:opacity-60"
-                  aria-label="Refresh check-out list"
-                  title="Refresh"
-                >
-                  <RotateCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
-                </button>
+                    {/* Who and when */}
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-[11px] font-bold text-slate-700">{initials}</span>
+                        <p className="m-0 truncate text-base font-bold text-slate-900">{name}</p>
+                        {overdue ? <span className="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-inset ring-rose-200">Overdue</span> : null}
+                      </div>
+                      <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span className="inline-flex items-center gap-1"><BedDouble className="h-3.5 w-3.5 text-slate-400" aria-hidden />{b.property?.title ?? "Your property"}</span>
+                        <span className="inline-flex items-center gap-1"><LogOut className="h-3.5 w-3.5 text-slate-400" aria-hidden />Check-out {formatEat(b.checkOut)}</span>
+                        {phone ? <span className="inline-flex items-center gap-1"><PhoneCall className="h-3.5 w-3.5 text-slate-400" aria-hidden />{phone}</span> : null}
+                      </p>
+                    </div>
 
-                <Link
-                  href="/owner/bookings/checked-in"
-                  className="no-underline inline-flex items-center justify-center h-8 w-8 rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 active:scale-[0.99] transition"
-                  aria-label="Checked-In"
-                  title="Checked-In"
-                >
-                  <Calendar className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-
-                <Link
-                  href="/owner/bookings/checked-out"
-                  className="no-underline inline-flex items-center justify-center h-8 w-8 rounded-lg bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.99] transition"
-                  aria-label="Checked-Out"
-                  title="Checked-Out"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          <div className={`overflow-x-auto ${refreshing ? "opacity-60" : ""} transition-opacity duration-200`}>
-            <table className="min-w-[1100px] w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Property</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Code</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Guest</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Phone</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Validated</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Check-out</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">State</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filtered.map((b) => {
-                  const h = hoursLeft(b.checkOut);
-                  const urgent = typeof h === "number" ? h <= 1 : false;
-                  const overdue = typeof h === "number" ? h < 0 : false;
-                  const phone = String(b.guestPhone ?? "").trim();
-                  const email = String(b.guestEmail ?? "").trim();
-
-                  return (
-                    <TableRow key={b.id} className="align-middle">
-                      <td className="px-6 py-4">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-gray-900 truncate">{b.property?.title ?? "—"}</div>
-                          <div className="text-xs text-gray-500 mt-0.5">Booking #{b.id}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="font-mono font-semibold text-gray-900">{b.codeVisible ?? "—"}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="font-semibold text-gray-900">{b.guestName ?? "—"}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-gray-700">{phone || "—"}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-700">
-                        {b.validatedAt ? formatDateTime(b.validatedAt) : "—"}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-gray-900 font-semibold">{formatDateTime(b.checkOut)}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {typeof h === "number" ? (h < 0 ? `${Math.abs(h).toFixed(1)}h overdue` : `${h.toFixed(1)}h left`) : "—"}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                          overdue
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : urgent
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        }`}>
-                          <Clock className="h-3 w-3 stroke-current" aria-hidden />
-                          {overdue ? "OVERDUE" : urgent ? "URGENT" : "DUE SOON"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2 justify-end">
-                          <button
-                            type="button"
-                            onClick={() => openAudit(b)}
-                            className="inline-flex items-center justify-center h-9 rounded-md border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 active:scale-[0.99] transition"
-                            aria-label="View audit history"
-                            title="Audit history"
-                          >
-                            <History className="h-4 w-4 stroke-amber-500" aria-hidden />
-                          </button>
-                          <a
-                            href={phone ? `tel:${phone}` : undefined}
-                            className={`no-underline inline-flex items-center justify-center h-9 rounded-md px-3 text-sm font-semibold border shadow-sm transition ${
-                              phone
-                                ? "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
-                                : "bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed pointer-events-none"
-                            }`}
-                            aria-label="Call guest"
-                            title={phone ? "Call guest" : "No phone number"}
-                          >
-                            <PhoneCall className={`h-4 w-4 ${phone ? "stroke-emerald-600" : "stroke-slate-400"}`} aria-hidden />
-                          </a>
-                          <a
-                            href={email ? `mailto:${email}` : undefined}
-                            className={`no-underline inline-flex items-center justify-center h-9 rounded-md px-3 text-sm font-semibold border shadow-sm transition ${
-                              email
-                                ? "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
-                                : "bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed pointer-events-none"
-                            }`}
-                            aria-label="Email guest"
-                            title={email ? "Email guest" : "No email"}
-                          >
-                            <Mail className={`h-4 w-4 ${email ? "stroke-slate-900" : "stroke-slate-400"}`} aria-hidden />
-                          </a>
-                          {b.property?.nrmsActivatedAt ? (
-                            <Link
-                              href="/owner/nrms"
-                              className="no-underline inline-flex items-center justify-center gap-2 h-9 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 active:scale-[0.99] transition"
-                              aria-label="Manage check-out in NRMS"
-                              title="NRMS manages check-out for this property"
-                            >
-                              <CheckCircle2 className="h-4 w-4" aria-hidden />
-                              NRMS
-                            </Link>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => { setConfirmTarget(b); setConfirmOpen(true); setError(null); setRating(0); setFeedback(""); setAgreeToTerms(false); }}
-                              className="inline-flex items-center justify-center h-9 rounded-md border border-gray-200 bg-white px-4 text-sm font-semibold text-indigo-700 shadow-sm hover:bg-gray-50 active:scale-[0.99] transition"
-                              aria-label="Confirm check-out"
-                            >
-                              <CheckCircle2 className="h-4 w-4 stroke-indigo-700" aria-hidden />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </TableRow>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    {/* Actions */}
+                    <div className="col-span-2 flex flex-wrap items-center gap-2 lg:col-span-1 lg:justify-end">
+                      <a
+                        href={phone ? `tel:${phone}` : undefined}
+                        aria-disabled={!phone}
+                        className={`inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid px-3 text-sm font-semibold no-underline transition ${phone ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-200 bg-slate-50 text-slate-300"}`}
+                        title={phone ? "Call guest" : "No phone number"}
+                      >
+                        <PhoneCall className="h-4 w-4" aria-hidden /> Call
+                      </a>
+                      <a
+                        href={email ? `mailto:${email}` : undefined}
+                        aria-disabled={!email}
+                        className={`grid h-10 w-10 place-items-center rounded-xl border border-solid no-underline transition ${email ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "pointer-events-none border-slate-200 bg-slate-50 text-slate-300"}`}
+                        title={email ? "Email guest" : "No email"}
+                        aria-label="Email guest"
+                      >
+                        <Mail className="h-4 w-4" aria-hidden />
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => openAudit(b)}
+                        className="grid h-10 w-10 place-items-center rounded-xl border border-solid border-slate-300 bg-white text-slate-700 transition hover:bg-slate-50"
+                        title="Audit history"
+                        aria-label="Audit history"
+                      >
+                        <History className="h-4 w-4" aria-hidden />
+                      </button>
+                      {b.property?.nrmsActivatedAt ? (
+                        <Link
+                          href="/owner/nrms"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-[#012a26] px-4 text-sm font-bold text-white no-underline transition hover:bg-[#02665e]"
+                          title="NRMS manages check-out for this property"
+                        >
+                          Check out in NRMS <ArrowRight className="h-4 w-4" aria-hidden />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setConfirmTarget(b); setConfirmOpen(true); setError(null); setRating(0); setFeedback(""); setAgreeToTerms(false); }}
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-solid border-[#012a26] bg-[#012a26] px-4 text-sm font-bold text-white transition hover:bg-[#02665e]"
+                        >
+                          <CheckCircle2 className="h-4 w-4" aria-hidden /> Confirm check-out
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+          </ul>
+        </>
       )}
     </div>
   );

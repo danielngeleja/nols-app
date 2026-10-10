@@ -437,7 +437,7 @@ router.get("/property/:id/receipts", (async (req: AuthedRequest, res: Response) 
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const [orders, payments, masterPayments, existing] = await Promise.all([
     db.nrmsOutletOrder.findMany({
-      where: { propertyId, settlementMode: "OUTLET_PAYMENT", status: "SETTLED", settledAt: { gte: since } },
+      where: { propertyId, settlementMode: { in: ["OUTLET_PAYMENT", "NOLSAF_KARIBU"] }, status: "SETTLED", settledAt: { gte: since } },
       select: { id: true, orderNumber: true, customerLabel: true, total: true, currency: true, settledAt: true },
       orderBy: { settledAt: "desc" }, take: 25,
     }),

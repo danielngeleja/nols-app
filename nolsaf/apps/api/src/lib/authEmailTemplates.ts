@@ -41,7 +41,7 @@ export function getEmailVerificationEmail(
  *   - reset   : password reset by code
  *   - contact : confirming a new email address on an existing account
  */
-export type VerificationPurpose = "signup" | "login" | "reset" | "contact";
+export type VerificationPurpose = "signup" | "login" | "reset" | "contact" | "data";
 
 const VERIFICATION_COPY: Record<VerificationPurpose, { headline: string; subject: string; intro: string; ignore: string }> = {
   signup: {
@@ -61,6 +61,12 @@ const VERIFICATION_COPY: Record<VerificationPurpose, { headline: string; subject
     subject: "Your NoLSAF password reset code",
     intro: "Use the code below to reset the password on your NoLSAF account.",
     ignore: "If you did not request a password reset, you can safely ignore this email. Your password stays the same.",
+  },
+  data: {
+    headline: "Confirm it is you",
+    subject: "Your NoLSAF code to download your data",
+    intro: "Someone asked for a copy of the personal data on your NoLSAF account. Use the code below to confirm it was you.",
+    ignore: "If you did not ask for a copy of your data, do not share this code and change your password. Nothing is sent without it.",
   },
   contact: {
     headline: "Confirm your email",
@@ -597,4 +603,29 @@ export function getNrmsAgentRequestDeclinedEmail(agencyName: string, propertyTit
   `;
   const subjectProperty = String(propertyTitle ?? "the hotel").replace(/[\r\n]+/g, " ").slice(0, 160);
   return { subject: `Your booking request for ${subjectProperty} was declined`, html: proEmail("Booking request declined", body) };
+}
+
+/**
+ * Sent after every download of a personal data copy, to the verified email.
+ * It never contains the data itself: only when, how, and what to do if it was
+ * not the account owner.
+ */
+export function getDataExportAlertEmail(opts: { when: string; format: string; device: string; ip: string | null; securityUrl: string }): { subject: string; html: string } {
+  const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] || c);
+  const body = `
+    <p style="margin:0;color:#4b5563;">A copy of the personal data on your NoLSAF account was just downloaded. It was confirmed with a code sent to you.</p>
+    ${proDivider()}
+    ${proDetailRows("Download details", [
+      ["When", esc(opts.when)],
+      ["Format", esc(opts.format)],
+      ["Device", esc(opts.device)],
+      ["IP address", esc(opts.ip || "Not recorded")],
+    ])}
+    ${proDivider()}
+    ${proNoteCard("#b91c1c", "Not you?", `Change your password now, sign out of other devices, and write to <a href="mailto:support@nolsaf.com" style="color:${BRAND_TEAL};font-weight:bold;text-decoration:none;">support@nolsaf.com</a>. This email does not contain your data, and we never send it by email.`, "#fef2f2")}
+    ${proDivider()}
+    ${proButton(opts.securityUrl, "Review account security")}
+    <p style="margin:18px 0 0;color:#1a1a1a;">Warm regards,<br><strong>The NoLSAF Team</strong></p>
+  `;
+  return { subject: "A copy of your NoLSAF data was downloaded", html: proEmail("Your data was downloaded", body) };
 }

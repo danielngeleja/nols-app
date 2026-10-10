@@ -20,7 +20,7 @@ export default function MobileOwnerNav() {
       home: p === "/owner" || p === "/owner/",
       bookings: p.startsWith("/owner/bookings") && !p.startsWith("/owner/bookings/validate"),
       validate: p.startsWith("/owner/bookings/validate"),
-      revenue: p.startsWith("/owner/revenue"),
+      revenue: p.startsWith("/owner/revenue") || p.startsWith("/owner/payouts"),
       availability: p.startsWith("/owner/properties/availability"),
     };
   }, [pathname]);
@@ -154,7 +154,7 @@ export default function MobileOwnerNav() {
         {/* My Bookings */}
         <Link
           href="/owner/bookings"
-          aria-label="My bookings"
+          aria-label="All bookings"
           style={{ textDecoration: "none" }}
           className={itemClass(active.bookings)}
           {...touch("bookings")}
@@ -173,10 +173,10 @@ export default function MobileOwnerNav() {
         {/* Middle slot keeps spacing */}
         <div className="flex-1" aria-hidden />
 
-        {/* My Revenue */}
+        {/* Payouts */}
         <Link
-          href="/owner/revenue"
-          aria-label="My revenue"
+          href="/owner/payouts"
+          aria-label="My Payouts"
           style={{ textDecoration: "none" }}
           className={itemClass(active.revenue)}
           {...touch("revenue")}
@@ -189,7 +189,7 @@ export default function MobileOwnerNav() {
               color={active.revenue ? "#ffffff" : iconColor(active.revenue)}
             />
           </span>
-          <span className={labelClass(active.revenue)}>Revenue</span>
+          <span className={labelClass(active.revenue)}>Payouts</span>
         </Link>
 
         {/* Room Availability */}
@@ -208,14 +208,14 @@ export default function MobileOwnerNav() {
               color={active.availability ? "#ffffff" : iconColor(active.availability)}
             />
           </span>
-          <span className={labelClass(active.availability)}>Calendar</span>
+          <span className={labelClass(active.availability)}>Rooms</span>
         </Link>
             </div>
 
             {/* Scanner / Validate floating action (sits in the bend) */}
             <Link
               href="/owner/bookings/validate"
-              aria-label="Validate (scan QR)"
+              aria-label="Check in a guest"
               style={{ textDecoration: "none", transform: "translate(-50%, -44%)" }}
               className="absolute left-1/2 top-0"
               {...touch("validate")}

@@ -3,7 +3,7 @@
 import Link from "@/components/PolicyLink";
 import { TermsSection } from "./Terms";
 
-export const TERMS_LAST_UPDATED = "1 January 2026";
+export const TERMS_LAST_UPDATED = "8 October 2026";
 
 export const TERMS_SECTIONS: TermsSection[] = [
   {
@@ -285,6 +285,9 @@ export const TERMS_SECTIONS: TermsSection[] = [
           Please review our <Link href="/privacy" className="text-blue-600 hover:text-blue-800 underline">Privacy Policy</Link> for details on how we collect, use, and protect personal information. NoLSAF is committed to
           safeguarding Users' privacy and ensuring the security of their data. By using our services, you consent to these practices and
           acknowledge that you have read and understood our <Link href="/privacy" className="text-blue-600 hover:text-blue-800 underline">Privacy Policy</Link>.
+          NoLSAF is operated by NoLS Africa Company Limited, which is registered as a data controller with the Personal Data Protection
+          Commission under the Personal Data Protection Act, No. 11 of 2022 (Registration No. 0-000-011-671), and processes personal data
+          in accordance with that Act.
         </p>
 
         <p>
@@ -293,6 +296,35 @@ export const TERMS_SECTIONS: TermsSection[] = [
           the property of NoLSAF or its licensors and is protected by international copyright laws. Users are granted a limited,
           non-exclusive license to access and use this content for personal, non-commercial purposes. Any unauthorized use, reproduction,
           or distribution of the content is strictly prohibited.
+        </p>
+
+        <p>
+          <strong>1.12.1 Owner Content and Marketing Use</strong><br />
+          a. Ownership stays with the Owner. Photos, videos, descriptions, property names, logos and other material an Owner uploads to a
+          Listing (&quot;Owner Content&quot;) remain the property of the Owner or their licensors. NoLSAF does not claim ownership of
+          Owner Content.<br />
+          b. Licence to NoLSAF. By uploading Owner Content, the Owner grants NoLSAF a non-exclusive, worldwide, royalty-free licence to
+          use, copy, display, publish and share it to show the Listing and to promote the Listed Property and the NoLSAF platform. This
+          includes the NoLSAF website and apps, social media (including Instagram, Facebook, TikTok, X, YouTube and WhatsApp), online and
+          print advertising, email and SMS campaigns, and partner or affiliate channels that advertise NoLSAF stays.<br />
+          c. Editing for format. NoLSAF may resize, crop, compress, reorder or caption Owner Content, add the NoLSAF name, logo or a
+          booking link, and combine it with other content, so that it suits each channel. NoLSAF will not alter Owner Content in a way that
+          misrepresents the Listed Property, its rooms, facilities or location.<br />
+          d. No payment. The Owner is not entitled to a fee, commission or royalty for this marketing use. The benefit to the Owner is the
+          extra visibility and bookings it is intended to bring.<br />
+          e. Owner promises. The Owner confirms that they own Owner Content or have permission to use it and to grant this licence,
+          including from any photographer, designer or agency, and that any person who can be identified in it has agreed. Owners should
+          not upload photos that show guests or private documents. The Owner is responsible for any claim that Owner Content infringes
+          the rights of someone else.<br />
+          f. Opting out of promotion. An Owner who does not want their Listed Property featured in social media posts or advertising may
+          ask NoLSAF to stop by contacting support (<a href="mailto:support@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">support@nolsaf.com</a>). NoLSAF will stop new promotional use within 14 days of the
+          request. Opting out does not remove the Listing itself from the NoLSAF website and apps, which needs Owner Content to be shown
+          to Users.<br />
+          g. When a Listing ends. If a Listing is removed or the Owner leaves NoLSAF, NoLSAF will stop new promotional use of its Owner
+          Content within 30 days. Posts, advertisements and printed material published before then may remain visible, but NoLSAF will
+          not publish them again.<br />
+          h. Removal requests. If any Owner Content used by NoLSAF is inaccurate, out of date or the subject of a rights complaint, the
+          Owner may ask NoLSAF to take it down, and NoLSAF will act on the request promptly.
         </p>
 
         <p>

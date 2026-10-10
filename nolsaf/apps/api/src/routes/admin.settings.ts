@@ -112,6 +112,32 @@ async function hasPayoutSafeguardColumns(): Promise<boolean> {
   }
 }
 
+let autoPayoutColumnsAvailable: boolean | null = null;
+async function hasAutoPayoutColumns(): Promise<boolean> {
+  // Positive result only: migration 20261007090000 may be applied while running.
+  if (autoPayoutColumnsAvailable === true) return true;
+  try {
+    await prisma.systemSetting.findUnique({
+      where: { id: 1 },
+      select: { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true, payoutUnclaimedAutoDays: true } as any,
+    });
+    autoPayoutColumnsAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (
+      err?.code === "P2022" ||
+      String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")
+    ) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+const UNCLAIMED_AUTO_DAYS_MIN = 3;
+const UNCLAIMED_AUTO_DAYS_MAX = 90;
+
 const PAYOUT_LIMIT_MIN_TZS = 1_000;
 const PAYOUT_LIMIT_MAX_TZS = 2_000_000_000; // INT column ceiling, with headroom
 const PAYOUT_RECENT_CHANGE_DEFAULT_HOURS = 72;
@@ -148,6 +174,7 @@ router.get("/", async (_req, res) => {
   const supportCols = await hasSupportColumns();
   const tierCol = await hasTierLadderColumn();
   const payoutCols = await hasPayoutSafeguardColumns();
+  const autoCols = await hasAutoPayoutColumns();
   const s =
     (await prisma.systemSetting.findUnique({
       where: { id: 1 },
@@ -188,6 +215,7 @@ router.get("/", async (_req, res) => {
         alertOnSuspiciousActivity: true,
         ...(supportCols ? { supportEmail: true, supportPhone: true } : {}),
         ...(payoutCols ? { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true } : {}),
+        ...(autoCols ? { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true, payoutUnclaimedAutoDays: true } : {}),
         ...(roleCols
           ? {
               sessionMaxMinutesAdmin: true,
@@ -223,6 +251,10 @@ router.get("/", async (_req, res) => {
   out.payoutRecentChangeHours = out.payoutRecentChangeHours ?? PAYOUT_RECENT_CHANGE_DEFAULT_HOURS;
   // Tells the UI whether these can be saved yet (false until the migration is applied).
   out.payoutSafeguardsAvailable = payoutCols;
+  out.autoPayoutEnabled = Boolean(out.autoPayoutEnabled);
+  out.autoPayoutDailyCapTzs = out.autoPayoutDailyCapTzs ?? null;
+  out.payoutUnclaimedAutoDays = out.payoutUnclaimedAutoDays ?? null;
+  out.autoPayoutAvailable = autoCols;
   // Ensure new commission fields always appear in the response with safe defaults.
   out.driverCommissionPercent = out.driverCommissionPercent ?? 10;
   out.agentCommissionPercent = out.agentCommissionPercent ?? 15;
@@ -278,6 +310,7 @@ router.put("/", async (req, res) => {
   const supportCols = await hasSupportColumns();
   const tierCol = await hasTierLadderColumn();
   const payoutCols = await hasPayoutSafeguardColumns();
+  const autoCols = await hasAutoPayoutColumns();
   // Fetch full record so the audit diff covers ALL changed fields, not just session ones.
   const before = await prisma.systemSetting.findUnique({ where: { id: 1 } });
 
@@ -342,6 +375,7 @@ router.put("/", async (req, res) => {
   // `agentTierLadderDefaults` is a read-only echo — never persist it.
   delete (sanitizedUpdate as any).agentTierLadderDefaults;
   delete (sanitizedUpdate as any).payoutSafeguardsAvailable;
+  delete (sanitizedUpdate as any).autoPayoutAvailable;
 
   // Payout safeguards. Validated explicitly because the body is otherwise
   // copied into the update as-is. Tightening needs nothing extra; loosening
@@ -369,6 +403,36 @@ router.put("/", async (req, res) => {
       sanitizedUpdate.payoutRecentChangeHours = parsed;
       const previous = (before as any)?.payoutRecentChangeHours ?? PAYOUT_RECENT_CHANGE_DEFAULT_HOURS;
       if (parsed < previous) loosensPayoutSafeguards = true;
+    }
+  }
+
+  // Automatic owner payouts (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md). Switching
+  // the AUTO lane on, raising its daily cap, or sending unclaimed payouts
+  // sooner all let more money move without a person, so they need the same
+  // finance verification as loosening any other payout safeguard.
+  if (body.autoPayoutEnabled !== undefined) {
+    const enabled = body.autoPayoutEnabled === true || body.autoPayoutEnabled === "true";
+    sanitizedUpdate.autoPayoutEnabled = enabled;
+    if (enabled && !(before as any)?.autoPayoutEnabled) loosensPayoutSafeguards = true;
+  }
+  if (body.autoPayoutDailyCapTzs !== undefined) {
+    const parsed = toIntOrNull(body.autoPayoutDailyCapTzs) ?? null;
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < PAYOUT_LIMIT_MIN_TZS || parsed > PAYOUT_LIMIT_MAX_TZS)) {
+      errors.push({ field: "autoPayoutDailyCapTzs", message: `Must be a whole TZS amount from ${PAYOUT_LIMIT_MIN_TZS.toLocaleString("en-US")} to ${PAYOUT_LIMIT_MAX_TZS.toLocaleString("en-US")}, or blank to stop automatic payouts.` });
+    } else {
+      sanitizedUpdate.autoPayoutDailyCapTzs = parsed;
+      const previous = (before as any)?.autoPayoutDailyCapTzs ?? null;
+      if (parsed !== null && (previous === null || parsed > previous)) loosensPayoutSafeguards = true;
+    }
+  }
+  if (body.payoutUnclaimedAutoDays !== undefined) {
+    const parsed = toIntOrNull(body.payoutUnclaimedAutoDays) ?? null;
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed < UNCLAIMED_AUTO_DAYS_MIN || parsed > UNCLAIMED_AUTO_DAYS_MAX)) {
+      errors.push({ field: "payoutUnclaimedAutoDays", message: `Must be between ${UNCLAIMED_AUTO_DAYS_MIN} and ${UNCLAIMED_AUTO_DAYS_MAX} days, or blank to never send without the owner.` });
+    } else {
+      sanitizedUpdate.payoutUnclaimedAutoDays = parsed;
+      const previous = (before as any)?.payoutUnclaimedAutoDays ?? null;
+      if (parsed !== null && (previous === null || parsed < previous)) loosensPayoutSafeguards = true;
     }
   }
 
@@ -482,6 +546,11 @@ router.put("/", async (req, res) => {
     delete (sanitizedUpdate as any).payoutReviewThresholdTzs;
     delete (sanitizedUpdate as any).payoutDailyCapPerPayeeTzs;
     delete (sanitizedUpdate as any).payoutRecentChangeHours;
+  }
+  if (!autoCols) {
+    delete (sanitizedUpdate as any).autoPayoutEnabled;
+    delete (sanitizedUpdate as any).autoPayoutDailyCapTzs;
+    delete (sanitizedUpdate as any).payoutUnclaimedAutoDays;
   }
 
   // If the DB isn't migrated yet, drop per-role TTL keys so the update doesn't fail.

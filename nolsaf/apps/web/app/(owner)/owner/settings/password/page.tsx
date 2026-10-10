@@ -1,17 +1,8 @@
 "use client"
 
-import PasswordChangeForm from "@/components/security/PasswordChangeForm"
+import SecurityPassword from "@/components/account-security/SecurityPassword"
+import { OWNER_SECURITY } from "@/components/account-security/securityData"
 
 export default function OwnerPasswordPage() {
-  return (
-    <PasswordChangeForm
-      apiUrl="/api/account/password/change"
-      redirectHref="/owner/settings"
-      backHref="/owner/settings"
-      roleLabel="OWNER"
-      variant="page"
-      requireCurrentPassword
-      submitLabel="Update Password"
-    />
-  )
+  return <SecurityPassword scope={OWNER_SECURITY} />
 }

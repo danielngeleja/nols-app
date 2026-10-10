@@ -1,10 +1,10 @@
-import crypto from "crypto";
 import { getCheckoutSettlement } from "./nrmsFolio.js";
 import { markRoomsDirtyOnCheckout } from "./nrmsHousekeeping.js";
 import { evaluateNrmsDunning } from "./nrmsDunning.js";
 import { accrueNrmsSalesCommission } from "./salesCommission.js";
 import { getMasterCheckoutBlocker, transferredToMasterForReservation } from "./nrmsMasterFolio.js";
 import { hotelCalendarDayKey, shiftDateOnly, shiftDayKey } from "./nrmsShifts.js";
+import { syncNrmsStatement } from "./nrmsStatements.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -107,19 +107,8 @@ export async function applyNrmsUsageRows(tx: any, account: any, rows: any[]) {
   const status = dunning.status;
   await tx.ownerPaygAccount.update({ where: { id: account.id }, data: { unpaidBalance: newBalance, status, limitReachedAt: dunning.limitReachedAt } });
 
-  if (status === "PAYMENT_REQUIRED") {
-    const unstated = await tx.nrmsUsageEvent.findMany({
-      where: { accountId: account.id, amount: { gt: 0 }, statementItem: null }, select: { id: true, amount: true },
-    });
-    if (unstated.length) {
-      const amount = unstated.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
-      const statement = await tx.nrmsBillingStatement.create({ data: { accountId: account.id, amount, currency: account.policy.currency } });
-      await tx.nrmsBillingStatementItem.createMany({ data: unstated.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
-      await tx.nrmsServicePaymentToken.create({
-        data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency: account.policy.currency, expiresAt: new Date(Date.now() + 7 * DAY_MS) },
-      });
-    }
-  }
+  // Net of credits, capped at the balance, one open statement: see nrmsStatements.ts.
+  if (status === "PAYMENT_REQUIRED") await syncNrmsStatement(tx, { ...account, unpaidBalance: newBalance });
   return { usageEvents: rows.length, billableAmount: billable, paygStatus: status, unpaidBalance: newBalance };
 }
 

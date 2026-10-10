@@ -16,7 +16,23 @@ export default function RecentBookings() {
   const retryDelayRef = useRef<number>(2000);
   const pollTimerRef = useRef<number | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | string | null>(null);
+  const [requestingId, setRequestingId] = useState<number | null>(null);
+  const [requestMessage, setRequestMessage] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const requestGuestCode = async (bookingId: number) => {
+    setRequestingId(bookingId);
+    setRequestMessage(null);
+    try {
+      const result = await api.post(`/api/owner/bookings/${bookingId}/request-code`);
+      setRequestMessage(result.data?.message || "The guest was asked to present their code.");
+    } catch (err: any) {
+      setRequestMessage(err?.response?.data?.error || "Could not contact the guest. Please try again.");
+    } finally {
+      setRequestingId(null);
+      setOpenMenuId(null);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -134,13 +150,14 @@ export default function RecentBookings() {
           <Calendar className="h-8 w-8 text-blue-600" aria-hidden />
         </div>
         <h1 className="text-2xl font-semibold text-center mt-3">Recent Bookings</h1>
+        {requestMessage && <p role="status" className="mt-3 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{requestMessage}</p>}
   {/* errors are handled silently in background retry; no persistent error UI */}
 
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm border-collapse table-auto">
             <thead>
               <tr className="text-left">
-                <th className="px-3 py-2 border-b">Booking Code</th>
+                <th className="px-3 py-2 border-b">Booking reference</th>
                 <th className="px-3 py-2 border-b">Full Name</th>
                 <th className="px-3 py-2 border-b">Phone</th>
                 <th className="px-3 py-2 border-b">Room Type</th>
@@ -160,7 +177,7 @@ export default function RecentBookings() {
                 </tr>
               ) : (
                   (list ?? []).map((b) => {
-                  const bookingCode = b?.code?.codeVisible ?? b.codeVisible ?? b.roomCode ?? b.id;
+                  const bookingCode = b.bookingReference ?? `#${b.id}`;
                   const fullName = b?.guestName ?? b?.customerName ?? '-';
                   const phone = b?.guestPhone ?? b?.phone ?? '-';
                   const roomType = b?.roomType ?? '-';
@@ -183,6 +200,12 @@ export default function RecentBookings() {
                                 <Check className="h-4 w-4 text-green-600" />
                                 <span className="text-sm">Validate</span>
                               </Link>
+                              {b.status === "CONFIRMED" && (
+                                <button type="button" disabled={requestingId === b.id} onClick={() => void requestGuestCode(Number(b.id))}
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50">
+                                  {requestingId === b.id ? "Requesting…" : "Ask guest for code"}
+                                </button>
+                              )}
                               <Link href={`/owner/bookings/checked-in/${encodeURIComponent(b.bookingReference)}`} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 hover:text-slate-900 no-underline">
                                 <Eye className="h-4 w-4 text-slate-600" />
                                 <span className="text-sm">View</span>

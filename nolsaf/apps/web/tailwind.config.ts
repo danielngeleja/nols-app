@@ -4,9 +4,8 @@ import type { Config } from "tailwindcss";
 // NOTE: This TS config mirrors tailwind.config.js. We keep it neutral (no prefix)
 // to avoid conflicts where core utilities like `bg-white` would be renamed.
 export default {
-  darkMode: ["class"],
+  darkMode: "class",
   // prefix intentionally omitted – use core class names like `bg-white`, `p-4`, etc.
-  corePlugins: { preflight: false },
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",

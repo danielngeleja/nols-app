@@ -1,8 +1,8 @@
-import crypto from "node:crypto";
 import { prisma } from "@nolsaf/prisma";
 import { notifyOwner } from "../lib/notifications.js";
 import { evaluateNrmsDunning } from "../lib/nrmsDunning.js";
 import { NRMS_STATEMENT_TRANSACTION_OPTIONS } from "../lib/nrmsBilling.js";
+import { syncNrmsStatement } from "../lib/nrmsStatements.js";
 import { runNrmsWorker } from "../lib/nrmsWorkerHealth.js";
 
 const db = prisma as any;
@@ -56,16 +56,8 @@ export async function runNrmsDunning(now = new Date()) {
     if (dunning.stage === "CURRENT") Object.assign(data, { reminderNotifiedAt: null, warningNotifiedAt: null, freezeNotifiedAt: null });
     await db.ownerPaygAccount.update({ where: { id: account.id }, data });
     if (dunning.stage === "PAYMENT_REQUIRED") {
-      await db.$transaction(async (tx: any) => {
-        const existing = await tx.nrmsBillingStatement.findFirst({ where: { accountId: account.id, status: "PAYABLE" } });
-        if (existing) return;
-        const events = await tx.nrmsUsageEvent.findMany({ where: { accountId: account.id, amount: { gt: 0 }, statementItem: null }, select: { id: true, amount: true } });
-        if (!events.length) return;
-        const amount = events.reduce((sum: number, row: any) => sum + Number(row.amount), 0);
-        const statement = await tx.nrmsBillingStatement.create({ data: { accountId: account.id, amount, currency: account.policy.currency } });
-        await tx.nrmsBillingStatementItem.createMany({ data: events.map((row: any) => ({ statementId: statement.id, usageEventId: row.id, amount: row.amount })) });
-        await tx.nrmsServicePaymentToken.create({ data: { statementId: statement.id, token: `NRMS-${crypto.randomBytes(18).toString("hex").toUpperCase()}`, amount, currency: account.policy.currency, expiresAt: new Date(now.getTime() + 7 * 86400000) } });
-      }, NRMS_STATEMENT_TRANSACTION_OPTIONS);
+      // Net of credits, capped at the balance, one open statement: see nrmsStatements.ts.
+      await db.$transaction((tx: any) => syncNrmsStatement(tx, account, { now }), NRMS_STATEMENT_TRANSACTION_OPTIONS);
     }
     if (template) await notifyOwner(account.ownerId, template, { propertyTitle: account.property.title, unpaidBalance: Number(account.unpaidBalance), unpaidLimit: Number(account.unpaidLimit), graceDays: account.policy.graceDays, freezeAt: dunning.freezeAt?.toISOString() ?? null });
     changed += 1;

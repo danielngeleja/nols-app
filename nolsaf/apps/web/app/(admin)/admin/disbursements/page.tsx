@@ -18,8 +18,10 @@ import {
   Send,
   ShieldAlert,
   ShieldCheck,
+  UserCheck,
   Wallet,
   XCircle,
+  Zap,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAdminHref } from "@/lib/adminRecordRefs";
@@ -73,6 +75,8 @@ type Disbursement = {
   failedAt: string | null;
   batchId: number | null;
   securityReviewReason: string | null;
+  /** AUTO when the system approved it under the automatic caps; null or MANUAL when a person did. */
+  releaseLane?: "AUTO" | "MANUAL" | null;
   payoutAccount: PayoutAccountSummary;
   events?: DisbursementEvent[];
 };
@@ -124,11 +128,46 @@ function retryGuidance(retryClass: string): string {
   }
 }
 
+/** The queue's status filter, in the order a payout moves, with what each step means. */
+const PIPELINE: Array<{ value: string; label: string; hint: string; dot: string; on: string; kind: "path" | "end" }> = [
+  { value: "REQUESTED", label: "Requested", hint: "Waiting for review", dot: "bg-amber-400", on: "border-amber-600 bg-amber-600", kind: "path" },
+  { value: "APPROVED", label: "Approved", hint: "Ready to batch", dot: "bg-sky-400", on: "border-sky-600 bg-sky-600", kind: "path" },
+  { value: "BATCHED", label: "Batched", hint: "In a batch", dot: "bg-sky-400", on: "border-sky-600 bg-sky-600", kind: "path" },
+  { value: "AUTHORIZED", label: "Authorized", hint: "Released to send", dot: "bg-sky-400", on: "border-sky-600 bg-sky-600", kind: "path" },
+  { value: "SUBMITTED", label: "Submitted", hint: "Sent to provider", dot: "bg-indigo-400", on: "border-indigo-600 bg-indigo-600", kind: "path" },
+  { value: "PROCESSING", label: "Processing", hint: "Provider settling", dot: "bg-indigo-400", on: "border-indigo-600 bg-indigo-600", kind: "path" },
+  { value: "PAID", label: "Paid", hint: "Money arrived", dot: "bg-emerald-500", on: "border-emerald-700 bg-emerald-700", kind: "path" },
+  { value: "FAILED", label: "Failed", hint: "Needs a retry", dot: "bg-red-500", on: "border-red-600 bg-red-600", kind: "end" },
+  { value: "SECURITY_REVIEW", label: "Security review", hint: "Paused by checks", dot: "bg-red-500", on: "border-red-700 bg-red-700", kind: "end" },
+];
+
 function statusClass(status: string) {
   if (status === "PAID") return "border-emerald-100 bg-emerald-50 text-emerald-700";
   if (status === "FAILED" || status === "SECURITY_REVIEW") return "border-red-100 bg-red-50 text-red-700";
   if (status === "APPROVED" || status === "BATCHED" || status === "AUTHORIZED") return "border-sky-100 bg-sky-50 text-sky-700";
   return "border-amber-100 bg-amber-50 text-amber-700"; // REQUESTED, SUBMITTED, PROCESSING
+}
+
+type LaneFilter = "" | "AUTO" | "ADMIN";
+
+/**
+ * Which lane a payout travels. Automatic: the owner confirmed by one-time code
+ * and the payout passed the automatic checks, so the system approved it and the
+ * release worker batches and authorizes it under the daily cap. Admin: a person
+ * approves and batches it here.
+ */
+function LaneBadge({ lane, size = "sm" }: { lane: Disbursement["releaseLane"]; size?: "sm" | "md" }) {
+  const auto = lane === "AUTO";
+  const pad = size === "md" ? "px-2.5 py-1 text-[11px]" : "px-2 py-0.5 text-[10px]";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-solid font-bold ${pad} ${auto ? "border-teal-200 bg-teal-50 text-teal-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}
+      title={auto ? "Approved by the system under the automatic payout limits" : "Approved and batched by an admin"}
+    >
+      {auto ? <Zap className="h-3 w-3" aria-hidden /> : <UserCheck className="h-3 w-3" aria-hidden />}
+      {auto ? "Automatic" : "Admin"}
+    </span>
+  );
 }
 
 function isStale(item: Disbursement): boolean {
@@ -212,12 +251,13 @@ function DisbursementsView() {
   const status = searchParams.get("status") ?? "";
   const [items, setItems] = useState<Disbursement[]>([]);
   const [sourceType, setSourceType] = useState("");
+  const [lane, setLane] = useState<LaneFilter>("");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState({ stuck: 0, failed: 0 });
+  const [stats, setStats] = useState({ stuck: 0, failed: 0, autoWaiting: 0, adminToApprove: 0 });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -273,11 +313,17 @@ function DisbursementsView() {
             status: status || undefined,
             sourceType: sourceType || undefined,
             q: debouncedQuery || undefined,
+            lane: lane || undefined,
           },
         });
         setItems(response.data?.disbursements || []);
         setTotal(response.data?.total ?? 0);
-        setStats({ stuck: response.data?.stats?.stuck ?? 0, failed: response.data?.stats?.failed ?? 0 });
+        setStats({
+          stuck: response.data?.stats?.stuck ?? 0,
+          failed: response.data?.stats?.failed ?? 0,
+          autoWaiting: response.data?.stats?.autoWaiting ?? 0,
+          adminToApprove: response.data?.stats?.adminToApprove ?? 0,
+        });
       } catch (cause: any) {
         // A background poll that blips should not nuke the screen with an error.
         if (!silent) setError(errorMessage(cause, "Could not load disbursements."));
@@ -285,7 +331,7 @@ function DisbursementsView() {
         if (!silent) setLoading(false);
       }
     },
-    [status, sourceType, page, pageSize, debouncedQuery]
+    [status, sourceType, page, pageSize, debouncedQuery, lane]
   );
 
   useEffect(() => {
@@ -320,6 +366,10 @@ function DisbursementsView() {
   };
   const setFilterSourceType = (value: string) => {
     setSourceType(value);
+    setPage(1);
+  };
+  const setFilterLane = (value: LaneFilter) => {
+    setLane(value);
     setPage(1);
   };
   const setFilterPageSize = (value: number) => {
@@ -613,6 +663,44 @@ function DisbursementsView() {
         />
       </div>
 
+      {/* Where payouts stand: the status filter, in the order money moves */}
+      <section className="overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3.5">
+          <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.14em] text-neutral-400">Payout pipeline</p>
+          {status && (
+            <button type="button" onClick={() => setFilterStatus("")} className="border-0 bg-transparent p-0 text-[11px] font-bold text-emerald-700 hover:underline">
+              Show all statuses
+            </button>
+          )}
+        </div>
+        <div className="overflow-x-auto px-3 pb-3 pt-2.5">
+          <ol className="m-0 flex min-w-max list-none items-stretch gap-1.5 p-0">
+            {PIPELINE.map((step, index) => {
+              const active = status === step.value;
+              return (
+                <li key={step.value} className="flex items-center gap-1.5">
+                  {index > 0 && step.kind === "path" && PIPELINE[index - 1].kind === "path" && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-neutral-300" aria-hidden />}
+                  {index > 0 && step.kind !== "path" && PIPELINE[index - 1].kind === "path" && <span className="mx-1 h-8 w-px shrink-0 bg-neutral-200" aria-hidden />}
+                  <button
+                    type="button"
+                    onClick={() => setFilterStatus(active ? "" : step.value)}
+                    aria-pressed={active}
+                    title={step.hint}
+                    className={`flex min-w-[118px] flex-col items-start rounded-lg border border-solid px-3 py-2 text-left transition ${active ? step.on : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"}`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${step.dot}`} aria-hidden />
+                      <span className={`text-xs font-bold ${active ? "text-white" : "text-neutral-800"}`}>{step.label}</span>
+                    </span>
+                    <span className={`mt-0.5 text-[10.5px] ${active ? "text-white/75" : "text-neutral-400"}`}>{step.hint}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </section>
+
       {showCreate && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
           <div className="flex items-center gap-3">
@@ -814,7 +902,40 @@ function DisbursementsView() {
             ))}
           </select>
         </div>
-        <p className="mb-0 mt-2 text-[11px] text-neutral-400">Filter by status from the workspace sidebar on the left.</p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1" role="group" aria-label="Filter by lane">
+            {([
+              { value: "" as LaneFilter, label: "All lanes", icon: null, count: null as number | null },
+              { value: "AUTO" as LaneFilter, label: "Automatic", icon: Zap, count: stats.autoWaiting },
+              { value: "ADMIN" as LaneFilter, label: "Admin", icon: UserCheck, count: stats.adminToApprove },
+            ]).map((option) => {
+              const active = lane === option.value;
+              const Icon = option.icon;
+              return (
+                <button
+                  key={option.label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setFilterLane(option.value)}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg border-0 px-3 text-xs font-bold transition ${active ? "bg-white text-neutral-900 shadow-sm ring-1 ring-inset ring-neutral-200" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}
+                >
+                  {Icon ? <Icon className={`h-3.5 w-3.5 ${option.value === "AUTO" ? "text-teal-600" : "text-slate-500"}`} /> : null}
+                  {option.label}
+                  {option.count ? (
+                    <span className={`min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold leading-[18px] ${option.value === "AUTO" ? "bg-teal-100 text-teal-800" : "bg-amber-100 text-amber-800"}`}>
+                      {option.count}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          <p className="m-0 text-[11px] text-neutral-400">
+            {stats.autoWaiting > 0 ? `${stats.autoWaiting} automatic waiting for the next automatic batch · ` : ""}
+            {stats.adminToApprove > 0 ? `${stats.adminToApprove} waiting for an admin to approve · ` : ""}
+            Status filters are in the sidebar.
+          </p>
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
@@ -837,11 +958,12 @@ function DisbursementsView() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-neutral-100 bg-neutral-50/70 text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">
                   <th className="px-4 py-3 font-bold">Reference</th>
                   <th className="px-4 py-3 font-bold">Status</th>
+                  <th className="px-4 py-3 font-bold">Lane</th>
                   <th className="px-4 py-3 font-bold">Source</th>
                   <th className="px-4 py-3 font-bold">Payout account</th>
                   <th className="px-4 py-3 text-right font-bold">Amount</th>
@@ -873,6 +995,9 @@ function DisbursementsView() {
                             )}
                           </div>
                         </td>
+                        <td className="px-4 py-3">
+                          <LaneBadge lane={item.releaseLane} />
+                        </td>
                         <td className="px-4 py-3 text-xs text-slate-600">
                           {sourceLabel(item.sourceType)} #{item.sourceId}
                         </td>
@@ -894,11 +1019,19 @@ function DisbursementsView() {
                                 Approve
                               </button>
                             )}
-                            {item.status === "APPROVED" && (
+                            {item.status === "APPROVED" && (item.releaseLane === "AUTO" ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-solid border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-800"
+                                title="The release worker batches and authorizes this under the daily automatic limit. No admin step is needed."
+                              >
+                                <Zap className="h-3.5 w-3.5" />
+                                Batches automatically
+                              </span>
+                            ) : (
                               <span className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs font-bold text-neutral-500">
                                 Awaiting next batch
                               </span>
-                            )}
+                            ))}
                             {(item.status === "BATCHED" || item.status === "AUTHORIZED") && item.batchId && (
                               <Link href={recordHref("disbursement-batch", item.batchId)} className={`${actionClass} no-underline`}>
                                 <Layers className="h-4 w-4" />
@@ -940,7 +1073,15 @@ function DisbursementsView() {
 
                       {expanded && (
                         <tr>
-                          <td colSpan={7} className="border-t border-neutral-100 bg-neutral-50/60 px-4 py-4">
+                          <td colSpan={8} className="border-t border-neutral-100 bg-neutral-50/60 px-4 py-4">
+                            <div className={`mb-3 flex items-start gap-2.5 rounded-xl border border-solid px-3 py-2.5 text-xs ${item.releaseLane === "AUTO" ? "border-teal-200 bg-teal-50/70 text-teal-900" : "border-neutral-200 bg-white text-neutral-600"}`}>
+                              <LaneBadge lane={item.releaseLane} size="md" />
+                              <span className="leading-5">
+                                {item.releaseLane === "AUTO"
+                                  ? "The owner confirmed this withdrawal with a one-time code and it passed the automatic checks (first payout, daily limit, risk, open recoveries), so the system approved it. The release worker batches and authorizes it under the daily cap; admins only step in if it fails or goes to security review."
+                                  : "A person approves and batches this payout from this queue."}
+                              </span>
+                            </div>
                             {detailLoading ? (
                               <div className="flex items-center gap-2 text-xs text-neutral-500">
                                 <Loader2 className="h-4 w-4 animate-spin" /> Loading event history…

@@ -202,6 +202,7 @@ const adminDetails: Item[] = [
   { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/owners", label: "Owners", Icon: Building2 },
   { href: "/admin/bookings", label: "Bookings", Icon: Calendar },
+  { href: "/admin/bookings/code-requests", label: "Guest codes", Icon: KeyRound },
   { href: "/admin/properties/previews", label: "Previews", Icon: Eye },
   { href: "/admin/payments", label: "Payments", Icon: Wallet },
 ];
@@ -252,6 +253,7 @@ const cancellationsDetails: Item[] = [
 
 const nrmsDetails: Item[] = [
   { href: "/admin/nrms", label: "Directory", Icon: LayoutDashboard },
+  { href: "/admin/nrms/karibu", label: "Karibu NoLSAF", Icon: Handshake },
   { href: "/admin/nrms/agents", label: "Agency verification", Icon: Users },
   { href: "/admin/nrms/merchants", label: "Merchant onboarding", Icon: BadgeCheck },
   { href: "/admin/nrms/partnerships", label: "Partnership oversight", Icon: Handshake },

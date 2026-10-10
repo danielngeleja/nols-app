@@ -475,6 +475,14 @@ export default function SystemSettingsPage(){
         payoutRecentChangeHours: (s as any).payoutRecentChangeHours ?? 72,
       }
     : {}),
+  // Automatic owner payouts: only sent once migration 20261007090000 is applied.
+  ...((s as any).autoPayoutAvailable
+    ? {
+        autoPayoutEnabled: Boolean((s as any).autoPayoutEnabled),
+        autoPayoutDailyCapTzs: (s as any).autoPayoutDailyCapTzs ?? null,
+        payoutUnclaimedAutoDays: (s as any).payoutUnclaimedAutoDays ?? null,
+      }
+    : {}),
   supportEmail: supportEmail || s.supportEmail,
   supportPhone: supportPhone || s.supportPhone,
   driverLevelGoldThreshold: Number(s.driverLevelGoldThreshold ?? 500000),
@@ -1066,6 +1074,76 @@ export default function SystemSettingsPage(){
                 <p className="m-0 border-0 border-t border-solid border-neutral-200 bg-neutral-50/60 px-4 py-2.5 text-xs text-neutral-500 sm:px-5">
                   Leave a limit blank to turn it off. A held payout is released from <a href="/admin/disbursements/security-review" className="font-semibold text-neutral-800">Security review</a> by an admin other than the one who approved it.
                 </p>
+              </section>
+            );
+          })()}
+
+          {/* Automatic owner payouts: the AUTO lane after an owner's OTP-confirmed withdrawal */}
+          {(() => {
+            const available = Boolean((s as any)?.autoPayoutAvailable);
+            const on = Boolean((s as any)?.autoPayoutEnabled);
+            const value = (id: string) => {
+              const v = (s as any)?.[id];
+              return v === null || v === undefined ? "" : String(v);
+            };
+            const numberField = (id: string, label: string, suffix: string, placeholder: string, hint: string) => (
+              <div className="min-w-0 px-4 py-3.5 sm:px-5">
+                <label htmlFor={id} className={sectionLabel}>{label}</label>
+                <div className="relative mt-1.5">
+                  <input
+                    id={id}
+                    type="number" min={0} step={suffix === "TZS" ? 1000 : 1} inputMode="numeric"
+                    disabled={!available}
+                    placeholder={placeholder}
+                    value={value(id)}
+                    onChange={(e) => setS((prev: any) => ({ ...(prev || {}), [id]: e.target.value === "" ? null : Number(e.target.value) }))}
+                    className={`${fieldClass} pr-14 disabled:cursor-not-allowed disabled:bg-neutral-50 ${validationErrors[id] ? "border-rose-300" : ""}`}
+                  />
+                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-neutral-400">{suffix}</span>
+                </div>
+                <p className={`m-0 mt-1 text-[11px] ${validationErrors[id] ? "font-medium text-rose-600" : "text-neutral-400"}`}>{validationErrors[id] || hint}</p>
+              </div>
+            );
+            return (
+              <section id="autopayouts" className="scroll-mt-4 overflow-hidden rounded-2xl border border-solid border-neutral-300 bg-white shadow-sm">
+                {sectionHead(
+                  <ShieldCheck className="h-4 w-4" />,
+                  "Automatic owner payouts",
+                  "After an owner confirms a withdrawal with their code, clean payouts are sent without an admin. Anything unusual still comes to a person.",
+                  available ? (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 text-[11px] font-semibold text-neutral-600"><KeyRound className="h-3 w-3" /> Turning on or raising asks for your finance code</span>
+                  ) : (
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-50 px-2.5 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> Needs the database update</span>
+                  ),
+                )}
+                <div className="flex min-w-0 items-center gap-4 px-4 py-3.5 sm:px-5">
+                  <div className="min-w-0 flex-1">
+                    <p className="m-0 text-sm font-semibold text-neutral-900">Send clean payouts automatically</p>
+                    <p className="m-0 mt-0.5 text-xs text-neutral-400">
+                      {on
+                        ? "On. An owner's first payout, and any payout with a risk flag, still goes to an admin."
+                        : "Off. Every confirmed withdrawal waits for an admin to approve, batch and release it."}
+                    </p>
+                  </div>
+                  <label className="group relative inline-flex shrink-0 cursor-pointer items-center">
+                    <input
+                      id="autoPayoutEnabled"
+                      type="checkbox"
+                      aria-label="Send clean payouts automatically"
+                      checked={on}
+                      disabled={!available}
+                      className="peer sr-only"
+                      onChange={(e) => setS((prev: any) => ({ ...(prev || {}), autoPayoutEnabled: e.target.checked }))}
+                    />
+                    <div className={toggleTrackClass} />
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 border-0 border-t border-solid border-neutral-200 sm:grid-cols-2">
+                  {numberField("autoPayoutDailyCapTzs", "Automatic payouts per day", "TZS", "None", "Total sent without an admin per day (EAT). Beyond it, payouts wait for the next day. Blank stops automatic payouts.")}
+                  <div className="border-0 border-t border-solid border-neutral-200 sm:border-l sm:border-t-0">
+                    {numberField("payoutUnclaimedAutoDays", "Send unclaimed payouts after", "days", "Never", "3 to 90. A ready payout the owner has not withdrawn is sent to their verified, unchanged account.")}
+                  </div>
+                </div>
               </section>
             );
           })()}

@@ -15,6 +15,7 @@ import {
   User,
   Users,
   X,
+  BookHeart,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { clearAuthToken } from "@/lib/apiClient";
@@ -211,7 +212,8 @@ export default function MobilePublicNav() {
                   title: "Account",
                   items: [
                     { href: "/account", label: "Profile", Icon: User },
-                    { href: "/account/security", label: "Security & settings", Icon: SettingsIcon },
+                    { href: "/account/karibu", label: "My story", Icon: BookHeart },
+                    { href: "/account/security", label: "Account settings", Icon: SettingsIcon },
                   ],
                 },
                 {

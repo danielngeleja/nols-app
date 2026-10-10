@@ -26,6 +26,7 @@ import {
 
 import apiClient from "@/lib/apiClient";
 import { useNrms } from "../_components/NrmsProvider";
+import KaribuPanel from "../_components/KaribuPanel";
 
 type EditableField =
   | "legalName"
@@ -1375,6 +1376,9 @@ export default function NrmsPaymentsPage() {
 
       {message && <div role="status" className="flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{message}</div>}
       {error && <div role="alert" className="flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+
+      {/* Karibu repayments are NoLSAF money too: reconcile them here as well as on Orders. */}
+      <KaribuPanel propertyId={detailPropertyId} />
 
       <section className={`rounded-2xl p-4 ring-1 sm:p-5 ${tone.panel}`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

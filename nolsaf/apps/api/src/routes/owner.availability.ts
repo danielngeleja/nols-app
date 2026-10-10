@@ -677,6 +677,8 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
       where: {
         propertyId: propertyIdNum,
         ownerId,
+        // Migrated blocks appear once, as the NRMS reservation they became.
+        migratedReservationId: null,
         AND: [
           { startDate: { lt: end } },
           { endDate: { gt: start } },
@@ -764,6 +766,7 @@ router.get("/calendar", (async (req: AuthedRequest, res: Response) => {
         readOnly: true,
         nrmsKind: hold.nrmsKind,
         nrmsRefId: hold.nrmsRefId,
+        nrmsStatus: hold.reservationStatus,
       }) as any)),
     });
   } catch (error: any) {

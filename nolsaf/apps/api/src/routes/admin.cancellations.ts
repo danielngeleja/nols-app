@@ -14,6 +14,8 @@ import {
 } from "../lib/accommodationCancellationWorkflow.js";
 import { calculateRefundChannelCharges, inferRefundChannel, REFUND_CHANNEL_POLICY_VERSION } from "../lib/refundChannelCharges.js";
 import { updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { recordRefundRecovery } from "../services/payouts/recovery.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler);
@@ -410,6 +412,12 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
       timeout: 15_000,
     });
 
+    // A refund paid after the owner was already paid becomes a recovery of
+    // the owner's share (owner policy 6.3.3). Never throws.
+    if (nextStatus === "REFUNDED") {
+      await recordRefundRecovery(id, adminId);
+    }
+
     // Post-transaction side-effects: notify owner + real-time events.
     if (ownerTemplate && current.booking) {
       const ownerId = current.booking.property?.ownerId;
@@ -420,7 +428,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         try {
           await notifyOwner(ownerId, ownerTemplate, {
             bookingId: current.bookingId,
-            bookingCode: current.bookingCode,
+            bookingCode: customerBookingReference(current.bookingId),
             propertyTitle,
             requestId: id,
             newStatus: nextStatus,
@@ -434,12 +442,12 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
       const io = req.app.get("io");
       if (io) {
         if (shouldVoidAndCancel && code) {
-          io.emit("admin:code:voided", { bookingId: current.bookingId, code: code.codeVisible });
+          io.to?.("admin")?.emit?.("admin:code:voided", { bookingId: current.bookingId });
         }
         if (ownerId) {
           io.to(`owner:${ownerId}`).emit("booking:cancellation_update", {
             bookingId: current.bookingId,
-            bookingCode: current.bookingCode,
+            bookingReference: customerBookingReference(current.bookingId),
             status: nextStatus,
             cancelled: shouldVoidAndCancel,
           });

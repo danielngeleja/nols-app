@@ -1,0 +1,20 @@
+CREATE TABLE `support_impersonation_handoff` (
+  `id` VARCHAR(191) NOT NULL,
+  `handleHash` VARCHAR(64) NOT NULL,
+  `adminId` INTEGER NOT NULL,
+  `adminSessionId` VARCHAR(191) NOT NULL,
+  `adminIssuedAt` INTEGER NOT NULL,
+  `adminExpiresAt` INTEGER NOT NULL,
+  `adminMfa` VARCHAR(12) NOT NULL,
+  `supportUserId` INTEGER NOT NULL,
+  `supportSessionId` VARCHAR(191) NOT NULL,
+  `supportRole` VARCHAR(20) NOT NULL,
+  `expiresAt` DATETIME(3) NOT NULL,
+  `usedAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE INDEX `support_impersonation_handoff_handleHash_key` (`handleHash`),
+  INDEX `support_impersonation_handoff_adminId_expiresAt_idx` (`adminId`, `expiresAt`),
+  INDEX `support_impersonation_handoff_supportSessionId_idx` (`supportSessionId`),
+  INDEX `support_impersonation_handoff_expiresAt_usedAt_idx` (`expiresAt`, `usedAt`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

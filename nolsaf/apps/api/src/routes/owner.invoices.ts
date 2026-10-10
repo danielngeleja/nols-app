@@ -3,11 +3,15 @@ import type { Request, Response, RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma } from "@prisma/client";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { hideOwnerCheckinCode } from "../lib/ownerCheckinCodePrivacy.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { claimRequiresWithdrawal, USE_WITHDRAW_RESPONSE } from "../services/payouts/release.js";
 import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
+import { generateOwnerClaimInvoicePdf } from "../lib/pdfDocuments.js";
 import {
+  customerBookingReference,
   isCustomerBookingReference,
   isOwnerInvoiceReference,
   matchesCustomerBookingReference,
@@ -15,7 +19,7 @@ import {
   ownerInvoiceReference,
 } from "../lib/customerBookingReference.js";
 export const router = Router();
-router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler);
+router.use(requireAuth as unknown as RequestHandler, requireRole("OWNER") as unknown as RequestHandler, hideOwnerCheckinCode);
 
 const OWNER_INVOICE_PREFIX = "OINV-";
 
@@ -301,6 +305,75 @@ router.get("/:id", async (req: Request, res: Response) => {
   });
 });
 
+/** Where the claim stands, in the owner's words, for the invoice PDF chip. */
+const CLAIM_STATUS_LABEL: Record<string, { label: string; tone: "draft" | "progress" | "paid" | "rejected" }> = {
+  DRAFT: { label: "Not sent yet", tone: "draft" },
+  REQUESTED: { label: "Sent to NoLSAF", tone: "progress" },
+  VERIFIED: { label: "Verified", tone: "progress" },
+  APPROVED: { label: "Approved", tone: "progress" },
+  PROCESSING: { label: "Payment on its way", tone: "progress" },
+  PAID: { label: "Paid", tone: "paid" },
+  REJECTED: { label: "Not approved", tone: "rejected" },
+};
+
+/**
+ * GET /owner/invoices/:id/invoice.pdf — the accommodation invoice as a PDF in
+ * the owner document family (generateOwnerClaimInvoicePdf), built from the
+ * same figures as the on-screen invoice. A paid claim also has its payout
+ * receipt at /owner/revenue/invoices/:id/receipt.pdf.
+ */
+router.get("/:id/invoice.pdf", async (req: Request, res: Response) => {
+  const authReq = req as AuthedRequest;
+  try {
+    const id = await resolveOwnedInvoiceId(authReq.user!.id, authReq.params.id);
+    if (!id) return res.status(404).json({ error: "Not found" });
+    const inv: any = await prisma.invoice.findFirst({
+      where: { id, ownerId: authReq.user!.id, invoiceNumber: { startsWith: OWNER_INVOICE_PREFIX } } as any,
+      include: { booking: { include: { property: { select: { title: true } } } } },
+    });
+    if (!inv) return res.status(404).json({ error: "Not found" });
+    const owner: any = await prisma.user.findUnique({ where: { id: authReq.user!.id }, select: { name: true, phone: true, address: true } as any });
+
+    const checkIn = inv.booking?.checkIn ?? null;
+    const checkOut = inv.booking?.checkOut ?? null;
+    const nights = checkIn && checkOut ? Math.max(1, Math.ceil((+new Date(checkOut) - +new Date(checkIn)) / 86_400_000)) : null;
+    const propertyTitle = inv.booking?.property?.title ?? "property";
+    const total = Number(inv.total ?? 0);
+    const taxAmount = Number(inv.taxAmount ?? 0) || 0;
+    const subtotal = Number(inv.subtotal ?? (total - taxAmount)) || total;
+    const status = CLAIM_STATUS_LABEL[String(inv.status ?? "").toUpperCase()] ?? { label: String(inv.status ?? "").toLowerCase(), tone: "progress" as const };
+
+    const pdf = await generateOwnerClaimInvoicePdf({
+      invoiceNumber: String(inv.invoiceNumber),
+      issuedAt: inv.issuedAt ?? inv.createdAt ?? null,
+      statusLabel: status.label,
+      statusTone: status.tone,
+      ownerName: owner?.name ?? "Property owner",
+      ownerPhone: owner?.phone ?? null,
+      ownerAddress: owner?.address ?? null,
+      billTo: { name: NOLSAF_BILLING_CONTACT.name, email: NOLSAF_BILLING_CONTACT.email, address: NOLSAF_BILLING_CONTACT.address },
+      propertyName: propertyTitle,
+      bookingCode: inv.bookingId ? customerBookingReference(inv.bookingId) : null,
+      checkIn,
+      checkOut,
+      lineDescription: `Accommodation at ${propertyTitle}${nights ? ` (${nights} night${nights === 1 ? "" : "s"})` : ""}`,
+      subtotal,
+      taxPercent: Number(inv.taxPercent ?? 0) || 0,
+      taxAmount,
+      total,
+      currency: "TZS",
+    });
+    const filename = String(inv.invoiceNumber).replace(/[^a-zA-Z0-9._-]+/g, "-");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(pdf);
+  } catch (err) {
+    console.error("[owner.invoices] invoice PDF failed", err);
+    return res.status(500).json({ error: "Could not build the invoice PDF" });
+  }
+});
+
 /** POST /owner/invoices/:id/submit — move DRAFT → REQUESTED (one-time) and notify admin */
 router.post("/:id/submit", async (req, res) => {
   const authReq = req as AuthedRequest;
@@ -314,6 +387,10 @@ router.post("/:id/submit", async (req, res) => {
   // Idempotent: if already submitted/processed, do nothing (prevents repeats + duplicate admin events).
   if (inv.status !== "DRAFT") {
     return res.json({ ok: true, status: inv.status, alreadySubmitted: true });
+  }
+  // Stays under the payout date lock are claimed only through the OTP withdrawal.
+  if (await claimRequiresWithdrawal(inv.bookingId)) {
+    return res.status(409).json(USE_WITHDRAW_RESPONSE);
   }
 
   const claimed = await prisma.invoice.updateMany({

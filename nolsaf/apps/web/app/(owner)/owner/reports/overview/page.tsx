@@ -9,7 +9,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -89,28 +88,34 @@ export default function Overview() {
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5" aria-hidden />
           <div className="min-w-0">
-            <div className="font-semibold">Couldn’t load reports</div>
+            <div className="font-semibold">Reports could not be loaded</div>
             <div className="text-amber-800/90 break-words">{error}</div>
           </div>
         </div>
       ) : null}
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Kpi icon={Coins}       title="Gross Revenue"    value={data ? `TZS ${fmt(data.kpis.gross)}` : "—"} loading={loading} color="emerald" />
-        <Kpi icon={TrendingUp}  title="Net Revenue"      value={data ? `TZS ${fmt(data.kpis.net)}` : "—"}   loading={loading} color="teal" />
-        <Kpi icon={BarChart3}   title="Bookings"         value={data ? String(data.kpis.bookings) : "—"}      loading={loading} color="sky" />
-        <Kpi icon={BedDouble}   title="Nights"           value={data ? String(data.kpis.nights) : "—"}        loading={loading} color="amber" />
-        <Kpi icon={CalendarDays} title="ADR"             value={data ? `TZS ${fmt(data.kpis.adr)}` : "—"}   loading={loading} color="violet" />
-        <Kpi icon={BarChart3}   title="Occupancy (est.)" value="—"                                             loading={loading} color="rose" />
-      </div>
+      {/* KPI strip: one card, six figures, no accent stripes */}
+      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-slate-200 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_32px_-24px_rgba(15,23,42,0.35)] sm:grid-cols-3 lg:grid-cols-6">
+        <Kpi icon={Coins} title="Gross revenue" value={data ? `TZS ${fmt(data.kpis.gross)}` : "Not available"} hint="Before commission" loading={loading} lead />
+        <Kpi icon={TrendingUp} title="Net revenue" value={data ? `TZS ${fmt(data.kpis.net)}` : "Not available"} hint="Your share" loading={loading} lead />
+        <Kpi icon={BarChart3} title="Bookings" value={data ? String(data.kpis.bookings) : "Not available"} hint="In this period" loading={loading} />
+        <Kpi icon={BedDouble} title="Nights" value={data ? String(data.kpis.nights) : "Not available"} hint="Nights sold" loading={loading} />
+        <Kpi icon={CalendarDays} title="Average rate" value={data ? `TZS ${fmt(data.kpis.adr)}` : "Not available"} hint="Per night (ADR)" loading={loading} />
+        <Kpi icon={BarChart3} title="Occupancy" value="Not tracked yet" hint="Not calculated yet" loading={false} muted />
+      </section>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-200">
-            <div className="text-sm font-semibold text-gray-900">Revenue & Net Trend</div>
-            <div className="text-xs text-gray-500 mt-0.5">How gross and net change over the selected period</div>
+        <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-0 border-b border-solid border-slate-200 px-5 py-4">
+            <div>
+              <div className="text-sm font-bold text-slate-900">Revenue trend</div>
+              <div className="mt-0.5 text-xs text-slate-500">Gross and net over the selected period</div>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-600">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#9fd8cc]" aria-hidden />Gross</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#02665e]" aria-hidden />Net</span>
+            </div>
           </div>
           <div className="p-4">
             <div className="h-72">
@@ -118,44 +123,43 @@ export default function Overview() {
                 <AreaChart data={series} margin={{ left: 8, right: 16, top: 10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="grossFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.03} />
+                      <stop offset="5%" stopColor="#9fd8cc" stopOpacity={0.45} />
+                      <stop offset="95%" stopColor="#9fd8cc" stopOpacity={0.03} />
                     </linearGradient>
                     <linearGradient id="netFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.28} />
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0.03} />
+                      <stop offset="5%" stopColor="#02665e" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="#02665e" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-                  <XAxis dataKey="key" tick={{ fill: "#6b7280", fontSize: 12 }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+                  <CartesianGrid stroke="#eef2f1" vertical={false} />
+                  <XAxis dataKey="key" tickFormatter={shortDay} minTickGap={16} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis
-                    tick={{ fill: "#6b7280", fontSize: 12 }}
-                    axisLine={{ stroke: "#e5e7eb" }}
+                    tick={{ fill: "#94a3b8", fontSize: 11 }}
+                    axisLine={false}
                     tickLine={false}
                     tickFormatter={fmtCompact}
                   />
                   <Tooltip content={<MoneyTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Area type="monotone" dataKey="gross" name="Gross" stroke="#10b981" strokeWidth={2} fill="url(#grossFill)" />
-                  <Area type="monotone" dataKey="net" name="Net" stroke="#2563eb" strokeWidth={2} fill="url(#netFill)" />
+                  <Area type="monotone" dataKey="gross" name="Gross" stroke="#5eb8a8" strokeWidth={2} fill="url(#grossFill)" />
+                  <Area type="monotone" dataKey="net" name="Net" stroke="#02665e" strokeWidth={2.25} fill="url(#netFill)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-200">
-            <div className="text-sm font-semibold text-gray-900">Bookings by Status</div>
-            <div className="text-xs text-gray-500 mt-0.5">Status distribution for the selected period</div>
+        <div className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white">
+          <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
+            <div className="text-sm font-bold text-slate-900">Bookings by status</div>
+            <div className="mt-0.5 text-xs text-slate-500">How the bookings in this period ended</div>
           </div>
           <div className="p-4">
             <div className="h-72">
               <ResponsiveContainer>
                 <BarChart data={status} margin={{ left: 8, right: 10, top: 10, bottom: 10 }}>
-                  <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-                  <XAxis dataKey="status" tick={{ fill: "#6b7280", fontSize: 11 }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fill: "#6b7280", fontSize: 12 }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+                  <CartesianGrid stroke="#eef2f1" vertical={false} />
+                  <XAxis dataKey="status" tickFormatter={statusLabel} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} />
                   <Tooltip content={<CountTooltip />} />
                   <Bar dataKey="count" name="Count" radius={[8, 8, 0, 0]}>
                     {status.map((entry: any, idx: number) => (
@@ -173,29 +177,29 @@ export default function Overview() {
       </div>
 
       {/* Top properties */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-200">
-          <div className="text-sm font-semibold text-gray-900">Top Properties</div>
-          <div className="text-xs text-gray-500 mt-0.5">Highest net revenue within this range</div>
+      <div className="overflow-hidden rounded-2xl border border-solid border-slate-300/80 bg-white">
+        <div className="border-0 border-b border-solid border-slate-200 px-5 py-4">
+          <div className="text-sm font-bold text-slate-900">Top properties</div>
+          <div className="mt-0.5 text-xs text-slate-500">Highest net revenue in this period</div>
         </div>
         <div className="p-4">
           {topProperties.length === 0 ? (
-            <div className="text-sm text-gray-600">No data for the selected filters.</div>
+            <div className="py-6 text-center text-sm text-slate-500">No revenue for these filters. Try a longer range or another property.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {topProperties.map((p: any) => {
                 const pct = Math.max(0, Math.min(100, (p.net / maxTopNet) * 100));
                 return (
-                  <div key={p.propertyId} className="rounded-lg border border-gray-200 p-4">
+                  <div key={p.propertyId} className="rounded-xl border border-solid border-slate-200 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-gray-900 truncate">{p.title}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">Net</div>
+                        <div className="text-sm font-semibold text-slate-900 truncate">{p.title}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">Net revenue</div>
                       </div>
-                      <div className="text-sm font-bold text-emerald-700 whitespace-nowrap">TZS {fmt(p.net)}</div>
+                      <div className="text-sm font-bold tabular-nums text-[#02665e] whitespace-nowrap">TZS {fmt(p.net)}</div>
                     </div>
-                    <div className="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
-                      <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${pct}%` }} />
+                    <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full bg-[#02665e] rounded-full" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -226,84 +230,57 @@ function getStatusColor(status: string): string {
   }
 }
 
-const KPI_PALETTE = {
-  emerald: {
-    top:  "from-emerald-500",
-    icon: "bg-emerald-50 border-emerald-100 text-emerald-600",
-    dot:  "bg-emerald-400",
-  },
-  teal: {
-    top:  "from-teal-500",
-    icon: "bg-teal-50 border-teal-100 text-teal-600",
-    dot:  "bg-teal-400",
-  },
-  sky: {
-    top:  "from-sky-500",
-    icon: "bg-sky-50 border-sky-100 text-sky-600",
-    dot:  "bg-sky-400",
-  },
-  amber: {
-    top:  "from-amber-500",
-    icon: "bg-amber-50 border-amber-100 text-amber-600",
-    dot:  "bg-amber-400",
-  },
-  violet: {
-    top:  "from-violet-500",
-    icon: "bg-violet-50 border-violet-100 text-violet-600",
-    dot:  "bg-violet-400",
-  },
-  rose: {
-    top:  "from-rose-500",
-    icon: "bg-rose-50 border-rose-100 text-rose-600",
-    dot:  "bg-rose-400",
-  },
-  slate: {
-    top:  "from-slate-500",
-    icon: "bg-slate-50 border-slate-200 text-slate-600",
-    dot:  "bg-slate-400",
-  },
-} as const;
-
 function Kpi({
   icon: Icon,
   title,
   value,
+  hint,
   loading,
-  color = "slate",
+  lead,
+  muted,
 }: {
   icon: any;
   title: string;
   value: string;
+  hint?: string;
   loading: boolean;
-  color?: keyof typeof KPI_PALETTE;
+  lead?: boolean;
+  muted?: boolean;
 }) {
-  const p = KPI_PALETTE[color];
   return (
-    <div className="relative overflow-hidden bg-white rounded-2xl border border-slate-200 shadow-sm pt-5 pb-4 px-4">
-      {/* Top accent line */}
-      <div className={`absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r ${p.top} to-transparent`} />
-      {/* Dot-grid texture */}
-      <div className="pointer-events-none absolute right-0 bottom-0 h-full w-full opacity-[0.03]" style={{ backgroundImage: "radial-gradient(circle, #334155 1px, transparent 1px)", backgroundSize: "14px 14px" }} />
-
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`inline-flex items-center justify-center h-8 w-8 rounded-xl border flex-shrink-0 ${p.icon}`}>
-          <Icon className="h-4 w-4" aria-hidden />
-        </span>
-        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-tight">{title}</span>
+    <div className="min-w-0 bg-white px-4 py-4">
+      <div className="flex items-center gap-1.5">
+        <Icon className={`h-3.5 w-3.5 shrink-0 ${lead ? "text-[#02665e]" : "text-slate-400"}`} aria-hidden />
+        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{title}</span>
       </div>
-
-      <div className="text-xl font-black text-slate-900 leading-none">
+      <div className={`mt-2 truncate font-bold tabular-nums leading-tight ${muted ? "text-sm text-slate-400" : lead ? "text-xl text-slate-900" : "text-xl text-slate-900"}`}>
         {loading ? <Skeleton widthClass="w-20" /> : value}
       </div>
-
-      {/* Bottom accent dot */}
-      <span className={`absolute bottom-3 right-3 h-1.5 w-1.5 rounded-full opacity-40 ${p.dot}`} aria-hidden />
+      {hint ? <div className="mt-1 truncate text-[11px] text-slate-500">{hint}</div> : null}
     </div>
   );
 }
 
+/** "2026-10-07" -> "07 Oct"; weeks and months pass through unchanged. */
+function shortDay(key: any): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key));
+  if (!m) return String(key);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${m[3]} ${months[Number(m[2]) - 1] ?? ""}`;
+}
+
+function statusLabel(s: any): string {
+  const v = String(s ?? "").toUpperCase();
+  if (v === "CANCELED" || v === "CANCELLED") return "Cancelled";
+  if (v === "CHECKED_IN") return "Checked in";
+  if (v === "CHECKED_OUT") return "Checked out";
+  if (v === "CONFIRMED") return "Confirmed";
+  if (v === "NEW") return "Unpaid";
+  return v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " ");
+}
+
 function Skeleton({ widthClass }: { widthClass: string }) {
-  return <div className={"h-6 rounded-md bg-gray-200/70 animate-pulse " + widthClass} />;
+  return <div className={"h-6 rounded-md bg-slate-200/70 animate-pulse " + widthClass} />;
 }
 
 function fmt(n: number) {

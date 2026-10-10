@@ -9,6 +9,7 @@ import adminAuditsRouter from "./admin.audits";
 import { router as adminEmail } from "./admin.auth.email";
 import adminBonusesRouter from "./admin.bonuses";
 import adminBookingsRouter from "./admin.bookings";
+import adminGuestCodeRequestsRouter from "./admin.guestCodeRequests.js";
 import adminCancellationsRouter from "./admin.cancellations";
 import adminCareersApplicationsRouter from "./admin.careers.applications";
 import adminCareersStatsRouter from "./admin.careers.stats";
@@ -61,6 +62,7 @@ import adminNrmsSupportRouter from "./admin.nrms.support.js";
 import adminNrmsSystemRouter from "./admin.nrms.system.js";
 import adminNrmsChannelsRouter from "./admin.nrms.channels.js";
 import adminNrmsMessagingRouter from "./admin.nrms.messaging.js";
+import adminKaribuRouter from "./admin.karibu.js";
 import adminFxRouter from "./admin.fx";
 import adminSettingsRouter from "./admin.settings";
 import adminServiceAvailabilityRouter from "./admin.service-availability";
@@ -84,8 +86,11 @@ export function registerAdminGuards(app: Express): void {
 }
 
 export function registerAdminPrimaryRoutes(app: Express): void {
+  app.use("/admin/karibu", adminKaribuRouter);
+  app.use("/api/admin/karibu", adminKaribuRouter as RequestHandler);
   app.use("/admin/bookings", adminBookingsRouter);
   app.use("/api/admin/bookings", adminBookingsRouter as RequestHandler);
+  app.use("/api/admin/guest-code-requests", adminGuestCodeRequestsRouter as RequestHandler);
   app.use("/admin/invoices", adminInvoicesRouter);
   app.use("/api/admin/invoices", adminInvoicesRouter as RequestHandler);
   app.use("/admin/revenue", adminRevenueRouter);

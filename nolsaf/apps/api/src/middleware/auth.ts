@@ -19,6 +19,7 @@ interface JwtTokenPayload {
   sid?: string;
   /** Set on short-lived admin support tokens issued by the impersonate endpoints. */
   imp?: boolean;
+  act?: number;
   /** Admin MFA method. ADMIN tokens without this claim are rejected. */
   amr?: string;
 }
@@ -38,6 +39,7 @@ export interface AuthedUser {
   nrmsFinanceRole?: string;
   /** True when this session comes from an admin impersonation token. */
   imp?: boolean;
+  impersonatorId?: number;
   /** Exact revocable server-side session backing this token. */
   sessionId?: string;
 }
@@ -46,6 +48,53 @@ export interface AuthedRequest extends Request {
   user?: AuthedUser;
   sessionId?: string;
 }
+
+function denySupportWrite(req: Request, res: Response, user: AuthedUser): boolean {
+  if (!user.imp || !["OWNER", "AGENT"].includes(user.role) || ["GET", "HEAD", "OPTIONS"].includes(req.method)) return false;
+  res.status(403).json({
+    error: "This action is not available during an admin support session",
+    code: "IMPERSONATION_FORBIDDEN",
+  });
+  return true;
+}
+
+function isSensitiveSupportRead(req: Request): boolean {
+  if (!["GET", "HEAD"].includes(req.method)) return false;
+  const path = String(req.path || "").toLowerCase();
+  return path === "/api/account/export"
+    || path.startsWith("/api/account/documents/")
+    || path.startsWith("/api/account/security/")
+    || (/^\/api\/(owner|agent-portal)\//.test(path)
+      && (/(?:\.pdf|\.csv|\.xlsx|\.zip)$/.test(path)
+        || /\/(?:export|download|pdf|document|manifest|voucher)(?:\/|$)/.test(path)));
+}
+
+function denySupportRead(req: Request, res: Response, user: AuthedUser): boolean {
+  if (!user.imp || !isSensitiveSupportRead(req)) return false;
+  res.status(403).json({
+    error: "This download is not available during an admin support session",
+    code: "IMPERSONATION_FORBIDDEN",
+  });
+  return true;
+}
+
+/** Keep support sessions read-only even on routes with custom auth. */
+export const ownerSupportReadOnly: RequestHandler = async (req, res, next) => {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method) && !isSensitiveSupportRead(req)) return next();
+  if (req.path === "/api/auth/impersonation/end" || req.path === "/api/auth/logout") return next();
+  const token = getTokenFromRequest(req);
+  if (!token) return next();
+  const claims = jwt.decode(token) as JwtTokenPayload | null;
+  if (claims?.imp !== true) return next();
+  try {
+    const user = await verifyToken(token);
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+    if (denySupportWrite(req, res, user) || denySupportRead(req, res, user)) return;
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+};
 
 /**
  * Mark a response as personalized so it is never stored by a shared cache
@@ -82,7 +131,7 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
   return out;
 }
 
-function getTokenFromRequest(req: Request): string | null {
+export function getTokenFromRequest(req: Request): string | null {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) return authHeader.substring(7);
   const cookies = parseCookies(req.headers.cookie);
@@ -97,7 +146,7 @@ function getTokenFromRequest(req: Request): string | null {
 }
 
 // Verify JWT token and extract user info
-async function verifyToken(token: string): Promise<AuthedUser | null> {
+export async function verifyToken(token: string): Promise<AuthedUser | null> {
   try {
     const secret =
       process.env.JWT_SECRET ||
@@ -246,6 +295,8 @@ async function verifyToken(token: string): Promise<AuthedUser | null> {
       nrmsFinanceRole: (user as any).nrmsFinanceRole || "NONE",
       sessionId,
       ...(decoded.imp === true ? { imp: true } : {}),
+      ...(decoded.imp === true && Number.isInteger(decoded.act) && Number(decoded.act) > 0
+        ? { impersonatorId: Number(decoded.act) } : {}),
     };
     return authedUser;
   } catch (err) {
@@ -287,6 +338,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
         (req as AuthedRequest).user = user;
         (req as AuthedRequest).sessionId = user.sessionId;
         markPrivateNoStore(res);
+        if (denySupportWrite(req, res, user) || denySupportRead(req, res, user)) return;
         try {
           touchActiveUser(user.id, user.role);
         } catch {}
@@ -375,6 +427,8 @@ export function requireRole(required?: Role) {
     if (required && (req as AuthedRequest).user!.role !== required) {
       return res.status(403).json({ error: "Forbidden" });
     }
+
+    if (denySupportWrite(req, res, (req as AuthedRequest).user!) || denySupportRead(req, res, (req as AuthedRequest).user!)) return;
 
     // User is authenticated and authorized — never let a shared cache store this.
     markPrivateNoStore(res);

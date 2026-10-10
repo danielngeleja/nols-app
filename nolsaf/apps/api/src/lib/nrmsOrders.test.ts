@@ -48,6 +48,22 @@ describe("NRMS physical service transition", () => {
 });
 
 describe("NRMS outlet order folio transition", () => {
+  it("settles a served Karibu gift to NoLSAF and creates a property payable without touching the guest folio", async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const payableUpdate = vi.fn().mockResolvedValue({});
+    const chargeCreate = vi.fn();
+    const tx = {
+      nrmsOutletOrder: { findUnique: vi.fn().mockResolvedValue(servingOrder({ settlementMode: "NOLSAF_KARIBU", total: 2_500 })), update },
+      karibuGesture: { findUnique: vi.fn().mockResolvedValue({ id: 17, status: "ORDERED" }), update: payableUpdate },
+      reservationCharge: { create: chargeCreate },
+    };
+    await expect(advanceNrmsOutletOrder(tx, { orderId: 5, actorId: 12 })).resolves.toEqual({ status: "SETTLED", folioChargeId: null });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ settlementMethod: "NOLSAF", status: "SETTLED" }) }));
+    expect(payableUpdate).toHaveBeenCalledWith({ where: { id: 17 }, data: expect.objectContaining({ status: "SERVED", payableStatus: "DUE" }) });
+    expect(chargeCreate).not.toHaveBeenCalled();
+    expect(fiscalise).toHaveBeenCalledWith(tx, expect.objectContaining({ sourceType: "OUTLET_SALE", sourceId: 5, grossAmount: 2_500 }));
+  });
+
   it("posts the charge and links the folio in one atomic nested write", async () => {
     const orderUpdate = vi.fn().mockResolvedValue({ folioCharge: { id: 44, reservationId: 9, category: "RESTAURANT", description: "Order", amount: 25_000, currency: "TZS" } });
     const tx = {

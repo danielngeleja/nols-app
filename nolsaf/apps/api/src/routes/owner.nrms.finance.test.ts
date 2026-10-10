@@ -181,26 +181,34 @@ describe("NRMS finance access boundaries", () => {
   });
 
   it("refuses to close the current or a future operating date before taking the audit lock", async () => {
-    mocks.loadNrmsPropertyAccess.mockResolvedValue({
-      role: "MANAGER",
-      actorId: 23,
-      ownerId: 12,
-      property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
-    });
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-    const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + 86_400_000));
+    // Keep this check before the 20:00 EAT boundary: after it, today's
+    // business date is legitimately eligible for Night Audit.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-14T07:00:00Z"));
+    try {
+      mocks.loadNrmsPropertyAccess.mockResolvedValue({
+        role: "MANAGER",
+        actorId: 23,
+        ownerId: 12,
+        property: { id: 91, ownerId: 12, title: "Hotel", status: "APPROVED", currency: "TZS", nrmsActivatedAt: new Date() },
+      });
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + 86_400_000));
 
-    for (const businessDate of [today, tomorrow]) {
-      const response = await request(app)
-        .post("/api/owner/nrms/finance/property/91/night-audit/close")
-        .send({ businessDate });
+      for (const businessDate of [today, tomorrow]) {
+        const response = await request(app)
+          .post("/api/owner/nrms/finance/property/91/night-audit/close")
+          .send({ businessDate });
 
-      expect(response.status).toBe(409);
-      expect(response.body.code).toBe("NIGHT_AUDIT_NOT_YET_AVAILABLE");
-      expect(response.body.latestClosableDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(response.status).toBe(409);
+        expect(response.body.code).toBe("NIGHT_AUDIT_NOT_YET_AVAILABLE");
+        expect(response.body.latestClosableDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      expect(mocks.transaction).not.toHaveBeenCalled();
+      expect(mocks.lockPropertyInventory).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
     }
-    expect(mocks.transaction).not.toHaveBeenCalled();
-    expect(mocks.lockPropertyInventory).not.toHaveBeenCalled();
   });
 
   it("does not create a historical business day just because Night Audit was requested", async () => {

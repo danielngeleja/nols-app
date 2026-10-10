@@ -224,6 +224,7 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
               const tipRecorded = Boolean(order.tipAmount);
               const tipSuggested = order.tipIntent === "INTERESTED" && Boolean(order.tipSuggestedAmount);
               const canManageTip = ["SETTLED", "POSTED_TO_FOLIO"].includes(order.status)
+                && order.settlementMode !== "NOLSAF_KARIBU"
                 && role !== "FRONT_DESK"
                 && !(order.reservationSettled && !tipRecorded);
               const tipButtonLabel = tipRecorded || order.paymentAmountReceived != null
@@ -252,7 +253,7 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
                   <div className="min-w-0 rounded-lg bg-neutral-50 px-2.5 py-2 lg:bg-transparent lg:p-0">
                     <span className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-neutral-400 lg:hidden">Payment</span>
                     <p className="m-0 whitespace-nowrap text-sm font-bold tabular-nums text-neutral-900">{money(order.total, order.currency)}</p>
-                    <p className="mb-0 mt-1 text-[11px] font-semibold text-neutral-600">{order.settlementMode === "OUTLET_PAYMENT" ? `Paid at outlet · ${tenderLabel(order.settlementMethod)}` : "Posted to room folio"}</p>
+                    <p className="mb-0 mt-1 text-[11px] font-semibold text-neutral-600">{order.settlementMode === "NOLSAF_KARIBU" ? "Karibu gift · paid by NoLSAF" : order.settlementMode === "OUTLET_PAYMENT" ? `Paid at outlet · ${tenderLabel(order.settlementMethod)}` : "Posted to room folio"}</p>
                     {order.paymentAmountReceived != null && <p className="mb-0 mt-1 text-[10px] text-neutral-500">Received {money(order.paymentAmountReceived, order.currency)}{order.paymentAmountReceived > order.total + (order.tipAmount ?? 0) ? ` · Change ${money(order.paymentAmountReceived - order.total - (order.tipAmount ?? 0), order.currency)}` : ""}</p>}
                     {order.settledBy && <p className="mb-0 mt-1 text-[10px] text-neutral-400">Recorded by {attendantName(order.settledBy)}</p>}
                   </div>
@@ -269,7 +270,9 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
 
                   <div className="min-w-0">
                     <span className="mb-1 block text-[9px] font-bold uppercase tracking-wider text-neutral-400 lg:hidden">Tip record</span>
-                    {tipRecorded ? (
+                    {order.settlementMode === "NOLSAF_KARIBU" ? (
+                      <p className="m-0 text-[11px] font-medium text-neutral-500">Not applicable to Karibu gifts</p>
+                    ) : tipRecorded ? (
                       <>
                         <p className="m-0 text-xs font-bold text-emerald-800">Collected {money(order.tipAmount!, order.currency)}</p>
                         <p className="mb-0 mt-1 text-[10px] leading-4 text-neutral-500">For {attendantName(order.tipRecipient)}{order.tipMethod ? ` · ${tenderLabel(order.tipMethod)}` : ""}</p>
@@ -290,7 +293,7 @@ export default function OrderHistoryPanel({ propertyId, scope }: { propertyId: n
                   <div className="flex min-w-0 flex-col items-end gap-2">
                     <span className="mb-[-2px] block text-[9px] font-bold uppercase tracking-wider text-neutral-400 lg:hidden">Status and actions</span>
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${STATUS_STYLE[order.status] ?? "bg-neutral-100 text-neutral-600"}`}>{order.status.replaceAll("_", " ")}</span>
-                    {(order.status === "POSTED_TO_FOLIO" || order.status === "SETTLED") && role !== "FRONT_DESK" && <button type="button" onClick={() => setReasonOrderId(order.id)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">Void order</button>}
+                    {(order.status === "POSTED_TO_FOLIO" || order.status === "SETTLED") && order.settlementMode !== "NOLSAF_KARIBU" && role !== "FRONT_DESK" && <button type="button" onClick={() => setReasonOrderId(order.id)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-neutral-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700">Void order</button>}
                   </div>
                 </article>
               );

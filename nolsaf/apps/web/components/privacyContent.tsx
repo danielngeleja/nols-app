@@ -2,7 +2,7 @@
 
 import { TermsSection } from "./Terms";
 
-export const PRIVACY_LAST_UPDATED = "28 June 2026";
+export const PRIVACY_LAST_UPDATED = "10 October 2026";
 
 export const PRIVACY_SECTIONS: TermsSection[] = [
   {
@@ -12,7 +12,7 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Summary</h3>
           <p className="text-sm text-gray-700 leading-relaxed">
-            NoLSAF is committed to protecting your privacy and personal information. This Privacy Policy explains how we collect, use, store, and protect your data when you use our platform to book accommodations, request transport, make payments, register or onboard, arrange group stays, book tour packages, use trip planning tools, or provide services as an owner, driver, or tour operator. We collect information necessary to provide these services, including account details, booking information, payment data, location and route information, group passenger details, tour permit information, and sensitive travel compliance documents where required. We use this data to facilitate bookings, process payments, verify identities, arrange services, process permits, improve our services, and communicate with you. We implement strong security measures to protect your information and only share data with trusted service providers, verified service partners, relevant authorities where required, and as required by law. You have rights to access, update, or delete your personal information at any time, subject to legal and operational retention requirements.
+            NoLSAF is committed to protecting your privacy and personal information. This Privacy Policy explains how we collect, use, store, and protect your data when you use our platform to book accommodations, request transport, make payments, register or onboard, arrange group stays, book tour packages, use trip planning tools, set optional Karibu NoLSAF welcome preferences, or provide services as an owner, driver, or tour operator. We collect information necessary to provide these services, including account details, booking information, payment data, location and route information, group passenger details, optional welcome preferences and feedback, tour permit information, and sensitive travel compliance documents where required. We use this data to facilitate bookings, process payments, verify identities, arrange services, process permits, improve our services, and communicate with you. We protect access to your account data, including by verifying self-service data downloads through a code sent to a verified contact. We share data with service providers, verified service partners, and authorities only as described below or as required by law. You have rights to access, update, or request deletion of your personal information, subject to legal and operational retention requirements. NoLSAF is operated by NoLS Africa Company Limited, a data controller registered with the Personal Data Protection Commission under the Personal Data Protection Act, No. 11 of 2022 (Registration No. 0-000-011-671).
           </p>
         </div>
 
@@ -23,12 +23,21 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
 
         <p>
           <strong>1.1 Scope</strong><br />
-          This Privacy Policy applies to all personal information collected by NoLSAF through our Services, including but not limited to information provided during account registration, onboarding, property listings, accommodation bookings, transport requests, group stays, tour package bookings, permit processing, trip estimates, payment processing, customer support interactions, and use of our website and mobile applications.
+          This Privacy Policy applies to all personal information collected by NoLSAF through our Services, including but not limited to information provided during account registration, onboarding, property listings, accommodation bookings, transport requests, group stays, tour package bookings, permit processing, trip estimates, payment processing, Karibu NoLSAF preferences and welcomes, account data copy requests, customer support interactions, and use of our website and mobile applications.
         </p>
 
         <p>
           <strong>1.2 Consent</strong><br />
           By accessing or using our Services, you acknowledge that you have read, understood, and agree to be bound by this Privacy Policy. If you do not agree with any part of this policy, please do not use our Services. Your continued use of our Services after any changes to this policy constitutes your acceptance of those changes.
+        </p>
+
+        <p>
+          <strong>1.3 Data Controller and Registration</strong><br />
+          1.3.1 The Services are operated by NoLS Africa Company Limited, a company incorporated in the United Republic of Tanzania, of P.O. Box 16106, Dar es Salaam (&quot;NoLS Africa&quot;). For the purposes of the Personal Data Protection Act, No. 11 of 2022 (the &quot;Act&quot;) and its regulations, NoLS Africa is the data controller responsible for the personal data processed through the Services, save where this Privacy Policy states that another party acts as an independent controller.<br />
+          1.3.2 NoLS Africa is registered as a data controller with the Personal Data Protection Commission (the &quot;Commission&quot;) in accordance with the Act. Registration Number: 0-000-011-671. Date of registration: 31 August 2026. Registration valid until: 31 August 2031.<br />
+          1.3.3 NoLS Africa processes personal data in accordance with the Act, the regulations made under it and the conditions of its registration, including the principles that personal data is processed lawfully, fairly and transparently, collected for specified and lawful purposes, limited to what is necessary, kept accurate, retained no longer than necessary and protected by appropriate security safeguards.<br />
+          1.3.4 Registration with the Commission confirms that NoLS Africa is recorded as a data controller. It is not a certification or endorsement by the Commission of any particular service or practice described in this Privacy Policy.<br />
+          1.3.5 Where a property Owner, Driver, tour operator or other service partner receives your personal data to deliver a service you have booked, that partner may also act as a data controller in its own right and is responsible for its own compliance with the Act.
         </p>
 
         <p>
@@ -44,7 +53,7 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           a. Full name<br />
           b. Email address<br />
           c. Phone number (including country code)<br />
-          d. Password (stored securely using encryption)<br />
+          d. Password (stored as a one-way hash, not in readable form)<br />
           e. Role selection (User/Traveller, Owner, or Driver)<br />
           f. Profile photo or avatar (optional)<br />
           g. Referral code or inviter details where you register through an invite link<br />
@@ -143,6 +152,17 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           c. Messages sent through our platform<br />
           d. Newsletter subscription preferences<br />
           <em>Example: If you contact our support team about a booking issue, we keep a record of that conversation to help resolve your concern and improve our services.</em>
+        </p>
+
+        <p>
+          <strong>2.1.11 Karibu NoLSAF Preferences and Welcome Records</strong><br />
+          If you choose to set Karibu NoLSAF preferences, we collect the drink categories you enjoy, dietary needs or allergies you select, an optional dietary note, whether you want us to celebrate special days, and whether you want those preferences shared with the property during your stay. If you opt in to birthday recognition, we ask for your own birthday day and month only; we do not ask for the year in this feature. We also keep a record of welcomes actually issued for your linked bookings, their preparation and service status, and any delivery confirmation, rating, or note you submit after service. These choices are optional and start off. A saved preference or milestone does not guarantee a gift.<br />
+          <em>Example: If you tell us you have a nut allergy, our team can take that into account when selecting a welcome drink. If you turn on property sharing, staff at the property where you are checked in can also see a short note about the drinks and dietary needs you chose to share.</em>
+        </p>
+
+        <p>
+          <strong>2.1.12 Account Data Copy Requests</strong><br />
+          When you request a copy of your account data, we ask which country you live in and let you optionally tell us why you want the copy. We record the requested format, verification method, request and download events, and security details needed to protect the process. The code is sent to an email address or phone number already verified on your account. The downloaded copy is delivered to your device; choosing a PDF uses your browser's print or save-as-PDF function.
         </p>
 
         <p>
@@ -284,6 +304,11 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         </p>
 
         <p>
+          <strong>3.7 Karibu NoLSAF and Your Choices</strong><br />
+          We use your optional welcome preferences to help NoLSAF choose a suitable gesture for an eligible stay, avoid an obvious conflict with a selected dietary need, and coordinate service with a participating property. We use the welcome and feedback record to show your journey, check whether a gesture reached you, resolve problems, and assess the pilot. Birthday recognition is considered only when you opt in and provide your own day and month; it is not an automatic birthday reward. We do not use your Karibu dietary or birthday preferences to send marketing messages. Notification choices for booking updates, promotions, and referrals are managed separately in your account security settings.
+        </p>
+
+        <p>
           <strong>4.0 Information Sharing and Disclosure</strong><br />
           We do not sell your personal information. We may share your information only in the following circumstances;
         </p>
@@ -314,6 +339,11 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         <p>
           <strong>4.2.1 Sensitive Tour and Health-Related Data</strong><br />
           Passport information, yellow fever certificates, vaccination proof, medical, dietary, mobility, accessibility, and emergency information are treated as sensitive information. We use this information only for the relevant tour package, permit processing, legal or authority requirement, safety support, emergency response, or operational arrangement. We do not use this information for marketing.
+        </p>
+
+        <p>
+          <strong>4.2.2 Karibu Welcome Preferences</strong><br />
+          Authorized NoLSAF staff can use your saved Karibu preferences when arranging a welcome. Property staff can see a short note about your chosen drink and dietary preferences for an active stay only if you turn on &quot;Share with the property&quot;. Turning it off stops that preference note from appearing in the in-house staff view. We do not include your birthday in that property note. A property serving an issued welcome receives the order details needed to prepare and deliver it. Your welcome preferences are not sold to advertisers or used for their marketing.
         </p>
 
         <p>
@@ -349,10 +379,10 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
 
         <p>
           <strong>5.1.1 Data Encryption</strong><br />
-          Encryption is fundamental to our security architecture, protecting your data both when it's being transmitted and when it's stored;<br />
-          a. <strong>Encryption in Transit:</strong> All data transmitted between your device and our servers is encrypted using Transport Layer Security (TLS) protocols, specifically TLS 1.2 or higher. This ensures that any information you send or receive cannot be intercepted or read by unauthorized parties during transmission. This applies to all interactions, including account login, booking submissions, payment processing, and data retrieval.<br />
-          b. <strong>Encryption at Rest:</strong> Sensitive personal information stored in our databases is encrypted using advanced encryption algorithms. This means that even if someone gains unauthorized access to our storage systems, they cannot read your personal data without the encryption keys, which are stored separately and managed under strict access controls.<br />
-          <em>Example: When you log into your account, your username and password are encrypted before being sent to our servers. Similarly, when we store your phone number or email address in our database, it's encrypted so that even our system administrators cannot view it in plain text without proper authorization.</em>
+          We protect information in transit and limit access to stored information according to its purpose;<br />
+          a. <strong>In transit:</strong> Our public web and API connections use Transport Layer Security (TLS) to protect account, booking, payment, and data-download traffic between your device and our services.<br />
+          b. <strong>In storage:</strong> Passwords are stored as one-way hashes, and certain security secrets use application-level encryption. Contact and booking details must remain available in readable form to authorized staff and service systems that need them to deliver your services. Access controls and other safeguards protect those records; we do not claim that every personal-data field is separately encrypted.<br />
+          <em>Example: An authorized support agent may need to read your verified email address to help with an account issue, but cannot retrieve your original password from its stored hash.</em>
         </p>
 
         <p>
@@ -370,7 +400,8 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           a. <strong>Multi-Factor Authentication (MFA):</strong> For sensitive operations and account access, we support multi-factor authentication, requiring additional verification beyond just a password. This may include one-time passwords (OTP) sent via SMS or email, or authenticator app codes.<br />
           b. <strong>Role-Based Access Control (RBAC):</strong> Our system implements role-based access controls, ensuring that employees and systems can only access information necessary for their specific functions. For example, customer support staff can view booking information but cannot access payment card details.<br />
           c. <strong>Session Management:</strong> We use secure session tokens that expire after periods of inactivity. You can view and manage your active sessions through your account settings, allowing you to revoke access from any device.<br />
-          d. <strong>API Security:</strong> All API endpoints are protected with authentication tokens and rate limiting to prevent unauthorized access and abuse.<br />
+          d. <strong>API Security:</strong> Account and other protected API endpoints use authentication and relevant rate limits to reduce unauthorized access and abuse.<br />
+          e. <strong>Account Data Downloads:</strong> A signed-in customer must enter a six-digit code sent to an already verified email address or phone number before a data copy is released. The code expires after 10 minutes. A successful check gives a download authorization valid for 10 minutes and tied to that account. Three wrong codes lock account data downloads until NoLSAF support verifies the account holder and an authorized administrator unlocks them. We record requests, verification, downloads, and lock events for security. We attempt to alert the account's verified email, or its verified phone when email is unavailable, after a download; delivery of that alert depends on the communication provider. Do not share the code or leave a downloaded file on a shared device.<br />
           <em>Example: When you log in, our system creates a secure session token that identifies you for subsequent requests. This token expires if you're inactive for a certain period, requiring you to log in again. You can see all your active sessions in your account settings and sign out from any device remotely.</em>
         </p>
 
@@ -471,6 +502,11 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
         </p>
 
         <p>
+          <strong>6.7 Karibu Preferences, Welcomes, and Data Copy Records</strong><br />
+          You can change or clear your optional Karibu preferences in your account. Clearing them removes the saved preference record, including a birthday day and month supplied for this feature; it does not erase booking records or a welcome already issued or served. We keep welcome and feedback records for service, payment, dispute, and accounting purposes for as long as those purposes or applicable obligations require. We keep data-copy request, download, and security audit records as needed to investigate access and meet record-keeping duties. A PDF or JSON copy you save on your own device is under your control.
+        </p>
+
+        <p>
           <strong>7.0 Your Rights and Choices</strong><br />
           You have various rights regarding your personal information, which you can exercise at any time;
         </p>
@@ -481,7 +517,7 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           a. Access your personal information<br />
           b. Request a copy of your data in a portable format<br />
           c. Review the information we hold about you<br />
-          <em>Example: You can view and download all your account information, booking history, and payment records through your account dashboard.</em>
+          In Account &gt; Security &gt; Privacy and data, you can request a readable report to save as PDF or a machine-readable JSON copy. The self-service copy covers selected account-linked profile, stay, ride, tour, group stay, cancellation, review, saved stay, trip estimate, referral, notification choice, and Karibu preference and welcome records. Each record category is limited to its latest 1,000 entries. It does not contain passwords, complete payment card numbers, or every record that may exist outside this self-service view. For a broader access or portability request, or if you cannot use the download, contact us as described in section 7.7.
         </p>
 
         <p>
@@ -504,7 +540,8 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           a. Marketing communications (newsletters, promotional emails)<br />
           b. Non-essential cookies and tracking<br />
           c. Location tracking (for Drivers, this may affect service availability)<br />
-          <em>Example: You can unsubscribe from our newsletter by clicking the "unsubscribe" link at the bottom of any marketing email, or by updating your preferences in your account settings.</em>
+          d. Optional Karibu birthday recognition and property sharing of your welcome preferences<br />
+          <em>Example: You can change promotion messages in your notification settings, and turn off birthday recognition or property sharing in your Karibu preferences.</em>
         </p>
 
         <p>
@@ -514,7 +551,17 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
 
         <p>
           <strong>7.6 Data Portability</strong><br />
-          You can request a copy of your data in a machine-readable format to transfer it to another service provider.
+          You can request the self-service JSON copy described in section 7.1 to move account-linked data to another service. Before downloading, you select your country of residence and may optionally give a reason; then you confirm a code sent to a verified account contact. A request reason is not required to exercise your access or portability rights. You can contact us under section 7.7 if you need data outside the self-service copy.
+        </p>
+
+        <p>
+          <strong>7.7 How to Exercise Your Rights</strong><br />
+          You may exercise any of the rights described in this section, and any other right available to you under the Act, by writing to <a href="mailto:privacy@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">privacy@nolsaf.com</a> or to the postal address in section 12.0. To protect your information, we may ask you to verify your identity before acting on a request. We will respond within the period required by the Act. Where we are unable to comply with a request, in whole or in part, we will explain the reason, including any legal ground on which we rely.
+        </p>
+
+        <p>
+          <strong>7.8 Right to Lodge a Complaint</strong><br />
+          If you believe that we have processed your personal data in a manner that does not comply with the Act, we encourage you to contact us first so that we can try to resolve the matter. You also have the right to lodge a complaint with the Personal Data Protection Commission of the United Republic of Tanzania at any time. Exercising this right does not affect any other remedy available to you under the law.
         </p>
 
         <p>
@@ -524,7 +571,10 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
 
         <p>
           <strong>9.0 International Data Transfers</strong><br />
-          Your information may be transferred to and processed in countries other than your country of residence. These countries may have different data protection laws. When we transfer your information internationally, we ensure appropriate safeguards are in place to protect your data in accordance with this Privacy Policy and applicable laws.
+          9.1 To operate the Services, personal data may be stored or processed outside the United Republic of Tanzania. In particular, our platform is hosted with cloud infrastructure providers whose data centres may be located in other countries, including within the European Union, and some of our service providers (for example, for email, SMS delivery, payments, maps and security monitoring) may process personal data in the countries where they operate.<br />
+          9.2 Any transfer of personal data outside the United Republic of Tanzania is carried out in accordance with the requirements of the Act and its regulations on cross-border transfers. We transfer personal data only where the recipient country or the recipient provides an adequate level of protection, or where appropriate safeguards are in place, such as contractual obligations requiring the recipient to protect the data to a standard consistent with the Act, together with technical and organisational measures including encryption in transit and at rest and restricted access controls.<br />
+          9.3 Where personal data is transferred to a property Owner, Driver, tour operator or other service partner located outside the United Republic of Tanzania, the transfer is made because it is necessary to perform the service you have booked, or with your consent.<br />
+          9.4 You may contact us at the address in section 12.0 to request further information about the safeguards that apply to transfers of your personal data.
         </p>
 
         <p>
@@ -546,7 +596,9 @@ export const PRIVACY_SECTIONS: TermsSection[] = [
           If you have questions, concerns, or requests regarding this Privacy Policy or our data practices, please contact us;<br />
           <strong>Email:</strong> <a href="mailto:privacy@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">privacy@nolsaf.com</a><br />
           <strong>Support Email:</strong> <a href="mailto:support@nolsaf.com" className="text-blue-600 hover:text-blue-800 underline">support@nolsaf.com</a><br />
-          <strong>Address:</strong> NoLSAF, East Africa<br />
+          <strong>Data controller:</strong> NoLS Africa Company Limited (trading as NoLSAF)<br />
+          <strong>Address:</strong> P.O. Box 16106, Dar es Salaam, United Republic of Tanzania<br />
+          <strong>Data protection registration:</strong> Personal Data Protection Commission, Registration No. 0-000-011-671<br />
           We will respond to your inquiries within a reasonable timeframe and in accordance with applicable laws.
         </p>
 

@@ -1,4 +1,6 @@
-﻿/* v2 */
+/* v2 */
+@reference './globals.css';
+
 .add-property-view {
   /* This page is rendered inside `OwnerLayout`'s max-w-6xl frame.
      Avoid adding extra global padding/max-width here so it aligns with `LayoutFrame`.

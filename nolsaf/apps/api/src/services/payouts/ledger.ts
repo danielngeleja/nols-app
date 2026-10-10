@@ -21,6 +21,9 @@ import { prisma } from "@nolsaf/prisma";
 import type { Disbursement, Prisma } from "@prisma/client";
 import { loadEligiblePayoutSource, type PayoutSourceType } from "./eligibility.js";
 import { computeApprovalFingerprint } from "./fingerprint.js";
+import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
+import { customerBookingReference } from "../../lib/customerBookingReference.js";
+import { payoutReleaseEnabled } from "./release.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
@@ -126,10 +129,11 @@ export function ownerDisbursementReceiptNumber(invoiceId: number, paidAt: Date):
 export async function divertToSecurityReview(disbursementId: number, reason: string): Promise<void> {
   const message = truncateReason(reason);
   await prisma.$transaction(async (tx) => {
-    await tx.disbursement.update({
-      where: { id: disbursementId },
+    const moved = await tx.disbursement.updateMany({
+      where: { id: disbursementId, status: "AUTHORIZED", pgReferenceId: null },
       data: { status: "SECURITY_REVIEW", securityReviewReason: message },
     });
+    if (moved.count !== 1) return;
     await tx.disbursementEvent.create({
       data: {
         disbursementId,
@@ -408,6 +412,37 @@ export async function approveDisbursement(disbursementId: number, approvedById: 
 }
 
 /**
+ * REQUESTED -> APPROVED by the AUTO lane (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md).
+ * Same fingerprint lock as approveDisbursement, but with no approving admin:
+ * approvedById stays null and releaseLane is AUTO, which keeps the payout out
+ * of human batches (their authorization refuses unattributed approvals) and
+ * routes it to the system's AUTO batches instead. Only callers that have
+ * already passed the AUTO-lane rules may use this.
+ */
+export async function approveDisbursementAutomatically(disbursementId: number): Promise<Disbursement> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.disbursement.findUnique({ where: { id: disbursementId }, include: { payoutAccount: true } });
+    if (!current) throw new PayoutStateError(`Disbursement ${disbursementId} not found`);
+    if (current.status !== "REQUESTED") {
+      throw new PayoutStateError(`Disbursement ${disbursementId} is ${current.status}, expected REQUESTED`);
+    }
+    const approvalFingerprint = computeApprovalFingerprint(current, current.payoutAccount);
+    const updated = await tx.disbursement.update({
+      where: { id: disbursementId },
+      data: { status: "APPROVED", approvedById: null, approvedAt: new Date(), approvalFingerprint, releaseLane: "AUTO" },
+    });
+    await writeAudit(tx, {
+      actorId: null,
+      action: "DISBURSEMENT_APPROVED_AUTO",
+      disbursementId,
+      beforeJson: { status: current.status },
+      afterJson: { status: updated.status, releaseLane: "AUTO" },
+    });
+    return updated;
+  });
+}
+
+/**
  * AUTHORIZED -> PROCESSING. Calls AzamPay. A successful response is NOT a
  * paid state — only applyProviderEvent() can move this to PAID.
  *
@@ -456,6 +491,38 @@ export async function submitToAzamPay(disbursementId: number): Promise<Disbursem
     throw new PayoutStateError(
       `Disbursement ${disbursementId} failed its approval fingerprint check at submission; diverted to SECURITY_REVIEW`
     );
+  }
+
+  // A dispute can arrive after the owner confirms the withdrawal or after a
+  // batch is authorized. Recheck the booking at the final provider boundary.
+  // Older claims have no release, but still stop on an open cancellation.
+  if (disbursement.sourceType === "OWNER_INVOICE") {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: disbursement.sourceId }, select: { bookingId: true },
+    });
+    if (!invoice?.bookingId) {
+      await divertToSecurityReview(disbursementId, "Owner payout has no booking to verify before provider submission");
+      throw new PayoutStateError(`Disbursement ${disbursementId} has no verifiable booking`);
+    }
+    const [booking, cancellation, release] = await Promise.all([
+      prisma.booking.findUnique({ where: { id: invoice.bookingId }, select: {
+        status: true, code: { select: { status: true, usedAt: true, usedByOwner: true } },
+      } }),
+      prisma.cancellationRequest.findFirst({
+        where: { bookingId: invoice.bookingId, status: { in: ["SUBMITTED", "REVIEWING", "NEED_INFO", "APPROVED", "REFUND_PENDING", "REFUNDED"] } },
+        select: { id: true },
+      }),
+      payoutReleaseEnabled()
+        ? prisma.payoutRelease.findUnique({ where: { sourceType_sourceId: { sourceType: "OWNER_INVOICE", sourceId: disbursement.sourceId } }, select: { status: true } })
+        : Promise.resolve(null),
+    ]);
+    const alertAccepted = release ? await guestCheckInAlertAccepted(invoice.bookingId) : true;
+    if (!booking || !["CHECKED_IN", "CHECKED_OUT"].includes(String(booking.status).toUpperCase()) ||
+        booking.code?.status !== "USED" || !booking.code.usedAt || booking.code.usedByOwner !== true || cancellation ||
+        (release && (release.status !== "RELEASED" || !alertAccepted))) {
+      await divertToSecurityReview(disbursementId, "Booking, dispute, release or guest alert changed before owner payout submission");
+      throw new PayoutStateError(`Disbursement ${disbursementId} was diverted to SECURITY_REVIEW before provider submission`);
+    }
   }
 
   assertWithinAmountCeiling(disbursement.amount);
@@ -730,7 +797,7 @@ async function writeBackSourcePaid(
             ownerName,
             ownerEmail: invoice.owner.email,
             bookingId: invoice.bookingId,
-            bookingCode: invoice.booking.code?.codeVisible ?? null,
+            bookingCode: customerBookingReference(invoice.bookingId),
             propertyName: invoice.booking.property?.title || "Property",
             checkIn: invoice.booking.checkIn.toISOString(),
             checkOut: invoice.booking.checkOut.toISOString(),
@@ -992,9 +1059,10 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
 
   let attachments: Array<{ filename: string; content: Buffer }> | undefined;
   try {
-    const qrPng = invoice.receiptQrPng
-      ? Buffer.from(invoice.receiptQrPng)
-      : await QRCode.toBuffer(invoice.receiptQrPayload, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+    // Drawn fresh from the signed verification link: the stored image column
+    // is written by several paths (one stores a data-URL string, not PNG
+    // bytes), and the PDF silently drops a QR it cannot read.
+    const qrPng = await QRCode.toBuffer(invoice.receiptQrPayload, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
     if (!invoice.receiptQrPng) {
       await prisma.invoice.updateMany({
         where: { id: invoice.id, receiptQrPng: null },
@@ -1007,7 +1075,7 @@ async function notifyOwnerDisbursementPaid(disbursement: Disbursement): Promise<
       receiptNumber: snapshot.receiptNumber,
       invoiceNumber,
       bookingId: snapshot.bookingId,
-      bookingCode: snapshot.bookingCode,
+      bookingCode: customerBookingReference(snapshot.bookingId),
       propertyName,
       checkIn: snapshot.checkIn,
       checkOut: snapshot.checkOut,

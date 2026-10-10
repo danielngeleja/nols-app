@@ -6,6 +6,14 @@ import { prisma } from "@nolsaf/prisma";
 export async function notifyAdmins(template: string, data: any) {
   try {
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      booking_guest_code_overdue: {
+        title: "Guest code request still waiting",
+        body: `A guest check-in code request for booking ${data.bookingReference || ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} has waited ${data.minutesOpen || 30} minutes. The guest may be at the desk now. Handle it under Bookings, guest code requests.`
+      },
+      booking_guest_code_review: {
+        title: "Guest check-in code needs checking",
+        body: `An owner asked NoLSAF to resend the guest check-in code for booking ${data.bookingReference || ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} (${data.reason || "needs checking"}). Handle it under Bookings, guest code requests.`
+      },
       careers_application_submitted: {
         title: "New Career Application",
         body: `A new application was submitted${data.jobTitle ? ` for "${data.jobTitle}"` : ""}${data.fullName ? ` by ${data.fullName}` : ""}${data.email ? ` (${data.email})` : ""}.`
@@ -65,6 +73,10 @@ export async function notifyAdmins(template: string, data: any) {
         body: `${data.operatorName ? `${data.operatorName} ` : "An operator "}submitted a payout claim for booking ${data.bookingCode || `#${data.tourBookingId}`}. Review it in the tour revenue dashboard.`
       },
 
+      owner_payout_recovery_overdue: {
+        title: "Owner recovery overdue",
+        body: `${data.amountText || "An amount"} owed by owner #${data.ownerId} (recovery #${data.recoveryId}, booking #${data.bookingId}) was not covered by payouts within 7 business days. The owner has been asked to repay. Review it in Disbursements, Recoveries.`
+      },
       owner_payout_claim_submitted: {
         title: "Owner Payout Invoice Submitted",
         body: `${data.ownerName ? `${data.ownerName} ` : "A property owner "}submitted invoice ${data.invoiceNumber || `#${data.invoiceId}`} for a payout claim${data.propertyTitle ? ` for "${data.propertyTitle}"` : data.bookingId ? ` on booking #${data.bookingId}` : ""}. Review it in the admin revenue dashboard.`
@@ -126,6 +138,19 @@ export async function notifyAdmins(template: string, data: any) {
         security_admin_ip_blocked: {
           title: "Admin access blocked by the IP allowlist",
           body: `A request to the admin area from ${data.ip || "an unknown address"} was refused because it is not on the IP allowlist.`
+        },
+        // A customer's own copy of their data: the alert never carries the data, only who, why and where to look.
+        data_export_legal: {
+          title: "Customer took their data for legal reasons",
+          body: `${data.customerName || "A customer"} downloaded a copy of their personal data and said they need it for legal reasons${data.otherReason ? ` ("${data.otherReason}")` : ""}. A formal request or claim may follow. Open their record, Karibu and data tab. Asking for their data is their right: treat them as usual.`
+        },
+        data_export_dispute: {
+          title: "Customer took their data for a dispute",
+          body: `${data.customerName || "A customer"} downloaded a copy of their personal data for a support or dispute matter${data.otherReason ? ` ("${data.otherReason}")` : ""}. Check for an open refund, cancellation or booking issue on their record and reach out first.`
+        },
+        security_data_export_locked: {
+          title: "Data downloads locked after wrong codes",
+          body: `Someone entered ${data.attempts || 3} wrong codes while asking for ${data.customerName || "a customer"}'s personal data, so data downloads on that account are locked. Confirm with the customer that it was them before unlocking it from their record, Karibu and data tab.`
         },
         payment_unmatched: {
           title: "Payment received but not matched",
@@ -201,6 +226,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
   try {
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
+      guest_code_request_resolved: {
+        title: "Guest check-in code resent",
+        body: `NoLSAF resent the check-in code to the guest for booking ${data.bookingReference || ""}${data.destinationMasked ? ` (${data.destinationMasked})` : ""}. Ask the guest to show it at the desk.`
+      },
+      guest_code_request_rejected: {
+        title: "Guest code request closed",
+        body: `NoLSAF did not resend the check-in code for booking ${data.bookingReference || ""}${data.note ? `: ${data.note}` : "."}`
+      },
       nrms_agent_booking_request: {
         title: "New agent booking request",
         body: `${data.agencyName || "A travel agent"} requested to book ${data.rooms || 1} room(s) at "${data.propertyTitle || "your property"}" (${data.checkIn || ""} to ${data.checkOut || ""}). Review it in Travel agents before the hold expires.`
@@ -228,6 +261,18 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       nrms_partnership_terminated: {
         title: "Accommodation partnership ended",
         body: `The partnership between "${data.propertyTitle || "your property"}" and ${data.agencyName || "the tour operator"} was terminated. New bookings and rate access are no longer available.${data.reason ? ` Reason: ${data.reason}` : ""}`
+      },
+      owner_payout_recovery_opened: {
+        title: "Amount to be recovered from your next payouts",
+        body: `You were already paid for a stay that later had ${data.reasonText || "a refund"}. Your share, ${data.amountText || "the amount"}, will be deducted from your next payouts and shown on your statement (Property Owner Disbursement Policy 6.3.3).`
+      },
+      owner_payout_recovery_repay: {
+        title: "Please repay an outstanding amount",
+        body: `${data.amountText || "An amount"} from an earlier refund has not been covered by your payouts within 7 business days. Please repay it or contact NoLSAF support to agree how it will be settled (Property Owner Disbursement Policy 6.3.3).`
+      },
+      owner_payout_unclaimed_reminder: {
+        title: "Your payout will be sent automatically",
+        body: `${data.amountText || "Your payout"} is ready to withdraw. If you do not withdraw it, NoLSAF will send it to ${data.destination || "your verified payout account"} automatically on ${data.sendOnText || "the scheduled date"}. You can withdraw it sooner from My Payouts.`
       },
       property_submitted: {
         title: "Property Submitted for Review",

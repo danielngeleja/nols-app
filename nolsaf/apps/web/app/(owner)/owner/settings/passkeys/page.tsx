@@ -1,16 +1,8 @@
 "use client"
 
-import React from "react"
-import PasskeysManager from "@/components/security/PasskeysManager"
+import SecurityPasskeys from "@/components/account-security/SecurityPasskeys"
+import { OWNER_SECURITY } from "@/components/account-security/securityData"
 
 export default function OwnerPasskeysPage() {
-  return (
-    <PasskeysManager
-      apiBasePath="/api/account/security/passkeys"
-      backHref="/owner/settings"
-      title="Passkeys"
-      description="Passwordless sign-in with biometrics or security keys."
-      containerClassName="public-container w-full"
-    />
-  )
+  return <SecurityPasskeys scope={OWNER_SECURITY} />
 }

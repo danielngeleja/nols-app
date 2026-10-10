@@ -78,6 +78,23 @@ export async function advanceNrmsOutletOrder(tx: any, input: { orderId: number; 
   await assertNrmsBusinessDayWritable(tx, order.propertyId);
 
   const now = new Date();
+  if (order.settlementMode === "NOLSAF_KARIBU") {
+    const gesture = await tx.karibuGesture.findUnique({ where: { orderId: order.id } });
+    if (!gesture || gesture.status !== "ORDERED" || order.reservation?.status !== "CHECKED_IN") {
+      throw new Error("NRMS_ORDER_INVALID_TRANSITION");
+    }
+    await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: {
+      status: "SETTLED", servedAt: now, settledAt: now, settlementMethod: "NOLSAF", settledById: input.actorId,
+    } });
+    await tx.karibuGesture.update({ where: { id: gesture.id }, data: {
+      status: "SERVED", servedAt: now, payableStatus: "DUE",
+    } });
+    await fiscaliseSettlement(tx, {
+      propertyId: order.propertyId, sourceType: "OUTLET_SALE", sourceId: order.id,
+      saleOccurredAt: now, currency: order.currency, grossAmount: amount(order.total),
+    });
+    return { status: "SETTLED", folioChargeId: null };
+  }
   if (order.settlementMode === "OUTLET_PAYMENT") {
     if (!input.settlementMethod) throw new Error("NRMS_ORDER_TENDER_REQUIRED");
     await tx.nrmsOutletOrder.update({ where: { id: order.id }, data: { status: "SETTLED", servedAt: now, settledAt: now, settlementMethod: input.settlementMethod, settledById: input.actorId } });

@@ -258,6 +258,21 @@ export async function assessDisbursementRisk(
 }
 
 /**
+ * Flags that, on their own, never need a person in the AUTO payout lane
+ * (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md): a payee's first payout to a
+ * destination they have used before is excluded elsewhere, and the hour a
+ * system approval happens says nothing about takeover.
+ */
+const AUTO_LANE_HARMLESS_FLAGS: ReadonlySet<RiskFlag> = new Set(["FIRST_PAYOUT_TO_BENEFICIARY", "AFTER_HOURS_APPROVAL"]);
+
+/** LOW, or MEDIUM where every flag is harmless. Anything else needs a person. */
+export function isAutoLaneRisk(assessment: RiskAssessment): boolean {
+  if (assessment.level === "LOW") return true;
+  if (assessment.level !== "MEDIUM") return false;
+  return assessment.flags.every((flag) => AUTO_LANE_HARMLESS_FLAGS.has(flag));
+}
+
+/**
  * Weights, not flag counts. Counting flags made "new partner approved in the
  * evening" (three weak signals) score the same as a genuine takeover, which
  * is the failure mode that fills the security queue with noise.

@@ -25,6 +25,8 @@ import {
   taskActionAllowed,
 } from "../lib/nrmsHousekeeping.js";
 import { sanitizeText } from "../lib/sanitize.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
+import { staffPreferenceNotesFor } from "../lib/karibuPreferences.js";
 import { sendMail } from "../lib/mailer.js";
 import { nrmsAssignmentNeedsConfirmation } from "../lib/nrmsStaffAssignment.js";
 import { nrmsStaffInviteEmail } from "../lib/nrmsStaffEmails.js";
@@ -175,6 +177,59 @@ function roleCanManage(access: Access): boolean {
 function roleCanCorrect(access: Access): boolean {
   return roleCanManage(access) || access.role === "OUTLET_SUPERVISOR";
 }
+
+/**
+ * The property's side of Karibu: what it agreed to (enrolment and drink prices)
+ * and what NoLSAF owes or has repaid. Totals are aggregates, the gift list is paged,
+ * and bookings are named by guest and opaque reference, never by row id.
+ */
+router.get("/property/:propertyId/karibu", (async (req: AuthedRequest, res: Response) => {
+  const access = await loadAccess(req, res, Number(req.params.propertyId));
+  if (!access) return;
+  if (!roleCanManage(access)) return res.status(403).json({ error: "Only the owner or manager can view Karibu" });
+  const propertyId = access.property.id;
+  const views: Record<string, any> = { due: { status: "SERVED", payableStatus: "DUE" }, serving: { status: "ORDERED" }, paid: { payableStatus: "PAID" }, all: { status: { not: "VOIDED" } } };
+  const view = views[String(req.query.view)] ? String(req.query.view) : "due";
+  const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+  const pageSize = 10;
+  const scoped = (where: any) => ({ propertyId, ...where });
+
+  const [config, options, due, paid, serving, all, rows, total] = await Promise.all([
+    db.karibuPropertyConfig.findUnique({ where: { propertyId }, select: { enabled: true, agreedAt: true } }),
+    db.karibuMenuOption.findMany({ where: { propertyId, enabled: true, alcoholic: false }, select: { menuItemId: true, partnerPrice: true }, orderBy: { id: "asc" } }),
+    db.karibuGesture.aggregate({ where: scoped(views.due), _sum: { partnerPrice: true }, _count: true }),
+    db.karibuGesture.aggregate({ where: scoped(views.paid), _sum: { partnerPrice: true }, _count: true }),
+    db.karibuGesture.count({ where: scoped(views.serving) }),
+    db.karibuGesture.count({ where: scoped(views.all) }),
+    db.karibuGesture.findMany({ where: scoped(views[view]), orderBy: { issuedAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize,
+      select: { id: true, bookingId: true, menuItemId: true, status: true, payableStatus: true, partnerPrice: true, currency: true, issuedAt: true, servedAt: true, paidAt: true, paymentReference: true,
+        order: { select: { orderNumber: true } } } }),
+    db.karibuGesture.count({ where: scoped(views[view]) }),
+  ]);
+  // A property that never joined sees nothing; one that left still sees its history.
+  if (!config?.enabled && all === 0) return res.json({ visible: false });
+
+  const itemIds = [...new Set<number>([...options.map((o: any) => o.menuItemId), ...rows.map((r: any) => r.menuItemId)])];
+  const [items, bookings] = await Promise.all([
+    itemIds.length ? db.nrmsMenuItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, name: true, price: true, inStock: true, status: true, outlet: { select: { name: true } } } }) : [],
+    rows.length ? db.booking.findMany({ where: { id: { in: rows.map((r: any) => r.bookingId) } }, select: { id: true, guestName: true } }) : [],
+  ]);
+  const item = new Map<number, any>(items.map((i: any) => [i.id, i]));
+  const guest = new Map<number, string | null>(bookings.map((b: any) => [b.id, b.guestName]));
+  res.json({
+    visible: true,
+    enrolled: config?.enabled === true,
+    agreedAt: config?.agreedAt ?? null,
+    drinks: options.map((o: any) => ({ name: item.get(o.menuItemId)?.name ?? "Drink", outlet: item.get(o.menuItemId)?.outlet?.name ?? null,
+      agreedPrice: Number(o.partnerPrice), menuPrice: Number(item.get(o.menuItemId)?.price ?? 0),
+      available: item.get(o.menuItemId)?.status === "ACTIVE" && item.get(o.menuItemId)?.inStock !== false })),
+    totals: { due: { count: due._count, amount: Number(due._sum.partnerPrice ?? 0) }, paid: { count: paid._count, amount: Number(paid._sum.partnerPrice ?? 0) }, serving, all },
+    view, page, pageSize, total,
+    gifts: rows.map((r: any) => ({ id: r.id, status: r.status, payableStatus: r.payableStatus, amount: Number(r.partnerPrice), currency: r.currency,
+      issuedAt: r.issuedAt, servedAt: r.servedAt, paidAt: r.paidAt, paymentReference: r.paymentReference, orderNumber: r.order?.orderNumber ?? null,
+      guestName: guest.get(r.bookingId) ?? null, bookingReference: customerBookingReference(r.bookingId), drink: item.get(r.menuItemId)?.name ?? "Drink" })),
+  });
+}) as RequestHandler);
 
 function accessCan(access: Access, capability: NrmsCapability, targetOutletId?: number | null): boolean {
   return authorizeNrmsAccess({
@@ -483,12 +538,19 @@ router.get("/property/:propertyId/in-house", (async (req: AuthedRequest, res: Re
     select: {
       id: true,
       currency: true,
+      bookingId: true,
       guestProfile: { select: { fullName: true } },
       allocations: { where: { status: "ACTIVE" }, select: { roomUnit: { select: { code: true } }, roomType: { select: { name: true } } } },
     },
     orderBy: { checkedInAt: "desc" },
   });
-  res.json({ reservations });
+  // Guests who chose to share their drinks and dietary needs with the property they stay at.
+  // These reservations are in-house, which is the only time sharing applies.
+  const bookingIds = reservations.map((r: any) => r.bookingId).filter((id: any) => Number.isInteger(id));
+  const bookings = bookingIds.length ? await db.booking.findMany({ where: { id: { in: bookingIds } }, select: { id: true, userId: true } }) : [];
+  const userByBooking = new Map<number, number>(bookings.filter((b: any) => b.userId).map((b: any) => [b.id, b.userId]));
+  const notes = await staffPreferenceNotesFor(db, [...userByBooking.values()]);
+  res.json({ reservations: reservations.map(({ bookingId, ...r }: any) => ({ ...r, guestPreferences: notes.get(userByBooking.get(bookingId) ?? 0) ?? null })) });
 }) as RequestHandler);
 
 router.get("/property/:propertyId/performance", (async (req: AuthedRequest, res: Response) => {
@@ -1571,6 +1633,7 @@ router.post("/orders/:orderId/tip", blockImpersonated as RequestHandler, (async 
   if (!access) return;
   if (!outletAllowed(access, seed.outlet) || access.role === "FRONT_DESK") return res.status(403).json({ error: "You cannot record a tip for this order" });
   if (!["SETTLED", "POSTED_TO_FOLIO"].includes(seed.status) || !seed.servedAt) return res.status(409).json({ error: "Tips can only be confirmed after service is completed" });
+  if (seed.settlementMode === "NOLSAF_KARIBU") return res.status(409).json({ error: "Karibu gifts cannot carry a guest tip or payment" });
 
   const orderTotal = number(seed.total);
   const tipAmount = parsed.data.tipAmount;
@@ -1644,6 +1707,9 @@ router.post("/orders/:orderId/cancel", blockImpersonated as RequestHandler, (asy
         data: { status: "CANCELLED", cancelledAt: new Date(), voidReason: sanitizeText(parsed.data.reason) },
       });
       if (changed.count !== 1) throw new Error("NRMS_ORDER_NOT_CANCELLABLE");
+      if (order.settlementMode === "NOLSAF_KARIBU") {
+        await tx.karibuGesture.update({ where: { orderId: order.id }, data: { status: "VOIDED", payableStatus: "NOT_DUE" } });
+      }
       // The goods were never served: a cancelled order gives its quantities back.
       // (Voids stay as-is: a voided posted order was consumed, only the money moves.)
       await restoreMenuStock(tx, order.items);

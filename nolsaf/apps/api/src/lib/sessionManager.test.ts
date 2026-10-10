@@ -51,4 +51,27 @@ describe("signUserJwt", () => {
     expect(payload.role).toBe("ADMIN");
     expect(payload.amr).toBe("passkey");
   });
+
+  it("marks owner support tokens and binds them to the issuing administrator", async () => {
+    const { signUserJwt } = await import("./sessionManager.js");
+    const token = await signUserJwt(
+      { id: 42, role: "OWNER" },
+      { impersonated: true, impersonatorId: 7, expiresInSeconds: 600 },
+    );
+    const payload = jwt.verify(token, "session-test-secret") as jwt.JwtPayload;
+    expect(payload).toMatchObject({ sub: "42", role: "OWNER", imp: true, act: 7 });
+    expect(Number(payload.exp) - Number(payload.iat)).toBe(600);
+  });
+
+  it("stores only an opaque support handle in a scoped httpOnly cookie and clears legacy backup", async () => {
+    const { setImpersonationHandoffCookie, getImpersonationHandoffHandle, clearAuthCookie } = await import("./sessionManager.js");
+    const res: any = { cookie: vi.fn(), clearCookie: vi.fn() };
+    const handle = "a".repeat(43);
+    setImpersonationHandoffCookie(res, handle);
+    expect(res.cookie).toHaveBeenCalledWith("nolsaf_support_handoff", handle, expect.objectContaining({ httpOnly: true, path: "/api/auth/impersonation", maxAge: 600_000 }));
+    expect(getImpersonationHandoffHandle(`token=owner; nolsaf_support_handoff=${handle}`)).toBe(handle);
+    clearAuthCookie(res);
+    expect(res.clearCookie).toHaveBeenCalledWith("nolsaf_support_admin", expect.objectContaining({ path: "/" }));
+    expect(res.clearCookie).toHaveBeenCalledWith("nolsaf_support_handoff", expect.objectContaining({ path: "/api/auth/impersonation" }));
+  });
 });

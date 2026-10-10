@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Inbox,
   Loader2,
+  LockKeyhole,
   Mail,
   MessageSquare,
   MonitorSmartphone,
@@ -37,12 +38,13 @@ type Message = {
   meta?: any;
 };
 
-type Category = "system" | "money" | "bookings" | "properties" | "transport" | "other";
+type Category = "system" | "privacy" | "money" | "bookings" | "properties" | "transport" | "other";
 
 const PAGE_SIZE = 50;
 
 const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Bell; text: string; tile: string; bar: string }> = [
   { key: "system", label: "Security and system", icon: ShieldAlert, text: "text-rose-700", tile: "bg-rose-50 text-rose-600", bar: "bg-rose-500" },
+  { key: "privacy", label: "Privacy and data", icon: LockKeyhole, text: "text-violet-700", tile: "bg-violet-50 text-violet-700", bar: "bg-violet-500" },
   { key: "money", label: "Payments and payouts", icon: Wallet, text: "text-emerald-700", tile: "bg-emerald-50 text-emerald-700", bar: "bg-emerald-500" },
   { key: "bookings", label: "Bookings", icon: CalendarCheck, text: "text-sky-700", tile: "bg-sky-50 text-sky-700", bar: "bg-sky-500" },
   { key: "properties", label: "Properties", icon: Building2, text: "text-indigo-700", tile: "bg-indigo-50 text-indigo-700", bar: "bg-indigo-500" },
@@ -54,6 +56,8 @@ const CATEGORIES: Array<{ key: Category; label: string; icon: typeof Bell; text:
 function categoryOf(m: Message): Category {
   const kind = String(m.meta?.notificationKind || "");
   const type = String(m.type || "");
+  // Customer data copies: legal, dispute and locked-download alerts live together.
+  if (kind.startsWith("data_export") || kind === "security_data_export_locked") return "privacy";
   if (kind.startsWith("security_") || type === "system") return "system";
   if (type === "invoice" || kind.startsWith("payment") || kind.includes("payout")) return "money";
   if (type === "booking" || type === "cancellation" || kind.startsWith("group_stay")) return "bookings";
@@ -70,6 +74,7 @@ const URGENT_KINDS = new Set([
   "nrms_payment_reconcile_needed",
   "nrms_stop_sell_approval_requested",
   "transport_auto_dispatch_takeover",
+  "data_export_legal",
 ]);
 
 function isUrgent(m: Message): boolean {
@@ -241,7 +246,7 @@ export default function Page() {
 
   const currentItems = tab === "unread" ? unread : viewed;
   const counts = useMemo(() => {
-    const out: Record<Category, number> = { system: 0, money: 0, bookings: 0, properties: 0, transport: 0, other: 0 };
+    const out: Record<Category, number> = { system: 0, privacy: 0, money: 0, bookings: 0, properties: 0, transport: 0, other: 0 };
     for (const m of currentItems) out[categoryOf(m)] += 1;
     return out;
   }, [currentItems]);
@@ -500,6 +505,24 @@ export default function Page() {
                 });
               }
               if (meta.approvedBy) details.push({ label: "Approved by", value: meta.approvedByName || `Admin #${meta.approvedBy}` });
+              // Customer data alerts: who, where they live, why, how it was asked for. Never the data itself.
+              const isDataAlert = categoryOf(m) === "privacy";
+              if (isDataAlert && meta.userId) {
+                details.push({
+                  label: "Customer",
+                  value: (
+                    <Link href={recordHref("user", meta.userId, { suffix: "?tab=karibu" })} className="inline-flex items-center gap-1 font-semibold text-neutral-900 no-underline hover:text-emerald-700">
+                      {meta.customerName || "Customer record"} <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  ),
+                });
+              }
+              if (isDataAlert && meta.country) details.push({ label: "Lives in", value: meta.country });
+              if (isDataAlert && (meta.reasonLabel || meta.otherReason)) details.push({ label: "Reason given", value: [meta.reasonLabel, meta.otherReason ? `"${meta.otherReason}"` : null].filter(Boolean).join(" ") });
+              if (isDataAlert && meta.format) details.push({ label: "Format", value: meta.format === "json" ? "Machine-readable (JSON)" : "Readable document (PDF)" });
+              if (isDataAlert && meta.sentVia) details.push({ label: "Code sent by", value: meta.sentVia === "phone" ? "Text message" : "Email" });
+              if (isDataAlert && meta.attempts) details.push({ label: "Wrong codes", value: String(meta.attempts) });
+              if (isDataAlert && meta.ip) details.push({ label: "IP address", value: <span className="font-mono text-xs">{meta.ip}</span> });
               if (when) details.push({ label: "Received", value: eat(when) });
 
               return (
@@ -567,6 +590,11 @@ export default function Page() {
                             </div>
                           ))}
                         </dl>
+                      )}
+                      {isDataAlert && meta.userId && (
+                        <Link href={recordHref("user", meta.userId, { suffix: "?tab=karibu" })} className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-[#123a33] hover:no-underline">
+                          {String(meta.notificationKind) === "security_data_export_locked" ? "Review and unlock" : "Open customer record"} <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
                       )}
                       {(meta.note || meta.reasons) && (
                         <div className="mt-3 space-y-2">

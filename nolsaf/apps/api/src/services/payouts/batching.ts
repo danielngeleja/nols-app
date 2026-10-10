@@ -38,7 +38,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@nolsaf/prisma";
 import { Prisma, type Disbursement, type PayoutAccount } from "@prisma/client";
 import { computeApprovalFingerprint, computeBatchFingerprint, toBatchFingerprintMember } from "./fingerprint.js";
-import { assessDisbursementRisk, loadPayoutSafeguards } from "./riskScoring.js";
+import { assessDisbursementRisk, isAutoLaneRisk, loadPayoutSafeguards } from "./riskScoring.js";
 import { azamPayNameLookup } from "../azampay/disbursement/client.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
 import type { AzamPayDisburseBankName } from "../azampay/disbursement/types.js";
@@ -143,7 +143,7 @@ async function writeAudit(
     await tx.auditLog.create({
       data: {
         actorId: params.actorId,
-        actorRole: "ADMIN",
+        actorRole: params.actorId === null ? "SYSTEM" : "ADMIN",
         action: params.action,
         entity: params.entity,
         entityId: params.entityId,
@@ -259,17 +259,40 @@ export async function formBatch(actorId: number): Promise<FormBatchResult> {
   return withLocalGuard(
     "form-batch",
     "A batch is already being formed. Wait for it to finish and try again.",
-    () => formBatchLocked(actorId)
+    () => formBatchLocked({ actorId, mode: "MANUAL", totalLimit: null })
   );
 }
 
-async function formBatchLocked(actorId: number): Promise<FormBatchResult> {
+/**
+ * The AUTO lane's formation (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md). Same
+ * re-verification, fingerprint and risk checks as formBatch, over releaseLane
+ * AUTO payouts only, with no forming admin. `totalLimit` is what is left of
+ * today's AUTO-lane cap; anything beyond it stays APPROVED for a later day.
+ * Shares formBatch's guard key so the two never form at the same moment.
+ */
+export async function formAutoBatch(totalLimit: number): Promise<FormBatchResult> {
+  return withLocalGuard(
+    "form-batch",
+    "A batch is already being formed. Wait for it to finish and try again.",
+    () => formBatchLocked({ actorId: null, mode: "AUTO", totalLimit })
+  );
+}
+
+async function formBatchLocked(opts: { actorId: number | null; mode: "MANUAL" | "AUTO"; totalLimit: number | null }): Promise<FormBatchResult> {
+  const { actorId, mode } = opts;
   const itemCap = batchItemCap();
-  const totalCeiling = batchTotalCeiling();
+  const envCeiling = batchTotalCeiling();
+  const totalCeiling =
+    opts.totalLimit === null ? envCeiling : envCeiling === null ? opts.totalLimit : Math.min(envCeiling, opts.totalLimit);
   const safeguards = await loadPayoutSafeguards();
 
+  // System-approved (AUTO) payouts have no approving admin, which a human
+  // batch's authorization rightly refuses, so the two lanes never mix.
+  // Legacy rows have releaseLane null and stay in the human lane.
+  const laneFilter: Prisma.DisbursementWhereInput =
+    mode === "AUTO" ? { releaseLane: "AUTO" } : { OR: [{ releaseLane: null }, { releaseLane: { not: "AUTO" } }] };
   const candidates = await prisma.disbursement.findMany({
-    where: { status: "APPROVED", batchId: null },
+    where: { status: "APPROVED", batchId: null, ...laneFilter },
     include: { payoutAccount: true },
     orderBy: { approvedAt: "asc" },
   });
@@ -312,6 +335,15 @@ async function formBatchLocked(actorId: number): Promise<FormBatchResult> {
     const clearedAsIs = Boolean(item.securityClearedFingerprint) && item.securityClearedFingerprint === currentFingerprint;
     if ((risk.level === "HIGH" || risk.level === "CRITICAL") && !clearedAsIs) {
       const reason = `Risk score ${risk.level}: ${risk.flags.join(", ") || "no specific flag"}`;
+      await flagSecurityReview(item.id, reason, actorId, risk.level, risk.flags);
+      excluded.push({ disbursementId: item.id, reason });
+      continue;
+    }
+    // The AUTO lane is stricter than a human batch: a MEDIUM score with any
+    // flag beyond the harmless ones needs a person. Clearing it in security
+    // review lets it continue automatically, for this exact payout only.
+    if (mode === "AUTO" && !isAutoLaneRisk(risk) && !clearedAsIs) {
+      const reason = `AUTO lane needs a person (risk ${risk.level}: ${risk.flags.join(", ") || "no specific flag"})`;
       await flagSecurityReview(item.id, reason, actorId, risk.level, risk.flags);
       excluded.push({ disbursementId: item.id, reason });
       continue;
@@ -373,6 +405,7 @@ async function formBatchLocked(actorId: number): Promise<FormBatchResult> {
           itemCount: members.length,
           batchFingerprint,
           formedById: actorId,
+          mode,
         },
       });
 
@@ -476,6 +509,9 @@ export async function authorizeBatch(
     });
     if (!batch) throw new BatchStateError(`Batch ${batchId} not found`);
     if (batch.status !== "DRAFT") throw new BatchStateError(`Batch ${batchId} is ${batch.status}, expected DRAFT`);
+    if (batch.mode === "AUTO") {
+      throw new BatchStateError(`Batch ${batchId} belongs to the automatic payout lane and is released by the system, not by an admin`);
+    }
 
     const self = describeSelfRelease(batch, authorizedById);
     if (self.isSelfRelease) {
@@ -595,6 +631,122 @@ export async function authorizeBatch(
     );
   }
   return outcome.batch;
+}
+
+/** Midnight East Africa Time (fixed UTC+3, no daylight saving) of the day containing `now`. */
+function startOfEatDay(now: Date): Date {
+  const shifted = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  shifted.setUTCHours(0, 0, 0, 0);
+  return new Date(shifted.getTime() - 3 * 60 * 60 * 1000);
+}
+
+/** TZS already authorized by the AUTO lane today (EAT). */
+export async function autoLaneAuthorizedToday(now = new Date(), client: Prisma.TransactionClient | typeof prisma = prisma): Promise<number> {
+  const sum = await client.disbursementBatch.aggregate({
+    where: { mode: "AUTO", authorizedAt: { gte: startOfEatDay(now) }, currency: "TZS" },
+    _sum: { totalAmount: true },
+  });
+  return Number(sum._sum.totalAmount ?? 0);
+}
+
+/**
+ * The AUTO lane's release (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md). Replaces
+ * the human release step for system batches only; the authority comes from
+ * the owner's OTP-confirmed withdrawal plus the AUTO-lane rules, and is
+ * bounded by:
+ *   - the kill switch (SystemSetting.autoPayoutEnabled), re-read here;
+ *   - the daily ceiling (autoPayoutDailyCapTzs), re-summed inside the same
+ *     transaction that authorizes, so two passes cannot both spend it;
+ *   - the same integrity checks as a human release (membership, state,
+ *     currency, total, live-destination fingerprint), plus every member
+ *     being an AUTO-lane, system-approved payout.
+ * A batch over today's remaining cap is left DRAFT for a later day.
+ */
+export async function authorizeAutoBatch(batchId: number, now = new Date()) {
+  const outcome = await prisma.$transaction(async (tx) => {
+    const batch = await tx.disbursementBatch.findUnique({
+      where: { id: batchId },
+      include: { items: { include: { payoutAccount: true } } },
+    });
+    if (!batch) throw new BatchStateError(`Batch ${batchId} not found`);
+    if (batch.mode !== "AUTO") throw new BatchStateError(`Batch ${batchId} is not an automatic batch`);
+    if (batch.status !== "DRAFT") throw new BatchStateError(`Batch ${batchId} is ${batch.status}, expected DRAFT`);
+
+    const settings = await tx.systemSetting.findUnique({
+      where: { id: 1 },
+      select: { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true },
+    });
+    if (!settings?.autoPayoutEnabled) return { kind: "skipped" as const, reason: "automatic payouts are switched off" };
+    const cap = Number(settings.autoPayoutDailyCapTzs ?? 0);
+    if (!(cap > 0)) return { kind: "skipped" as const, reason: "no daily cap is set for automatic payouts" };
+    if (batch.currency !== "TZS") return { kind: "skipped" as const, reason: `automatic payouts are TZS only (batch is ${batch.currency})` };
+    const spent = await autoLaneAuthorizedToday(now, tx);
+    if (spent + Number(batch.totalAmount) > cap) {
+      return { kind: "skipped" as const, reason: `daily cap reached (${spent} of ${cap} TZS used today)` };
+    }
+
+    const integrityFailures: string[] = [];
+    if (batch.formedById !== null) integrityFailures.push("automatic batch has a forming admin");
+    if (batch.items.some((item) => item.releaseLane !== "AUTO" || item.approvedById !== null)) {
+      integrityFailures.push("a member is not a system-approved AUTO-lane payout");
+    }
+    if (batch.items.length !== batch.itemCount) {
+      integrityFailures.push(`member count changed (${batch.itemCount} expected, ${batch.items.length} found)`);
+    }
+    if (batch.items.some((item) => item.status !== "BATCHED")) integrityFailures.push("member state changed");
+    if (batch.items.some((item) => item.currency !== batch.currency)) integrityFailures.push("member currency differs from batch currency");
+    const currentTotal = batch.items.reduce((sum, item) => sum.plus(item.amount), new Prisma.Decimal(0));
+    if (!currentTotal.equals(batch.totalAmount)) integrityFailures.push("batch total changed");
+    const currentFingerprint = computeBatchFingerprint(batch.items.map((i) => toBatchFingerprintMember(i, i.payoutAccount)));
+    if (currentFingerprint !== batch.batchFingerprint) integrityFailures.push("batch fingerprint mismatch");
+
+    if (integrityFailures.length > 0) {
+      const reason = truncateReason(`Automatic batch integrity failure: ${integrityFailures.join("; ")}`);
+      await tx.disbursementBatch.update({ where: { id: batchId }, data: { status: "SECURITY_REVIEW" } });
+      await tx.disbursement.updateMany({
+        where: { batchId, status: { notIn: ["PAID", "FAILED"] } },
+        data: { status: "SECURITY_REVIEW", securityReviewReason: reason },
+      });
+      await writeAudit(tx, {
+        actorId: null,
+        action: "DISBURSEMENT_BATCH_INTEGRITY_MISMATCH",
+        entity: "DISBURSEMENT_BATCH",
+        entityId: batchId,
+        afterJson: { reason, mode: "AUTO" },
+      });
+      return { kind: "security_review" as const, reason };
+    }
+
+    const claimedBatch = await tx.disbursementBatch.updateMany({
+      where: { id: batchId, status: "DRAFT" },
+      data: { status: "AUTHORIZED", authorizedById: null, authorizedAt: now },
+    });
+    if (claimedBatch.count !== 1) throw new BatchStateError(`Batch ${batchId} changed state during authorization`);
+    const claimedItems = await tx.disbursement.updateMany({ where: { batchId, status: "BATCHED" }, data: { status: "AUTHORIZED" } });
+    if (claimedItems.count !== batch.items.length) {
+      throw new BatchStateError(`Batch ${batchId} changed membership during authorization`);
+    }
+    await writeAudit(tx, {
+      actorId: null,
+      action: "DISBURSEMENT_BATCH_AUTHORIZED",
+      entity: "DISBURSEMENT_BATCH",
+      entityId: batchId,
+      afterJson: {
+        itemCount: batch.itemCount,
+        totalAmount: batch.totalAmount.toString(),
+        currency: batch.currency,
+        releaseAuthority: "AUTO_LANE",
+        dailyCapTzs: cap,
+        authorizedTodayBefore: spent,
+      },
+    });
+    return { kind: "authorized" as const };
+  });
+
+  if (outcome.kind === "security_review") {
+    throw new BatchStateError(`Automatic batch ${batchId} failed integrity checks and was moved to SECURITY_REVIEW: ${outcome.reason}`);
+  }
+  return outcome;
 }
 
 export interface ProcessBatchResult {

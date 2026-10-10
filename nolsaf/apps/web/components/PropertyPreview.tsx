@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 import LogoSpinner from "@/components/LogoSpinner";
 import apiClient from "@/lib/apiClient";
+import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
 import { motion } from "framer-motion";
 import NeighborhoodGuide from "./NeighborhoodGuide";
 import TableRow from "./TableRow";
@@ -242,6 +243,7 @@ export default function PropertyPreview({
   onUpdated,
   onClose
 }: PropertyPreviewProps) {
+  const ownerPropertyHref = useOwnerPropertyHref();
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2224,7 +2226,7 @@ export default function PropertyPreview({
                       <div className="text-sm sm:text-base font-semibold text-slate-900 mb-4">Quick Actions</div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <Link
-                          href={`/owner/properties/add?id=${propertyId}`}
+                          href={`/owner/properties/add?id=${ownerPropertyRefOrId(propertyId)}`}
                           className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-solid border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
                         >
                           <div className="w-10 h-10 rounded-lg bg-[#02665e] flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -2237,7 +2239,7 @@ export default function PropertyPreview({
                           <ChevronRight className="w-5 h-5 text-[#02665e] group-hover:translate-x-1 transition-transform" />
                         </Link>
                         <Link
-                          href={`/owner/properties/${propertyId}/availability/manage`}
+                          href={ownerPropertyHref(propertyId, "/availability/manage")}
                           className="group flex items-center gap-3 p-4 rounded-xl bg-white border border-solid border-slate-200 hover:border-[#02665e]/30 hover:shadow-md transition-all duration-200 no-underline"
                         >
                           <div className="w-10 h-10 rounded-lg bg-[#02665e] flex items-center justify-center group-hover:scale-110 transition-transform">

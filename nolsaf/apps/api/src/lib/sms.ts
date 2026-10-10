@@ -180,7 +180,7 @@ async function sendViaTwilio(to: string, message: string): Promise<SmsResult> {
 export async function sendSms(
   to: string,
   text: string,
-  options?: { bypassEligibilityCheck?: boolean; provider?: "auto" | "africastalking" },
+  options?: { bypassEligibilityCheck?: boolean; provider?: "auto" | "africastalking"; sensitiveContent?: boolean },
 ): Promise<SmsResult> {
   if (!options?.bypassEligibilityCheck) {
     const eligibility = await canReceiveNotifications({ phone: to });
@@ -226,7 +226,7 @@ export async function sendSms(
 
   // 3 — Dev console fallback
   if (!forceAfricasTalking && process.env.NODE_ENV !== 'production') {
-    console.log(`[SMS DEV] → ${phone}: ${text}`);
+    console.log(`[SMS DEV] → ${phone}: ${options?.sensitiveContent ? "[sensitive content omitted]" : text}`);
     return { success: true, messageId: `dev-${Date.now()}`, provider: 'console' };
   }
 

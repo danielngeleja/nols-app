@@ -37,6 +37,12 @@ type Props = {
   saveError?: string | null;
   saveSuccess?: string | null;
   className?: string;
+  /**
+   * False where bank payouts cannot actually be paid (AzamPay has not enabled
+   * bank rails): the bank option is shown as not available instead of a
+   * selectable "lookup only" choice that reads like a working payout method.
+   */
+  bankPayoutsAvailable?: boolean;
 };
 
 const inputClass =
@@ -148,6 +154,7 @@ export default function SecurePayoutPreferenceCard({
   saveError,
   saveSuccess,
   className = "",
+  bankPayoutsAvailable = true,
 }: Props) {
   const preferred = clean(value.payoutPreferred).toUpperCase();
   const walletSubscriber = tanzaniaWalletSubscriberDigits(value.mobileMoneyNumber);
@@ -184,12 +191,31 @@ export default function SecurePayoutPreferenceCard({
     }
   };
 
+  // Changing a working payout account is never pushed: it is a quiet link,
+  // confirmed first (a new account waits 72 hours before it is paid), and the
+  // form can always be left with the saved account restored exactly.
+  const [confirmingChange, setConfirmingChange] = useState(false);
+  const [savedBeforeChange, setSavedBeforeChange] = useState<PayoutPreferenceValue | null>(null);
+
   const beginChange = () => {
     if (disabled) return;
+    setSavedBeforeChange({ ...value });
+    setConfirmingChange(false);
     setEditing(true);
     // A destination identifier is never revealed into an editable control.
     // The account holder must deliberately re-enter it before saving.
     onChange(preferred === "BANK" ? { bankAccountNumber: "" } : { mobileMoneyNumber: "" });
+  };
+
+  useEffect(() => {
+    if (saveSuccess) setSavedBeforeChange(null);
+  }, [saveSuccess]);
+
+  const keepCurrent = () => {
+    if (savedBeforeChange) onChange(savedBeforeChange);
+    setSavedBeforeChange(null);
+    setConfirmingChange(false);
+    setEditing(false);
   };
 
   return (
@@ -206,6 +232,7 @@ export default function SecurePayoutPreferenceCard({
 
       <div className="box-border min-w-0 space-y-4 p-5">
         {!editing && configured ? (
+          <div className="space-y-3">
           <div className="flex flex-col gap-4 rounded-xl border border-solid border-slate-300 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-4">
               <span className="flex h-12 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-solid border-slate-300 bg-white">
@@ -229,19 +256,55 @@ export default function SecurePayoutPreferenceCard({
                 </p>
               </div>
             </div>
-            <button type="button" onClick={beginChange} disabled={disabled} className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-slate-300 bg-white px-3.5 text-xs font-semibold text-slate-700 transition-colors hover:border-[#02665e]/30 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-50">
-              <Pencil className="h-3.5 w-3.5" aria-hidden /> Change destination
-            </button>
+            {!confirmingChange && (
+              <button
+                type="button"
+                onClick={() => setConfirmingChange(true)}
+                disabled={disabled}
+                className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 self-start border-0 bg-transparent p-0 text-xs font-medium text-slate-500 underline-offset-4 transition-colors hover:text-[#02665e] hover:underline disabled:cursor-not-allowed disabled:opacity-50 sm:self-center"
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden /> Use a different account
+              </button>
+            )}
+          </div>
+          {confirmingChange && (
+            <div className="flex flex-col gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="m-0 text-[13px] leading-5 text-amber-900">
+                Your current account keeps working until you save a new one. A new account is checked with the provider, and payouts to it
+                start 72 hours after you save it.
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingChange(false)}
+                  className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-solid border-slate-300 bg-white px-3.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Keep this account
+                </button>
+                <button
+                  type="button"
+                  onClick={beginChange}
+                  className="inline-flex h-9 cursor-pointer items-center rounded-lg border-0 bg-[#02665e] px-3.5 text-xs font-semibold text-white hover:bg-[#014d47]"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          )}
           </div>
         ) : (
           <>
             <div className="grid min-w-0 gap-2.5 sm:grid-cols-2">
               <MethodButton
-                active={preferred === "BANK"}
-                disabled={disabled}
+                active={preferred === "BANK" && bankPayoutsAvailable}
+                disabled={disabled || !bankPayoutsAvailable}
                 icon={<Building2 className="h-5 w-5" />}
-                label="Bank account"
-                hint="Verify and save bank details for supported non-automated payout workflows."
+                label={bankPayoutsAvailable ? "Bank account" : "Bank account · not available yet"}
+                hint={
+                  bankPayoutsAvailable
+                    ? "Verify and save bank details for supported non-automated payout workflows."
+                    : "Bank payouts are not available yet. All payouts go to mobile money."
+                }
                 onClick={() => choose("BANK")}
               />
               <MethodButton
@@ -254,7 +317,7 @@ export default function SecurePayoutPreferenceCard({
               />
             </div>
 
-            {preferred === "BANK" && (
+            {preferred === "BANK" && bankPayoutsAvailable && (
               <div className="grid min-w-0 gap-3 rounded-xl border border-solid border-slate-300 p-4 sm:grid-cols-2">
                 <div className="flex items-start gap-3 rounded-lg border border-solid border-amber-200 bg-amber-50/80 px-3.5 py-3 text-amber-950 shadow-[inset_3px_0_0_#f59e0b] sm:col-span-2 sm:px-4">
                   <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700 ring-1 ring-amber-200">
@@ -393,6 +456,16 @@ export default function SecurePayoutPreferenceCard({
                 </span>
               )}
             </div>
+            {savedBeforeChange && (
+              <button
+                type="button"
+                onClick={keepCurrent}
+                disabled={saving}
+                className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-solid border-slate-300 bg-white px-3.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Keep current account
+              </button>
+            )}
             <button
               type="button"
               onClick={onSave}

@@ -3,28 +3,35 @@ import { Router } from "express";
 import type { RequestHandler, Response } from 'express';
 import { Prisma } from "@prisma/client";
 import { prisma } from "@nolsaf/prisma";
-import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
+import { hideOwnerCheckinCode, redactOwnerCheckinCode } from "../lib/ownerCheckinCodePrivacy.js";
+import { presentedCheckinCode } from "../lib/ownerCheckinProof.js";
+import { rateLimitWithRedis as rateLimit } from "../lib/redisRateLimitStore.js";
 import { invalidateOwnerReports } from "../lib/cache.js";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount, extractOwnerPayoutFromAccommodationGross } from "../lib/accommodationPayout.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { validateBookingCode, markBookingCodeAsUsed } from "../lib/bookingCodeService.js";
 import { getBookingValidationWindowStatus } from "../lib/bookingValidationWindow.js";
+import { claimRequiresWithdrawal, USE_WITHDRAW_RESPONSE } from "../services/payouts/release.js";
 import {
   clearBookingCodeFailures,
   getBookingCodeLockoutStatus,
   recordBookingCodeFailure,
 } from "../lib/bookingCodeAttemptTracker.js";
 import { syncNoLsafBookingToNrms, updateNoLsafBookingStatus } from "../lib/nolsafMarketplaceNrms.js";
+import { deliverGuestCheckinCode, recordGuestCodeRequest } from "../lib/guestCodeRequests.js";
 import {
   customerBookingReference,
   isCustomerBookingReference,
   matchesCustomerBookingReference,
+  nrmsReservationReference,
 } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(
   requireAuth as RequestHandler,
-  requireRole("OWNER") as RequestHandler
+  requireRole("OWNER") as RequestHandler,
+  hideOwnerCheckinCode,
 );
 
 function differenceInCalendarDays(end: Date | string, start: Date | string) {
@@ -76,6 +83,144 @@ router.get("/handoff/:reference", (async (req: AuthedRequest, res: Response) => 
   });
 }) as RequestHandler);
 
+const requestCodeLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: any) => String(req.user?.id ?? req.ip),
+  message: { error: "Too many guest code requests. Please try later." },
+});
+
+/** Accepts the opaque bk_ reference or a legacy numeric id, scoped to this owner's bookings. */
+async function resolveOwnerBookingId(ownerId: number, raw: unknown): Promise<number | null> {
+  const value = String(raw ?? "").trim();
+  if (/^\d+$/.test(value)) return Number(value);
+  if (!isCustomerBookingReference(value)) return null;
+  const candidates = await prisma.booking.findMany({ where: { property: { ownerId } }, select: { id: true } });
+  return candidates.find((candidate) => matchesCustomerBookingReference(value, candidate.id))?.id ?? null;
+}
+
+/**
+ * Recover a lost code only to the booking's guest contact. The owner never
+ * receives it. Every request is recorded; the cases the system must not decide
+ * on its own (owner and guest contacts overlap, or no guest contact works) go
+ * to NoLSAF's guest code queue instead of ending in a dead end.
+ */
+router.post("/:id/request-code", blockImpersonated as RequestHandler, requestCodeLimiter, (async (req: AuthedRequest, res: Response) => {
+  const ownerId = req.user!.id;
+  const id = await resolveOwnerBookingId(ownerId, req.params.id);
+  if (!id || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid booking" });
+  const booking = await prisma.booking.findFirst({
+    where: { id, property: { ownerId } },
+    select: {
+      id: true, status: true, guestPhone: true, guestName: true, userId: true, checkIn: true, checkOut: true,
+      user: { select: { phone: true, email: true } },
+      property: { select: { title: true } },
+      code: { select: { status: true, code: true } },
+    },
+  });
+  if (!booking) return res.status(404).json({ error: "Booking not found" });
+  if (!booking.code || booking.code.status !== "ACTIVE" || !["CONFIRMED", "PENDING_CHECKIN"].includes(booking.status)) {
+    return res.status(409).json({ error: "This booking is not awaiting check-in" });
+  }
+  // A late guest can still check in up to the check-out day; after that the
+  // code no longer validates, so sending it would only confuse the guest.
+  if (getBookingValidationWindowStatus(new Date(booking.checkIn), new Date(booking.checkOut), new Date()).status === "AFTER_CHECKOUT") {
+    return res.status(409).json({ error: "This stay has already ended, so the code can no longer be used." });
+  }
+  const recent = await prisma.auditLog.findFirst({
+    where: { entity: "BOOKING", entityId: id, action: "OWNER_REQUESTED_GUEST_CHECKIN_CODE", createdAt: { gte: new Date(Date.now() - 10 * 60_000) } },
+    select: { id: true },
+  });
+  if (recent) return res.status(429).json({ error: "A request was sent recently. Please wait 10 minutes." });
+
+  const audit = (afterJson: Record<string, unknown>) =>
+    prisma.auditLog.create({ data: { actorId: ownerId, actorRole: "OWNER", action: "OWNER_REQUESTED_GUEST_CHECKIN_CODE", entity: "BOOKING", entityId: id, afterJson: { ...afterJson, codeShared: false } as any } });
+  const reference = customerBookingReference(id);
+
+  const [owner, destinations] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ownerId }, select: { phone: true, email: true } }),
+    prisma.payoutAccount.findMany({ where: { userId: ownerId }, select: { accountNumber: true } }),
+  ]);
+  const phoneKey = (phone: string | null | undefined) => String(phone || "").replace(/\D/g, "").slice(-9);
+  const ownerPhones = new Set([owner?.phone, ...destinations.map((d) => d.accountNumber)].map(phoneKey).filter(Boolean));
+  const guestPhones = [booking.guestPhone, booking.user?.phone].map(phoneKey).filter(Boolean);
+  const ownerEmail = String(owner?.email || "").trim().toLowerCase();
+  const guestEmails = [booking.user?.email].map((e) => String(e || "").trim().toLowerCase()).filter(Boolean);
+  if (booking.userId === ownerId || guestPhones.some((p) => ownerPhones.has(p)) || (ownerEmail && guestEmails.includes(ownerEmail))) {
+    const request = await recordGuestCodeRequest({ bookingId: id, ownerId, status: "NEEDS_REVIEW", reason: "The guest's contact matches the owner's own contact" });
+    await audit({ outcome: "NEEDS_REVIEW", requestId: request?.id ?? null });
+    void notifyAdmins("booking_guest_code_review", { bookingId: id, bookingReference: reference, propertyTitle: booking.property?.title ?? null, reason: "contacts overlap" });
+    return res.status(202).json({
+      ok: true,
+      status: "NEEDS_REVIEW",
+      message: "Sent to NoLSAF for checking. The guest's contact matches yours, so our team confirms the guest before resending the code. You will be notified.",
+    });
+  }
+
+  const delivered = await deliverGuestCheckinCode({ id, userId: booking.userId, guestPhone: booking.guestPhone, code: { code: booking.code.code } });
+  if (!delivered.channel) {
+    const request = await recordGuestCodeRequest({ bookingId: id, ownerId, status: "UNREACHABLE", reason: booking.guestPhone ? "The guest's phone could not be reached" : "The booking has no guest phone or NoLSAF account" });
+    await audit({ outcome: "UNREACHABLE", requestId: request?.id ?? null });
+    void notifyAdmins("booking_guest_code_review", { bookingId: id, bookingReference: reference, propertyTitle: booking.property?.title ?? null, reason: "guest unreachable" });
+    return res.status(202).json({
+      ok: true,
+      status: "UNREACHABLE",
+      message: "The guest could not be reached, so NoLSAF will contact them and resend the code. You will be notified.",
+    });
+  }
+
+  const request = await recordGuestCodeRequest({ bookingId: id, ownerId, status: "SENT", channel: delivered.channel, destinationMasked: delivered.destinationMasked });
+  await audit({ outcome: "SENT", channel: delivered.channel, requestId: request?.id ?? null });
+  return res.json({
+    ok: true,
+    status: "SENT",
+    channel: delivered.channel,
+    destinationMasked: delivered.destinationMasked,
+    message: delivered.channel === "SMS"
+      ? `The code was sent to the guest by SMS (${delivered.destinationMasked}). Ask them to show it at the desk.`
+      : "The guest was told in their NoLSAF inbox to show the code from My Bookings.",
+  });
+}) as RequestHandler);
+
+/** The owner's recent guest code requests and how each ended. Never includes a code. */
+router.get("/code-requests", (async (req: AuthedRequest, res: Response) => {
+  try {
+    const rows = await (prisma as any).guestCodeRequest.findMany({
+      where: { ownerId: req.user!.id, createdAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      select: {
+        id: true, status: true, channel: true, destinationMasked: true, reason: true, resolution: true, adminNote: true, createdAt: true, resolvedAt: true,
+        booking: { select: { id: true, guestName: true, checkIn: true, property: { select: { title: true } } } },
+      },
+    });
+    return res.json({
+      requests: rows.map((row: any) => ({
+        id: row.id,
+        status: row.status,
+        channel: row.channel,
+        destinationMasked: row.destinationMasked,
+        reason: row.reason,
+        resolution: row.resolution,
+        adminNote: row.adminNote,
+        createdAt: row.createdAt,
+        resolvedAt: row.resolvedAt,
+        booking: {
+          reference: customerBookingReference(row.booking.id),
+          guestName: row.booking.guestName,
+          checkIn: row.booking.checkIn,
+          propertyTitle: row.booking.property?.title ?? null,
+        },
+      })),
+    });
+  } catch {
+    // Before the migration is applied there is simply no history to show.
+    return res.json({ requests: [] });
+  }
+}) as RequestHandler);
+
 /** PREVIEW: validate code and return all details (no state change) */
 const validateBooking: RequestHandler = async (req, res) => {
   const r = req as AuthedRequest;
@@ -97,40 +242,30 @@ const validateBooking: RequestHandler = async (req, res) => {
     });
   }
 
-  // --- QR payload support ---
-  // Receipt QR codes encode a JSON payload including bookingId.
-  // Allow owners to scan the receipt QR and still retrieve booking details.
+  // A receipt QR with only a booking ID is payment evidence, not possession of
+  // the guest-held check-in code. A code-bearing QR is equivalent to entry.
   let booking: any | null = null;
   let validationError: string | null = null;
   let mode: "CODE" | "QR" = "CODE";
 
-  if (raw.startsWith("{") && raw.includes("bookingId")) {
+  if (raw.startsWith("{")) {
     mode = "QR";
     try {
       const parsed = JSON.parse(raw);
-      const bookingId = Number(parsed?.bookingId || 0);
-      if (!bookingId) {
-        validationError = "Invalid QR payload (missing bookingId)";
-      } else {
-        booking = await prisma.booking.findFirst({
-          where: { id: bookingId, property: { ownerId } },
-          include: {
-            property: { select: { id: true, title: true, type: true, basePrice: true, currency: true, services: true } },
-            code: true,
-            user: { select: bookingUserSelect },
-          },
-        });
-        if (!booking) validationError = "Booking not found for this owner";
-      }
+      const presented = presentedCheckinCode(raw);
+      const validation = presented ? await validateBookingCode(presented, ownerId, true) : null;
+      if (validation?.valid && validation.booking &&
+          (!parsed?.bookingId || Number(parsed.bookingId) === validation.booking.id)) booking = validation.booking;
+      else validationError = "This QR does not contain a valid guest check-in code. Ask the guest to present their code.";
     } catch (e: any) {
       validationError = "Invalid QR payload";
     }
   } else {
     // Normalize the code (trim and uppercase) before validation
-    const normalizedCode = raw.toUpperCase();
+    const normalizedCode = presentedCheckinCode(raw);
     // Use the booking code service to validate
     // Allow USED codes so owners can still preview details (button will be disabled).
-    const validation = await validateBookingCode(normalizedCode, ownerId, true);
+    const validation = normalizedCode ? await validateBookingCode(normalizedCode, ownerId, true) : { valid: false, error: "Invalid booking code" };
     if (!validation.valid || !validation.booking) {
       validationError = validation.error || "Invalid or expired code";
     } else {
@@ -216,15 +351,50 @@ const validateBooking: RequestHandler = async (req, res) => {
         }
       : windowStatus;
 
-  return (res as Response).json({ ok: true, details, eligibility });
+  // Tell the pass up front when an NRMS property still needs a room assigned,
+  // so the owner is not sent to Confirm only to be stopped there.
+  let nrms: { roomAssignmentRequired: boolean; reservationReference: string | null } | null = null;
+  if (eligibility.canValidate) {
+    try {
+      const property = await prisma.property.findUnique({ where: { id: booking.propertyId }, select: { nrmsActivatedAt: true } });
+      if (property?.nrmsActivatedAt) {
+        const room = await nrmsRoomAssignment(booking.id);
+        nrms = { roomAssignmentRequired: room.required, reservationReference: room.reservationReference };
+      }
+    } catch (err) {
+      // Confirm still enforces the room check; the preview just shows less.
+      console.warn("[owner.booking] NRMS room check failed during preview", err);
+    }
+  }
+
+  return (res as Response).json({ ok: true, details, eligibility, nrms });
 };
 router.post("/validate", validateBooking);
+
+/**
+ * NRMS properties need a physical room on every booked room before arrival is
+ * committed. Projects the booking into NRMS (idempotent) and reports whether a
+ * room is still missing, with the opaque reservation reference for the link.
+ */
+async function nrmsRoomAssignment(bookingId: number) {
+  await syncNoLsafBookingToNrms(prisma, bookingId);
+  const stay = await prisma.reservation.findUnique({
+    where: { bookingId },
+    select: { id: true, allocations: { where: { status: "ACTIVE" }, select: { roomUnitId: true } } },
+  });
+  const required = !stay || stay.allocations.length === 0 || stay.allocations.some((allocation) => allocation.roomUnitId == null);
+  return { required, reservationId: stay?.id ?? null, reservationReference: stay ? nrmsReservationReference(stay.id) : null };
+}
 
 /** CONFIRM: mark as CHECKED_IN after preview */
 const confirmCheckin: RequestHandler = async (req, res) => {
   const r = req as AuthedRequest;
-  const { bookingId, consent, clientSnapshot } = req.body as { bookingId: number; consent?: any; clientSnapshot?: any };
-  if (!bookingId) return (res as Response).status(400).json({ error: "bookingId is required" });
+  const { bookingId, code, consent, clientSnapshot } = req.body as { bookingId: number; code?: string; consent?: any; clientSnapshot?: any };
+  if (!Number.isSafeInteger(Number(bookingId)) || Number(bookingId) <= 0) {
+    return (res as Response).status(400).json({ error: "bookingId is required" });
+  }
+  const presentedCode = presentedCheckinCode(code, Number(bookingId));
+  if (!presentedCode) return (res as Response).status(400).json({ error: "Ask the guest to present the check-in code." });
 
   // ensure this booking belongs to one of the owner's properties
   const booking = await prisma.booking.findFirst({
@@ -238,6 +408,30 @@ const confirmCheckin: RequestHandler = async (req, res) => {
 
   if (!booking.code) {
     return (res as Response).status(400).json({ error: "No booking code found for this booking" });
+  }
+
+  // Confirm takes a code too, so it shares the preview's lockout. Without this,
+  // repeated confirm calls could guess codes with no limit.
+  const lockStatus = await getBookingCodeLockoutStatus(r.user!.id);
+  if (lockStatus.locked) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((lockStatus.remainingMs ?? 0) / 1000));
+    return (res as Response).status(429).json({
+      error: `Too many invalid booking code attempts. Please wait ${retryAfterSeconds} seconds before trying again.`,
+      lockedUntil: lockStatus.lockedUntil,
+      retryAfterSeconds,
+      remainingAttempts: 0,
+    });
+  }
+
+  const proof = await validateBookingCode(presentedCode, r.user!.id, true);
+  if (!proof.valid || proof.booking?.id !== booking.id) {
+    const attempt = await recordBookingCodeFailure(r.user!.id);
+    return (res as Response).status(attempt.locked ? 429 : 400).json({
+      error: attempt.locked
+        ? "Too many invalid booking code attempts. Validation is locked for 5 minutes."
+        : "The guest check-in code does not match this booking.",
+      remainingAttempts: attempt.remainingAttempts,
+    });
   }
 
   // Enforce policy: validation only allowed within check-in/check-out date window.
@@ -256,25 +450,20 @@ const confirmCheckin: RequestHandler = async (req, res) => {
   // source before arrival is committed: restore the paid category, assign a
   // physical room, then consume the guest's one-time code.
   if (booking.property.nrmsActivatedAt) {
-    await syncNoLsafBookingToNrms(prisma, booking.id);
-    const operationalStay = await prisma.reservation.findUnique({
-      where: { bookingId: booking.id },
-      select: {
-        id: true,
-        allocations: { where: { status: "ACTIVE" }, select: { roomUnitId: true } },
-      },
-    });
-    if (!operationalStay || operationalStay.allocations.length === 0 || operationalStay.allocations.some((allocation) => allocation.roomUnitId == null)) {
+    const room = await nrmsRoomAssignment(booking.id);
+    if (room.required) {
       return (res as Response).status(409).json({
         error: "Assign a specific room to every booked room before validating check-in.",
         code: "ROOM_ASSIGNMENT_REQUIRED",
-        reservationId: operationalStay?.id ?? null,
+        reservationId: room.reservationId,
+        // Opaque link target for the NRMS reservation, so the owner can assign the room in one tap.
+        reservationReference: room.reservationReference,
       });
     }
   }
 
   // Mark code as used and update booking status using the service
-  const result = await markBookingCodeAsUsed(booking.code.id, r.user!.id);
+  const result = await markBookingCodeAsUsed(booking.code.id, r.user!.id, presentedCode);
   
   if (!result.success) {
     return (res as Response).status(400).json({ error: result.error || "Failed to confirm check-in" });
@@ -304,7 +493,7 @@ const confirmCheckin: RequestHandler = async (req, res) => {
         afterJson: {
           status: updated?.status ?? 'CHECKED_IN',
           consent: consent ?? null,
-          clientSnapshot: clientSnapshot ?? null,
+          clientSnapshot: redactOwnerCheckinCode(clientSnapshot ?? null),
         },
         ip: ip ? String(ip).slice(0, 64) : null,
         ua: ua ? String(ua).slice(0, 255) : null,
@@ -572,6 +761,7 @@ const getCheckedOutBookings: RequestHandler = async (req, res) => {
 
       return {
       id: b.id,
+      bookingReference: customerBookingReference(b.id),
       property: b.property,
       code: b.code,
       codeVisible: b.code?.codeVisible ?? null,
@@ -936,6 +1126,8 @@ const sendInvoiceFromBooking: RequestHandler = async (req, res) => {
   if (!booking) return (res as Response).status(404).json({ error: "Booking not found" });
   if (booking.status !== "CHECKED_IN") return (res as Response).status(400).json({ error: "Booking must be CHECKED_IN" });
   if (!booking.code || booking.code.status !== "USED") return (res as Response).status(400).json({ error: "Check-in code must be USED" });
+  // Stays under the payout date lock are claimed only through the OTP withdrawal.
+  if (await claimRequiresWithdrawal(booking.id)) return (res as Response).status(409).json(USE_WITHDRAW_RESPONSE);
 
   // owner details
   const owner = await prisma.user.findUnique({ where: { id: r.user!.id } });
@@ -968,7 +1160,13 @@ const sendInvoiceFromBooking: RequestHandler = async (req, res) => {
   });
 
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const existing = await tx.invoice.findFirst({ where: { ownerId: r.user!.id, invoiceNumber } });
+    // By booking, never by the month-stamped number: a claim made last month
+    // must be found again, or the same stay gets a second claim that would
+    // pass the solvency gate on its own and could be paid twice.
+    const existing = await tx.invoice.findFirst({
+      where: { ownerId: r.user!.id, bookingId: booking.id, invoiceNumber: { startsWith: "OINV-" } },
+      orderBy: { id: "asc" },
+    });
     let invoice = existing;
     let created = false;
     if (!invoice) {

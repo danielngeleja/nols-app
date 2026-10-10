@@ -2,7 +2,9 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { prisma } from "@nolsaf/prisma";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
+import { hideOwnerCheckinCode } from "../lib/ownerCheckinCodePrivacy.js";
 import QRCode from "qrcode";
+import { generateOwnerDisbursementPdf } from "../lib/pdfDocuments.js";
 import { Prisma } from "@prisma/client";
 import { getEffectiveCommissionPercent, resolveOwnerPayoutAmount } from "../lib/accommodationPayout.js";
 import { NOLSAF_BILLING_CONTACT } from "../lib/companyBillingContact.js";
@@ -14,8 +16,9 @@ import {
   type OwnerPayoutReceiptSnapshot,
 } from "../lib/ownerPayoutReceiptSeal.js";
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
+import { payoutReleaseEnabled } from "../services/payouts/release.js";
 export const router = Router();
-router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler);
+router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, hideOwnerCheckinCode);
 
 function revenueVisibilityClause() {
   return {
@@ -76,7 +79,7 @@ async function ensureOwnerReceiptSeal(inv: any, payout: number): Promise<{
     ownerName: inv.owner?.fullName || inv.owner?.name || `Owner #${inv.ownerId}`,
     ownerEmail: inv.owner?.email || null,
     bookingId: inv.bookingId,
-    bookingCode: inv.booking?.code?.codeVisible || inv.booking?.codeVisible || null,
+    bookingCode: customerBookingReference(inv.bookingId),
     propertyName: inv.booking?.property?.title || "Property",
     checkIn: new Date(inv.booking.checkIn).toISOString(),
     checkOut: new Date(inv.booking.checkOut).toISOString(),
@@ -146,6 +149,18 @@ router.get("/invoices", (async (req: AuthedRequest, res) => {
     }
     if (propertyId) where.booking = { propertyId };
     if (beforeId) where.id = { lt: beforeId };
+    // scope=legacy: claims that belong to the old invoice flow only. Claims
+    // created by the payout date lock (docs/OWNER_PAYOUT_WITHDRAWAL_PLAN.md)
+    // are shown in Payouts, never here as well.
+    if (req.query.scope === "legacy" && payoutReleaseEnabled()) {
+      const released = await prisma.payoutRelease.findMany({
+        where: { ownerId, sourceType: "OWNER_INVOICE" },
+        select: { sourceId: true },
+      });
+      if (released.length) {
+        where.id = { ...(where.id ?? {}), notIn: released.map((r) => r.sourceId) };
+      }
+    }
 
     // Keep payload lean: do not fetch blobs/notes/QR data for list views.
     const defaultCommissionPercent = await getEffectiveCommissionPercent(null);
@@ -333,7 +348,7 @@ router.get("/invoices.csv", (async (req: AuthedRequest, res) => {
   const defaultCommissionPercent = await getEffectiveCommissionPercent(null);
 
   const header = [
-    "invoiceNumber","status","issuedAt","property","bookingId","code",
+    "invoiceNumber","status","issuedAt","property","bookingId","bookingReference",
     "ownerPayout",
     "paidAt","receiptNumber","paymentRef",
   ];
@@ -354,7 +369,7 @@ router.get("/invoices.csv", (async (req: AuthedRequest, res) => {
       inv.issuedAt.toISOString(),
       inv.booking?.property?.title ?? "",
       String(inv.bookingId),
-      (inv as any).booking?.code?.codeVisible ?? "",
+      customerBookingReference(inv.bookingId),
       String(payout),
       inv.paidAt ? inv.paidAt.toISOString() : "",
       inv.receiptNumber ?? "",
@@ -481,6 +496,71 @@ router.get("/invoices/:id/receipt", (async (req: AuthedRequest, res) => {
   res.json({ invoice: safeInvoice, receipt: snapshot, verificationUrl: sealed.verificationUrl });
 }) as RequestHandler);
 
+
+/**
+ * GET /owner/revenue/invoices/:id/receipt.pdf — the payout receipt as a PDF in
+ * the NRMS receipt family (generateOwnerDisbursementPdf), built from the same
+ * sealed snapshot and verification QR as the on-screen receipt, so the two can
+ * never disagree.
+ */
+router.get("/invoices/:id/receipt.pdf", (async (req: AuthedRequest, res) => {
+  try {
+    const id = Number(req.params.id);
+    const inv = await prisma.invoice.findFirst({
+      where: { id, ownerId: req.user!.id, status: "PAID" },
+      include: {
+        owner: { select: { id: true, email: true, name: true, fullName: true } },
+        booking: { include: { code: true, property: { select: { title: true, services: true } } } },
+      } as any,
+    });
+    if (!inv) return res.status(404).json({ error: "Receipt not available" });
+
+    const commissionPercent = await getEffectiveCommissionPercent((inv as any)?.booking?.property?.services);
+    const payout = resolveOwnerPayoutAmount({
+      invoiceNumber: (inv as any).invoiceNumber,
+      invoiceTotal: (inv as any).total,
+      netPayable: (inv as any).netPayable,
+      bookingTotalAmount: (inv as any)?.booking?.totalAmount,
+      transportFare: (inv as any)?.booking?.transportFare,
+      commissionPercent,
+    });
+    const sealed = await ensureOwnerReceiptSeal(inv as any, payout);
+    const s = sealed.snapshot as any;
+    // Always drawn fresh from the signed verification link. The stored
+    // receiptQrPng column is written by several paths, one of which stores a
+    // data-URL string rather than PNG bytes, and an older image may encode a
+    // different payload; either way the receipt would print without a QR.
+    const qrPng = await QRCode.toBuffer(sealed.verificationUrl, { type: "png", margin: 1, width: 256, errorCorrectionLevel: "M" });
+
+    const pdf = await generateOwnerDisbursementPdf({
+      ownerName: s.ownerName,
+      ownerEmail: s.ownerEmail,
+      receiptNumber: s.receiptNumber,
+      invoiceNumber: s.invoiceNumber,
+      bookingId: s.bookingId,
+      bookingCode: customerBookingReference(s.bookingId),
+      propertyName: s.propertyName,
+      checkIn: s.checkIn,
+      checkOut: s.checkOut,
+      totalRevenue: s.totalRevenue,
+      netPayable: s.netPayable,
+      paymentMethod: s.paymentMethod,
+      paymentRef: s.providerReference,
+      nolsafReference: s.nolsafReference,
+      maskedDestination: s.maskedDestination,
+      paidAt: s.settledAt,
+      currency: s.currency,
+      qrPng,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${s.receiptNumber}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(pdf);
+  } catch (err) {
+    console.error("[owner.revenue] receipt PDF failed", err);
+    res.status(500).json({ error: "The receipt PDF could not be opened" });
+  }
+}) as RequestHandler);
 
 router.get("/invoices/:id/receipt/qr.png", (async (req: AuthedRequest, res) => {
   const id = Number(req.params.id);

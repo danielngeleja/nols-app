@@ -1,73 +1,39 @@
 "use client";
 
-import { type ReactNode, Suspense, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { BarChart3, ChevronLeft, ChevronRight, KeyRound, Layers, LayoutDashboard, LogOut, Menu, ShieldAlert, X } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { BarChart3, ChevronLeft, ChevronRight, KeyRound, Layers, LayoutDashboard, LogOut, Menu, RotateCcw, ShieldAlert, Timer, X } from "lucide-react";
 import FinanceGrantPanel from "@/components/FinanceGrantPanel";
 
-const NAV_ITEMS = [
-  { href: "/admin/disbursements", label: "Queue", icon: LayoutDashboard, exact: true },
-  { href: "/admin/disbursements/batches", label: "Batches", icon: Layers },
-  { href: "/admin/disbursements/security-review", label: "Security Review", icon: ShieldAlert },
-  { href: "/admin/disbursements/reports", label: "Reports", icon: BarChart3 },
+const NAV_GROUPS = [
+  {
+    label: "Pay out",
+    items: [
+      { href: "/admin/disbursements", label: "Queue", hint: "Every payout and where it stands", icon: LayoutDashboard, exact: true },
+      { href: "/admin/disbursements/batches", label: "Batches", hint: "Group payouts and release them", icon: Layers },
+      { href: "/admin/disbursements/owner-payouts", label: "Owner payouts", hint: "Stays unlocking for owners", icon: Timer },
+    ],
+  },
+  {
+    label: "Check",
+    items: [
+      { href: "/admin/disbursements/security-review", label: "Security review", hint: "Payouts paused by safety checks", icon: ShieldAlert },
+      { href: "/admin/disbursements/recoveries", label: "Recoveries", hint: "Money being won back", icon: RotateCcw },
+    ],
+  },
+  {
+    label: "Report",
+    items: [
+      { href: "/admin/disbursements/reports", label: "Reports", hint: "Export for reconciliation", icon: BarChart3 },
+    ],
+  },
 ];
-
-// Status filter lives in the sidebar (not a dropdown on the page), driven by
-// the ?status= URL param the Queue page reads. `dot` tones each status the
-// same way the queue table badges do.
-const STATUS_FILTERS: Array<{ value: string; label: string; dot: string }> = [
-  { value: "", label: "All statuses", dot: "bg-emerald-200" },
-  { value: "REQUESTED", label: "Requested", dot: "bg-amber-400" },
-  { value: "APPROVED", label: "Approved", dot: "bg-sky-400" },
-  { value: "BATCHED", label: "Batched", dot: "bg-sky-400" },
-  { value: "AUTHORIZED", label: "Authorized", dot: "bg-sky-400" },
-  { value: "SUBMITTED", label: "Submitted", dot: "bg-amber-400" },
-  { value: "PROCESSING", label: "Processing", dot: "bg-amber-400" },
-  { value: "PAID", label: "Paid", dot: "bg-emerald-400" },
-  { value: "FAILED", label: "Failed", dot: "bg-red-400" },
-  { value: "SECURITY_REVIEW", label: "Security review", dot: "bg-red-400" },
-];
+const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
 function isActive(pathname: string, item: { href: string; exact?: boolean }) {
   return item.exact ? pathname === item.href : pathname.startsWith(item.href);
-}
-
-/**
- * Status filter rows for the Queue page, rendered inside the sidebar. Reads
- * the current ?status= param and links to the same page with the param set,
- * so the page and sidebar stay in sync. Wrapped in Suspense by the caller
- * because useSearchParams needs a boundary.
- */
-function StatusFilterNav() {
-  const searchParams = useSearchParams();
-  const current = searchParams.get("status") ?? "";
-  return (
-    <div className="mt-3.5">
-      <p className="mb-1.5 px-2.5 text-[9px] font-bold uppercase tracking-[0.18em] text-emerald-100/45">Filter by status</p>
-      <div className="space-y-0.5">
-        {STATUS_FILTERS.map((filter) => {
-          const active = current === filter.value;
-          const href = filter.value ? `/admin/disbursements?status=${filter.value}` : "/admin/disbursements";
-          return (
-            <Link
-              key={filter.value || "ALL"}
-              href={href}
-              scroll={false}
-              aria-current={active ? "page" : undefined}
-              className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold no-underline transition hover:no-underline ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}
-            >
-              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
-                <span className={`h-2 w-2 rounded-full ${filter.dot}`} />
-              </span>
-              <span className="flex-1 truncate">{filter.label}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 function currentTitle(pathname: string): string {
@@ -127,33 +93,37 @@ export default function DisbursementWorkspaceLayout({ children }: { children: Re
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3" aria-label="Disbursement workspace navigation">
-        <div className="space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            const active = isActive(pathname, item);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                aria-current={active ? "page" : undefined}
-                className={`group relative flex min-h-9 items-center rounded-lg border text-[13px] font-semibold no-underline transition hover:no-underline ${collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}
-              >
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
-                  <Icon className="h-3.5 w-3.5" />
-                </span>
-                {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Status filter for the Queue page only, replacing the old on-page dropdown. */}
-        {!collapsed && pathname === "/admin/disbursements" && (
-          <Suspense fallback={null}>
-            <StatusFilterNav />
-          </Suspense>
-        )}
+        {NAV_GROUPS.map((group, groupIndex) => (
+          <div key={group.label} className={groupIndex > 0 ? "mt-4" : ""}>
+            {!collapsed && <p className="m-0 mb-1.5 px-2.5 text-[9.5px] font-bold uppercase tracking-[0.18em] text-emerald-100/40">{group.label}</p>}
+            {collapsed && groupIndex > 0 && <span className="mx-auto mb-2 block h-px w-6 bg-white/10" aria-hidden />}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = isActive(pathname, item);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    title={collapsed ? `${item.label}: ${item.hint}` : undefined}
+                    aria-current={active ? "page" : undefined}
+                    className={`group relative flex items-center rounded-lg border no-underline transition hover:no-underline ${collapsed ? "min-h-10 justify-center px-2" : "min-h-[3rem] gap-2.5 px-2.5 py-1.5"} ${active ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm" : "border-transparent text-emerald-50/70 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}`}
+                  >
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.05] group-hover:bg-white/[0.08]"}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    {!collapsed && (
+                      <span className="min-w-0 flex-1 leading-tight">
+                        <span className="block truncate text-[13px] font-semibold">{item.label}</span>
+                        <span className={`block truncate text-[10.5px] ${active ? "text-emerald-950/65" : "text-emerald-100/40 group-hover:text-emerald-100/60"}`}>{item.hint}</span>
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       <div className="border-t border-white/10 bg-black/5 p-2.5">
