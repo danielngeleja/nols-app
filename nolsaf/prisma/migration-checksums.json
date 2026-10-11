@@ -211,6 +211,7 @@
     "20261010100000_add_karibu_gesture_issued_at": "8605c72a68472516838abd8006a4fc28c05c576bed323764ebfc4608352bb0e2",
     "20261010110000_add_karibu_guest_feedback": "c112fa206554e22e3ebd395b0ec08a44cbafe974f8f1f830eace109196f25d1f",
     "20261010120000_add_karibu_guest_preference": "4a446ec7861de137646424fdc7a456c4b1a2c82924f406f1c5bf80db0579b168",
-    "20261010120000_support_impersonation_handoff": "b3009f758dd1c0149e139d032d078d3ff0e64c2757023d6dfefcb4ac69f22a9a"
+    "20261010120000_support_impersonation_handoff": "b3009f758dd1c0149e139d032d078d3ff0e64c2757023d6dfefcb4ac69f22a9a",
+    "20261011100000_add_app_distribution_settings": "99da1b4d4391580af3dbd46ef3e87c3e21eed8c7357f2415a38d701c00b2acc8"
   }
 }

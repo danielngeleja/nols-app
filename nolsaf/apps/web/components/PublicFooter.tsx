@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone } from "lucide-react";
+import AppDownloadPromotion from "./app-distribution/AppDownloadPromotion";
 
 const APP_VERSION = "v0.1.0";
 
@@ -198,6 +199,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
             </div>
           </div>
 
+          <AppDownloadPromotion placement="footer" />
           {/* Bottom bar: copyright, legal, social */}
           <div className="relative box-border flex flex-wrap items-center justify-between gap-4 border-0 border-t border-solid border-white/[0.08] px-8 py-4 lg:px-10">
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]">

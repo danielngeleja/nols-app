@@ -34,6 +34,7 @@ import LatestUpdate from '../../components/LatestUpdate';
 import PodcastSection from '../../components/PodcastSection';
 import ScrollReveal from '../../components/ScrollReveal';
 import TravelRolesConnected from '../../components/home/TravelRolesConnected';
+import AppDownloadPromotion from '../../components/app-distribution/AppDownloadPromotion';
 import DatePicker from '../../components/ui/DatePicker';
 
 type TrustPartnerBrand = { name: string; logoUrl?: string; href?: string };
@@ -1472,6 +1473,7 @@ export default function Page() {
         </div>
       </div>
 
+      <AppDownloadPromotion placement="home" />
       <section id="public-audience" className="relative py-10 sm:py-12 lg:py-14 overflow-hidden">
         {/* Section background: soft brand tint only */}
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,#f0fdf8 0%,#ffffff 55%,#f0fdf4 100%)' }} />

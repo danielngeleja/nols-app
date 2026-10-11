@@ -65,6 +65,7 @@ import adminNrmsMessagingRouter from "./admin.nrms.messaging.js";
 import adminKaribuRouter from "./admin.karibu.js";
 import adminFxRouter from "./admin.fx";
 import adminSettingsRouter from "./admin.settings";
+import adminAppDistributionRouter from "./admin.appDistribution";
 import adminServiceAvailabilityRouter from "./admin.service-availability";
 import adminStatsRouter from "./admin.stats";
 import adminSummaryRouter from "./admin.summary";
@@ -122,6 +123,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/payments", adminPaymentsRouter as RequestHandler);
   app.use("/admin/settings", adminSettingsRouter);
   app.use("/api/admin/settings", adminSettingsRouter as RequestHandler);
+  app.use("/api/admin/app-distribution", adminAppDistributionRouter as RequestHandler);
   app.use("/admin/service-availability", adminServiceAvailabilityRouter);
   app.use("/api/admin/service-availability", adminServiceAvailabilityRouter as RequestHandler);
   app.use("/admin/fx", adminFxRouter);

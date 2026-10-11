@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck } from "lucide-react";
+import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
 
@@ -301,6 +301,7 @@ const managementDetails: Item[] = [
   { href: "/admin/management/currency", label: "Currency Rates", Icon: Coins },
   { href: "/admin/management/service-availability", label: "Service Availability", Icon: MapPin },
   { href: "/admin/management/settings", label: "Settings", Icon: Settings },
+  { href: "/admin/management/app-distribution", label: "App Distribution", Icon: Smartphone },
   { href: "/admin/management/updates", label: "Updates", Icon: Megaphone },
   { href: "/admin/management/newsletter", label: "Newsletter", Icon: Send },
   { href: "/admin/management/users", label: "Users", Icon: Users },
