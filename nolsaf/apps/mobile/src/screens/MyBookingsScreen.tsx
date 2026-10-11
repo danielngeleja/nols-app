@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CreditCard,
   MapPin,
+  ReceiptText,
   TicketsPlane,
   UsersRound
 } from "lucide-react-native";
@@ -18,7 +19,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
 import { BookingListItem, fetchMyBookings } from "../bookings";
-import { AppCard, AppStack, AppText, CodeText, CustomerBottomNav, GetThereSection, SafeScreen, ShareTripButton, StateView, StatusBadge } from "../components";
+import { AppCard, AppStack, AppText, CodeText, CustomerBottomNav, GetThereSection, SafeScreen, ShareTripButton, StateView, StatusBadge, StayReceiptSheet } from "../components";
 import { fetchMyGroupBookings } from "../groupStays";
 import { RootStackParamList } from "../navigation/types";
 import { fetchCustomerTourBookings } from "../tours";
@@ -217,6 +218,8 @@ export function MyBookingsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterKey>("all");
+  // Paid stay whose official receipt is open in the sheet.
+  const [receiptFor, setReceiptFor] = useState<BookingListItem | null>(null);
   const [serviceCounts, setServiceCounts] = useState<ServiceCounts>({ tours: null, groups: null, rides: null });
   const [serviceCountsLoading, setServiceCountsLoading] = useState(true);
 
@@ -538,6 +541,28 @@ export function MyBookingsScreen({ navigation }: Props) {
                       </AppCard>
                     </Pressable>
 
+                    {booking.isPaid && booking.bookingCode ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Receipt for ${title}`}
+                        onPress={() => setReceiptFor(booking)}
+                        style={({ pressed }) => [styles.receiptRow, pressed && styles.cardPressed]}
+                      >
+                        <View style={styles.receiptIcon}>
+                          <ReceiptText color={colors.primary} size={16} />
+                        </View>
+                        <View style={styles.flex}>
+                          <AppText variant="caption" weight="extraBold">
+                            Booking receipt
+                          </AppText>
+                          <AppText variant="caption" tone="soft">
+                            Official PDF to open, share or print
+                          </AppText>
+                        </View>
+                        <ChevronRight color={colors.softText} size={16} />
+                      </Pressable>
+                    ) : null}
+
                     {booking.isPaid && !isPastStay(booking) ? <ShareTripButton serviceKind="STAY" serviceId={booking.id} /> : null}
 
                     {booking.isPaid && !isPastStay(booking) ? (
@@ -581,6 +606,19 @@ export function MyBookingsScreen({ navigation }: Props) {
       </SafeScreen>
 
       <CustomerBottomNav active="MyBookings" />
+
+      {receiptFor && token ? (
+        <StayReceiptSheet
+          visible
+          token={token}
+          bookingKey={receiptFor.bookingReference || receiptFor.id}
+          bookingCode={receiptFor.bookingCode}
+          propertyTitle={receiptFor.property?.title || "NoLSAF stay"}
+          datesLabel={receiptFor.checkIn && receiptFor.checkOut ? formatDates(receiptFor.checkIn, receiptFor.checkOut) : null}
+          amountLabel={formatAmount(receiptFor.totalAmount)}
+          onClose={() => setReceiptFor(null)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -780,6 +818,25 @@ const styles = StyleSheet.create({
   },
   gateNote: {
     paddingLeft: spacing[1]
+  },
+  receiptRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing[3],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[2]
+  },
+  receiptIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand[50]
   },
   cancelRow: {
     alignSelf: "flex-start",

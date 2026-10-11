@@ -25,7 +25,8 @@ import {
   MnoPhoneStatus,
   SafeScreen,
   ScreenHeader,
-  StateView
+  StateView,
+  StayReceiptSheet
 } from "../components";
 import { useSecureScreen } from "../lib/secureScreen";
 import { ApiError } from "../lib/apiClient";
@@ -100,6 +101,7 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
   const [bankMobile, setBankMobile] = useState("");
   const [bankOtp, setBankOtp] = useState("");
   const [status, setStatus] = useState<PayStatus>("idle");
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PAYMENT_WAIT_SECONDS);
@@ -410,12 +412,33 @@ export function BookingPaymentScreen({ navigation, route }: Props) {
           </AppStack>
         </AppCard>
 
+        {bookingCode && token ? (
+          <AppButton
+            title="Download receipt"
+            variant="secondary"
+            icon={<ReceiptText color={colors.primary} size={18} />}
+            onPress={() => setReceiptOpen(true)}
+          />
+        ) : null}
         <AppButton
           title="Go to My Bookings"
           icon={<ReceiptText color={colors.white} size={18} />}
           onPress={() => navigation.navigate("MyBookings")}
         />
         <AppButton title="Back to home" variant="secondary" onPress={() => navigation.navigate("Onboarding")} />
+
+        {receiptOpen && bookingCode && token ? (
+          <StayReceiptSheet
+            visible
+            token={token}
+            bookingKey={invoice.booking.id}
+            bookingCode={bookingCode}
+            propertyTitle={invoice.property.title}
+            datesLabel={`${new Date(invoice.booking.checkIn).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} to ${new Date(invoice.booking.checkOut).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`}
+            amountLabel={`${Number(invoice.totalAmount).toLocaleString()} ${invoice.currency || "TZS"}`}
+            onClose={() => setReceiptOpen(false)}
+          />
+        ) : null}
       </SafeScreen>
     );
   }

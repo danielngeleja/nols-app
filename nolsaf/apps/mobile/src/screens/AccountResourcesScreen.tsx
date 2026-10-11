@@ -1,17 +1,22 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
+  BadgeCheck,
   BookOpen,
+  CheckCircle2,
   ChevronRight,
   CircleHelp,
+  Cookie,
   CreditCard,
   ExternalLink,
   FileText,
+  Globe,
   Headphones,
   Home,
   Mail,
   Phone,
   RefreshCcw,
   ShieldCheck,
+  Sparkles,
   TicketCheck,
   UserCog
 } from "lucide-react-native";
@@ -23,188 +28,13 @@ import { AppButton, AppCard, AppStack, AppText, SafeScreen, ScreenHeader } from 
 import { apiRequest } from "../lib/apiClient";
 import { webOrigin } from "../lib/webOrigin";
 import { RootStackParamList } from "../navigation/types";
+import { PolicyFeed, PolicySummary, fetchPolicies, isRecentlyUpdated, loadSavedPolicies, shortPolicyDate } from "../policies";
 import { colors, radius, shadows, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AccountResources">;
 type IconType = typeof FileText;
 type ReaderSection = { heading: string; body: string[] };
 type ResourceItem = { Icon: IconType; title: string; text: string; path: string; updated?: string; sections: ReaderSection[] };
-
-const POLICY_ITEMS: ResourceItem[] = [
-  {
-    Icon: FileText,
-    title: "Terms of service",
-    text: "Core traveller agreement and platform rules.",
-    path: "/terms",
-    updated: "1 January 2026",
-    sections: [
-      {
-        heading: "What NoLSAF provides",
-        body: [
-          "NoLSAF connects travellers with verified accommodations, tour packages, transport, logistics, and secure digital booking tools.",
-          "The platform supports local and international travellers with booking discovery, package review, checkout, documents, and support flows."
-        ]
-      },
-      {
-        heading: "Bookings and validity",
-        body: [
-          "A booking becomes valid when the required booking steps are completed and the traveller receives a booking code, voucher, or package reference.",
-          "Availability, price, dates, guest details, selected services, and package inclusions must be reviewed before confirmation."
-        ]
-      },
-      {
-        heading: "Payments",
-        body: [
-          "Payments must use NoLSAF approved digital payment methods shown during checkout, including supported mobile money, bank, and card channels.",
-          "NoLSAF does not protect payments made outside the approved platform flow. Extra services after arrival are managed according to the relevant property, operator, or booking terms."
-        ]
-      },
-      {
-        heading: "Traveller responsibilities",
-        body: [
-          "Travellers must provide accurate identity, contact, travel, payment, and document information where required.",
-          "Travellers must respect property rules, operator instructions, safety guidance, and lawful requirements connected to the service they book."
-        ]
-      }
-    ]
-  },
-  {
-    Icon: ShieldCheck,
-    title: "Privacy policy",
-    text: "How NoLSAF handles account and booking data.",
-    path: "/privacy",
-    updated: "1 January 2026",
-    sections: [
-      {
-        heading: "Information collected",
-        body: [
-          "NoLSAF collects account details, contact details, profile photos, booking data, payment references, support messages, travel documents, and service activity required to operate the platform.",
-          "For some services, location, device, verification, and document information may be used to protect travellers, operators, property owners, and drivers."
-        ]
-      },
-      {
-        heading: "How information is used",
-        body: [
-          "Data is used to create accounts, verify identity, process bookings, connect travellers to operators or properties, support payments, issue vouchers and receipts, and improve service quality.",
-          "NoLSAF may use booking and activity records to handle support, disputes, fraud prevention, safety validation, and legal compliance."
-        ]
-      },
-      {
-        heading: "Sharing and protection",
-        body: [
-          "Information is shared only with trusted service providers, operators, properties, payment partners, or authorities where needed for the requested service or legal requirements.",
-          "Sensitive records are protected using secure storage, access control, and encrypted transmission where supported."
-        ]
-      }
-    ]
-  },
-  {
-    Icon: RefreshCcw,
-    title: "Cancellation policy",
-    text: "Cancellation and refund rules for bookings.",
-    path: "/cancellation-policy",
-    updated: "1 January 2026",
-    sections: [
-      {
-        heading: "Before check-in",
-        body: [
-          "Cancellation rules depend on the service booked, the provider policy, timing, and whether the booking is individual, group stay, tour package, or special arrangement.",
-          "Some bookings may allow free cancellation within the stated window. Others may allow partial refunds or be non-refundable when clearly marked."
-        ]
-      },
-      {
-        heading: "After check-in or tour start",
-        body: [
-          "After check-in or after the booked service has started, refunds are generally limited and require strong supporting evidence.",
-          "Exceptional cases may include verified medical emergencies, declared disasters, government restrictions, or serious provider failure."
-        ]
-      },
-      {
-        heading: "Refund processing",
-        body: [
-          "Eligible refunds are reviewed through the NoLSAF support and payment process, then returned to the original payment method where possible.",
-          "Processing time depends on the payment provider, mobile money network, bank, card scheme, or international payment partner."
-        ]
-      }
-    ]
-  },
-  {
-    Icon: ShieldCheck,
-    title: "Verification policy",
-    text: "How NoLSAF verifies accounts, properties, and operators.",
-    path: "/verification-policy",
-    updated: "1 January 2026",
-    sections: [
-      {
-        heading: "Why verification matters",
-        body: [
-          "Verification helps NoLSAF confirm that properties, operators, accounts, and travel services are authentic, safe, and accurately represented.",
-          "Verified status gives travellers stronger confidence before they book and helps reduce fraud, misrepresentation, and unsafe experiences."
-        ]
-      },
-      {
-        heading: "Property and operator checks",
-        body: [
-          "NoLSAF may review ownership or operating documents, permits, location, photos, facilities, safety standards, and service details.",
-          "For tour operators, declared parks, operating areas, vehicles, tools, team capacity, and service specializations may be reviewed."
-        ]
-      },
-      {
-        heading: "Traveller protection",
-        body: [
-          "Verification does not remove every travel risk, but it creates an accountable record that supports booking confidence, support handling, and quality tracking.",
-          "Travellers should still review package facts, inclusions, exclusions, meeting point, documents, and payment confirmation before travel."
-        ]
-      }
-    ]
-  },
-  {
-    Icon: FileText,
-    title: "Cookies policy",
-    text: "Cookie and tracking policy for NoLSAF web services.",
-    path: "/cookies-policy",
-    updated: "1 January 2026",
-    sections: [
-      {
-        heading: "Cookies and local storage",
-        body: [
-          "NoLSAF web services may use cookies, secure tokens, and local storage to keep users signed in, remember preferences, protect sessions, and improve platform performance.",
-          "Some cookies are essential for authentication, booking flow, payment flow, and security."
-        ]
-      },
-      {
-        heading: "Analytics and improvements",
-        body: [
-          "Usage data may help NoLSAF understand performance, diagnose errors, and improve traveller experience.",
-          "Users can manage browser cookie settings, but disabling essential cookies may prevent some web features from working correctly."
-        ]
-      }
-    ]
-  },
-  {
-    Icon: CreditCard,
-    title: "Disbursement policy",
-    text: "Payment release and payout policy references.",
-    path: "/disbursement-policy",
-    updated: "1 January 2026",
-    sections: [
-      {
-        heading: "Payment release principles",
-        body: [
-          "Disbursement rules describe how approved funds are released to eligible property owners, operators, drivers, or service providers after service conditions are met.",
-          "Traveller-facing records such as vouchers, receipts, booking codes, and payment status help confirm that the correct booking is being handled."
-        ]
-      },
-      {
-        heading: "Why travellers should care",
-        body: [
-          "A clear payout framework supports accountable service delivery and protects against unofficial payment requests.",
-          "Travellers should keep payments, refunds, and booking changes inside the NoLSAF approved flow."
-        ]
-      }
-    ]
-  }
-];
 
 const HELP_ITEMS: ResourceItem[] = [
   {
@@ -286,10 +116,11 @@ function openWeb(path: string) {
 export function AccountResourcesScreen({ route, navigation }: Props) {
   const mode = route.params.mode;
   const [selected, setSelected] = useState<ResourceItem | null>(null);
+  const [selectedPolicy, setSelectedPolicy] = useState<PolicySummary | null>(null);
   const title = mode === "policies" ? "NoLSAF Policies" : mode === "help" ? "Help Center" : "Contact support";
   const subtitle =
     mode === "policies"
-      ? "Traveller policy references from the NoLSAF web platform."
+      ? "Always the latest version from the NoLSAF website."
       : mode === "help"
         ? "Guides for rides, stays, tours, payments, accounts, and refunds."
         : "Use the official support channels connected to NoLSAF settings.";
@@ -298,15 +129,25 @@ export function AccountResourcesScreen({ route, navigation }: Props) {
     <SafeScreen contentStyle={styles.screen}>
       <AppStack gap={4}>
         <ScreenHeader
-          title={selected ? selected.title : title}
-          subtitle={selected ? "Read this NoLSAF resource inside the app." : subtitle}
+          title={selectedPolicy ? selectedPolicy.title : selected ? selected.title : title}
+          subtitle={
+            selectedPolicy
+              ? selectedPolicy.lastUpdated
+                ? `Last updated ${selectedPolicy.lastUpdated}`
+                : "From the NoLSAF website"
+              : selected
+                ? "Read this NoLSAF resource inside the app."
+                : subtitle
+          }
           onBack={() => {
-            if (selected) setSelected(null);
+            if (selectedPolicy) setSelectedPolicy(null);
+            else if (selected) setSelected(null);
             else navigation.goBack();
           }}
         />
         {selected ? <ResourceReader item={selected} /> : null}
-        {!selected && mode === "policies" ? <ResourceList items={POLICY_ITEMS} onSelect={setSelected} /> : null}
+        {selectedPolicy ? <PolicyReader policy={selectedPolicy} /> : null}
+        {!selectedPolicy && mode === "policies" ? <PoliciesPanel onSelect={setSelectedPolicy} /> : null}
         {!selected && mode === "help" ? <ResourceList items={HELP_ITEMS} onSelect={setSelected} /> : null}
         {mode === "support" ? <SupportPanel /> : null}
       </AppStack>
@@ -384,6 +225,193 @@ function ResourceReader({ item }: { item: ResourceItem }) {
 
       <AppButton title="Open web version" variant="secondary" onPress={() => openWeb(item.path)} icon={<ExternalLink color={colors.primary} size={16} />} />
     </ScrollView>
+  );
+}
+
+const POLICY_ICONS: Record<string, IconType> = {
+  privacy: ShieldCheck,
+  terms: FileText,
+  cancellation: RefreshCcw,
+  verification: BadgeCheck,
+  cookies: Cookie,
+  disbursement: CreditCard
+};
+
+/** Policies come live from the website (/policies.json); the last good copy covers offline use. */
+function PoliciesPanel({ onSelect }: { onSelect: (policy: PolicySummary) => void }) {
+  const [feed, setFeed] = useState<PolicyFeed | null>(null);
+  const [refreshing, setRefreshing] = useState(true);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    const saved = await loadSavedPolicies();
+    setFeed((current) => current ?? saved);
+    try {
+      setFeed(await fetchPolicies());
+    } catch {
+      // Keep the saved or basic list; the note below says it may not be the latest.
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!feed) {
+    return (
+      <View style={styles.policyLoading}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
+
+  const recent = feed.policies
+    .filter((p) => isRecentlyUpdated(p))
+    .sort((a, b) => b.lastUpdatedIso.localeCompare(a.lastUpdatedIso))[0];
+
+  return (
+    <AppStack gap={4}>
+      {recent ? (
+        <Pressable accessibilityRole="button" onPress={() => onSelect(recent)} style={({ pressed }) => [styles.updateBanner, pressed && styles.pressed]}>
+          <View style={styles.updateIcon}>
+            <Sparkles color={colors.brand[200]} size={18} />
+          </View>
+          <View style={styles.flex}>
+            <AppText variant="bodySmall" weight="extraBold" tone="inverse">
+              {recent.title} updated
+            </AppText>
+            <AppText variant="caption" style={styles.updateSub}>
+              {shortPolicyDate(recent)} · See what changed
+            </AppText>
+          </View>
+          <ChevronRight color={colors.brand[200]} size={18} />
+        </Pressable>
+      ) : null}
+
+      <View style={styles.policyGroup}>
+        {feed.policies.map((policy, index) => {
+          const Icon = POLICY_ICONS[policy.key] ?? FileText;
+          const fresh = isRecentlyUpdated(policy);
+          return (
+            <Pressable
+              key={policy.key}
+              accessibilityRole="button"
+              accessibilityLabel={`${policy.title}${policy.lastUpdated ? `, updated ${policy.lastUpdated}` : ""}`}
+              onPress={() => onSelect(policy)}
+              style={({ pressed }) => [styles.policyRow, index > 0 && styles.policyDivider, pressed && styles.policyRowPressed]}
+            >
+              <View style={styles.policyIcon}>
+                <Icon color={colors.primary} size={17} />
+              </View>
+              <View style={styles.flex}>
+                <View style={styles.policyTitleRow}>
+                  <AppText variant="bodySmall" weight="extraBold" numberOfLines={1} style={styles.flexShrink}>
+                    {policy.title}
+                  </AppText>
+                  {fresh ? (
+                    <View style={styles.freshTag}>
+                      <AppText variant="caption" weight="extraBold" tone="primary">
+                        Updated
+                      </AppText>
+                    </View>
+                  ) : null}
+                </View>
+                <AppText variant="caption" tone="soft" numberOfLines={1}>
+                  {policy.lastUpdated ? `Last updated ${shortPolicyDate(policy)}` : policy.summary}
+                </AppText>
+              </View>
+              <ChevronRight color={colors.softText} size={17} />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={styles.policyNote}>
+        {refreshing ? <ActivityIndicator color={colors.primary} size="small" /> : <Globe color={colors.softText} size={14} />}
+        <AppText variant="caption" tone="soft" style={styles.flex}>
+          {refreshing
+            ? "Checking nolsaf.com for the latest versions"
+            : feed.source === "live"
+              ? "Up to date with nolsaf.com. The full legal text is always on the website."
+              : "Could not reach nolsaf.com. Showing the last version saved on this phone."}
+        </AppText>
+        {!refreshing && feed.source !== "live" ? (
+          <Pressable accessibilityRole="button" onPress={() => void load()} hitSlop={8}>
+            <AppText variant="caption" weight="extraBold" tone="primary">
+              Retry
+            </AppText>
+          </Pressable>
+        ) : null}
+      </View>
+    </AppStack>
+  );
+}
+
+function PolicyReader({ policy }: { policy: PolicySummary }) {
+  const Icon = POLICY_ICONS[policy.key] ?? FileText;
+  return (
+    <AppStack gap={4}>
+      <View style={styles.policyHero}>
+        <View style={styles.policyHeroTop}>
+          <View style={styles.updateIcon}>
+            <Icon color={colors.brand[200]} size={20} />
+          </View>
+          <View style={styles.flex}>
+            <AppText variant="titleSm" weight="extraBold" tone="inverse">
+              {policy.title}
+            </AppText>
+            <AppText variant="caption" style={styles.updateSub}>
+              {policy.lastUpdated ? `Last updated ${policy.lastUpdated}` : "Latest version on nolsaf.com"}
+            </AppText>
+          </View>
+        </View>
+        <AppText variant="bodySmall" style={styles.updateSub}>
+          {policy.summary}
+        </AppText>
+      </View>
+
+      {policy.latestChanges.length ? (
+        <View style={styles.changesCard}>
+          <View style={styles.policyTitleRow}>
+            <Sparkles color={colors.warning} size={15} />
+            <AppText variant="bodySmall" weight="extraBold">
+              What changed in this update
+            </AppText>
+          </View>
+          {policy.latestChanges.map((change) => (
+            <View key={change} style={styles.pointRow}>
+              <View style={styles.changeDot} />
+              <AppText variant="caption" tone="muted" style={styles.flex}>
+                {change}
+              </AppText>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {policy.keyPoints.length ? (
+        <View style={styles.pointsCard}>
+          <AppText variant="bodySmall" weight="extraBold">
+            Key points
+          </AppText>
+          {policy.keyPoints.map((point) => (
+            <View key={point} style={styles.pointRow}>
+              <CheckCircle2 color={colors.primary} size={15} style={styles.pointIcon} />
+              <AppText variant="caption" tone="muted" style={styles.flex}>
+                {point}
+              </AppText>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <AppButton title="Read the full policy" onPress={() => openWeb(policy.path)} icon={<ExternalLink color={colors.white} size={16} />} />
+      <AppText variant="caption" tone="soft" style={styles.centerText}>
+        This is a summary. The full policy on nolsaf.com is the one that applies.
+      </AppText>
+    </AppStack>
   );
 }
 
@@ -536,6 +564,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     padding: spacing[3]
   },
+  flexShrink: { flexShrink: 1, minWidth: 0 },
+  centerText: { textAlign: "center" },
+  policyLoading: { alignItems: "center", paddingVertical: spacing[8] },
+  updateBanner: { flexDirection: "row", alignItems: "center", gap: spacing[3], borderRadius: radius.lg, backgroundColor: colors.primaryDeep, padding: spacing[4] },
+  updateIcon: { width: 38, height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.1)" },
+  updateSub: { color: colors.brand[200] },
+  policyGroup: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, overflow: "hidden", ...shadows.card },
+  policyRow: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: spacing[3], paddingHorizontal: spacing[4], paddingVertical: spacing[3] },
+  policyDivider: { borderTopWidth: 1, borderTopColor: colors.border },
+  policyRowPressed: { backgroundColor: colors.surface },
+  policyIcon: { width: 36, height: 36, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.brand[50] },
+  policyTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing[2] },
+  freshTag: { borderRadius: radius.sm, backgroundColor: colors.brand[50], paddingHorizontal: 6, paddingVertical: 1 },
+  policyNote: { flexDirection: "row", alignItems: "center", gap: spacing[2], paddingHorizontal: 2 },
+  policyHero: { gap: spacing[3], borderRadius: radius.xl, backgroundColor: colors.primaryDeep, padding: spacing[5] },
+  policyHeroTop: { flexDirection: "row", alignItems: "center", gap: spacing[3] },
+  changesCard: { gap: spacing[2], borderRadius: radius.lg, borderWidth: 1, borderColor: "#fde68a", backgroundColor: "#fffbeb", padding: spacing[4] },
+  changeDot: { width: 6, height: 6, borderRadius: radius.full, backgroundColor: colors.warning, marginTop: 6 },
+  pointsCard: { gap: spacing[2], borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.white, padding: spacing[4], ...shadows.card },
+  pointRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing[2] },
+  pointIcon: { marginTop: 1 },
   pressed: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }]
