@@ -15,6 +15,9 @@ function assert(condition, message) {
 
 assert(app.android?.package === "com.nolsaf.app", "Android package must be com.nolsaf.app.");
 assert(Number.isInteger(app.android?.versionCode) && app.android.versionCode > 0, "Android versionCode must be a positive integer.");
+for (const permission of ["android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO"]) {
+  assert(app.android?.blockedPermissions?.includes(permission), `${permission} must be blocked for Play photo/video policy.`);
+}
 assert(eas.build?.production?.android?.buildType === "app-bundle", "Production Android builds must use app-bundle.");
 assert(String(pkg.dependencies?.expo || "").startsWith("~56."), "Expo SDK 56 is required for the current Android target SDK baseline.");
 assert(Boolean(pkg.dependencies?.["expo-secure-store"]), "expo-secure-store is required for session tokens.");
