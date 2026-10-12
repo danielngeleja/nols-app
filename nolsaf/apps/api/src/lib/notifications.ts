@@ -1,4 +1,5 @@
 import { prisma } from "@nolsaf/prisma";
+import { customerBookingReference } from "./customerBookingReference.js";
 
 /**
  * Notify all admins (creates notification with userId=null, ownerId=null so it appears in admin notifications)
@@ -224,6 +225,10 @@ export async function notifyAdmins(template: string, data: any) {
 
 export async function notifyOwner(ownerId: number, template: string, data: any) {
   try {
+    const bookingId = Number(data?.bookingId);
+    const bookingReference = Number.isSafeInteger(bookingId) && bookingId > 0
+      ? customerBookingReference(bookingId)
+      : typeof data?.bookingReference === "string" ? data.bookingReference : null;
     // Create notification in database if Notification model exists
     const notificationTemplates: Record<string, { title: string; body: string }> = {
       guest_code_request_resolved: {
@@ -312,24 +317,24 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       },
       booking_created: {
         title: "New Booking Received",
-        body: `You have a new booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}. Open your bookings to view details and prepare for check-in.`
+        body: `You have a new booking${bookingReference ? ` ${bookingReference}` : ""}${data.propertyTitle ? ` for "${data.propertyTitle}"` : ""}${data.checkIn ? ` (check-in: ${data.checkIn})` : ""}. Open your bookings to view details and prepare for check-in.`
       },
       // Progressive cancellation stages — one template per admin step
       cancellation_reviewing: {
         title: "Cancellation Request Under Review",
-        body: `A guest has requested to cancel their booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""}. The admin team is reviewing this request. No changes to your booking yet.`
+        body: `A guest has requested to cancel their booking${bookingReference ? ` ${bookingReference}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}. The admin team is reviewing this request. No changes to your booking yet.`
       },
       cancellation_processing: {
         title: "Booking Cancelled — Refund Processing",
-        body: `The cancellation request for booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} has been approved. The booking is now cancelled and the check-in code has been voided. The guest's refund is being processed.`
+        body: `The cancellation request for booking${bookingReference ? ` ${bookingReference}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} has been approved. The booking is now cancelled and the check-in code has been voided. The guest's refund is being processed.`
       },
       cancellation_refunded: {
         title: "Guest Refund Completed",
-        body: `The refund for the cancelled booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} has been completed. The guest has received their payment.`
+        body: `The refund for the cancelled booking${bookingReference ? ` ${bookingReference}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} has been completed. The guest has received their payment.`
       },
       cancellation_rejected: {
         title: "Cancellation Request Rejected",
-        body: `The cancellation request for booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} has been rejected. The booking remains active and the check-in code is still valid.`
+        body: `The cancellation request for booking${bookingReference ? ` ${bookingReference}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} has been rejected. The booking remains active and the check-in code is still valid.`
       },
       // NRMS admin enforcement (NRMS_ADMIN_OVERSIGHT.md phase 2). Every action
       // is reasoned and the owner is always told what happened and why.
@@ -444,7 +449,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       // Legacy alias kept for backward compatibility
       booking_cancelled_by_guest: {
         title: "Booking Cancelled — Refund Processing",
-        body: `A guest's cancellation request for booking${data.bookingId ? ` #${data.bookingId}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""}${data.bookingCode ? ` (code: ${data.bookingCode})` : ""} has been approved. The check-in code has been voided and the booking is now cancelled.`
+        body: `A guest's cancellation request for booking${bookingReference ? ` ${bookingReference}` : ""}${data.propertyTitle ? ` at "${data.propertyTitle}"` : ""} has been approved. The check-in code has been voided and the booking is now cancelled.`
       },
     };
 
@@ -462,7 +467,7 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
           title: templateData.title,
           body: templateData.body,
           unread: true,
-          meta: { ...data, notificationKind: template },
+          meta: { ...data, ...(bookingReference ? { bookingReference } : {}), notificationKind: template },
           type: template.startsWith("cancellation")
             ? "cancellation"
             : template.startsWith("booking")
