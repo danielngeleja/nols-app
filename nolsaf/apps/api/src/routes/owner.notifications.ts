@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '@nolsaf/prisma';
 import { AuthedRequest, requireAuth, requireRole } from '../middleware/auth.js';
 import { deleteReadNotification, deleteReadNotifications, fetchNotifications, markNotificationRead } from '../services/notifications';
+import { customerBookingReference } from '../lib/customerBookingReference.js';
 
 const router = Router();
 router.use(requireAuth as any, requireRole('OWNER') as any);
@@ -45,6 +46,28 @@ router.get('/', (async (req: AuthedRequest, res: any) => {
         : item;
     });
   }
+  const bookingKinds = new Set(['booking_created', 'invoice_paid', 'cancellation_reviewing', 'cancellation_processing', 'cancellation_refunded', 'cancellation_rejected', 'booking_cancelled_by_guest']);
+  const bookingIds = result.items
+    .filter((item) => bookingKinds.has(String(item.meta?.notificationKind ?? item.meta?.kind ?? '')))
+    .map((item) => Number(item.meta?.bookingId))
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+  const references = new Map<number, string>();
+  if (bookingIds.length) {
+    const bookings = await prisma.booking.findMany({
+      where: { id: { in: bookingIds }, property: { ownerId } },
+      select: { id: true },
+    });
+    for (const booking of bookings) references.set(booking.id, customerBookingReference(booking.id));
+  }
+  result.items = result.items.map((item) => {
+    const kind = String(item.meta?.notificationKind ?? item.meta?.kind ?? '');
+    if (!bookingKinds.has(kind)) return item;
+    const reference = references.get(Number(item.meta?.bookingId));
+    const body = kind === 'invoice_paid'
+      ? item.body.replace(/^Booking #\d+ has been paid/, reference ? `Booking ${reference} has been paid` : 'A booking has been paid')
+      : item.body;
+    return reference ? { ...item, body, meta: { ...item.meta, bookingReference: reference } } : { ...item, body };
+  });
   return res.json(result);
 }) as any);
 

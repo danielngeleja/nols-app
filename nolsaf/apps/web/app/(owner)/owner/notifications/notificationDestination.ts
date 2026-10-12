@@ -11,9 +11,9 @@ export function notificationDestination(meta: Record<string, unknown>): Destinat
   if (/^merchant_application_(return|reject|approve)$/.test(kind) && applicationId && relatedPropertyId) {
     return { href: `/owner/nrms/payments?property=${relatedPropertyId}&application=${applicationId}#application-status`, label: "View payment application" };
   }
-  const bookingId = id(meta.bookingId);
-  if (bookingId && ["booking_created", "invoice_paid", "cancellation_reviewing", "cancellation_processing", "cancellation_refunded", "cancellation_rejected", "booking_cancelled_by_guest"].includes(kind)) {
-    return { href: `/owner/bookings/checked-in/${bookingId}`, label: "View booking" };
+  const bookingReference = typeof meta.bookingReference === "string" ? meta.bookingReference : "";
+  if (/^bk_[A-Za-z0-9_-]{22}$/.test(bookingReference) && ["booking_created", "invoice_paid", "cancellation_reviewing", "cancellation_processing", "cancellation_refunded", "cancellation_rejected", "booking_cancelled_by_guest"].includes(kind)) {
+    return { href: `/owner/bookings/checked-in/${bookingReference}`, label: "View booking" };
   }
   const propertyId = id(meta.propertyId);
   if (propertyId && ["property_submitted", "property_approved", "property_rejected", "property_suspended", "property_unsuspended"].includes(kind)) {

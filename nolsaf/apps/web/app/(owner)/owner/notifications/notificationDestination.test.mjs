@@ -18,7 +18,10 @@ test("generic or unverified destinations never become shortcuts", () => {
 });
 
 test("known record destinations use their identifiers", () => {
-  assert.equal(notificationDestination({ kind: "invoice_paid", bookingId: 25 })?.href, "/owner/bookings/checked-in/25");
+  const reference = "bk_0123456789abcdefghijkl";
+  assert.equal(notificationDestination({ kind: "invoice_paid", bookingId: 25, bookingReference: reference })?.href, `/owner/bookings/checked-in/${reference}`);
+  assert.equal(notificationDestination({ kind: "invoice_paid", bookingId: 25 }), null);
+  assert.equal(notificationDestination({ kind: "invoice_paid", bookingReference: "75" }), null);
   assert.equal(notificationDestination({ notificationKind: "property_rejected", propertyId: 9 })?.href, "/owner/properties/9");
   assert.equal(notificationDestination({ actionUrl: "/owner/revenue/receipts/42" })?.href, "/owner/revenue/receipts/42");
 });
