@@ -55,7 +55,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
   }, []);
 
   return (
-    <footer aria-label="Site footer" className="relative mt-10 hidden w-full page-bottom-buffer md:block">
+    <footer id="site-footer" aria-label="Site footer" className="relative mt-10 hidden w-full page-bottom-buffer md:block">
       <div className="public-container relative z-10 pb-10 pt-4">
         <div
           className="relative box-border overflow-hidden rounded-[20px] text-white ring-1 ring-inset ring-white/[0.06] shadow-[0_18px_44px_-22px_rgba(0,0,0,0.7)]"
@@ -63,7 +63,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
         >
           <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(560px circle at 0% 0%, rgba(2,102,94,0.28), transparent 60%)" }} />
 
-          {/* Main grid: brand | three link columns | newsletter card */}
+          {/* Main grid: brand | link columns with compact app downloads | newsletter */}
           <div className="relative box-border grid grid-cols-[minmax(0,1.25fr)_repeat(3,minmax(0,0.8fr))] gap-8 px-8 pb-10 pt-9 lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,0.75fr))_minmax(0,1.25fr)] lg:gap-10 lg:px-10">
             <div className="min-w-0">
               {/* Logo shown openly: the mark itself, full size, no tile around it */}
@@ -115,6 +115,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
               </ul>
             </div>
 
+            <div className="col-span-3 grid min-w-0 grid-cols-3 gap-x-8 gap-y-5 lg:gap-x-10">
             {[
               {
                 title: "Company",
@@ -160,6 +161,8 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
                 </ul>
               </nav>
             ))}
+            <AppDownloadPromotion placement="footer" />
+            </div>
 
             {/* Newsletter: its own card on large screens, full row under the columns on tablets */}
             <div className="col-span-4 box-border min-w-0 rounded-2xl border border-solid border-white/[0.09] p-5 lg:col-span-1" style={{ background: "linear-gradient(160deg, rgba(2,102,94,0.22) 0%, rgba(255,255,255,0.03) 70%)" }}>
@@ -199,7 +202,6 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
             </div>
           </div>
 
-          <AppDownloadPromotion placement="footer" />
           {/* Bottom bar: copyright, legal, social */}
           <div className="relative box-border flex flex-wrap items-center justify-between gap-4 border-0 border-t border-solid border-white/[0.08] px-8 py-4 lg:px-10">
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px]">

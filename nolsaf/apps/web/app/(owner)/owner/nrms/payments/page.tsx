@@ -667,13 +667,14 @@ function documentStatus(status: string | undefined, missing: boolean, expired: b
 export default function NrmsPaymentsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { properties, setSelectedPropertyId } = useNrms();
+  const { properties, loading: propertiesLoading, setSelectedPropertyId } = useNrms();
   const propertyParam = searchParams.get("property");
   const requestedPropertyId = Number(propertyParam);
   const detailProperty = propertyParam && Number.isInteger(requestedPropertyId)
     ? properties.find((property) => property.id === requestedPropertyId) ?? null
     : null;
   const detailPropertyId = detailProperty?.id ?? null;
+  const applicationParam = searchParams.get("application");
   const [overview, setOverview] = useState<MerchantOverview | null>(null);
   const [overviewPropertyId, setOverviewPropertyId] = useState<number | null>(null);
   const [policy, setPolicy] = useState<MerchantPolicy | null>(null);
@@ -707,8 +708,8 @@ export default function NrmsPaymentsPage() {
   }, [detailPropertyId, setSelectedPropertyId]);
 
   useEffect(() => {
-    if (propertyParam && !detailProperty) router.replace("/owner/nrms/payments");
-  }, [detailProperty, propertyParam, router]);
+    if (propertyParam && !propertiesLoading && !detailProperty) router.replace("/owner/nrms/payments");
+  }, [detailProperty, propertyParam, propertiesLoading, router]);
 
   useEffect(() => {
     if (!rateLimitUntil) return;
@@ -782,6 +783,12 @@ export default function NrmsPaymentsPage() {
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  useEffect(() => {
+    if (overview && overviewPropertyId === detailPropertyId && window.location.hash === "#application-status") {
+      document.getElementById("application-status")?.scrollIntoView({ block: "start" });
+    }
+  }, [overview, overviewPropertyId, detailPropertyId]);
 
   const editable = ["DRAFT", "ACTION_REQUIRED"].includes(String(overview?.application?.status ?? "").toUpperCase());
   const initialForm = useMemo(() => formFromMerchant(overview?.merchant ?? null), [overview?.merchant]);
@@ -1249,6 +1256,10 @@ export default function NrmsPaymentsPage() {
     );
   };
 
+  if (propertyParam && propertiesLoading) {
+    return <div role="status" className="flex min-h-[20rem] items-center justify-center gap-3 text-sm font-semibold text-neutral-500"><Loader2 className="h-5 w-5 animate-spin text-emerald-700" />Loading property payments…</div>;
+  }
+
   if (!detailProperty) {
     return (
       <PaymentsHome
@@ -1376,11 +1387,12 @@ export default function NrmsPaymentsPage() {
 
       {message && <div role="status" className="flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{message}</div>}
       {error && <div role="alert" className="flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+      {applicationParam && Number(applicationParam) !== overview.application?.id && <div role="status" className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">This notification refers to an earlier payment application. The current application for this property is shown below.</div>}
 
       {/* Karibu repayments are NoLSAF money too: reconcile them here as well as on Orders. */}
       <KaribuPanel propertyId={detailPropertyId} />
 
-      <section className={`rounded-2xl p-4 ring-1 sm:p-5 ${tone.panel}`}>
+      <section id="application-status" className={`scroll-mt-24 rounded-2xl p-4 ring-1 sm:p-5 ${tone.panel}`}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl shadow-sm ring-1 ${tone.icon}`}><StatusIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1"><p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-neutral-500">Application status</p><h2 className="mb-0 mt-1 text-lg font-bold text-neutral-950">{status!.label}</h2><p className="mb-0 mt-1 text-sm text-neutral-600">{status!.description}</p></div>

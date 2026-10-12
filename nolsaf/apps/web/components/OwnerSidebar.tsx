@@ -6,7 +6,7 @@ import {
   Calendar, Wallet, FileText, PlusSquare, LayoutDashboard,
   ChevronDown, ChevronLeft, ChevronRight, Users, HandHeart, CalendarDays,
   CheckCircle2, Building2, BadgeCheck, LogIn, LogOut, BarChart3, BedDouble,
-  LayoutGrid, Clock, Receipt, Archive,
+  LayoutGrid, Clock, Receipt, Archive, Bell,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 
@@ -156,8 +156,8 @@ function Section({
    DASHBOARD DIRECT LINK
  */
 function TopItem({
-  href, label, Icon,
-}: { href: string; label: string; Icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }) {
+  href, label, Icon, count,
+}: { href: string; label: string; Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>; count?: number }) {
   const path = usePathname();
   const active = path === href || (href !== "/owner" && path.startsWith(href + "/"));
   return (
@@ -177,6 +177,7 @@ function TopItem({
         style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.82)" }}>
         {label}
       </span>
+      {count !== undefined && count > 0 && <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{count > 99 ? "99+" : count}</span>}
     </Link>
   );
 }
@@ -198,7 +199,7 @@ function isFrontDeskPath(path: string) {
   );
 }
 
-export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolean }) {
+export default function OwnerSidebar({ collapsed = false, unreadCount = 0 }: { collapsed?: boolean; unreadCount?: number }) {
   const initialPath = usePathname() || "";
   const startIn = isFrontDeskPath(initialPath)
     ? "frontDesk"
@@ -284,6 +285,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
         }}
       >
         <CollapseBtn href="/owner" label="Dashboard" Icon={LayoutDashboard} active={path === "/owner"} />
+        <CollapseBtn href="/owner/notifications" label="Inbox" Icon={Bell} active={path.startsWith("/owner/notifications")} count={unreadCount} />
         <CollapseBtn href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} active={path === "/owner/nrms" || path.startsWith("/owner/nrms/")} />
         <div className="w-6 h-px my-0.5" style={{ background: "rgba(255,255,255,0.09)" }} />
         <CollapseBtn href="/owner/bookings/checked-in" label="Front desk" Icon={Calendar} active={sectionActive.bookings} count={checkoutDueCount || undefined} />
@@ -328,6 +330,7 @@ export default function OwnerSidebar({ collapsed = false }: { collapsed?: boolea
       <div className="sidebar-scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-2.5 py-3">
 
         <TopItem href="/owner" label="Dashboard" Icon={LayoutDashboard} />
+        <TopItem href="/owner/notifications" label="Inbox" Icon={Bell} count={unreadCount} />
         <TopItem href="/owner/nrms" label="NRMS WORKSPACE" Icon={BedDouble} />
         <Divider />
 

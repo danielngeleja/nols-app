@@ -1,19 +1,76 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Apple, Smartphone } from "lucide-react";
 
 export type PublicAppDistribution = {
   enabled: boolean;
   showOnHome: boolean;
   showInFooter: boolean;
-  headline: string;
-  description: string;
   androidStoreUrl: string | null;
   iosStoreUrl: string | null;
 };
 
-export default function AppDownloadPromotion({ placement }: { placement: "home" | "footer" }) {
+type Placement = "home" | "footer";
+type StoreLink = { href: string; platform: string; store: string; kind: "android" | "ios" };
+
+function AppleStoreMark({ compact }: { compact: boolean }) {
+  // Apple mark from Apple's Download on the App Store badge artwork.
+  return <svg viewBox="10 8 18 23" aria-hidden="true" className={compact ? "h-5 w-5 shrink-0" : "h-7 w-7 shrink-0"}>
+    <path fill="currentColor" d="M24.76888,20.30068a4.94881,4.94881,0,0,1,2.35656-4.15206,5.06566,5.06566,0,0,0-3.99116-2.15768c-1.67924-.17626-3.30719,1.00483-4.1629,1.00483-.87227,0-2.18977-.98733-3.6085-.95814a5.31529,5.31529,0,0,0-4.47292,2.72787c-1.934,3.34842-.49141,8.26947,1.3612,10.97608.9269,1.32535,2.01018,2.8058,3.42763,2.7533,1.38706-.05753,1.9051-.88448,3.5794-.88448,1.65876,0,2.14479.88448,3.591.8511,1.48838-.02416,2.42613-1.33124,3.32051-2.66914a10.962,10.962,0,0,0,1.51842-3.09251A4.78205,4.78205,0,0,1,24.76888,20.30068Z" />
+    <path fill="currentColor" d="M22.03725,12.21089a4.87248,4.87248,0,0,0,1.11452-3.49062,4.95746,4.95746,0,0,0-3.20758,1.65961,4.63634,4.63634,0,0,0-1.14371,3.36139A4.09905,4.09905,0,0,0,22.03725,12.21089Z" />
+  </svg>;
+}
+
+function GooglePlayMark({ compact }: { compact: boolean }) {
+  return <svg viewBox="0 0 48 48" aria-hidden="true" className={compact ? "h-5 w-5 shrink-0" : "h-7 w-7 shrink-0"}>
+    <path fill="#34a853" d="M7 5.5c1.2-.8 2.5-.7 3.8.2L29 23 22 30 7 5.5Z" />
+    <path fill="#4285f4" d="M7 5.5 23 24 7 42.5c-.6-.5-1-1.3-1-2.4V8c0-1.1.4-2 1-2.5Z" />
+    <path fill="#fbbc04" d="m23 24 7-7 10.5 6c.8.5 1.2.9 1.2 1s-.4.5-1.2 1L30 31l-7-7Z" />
+    <path fill="#ea4335" d="m7 42.5 15-18.5 7 7-18.2 11.3c-1.3.9-2.6 1-3.8.2Z" />
+  </svg>;
+}
+
+function StoreBadge({ item, compact }: { item: StoreLink; compact: boolean }) {
+  const content = <>
+    {item.kind === "ios" ? <AppleStoreMark compact={compact} /> : <GooglePlayMark compact={compact} />}
+    <span className="min-w-0 text-left">
+      <span className={`block font-medium leading-none ${compact ? "text-[8px]" : "text-[9px]"}`}>{item.kind === "ios" ? "Download on the" : "GET IT ON"}</span>
+      <span className={`mt-0.5 block whitespace-nowrap font-semibold leading-none tracking-tight ${compact ? "text-sm" : "text-base"}`}>{item.store}</span>
+    </span>
+  </>;
+  const className = `inline-flex shrink-0 items-center justify-center rounded-lg border border-solid border-slate-300 bg-white text-[#111] no-underline transition hover:border-emerald-300 hover:bg-white hover:text-[#111] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${compact ? "h-10 w-32 gap-1.5 px-1.5" : "h-[52px] w-[168px] gap-2 px-2"}`;
+  return <a href={item.href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${item.store} for ${item.platform}`} className={className}>{content}</a>;
+}
+
+function AppDownloadPromotionView({ settings, placement }: {
+  settings: PublicAppDistribution | null;
+  placement: Placement;
+}) {
+  if (!settings?.enabled || !(placement === "home" ? settings.showOnHome : settings.showInFooter)) return null;
+  const links: StoreLink[] = [
+    settings.androidStoreUrl ? { href: settings.androidStoreUrl, platform: "Android", store: "Google Play", kind: "android" as const } : null,
+    settings.iosStoreUrl ? { href: settings.iosStoreUrl, platform: "iPhone & iPad", store: "App Store", kind: "ios" as const } : null,
+  ].filter((item): item is StoreLink => !!item);
+  if (links.length === 0) return null;
+
+  const body = <div className="mx-auto max-w-lg px-5 py-5 sm:px-8">
+    <div className={`flex flex-wrap items-center justify-center gap-4 ${links.length === 1 ? "" : "sm:justify-between"}`}>
+      {links.map((item) => <StoreBadge key={item.store} item={item} compact={false} />)}
+    </div>
+  </div>;
+
+  return placement === "footer"
+    ? <section aria-label="Download the NoLSAF app" className="col-span-2 col-start-2 min-w-0">
+        <div className="grid grid-cols-2 gap-3">
+          {links.map((item) => <div key={item.store} className={`flex min-w-0 justify-center ${item.kind === "ios" ? "col-start-2" : "col-start-1"}`}><StoreBadge item={item} compact /></div>)}
+        </div>
+      </section>
+    : <section aria-label="Download the NoLSAF app" className="public-container py-5 sm:py-8">
+        <div className="overflow-hidden rounded-[28px] bg-[linear-gradient(110deg,#073b37_0%,#0b2420_65%,#10201e_100%)] shadow-lg shadow-emerald-950/10">{body}</div>
+      </section>;
+}
+
+export default function AppDownloadPromotion({ placement }: { placement: Placement }) {
   const [settings, setSettings] = useState<PublicAppDistribution | null>(null);
 
   useEffect(() => {
@@ -25,47 +82,5 @@ export default function AppDownloadPromotion({ placement }: { placement: "home" 
     return () => controller.abort();
   }, []);
 
-  if (!settings?.enabled || !(placement === "home" ? settings.showOnHome : settings.showInFooter)) return null;
-  const links = [
-    settings.androidStoreUrl && { href: settings.androidStoreUrl, label: "Get it on Google Play", Icon: Smartphone },
-    settings.iosStoreUrl && { href: settings.iosStoreUrl, label: "Download on the App Store", Icon: Apple },
-  ].filter((item): item is { href: string; label: string; Icon: typeof Smartphone } => Boolean(item));
-  if (links.length === 0) return null;
-
-  if (placement === "footer") {
-    return (
-      <div className="relative flex flex-wrap items-center justify-between gap-4 border-0 border-t border-solid border-white/10 px-8 py-5 lg:px-10">
-        <div>
-          <p className="m-0 text-base font-semibold text-white">{settings.headline}</p>
-          <p className="m-0 mt-1 text-sm text-white/60">{settings.description}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {links.map(({ href, label, Icon }) => (
-            <a key={label} href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white no-underline hover:bg-white/20 hover:text-white hover:no-underline">
-              <Icon className="h-4 w-4" aria-hidden />{label}
-            </a>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <section aria-label="Get the NoLSAF app" className="public-container py-5 sm:py-8">
-      <div className="flex flex-col gap-5 rounded-2xl border border-emerald-100 bg-white px-5 py-6 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-8">
-        <div className="min-w-0">
-          <p className="m-0 text-xs font-bold uppercase tracking-widest text-emerald-700">NoLSAF on your phone</p>
-          <h2 className="m-0 mt-2 text-xl font-bold text-slate-900 sm:text-2xl">{settings.headline}</h2>
-          <p className="m-0 mt-2 text-sm text-slate-600">{settings.description}</p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          {links.map(({ href, label, Icon }) => (
-            <a key={label} href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-[#02665e] px-4 py-3 text-sm font-semibold text-white no-underline hover:bg-[#014d47] hover:text-white hover:no-underline">
-              <Icon className="h-4 w-4" aria-hidden />{label}
-            </a>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
+  return <AppDownloadPromotionView settings={settings} placement={placement} />;
 }

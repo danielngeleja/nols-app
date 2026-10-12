@@ -1473,7 +1473,7 @@ export default function Page() {
         </div>
       </div>
 
-      <AppDownloadPromotion placement="home" />
+      <div id="app-download"><AppDownloadPromotion placement="home" /></div>
       <section id="public-audience" className="relative py-10 sm:py-12 lg:py-14 overflow-hidden">
         {/* Section background: soft brand tint only */}
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg,#f0fdf8 0%,#ffffff 55%,#f0fdf4 100%)' }} />
