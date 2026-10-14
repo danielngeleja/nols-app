@@ -1,8 +1,9 @@
 import { Router } from "express";
+import { prisma } from "@nolsaf/prisma";
 import { z } from "zod";
 import { AuthedRequest, requireAuth, requireRole } from "../middleware/auth.js";
 import { limitAgentPortalRead } from "../middleware/rateLimit.js";
-import { fetchNotifications, markNotificationRead } from "../services/notifications";
+import { deleteReadNotification, deleteReadNotifications, fetchNotifications, markNotificationRead } from "../services/notifications";
 
 const router = Router();
 router.use(requireAuth as any, requireRole("AGENT") as any);
@@ -50,6 +51,18 @@ router.get(
   }) as any
 );
 
+router.post(
+  "/mark-all-read",
+  limitAgentPortalRead as any,
+  (async (req: AuthedRequest, res: any) => {
+    const result = await prisma.notification.updateMany({
+      where: { userId: req.user!.id, type: "agent", unread: true },
+      data: { unread: false, readAt: new Date() },
+    });
+    return res.json({ ok: true, updated: result.count });
+  }) as any
+);
+
 // POST /api/agent/notifications/:id/mark-read
 router.post(
   "/:id/mark-read",
@@ -65,6 +78,28 @@ router.post(
     const r = await markNotificationRead(id, undefined, userId, { types: ["agent"] });
     if (!r.ok) return res.status(404).json(r);
     return res.json(r);
+  }) as any
+);
+
+router.delete(
+  "/read",
+  limitAgentPortalRead as any,
+  (async (req: AuthedRequest, res: any) => {
+    const result = await deleteReadNotifications({ userId: req.user!.id, types: ["agent"] });
+    if (!result.ok) return res.status(500).json(result);
+    return res.json(result);
+  }) as any
+);
+
+router.delete(
+  "/:id",
+  limitAgentPortalRead as any,
+  (async (req: AuthedRequest, res: any) => {
+    const params = idParamsSchema.safeParse(req.params ?? {});
+    if (!params.success) return res.status(400).json({ ok: false, error: "invalid_id" });
+    const result = await deleteReadNotification(Number(params.data.id), undefined, req.user!.id, { types: ["agent"] });
+    if (!result.ok) return res.status(404).json(result);
+    return res.json(result);
   }) as any
 );
 
