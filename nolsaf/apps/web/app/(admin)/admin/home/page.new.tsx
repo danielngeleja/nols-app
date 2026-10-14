@@ -1,1503 +1,693 @@
-﻿"use client";
+"use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// Admin home. Built on what the strongest product dashboards share: a written brief
+// first, one hero native to the business (here, the map of Tanzania), one money
+// number explained by where it came from, and a ranked queue that explains itself.
+//
+// Every figure names its window. Sources:
+// - /api/admin/summary: pending listings, bookings and owner invoices in the last 24h, online now
+// - /api/admin/payments/summary, /api/admin/drivers/summary, /api/admin/users/summary
+// - /api/admin/performance/highlights?days=30: leaders and bookings per region (map)
+// - /api/admin/properties?status=PENDING: the listings waiting, with their region (map dots)
+// - /api/admin/finance/overview: revenue by stream, behind the finance code (OTP grant)
+// - /api/admin/revenue/series, /api/admin/audits
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import {
-  Activity,
-  BarChart2,
-  Briefcase,
-  Building2,
-  CalendarDays,
-  CheckCircle2,
-  ChevronRight,
-  CreditCard,
-  Info,
-  LayoutDashboard,
-  LineChart,
-  MapPin,
-  MessagesSquare,
-  Sparkles,
-  Truck,
-  Users,
-} from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Bell, Building2, CalendarDays, CheckCircle2, ChevronRight, Layers, Lock, MapPin, RefreshCw, ShieldAlert, Truck, TrendingUp, UserCog, UserRound, Wallet } from "lucide-react";
 
 import { useAdminHomeKpis, useAdminMonitoring, useAdminPerformanceHighlights, useAdminRecentActivities } from "./adminHomeHooks";
+import TanzaniaMap, { matchRegion, type PendingListing } from "./TanzaniaMap";
 import { useSocket } from "@/hooks/useSocket";
 import { adminRefOrId, useAdminHref } from "@/lib/adminRecordRefs";
 
 const Chart = dynamic(() => import("../../../../components/Chart"), { ssr: false });
 
-type RevenueChartDataset = {
-  label: string;
-  data: number[];
-  borderColor: string | string[];
-  backgroundColor: string | string[];
-  tension: number;
-  borderWidth: number;
-  pointRadius: number;
-};
+type RangeType = "hours" | "months" | "properties";
+type Series = { labels: string[]; commission: number[]; subscription: number[] };
+type Stream = { key: string; label: string; nolsafRevenue: number; realizedCount: number };
+type Revenue = { state: "loading" } | { state: "locked" } | { state: "error" } | { state: "ok"; total: number; streams: Stream[] };
 
-type RevenueChartData = {
-  labels: string[];
-  datasets: [RevenueChartDataset, RevenueChartDataset];
-};
+const tsh = (v: number) => `TSh ${Math.round(Number(v) || 0).toLocaleString()}`;
+const humanize = (v: string) => String(v || "").replace(/[.]/g, "_").split(/_+/).filter(Boolean).map((t, i) => (i === 0 ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : t.toLowerCase())).join(" ") || "Activity";
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-const KPI_TONES = {
-  emerald: "border-emerald-100 bg-emerald-50 text-emerald-700",
-  sky: "border-sky-100 bg-sky-50 text-sky-700",
-  blue: "border-blue-100 bg-blue-50 text-blue-700",
-  amber: "border-amber-100 bg-amber-50 text-amber-700",
-  violet: "border-violet-100 bg-violet-50 text-violet-700",
-} as const;
-
-type Tone = keyof typeof KPI_TONES;
-
-const KPI_SURFACES: Record<Tone, string> = {
-  emerald: "border-[#b4dfce] bg-[#e3f3eb] hover:bg-[#d9eee3]",
-  sky: "border-[#b6dce9] bg-[#e2f1f7] hover:bg-[#d7eaf3]",
-  blue: "border-[#c0d2ee] bg-[#e6edf9] hover:bg-[#dce6f6]",
-  amber: "border-[#ead7ae] bg-[#f8efd9] hover:bg-[#f3e6c7]",
-  violet: "border-[#d5c7eb] bg-[#eee7f7] hover:bg-[#e6dcf2]",
-};
-
-/**
- * Operations summary tile. Number and label only: the sparklines, donut rings and
- * share percentages this replaced encoded no real series, they were generated from
- * a seed, so they implied trend information the dashboard does not actually have.
- */
-function KpiCard({
-  label,
-  detail,
-  tone,
-  Icon,
-  value,
-  ready,
-}: {
-  label: string;
-  detail: string;
-  tone: keyof typeof KPI_TONES;
-  Icon: any;
-  value: string;
-  ready: boolean;
-}) {
-  return (
-    // border-solid is required on every bordered element: preflight is disabled
-    // and nothing sets border-style, so a bare `border` utility renders nothing.
-    <div className={`group min-w-0 rounded-xl border border-solid p-4 transition duration-200 ${KPI_SURFACES[tone]}`}>
-      <div className="flex items-center gap-3">
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-solid ${KPI_TONES[tone]}`}>
-          <Icon className="h-[18px] w-[18px]" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1"><p className="m-0 truncate text-xs font-bold text-slate-800">{label}</p><p className="mb-0 mt-1 text-[10px] leading-4 text-slate-500">{detail}</p></div>
-      {ready ? (
-        <p className="m-0 shrink-0 text-[1.75rem] font-bold leading-none tabular-nums tracking-tight text-slate-950">{value}</p>
-      ) : (
-        <div className="h-7 w-8 animate-pulse rounded bg-slate-100" />
-      )}
-      </div>
-    </div>
-  );
+function eatStamp() {
+  return new Date().toLocaleString("en-GB", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT";
 }
 
-/**
- * Performance highlight card. The right-hand visual each of these used to carry
- * was not real: three were makeSpark() trend lines from a seed, and two were
- * MiniMeter bars showing 1 - exp(-value / k), a saturation curve rendered under
- * a "Performance %" label. Both are dropped in favour of the actual figures.
- */
-function HighlightCard({
-  href,
-  label,
-  value,
-  meta,
-  icon: Icon,
-  tone,
-  primary,
-  secondary,
-  footnote,
-  className,
-  featured = false,
-}: {
-  href: string;
-  label: string;
-  value: string;
-  meta?: string;
-  icon: any;
-  tone: Tone;
-  primary: string;
-  secondary: string;
-  footnote: string;
-  className?: string;
-  featured?: boolean;
-}) {
-  const isEmptyValue = !value || value.trim() === "" || value.trim() === "--";
-  return (
-    <Link
-      href={href}
-      className={`group relative isolate flex min-w-0 h-full flex-col overflow-hidden rounded-xl border border-solid p-4 no-underline transition duration-200 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${featured ? 'border-[#ded9cc] bg-[#f4f1e8] sm:p-6 hover:border-[#c5bda8]' : KPI_SURFACES[tone]} ${className ?? ""}`}
-    >
-      {featured && <div aria-hidden className="pointer-events-none absolute right-0 top-0 -z-10 h-40 w-40 opacity-40" style={{backgroundImage:'radial-gradient(circle, #b6a785 1px, transparent 1px)',backgroundSize:'12px 12px'}} />}
-      <div className="flex items-center gap-2.5">
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-solid ${KPI_TONES[tone]}`}>
-          <Icon className="h-[18px] w-[18px]" aria-hidden />
-        </span>
-        <p className="m-0 min-w-0 flex-1 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500">{label}</p>
-        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-indigo-600" aria-hidden />
-      </div>
-
-      <p
-        className={`mb-0 mt-3 break-words font-bold leading-tight tracking-tight ${featured ? 'text-2xl sm:text-3xl' : 'text-base'} ${
-          isEmptyValue ? "font-medium text-neutral-400" : "text-neutral-950"
-        }`}
-      >
-        {isEmptyValue ? "No data yet" : value}
-      </p>
-      {meta ? <p className="mb-0 mt-1 truncate text-xs font-medium text-neutral-500">{meta}</p> : null}
-
-      {/* mt-auto pins the figures to the card floor, so a label that wraps to two
-          lines cannot make this card taller than its neighbours. */}
-      <div className={`mt-auto pt-4 ${featured ? 'sm:pt-8' : ''}`}>
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          {!isEmptyValue && <><span className={`${featured ? 'text-4xl' : 'text-xl'} font-bold leading-none tabular-nums text-neutral-950`}>{primary}</span><span className="min-w-0 text-[11px] font-medium text-neutral-500">{secondary}</span></>}
-        </div>
-        <p className="mb-0 mt-2 text-[10px] leading-4 text-slate-500">{isEmptyValue ? 'No qualifying records in this reporting period.' : footnote}</p>
-      </div>
-    </Link>
-  );
+function relTime(iso?: string | null) {
+  if (!iso) return "";
+  const sec = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (!Number.isFinite(sec)) return "";
+  if (sec < 45) return "just now";
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  if (sec < 7 * 86400) return `${Math.round(sec / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" });
 }
 
-function MiniSparkline({
-  values,
-  stroke,
-  width = 120,
-  height = 36,
-  className,
-}: {
-  values: number[];
-  stroke: string;
-  width?: number;
-  height?: number;
-  className?: string;
-}) {
-  const safe = Array.isArray(values) ? values.filter((v) => Number.isFinite(Number(v))).map((v) => Number(v)) : [];
-  const points = safe.length >= 2 ? safe.slice(-24) : [];
-  if (points.length < 2) return null;
+function auditDetail(details: unknown) {
+  let d: any = details;
+  if (typeof d === "string") { try { d = JSON.parse(d); } catch { return d.slice(0, 80); } }
+  if (!d || typeof d !== "object") return "";
+  const status = d.toStatus ?? d.status ?? d.result ?? "";
+  const now = status ? `, now ${humanize(String(status)).toLowerCase()}` : "";
+  if (d.propertyId) return `Property${now}`;
+  if (d.invoiceId) return `Invoice${now}`;
+  if (d.bookingId) return `Booking${now}`;
+  if (typeof d.reason === "string") return d.reason.slice(0, 80);
+  return "";
+}
 
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const w = width;
-  const h = height;
-  const pad = 3;
-  const range = Math.max(1e-6, max - min);
-  const toX = (i: number) => pad + (i * (w - pad * 2)) / (points.length - 1);
-  const toY = (v: number) => pad + (1 - (v - min) / range) * (h - pad * 2);
-  const d = points
-    .map((v, i) => {
-      const x = toX(i);
-      const y = toY(v);
-      return `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
+function auditKind(action: unknown) {
+  const a = String(action ?? "").toUpperCase();
+  if (a.includes("REJECT") || a.includes("SUSPEND") || a.includes("FAIL")) return { icon: ShieldAlert, tone: "bg-rose-50 text-rose-600" };
+  if (a.includes("IMPERSONAT")) return { icon: UserCog, tone: "bg-violet-50 text-violet-600" };
+  if (a.includes("NOTIFY") || a.includes("NOTIFICATION") || a.includes("MESSAGE")) return { icon: Bell, tone: "bg-sky-50 text-sky-600" };
+  if (a.startsWith("INVOICE_") || a.includes("PAYMENT") || a.includes("PAYOUT")) return { icon: Wallet, tone: "bg-amber-50 text-amber-700" };
+  if (a.startsWith("PROPERTY_") || a.includes("APPROVE")) return { icon: Building2, tone: "bg-emerald-50 text-emerald-700" };
+  return { icon: Activity, tone: "bg-neutral-100 text-neutral-500" };
+}
 
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className={"overflow-visible " + (className ?? "")}>
-      <path d={d} fill="none" stroke={stroke} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
+const eatDay = (iso: string | number | Date) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Africa/Dar_es_Salaam" });
+
+function parseSeries(json: any): Series {
+  if (Array.isArray(json)) {
+    return {
+      labels: json.map((r: any) => String(r?.label ?? "")),
+      commission: json.map((r: any) => Number(r?.commission ?? r?.commission_total ?? 0)),
+      subscription: json.map((r: any) => Number(r?.subscription ?? r?.subscription_total ?? 0)),
+    };
+  }
+  return {
+    labels: Array.isArray(json?.labels) ? json.labels.map(String) : [],
+    commission: Array.isArray(json?.commission) ? json.commission.map((n: any) => Number(n || 0)) : [],
+    subscription: Array.isArray(json?.subscription) ? json.subscription.map((n: any) => Number(n || 0)) : [],
+  };
 }
 
 export default function AdminHomePage() {
   const recordHref = useAdminHref();
-  const router = useRouter();
-
   const { socket } = useSocket(undefined, { enabled: true, joinDriverRoom: false });
-
   const { monitoring } = useAdminMonitoring();
   const { recentActivities, refresh: refreshRecentActivities } = useAdminRecentActivities();
-  const { driversPending, usersNew, paymentsWaiting } = useAdminHomeKpis();
+  const { driversPending, usersNew, paymentsWaiting, paymentExceptions, payoutsInProgress } = useAdminHomeKpis();
   const { highlights } = useAdminPerformanceHighlights(30);
 
-  const [reduceMotion, setReduceMotion] = useState<boolean>(false);
-  const [tilesInView, setTilesInView] = useState<boolean>(false);
+  const [stamp, setStamp] = useState<string>("");
+  const [pending, setPending] = useState<Array<PendingListing & { updatedAt?: string }>>([]);
+  const [revenue, setRevenue] = useState<Revenue>({ state: "loading" });
+  const [region, setRegion] = useState<string | null>(null);
+  const [rangeType, setRangeType] = useState<RangeType>("months");
+  const [hoursWindow, setHoursWindow] = useState(24);
+  const [monthsWindow, setMonthsWindow] = useState(6);
+  const [series, setSeries] = useState<Series | null>(null);
+  const [nonce, setNonce] = useState(0);
+  const refreshTimer = useRef<number | null>(null);
 
-  const [hoursWindow, setHoursWindow] = useState<number>(24);
-  const [monthsWindow, setMonthsWindow] = useState<number>(1);
-  const [rangeType, setRangeType] = useState<"hours" | "months" | "properties">("hours");
-  const propertiesCount = 5;
-
-  const [chartData, setChartData] = useState<RevenueChartData | null>(null);
-  const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
-  const refreshTimerRef = useRef<number | null>(null);
-
-  const truncateLabel = (label: string, maxLen = 16) => {
-    const s = String(label ?? "");
-    if (s.length <= maxLen) return s;
-    return s.slice(0, Math.max(1, maxLen - 1)) + "…";
-  };
-
-  // One segmented control, one active style. The three tabs previously used three
-  // different accent colours (emerald / yellow / blue), which read as three
-  // unrelated controls rather than one range switch.
-  const revenueRangeTabClass = (tab: "hours" | "months" | "properties") => {
-    const isActive = rangeType === tab;
-    const base =
-      "appearance-none px-3 py-1.5 rounded-lg text-xs font-bold border border-solid " +
-      "transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 ";
-
-    const selected = {
-      active: "border-neutral-200 bg-white text-neutral-900 shadow-[0_1px_2px_rgba(15,23,42,0.06)]",
-      inactive: "border-transparent bg-transparent text-neutral-500 hover:text-neutral-900",
-    };
-
-    const variants = {
-      hours: selected,
-      months: selected,
-      properties: selected,
-    } as const;
-
-    return base + (isActive ? variants[tab].active : variants[tab].inactive);
-  };
+  // EAT clock, set after mount so server and client HTML match.
+  useEffect(() => {
+    setStamp(eatStamp());
+    const t = window.setInterval(() => setStamp(eatStamp()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (!socket) return;
-
-    const scheduleRefresh = () => {
-      if (refreshTimerRef.current) {
-        try {
-          window.clearTimeout(refreshTimerRef.current);
-        } catch {
-          // ignore
-        }
-      }
-      refreshTimerRef.current = window.setTimeout(() => {
-        setChartRefreshNonce((n) => n + 1);
-        refreshRecentActivities();
-      }, 350);
+    const schedule = () => {
+      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = window.setTimeout(() => { setNonce((n) => n + 1); refreshRecentActivities(); }, 350);
     };
-
-    socket.on("admin:invoice:paid", scheduleRefresh);
-    socket.on("admin:invoice:status", scheduleRefresh);
-    socket.on("admin:property:status", scheduleRefresh);
-
+    socket.on("admin:invoice:paid", schedule);
+    socket.on("admin:invoice:status", schedule);
+    socket.on("admin:property:status", schedule);
     return () => {
-      socket.off("admin:invoice:paid", scheduleRefresh);
-      socket.off("admin:invoice:status", scheduleRefresh);
-      socket.off("admin:property:status", scheduleRefresh);
-      if (refreshTimerRef.current) {
-        try {
-          window.clearTimeout(refreshTimerRef.current);
-        } catch {
-          // ignore
-        }
-        refreshTimerRef.current = null;
-      }
+      socket.off("admin:invoice:paid", schedule);
+      socket.off("admin:invoice:status", schedule);
+      socket.off("admin:property:status", schedule);
+      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
     };
   }, [socket, refreshRecentActivities]);
 
+  // Listings waiting for review, with their region, for the map and the queue.
   useEffect(() => {
-    try {
-      const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-      const update = () => setReduceMotion(Boolean(media.matches));
-      update();
-      if (typeof media.addEventListener === "function") media.addEventListener("change", update);
-      else (media as any).addListener?.(update);
-      return () => {
-        if (typeof media.removeEventListener === "function") media.removeEventListener("change", update);
-        else (media as any).removeListener?.(update);
-      };
-    } catch {
-      setReduceMotion(false);
-    }
-  }, []);
-
-  function RelativeTime({ iso }: { iso?: string | null }) {
-    const [rel, setRel] = useState<string | null>(null);
-    const [abs, setAbs] = useState<string>("");
-    useEffect(() => {
-      if (!iso) return;
-      const compute = () => {
-        const d = new Date(iso);
-        if (!Number.isFinite(d.getTime())) {
-          setRel(iso || null);
-          return;
-        }
-        const date = d.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
-        const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-        setAbs(`${date}, ${time}`);
-
-        const diffMs = Date.now() - d.getTime();
-        const sec = Math.round(diffMs / 1000);
-        if (sec < 45) {
-          setRel("just now");
-        } else if (sec < 3600) {
-          setRel(`${Math.round(sec / 60)}m ago`);
-        } else if (sec < 86400) {
-          setRel(`${Math.round(sec / 3600)}h ago`);
-        } else if (sec < 7 * 86400) {
-          setRel(`${Math.round(sec / 86400)}d ago`);
-        } else {
-          setRel(d.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
-        }
-      };
-      compute();
-      const timer = setInterval(compute, 60_000);
-      return () => clearInterval(timer);
-    }, [iso]);
-
-    if (!rel) return <span className="shrink-0 text-xs text-neutral-400">&nbsp;</span>;
-    return (
-      <time title={abs} className="shrink-0 whitespace-nowrap text-xs font-medium tabular-nums text-neutral-400">
-        {rel}
-      </time>
-    );
-  }
-
-  const formatAuditAction = (value: unknown) => {
-    const raw = String(value ?? "").trim();
-    if (!raw) return "Activity";
-    const tokens = raw.replace(/[.]/g, "_").split(/_+/g).filter(Boolean);
-    if (!tokens.length) return raw;
-    return tokens
-      .map((t) => {
-        const lower = t.toLowerCase();
-        return lower.charAt(0).toUpperCase() + lower.slice(1);
-      })
-      .join(" ");
-  };
-
-  const auditTone = (action: unknown) => {
-    const a = String(action ?? "").toUpperCase();
-    if (a.startsWith("PROPERTY_")) {
-      return {
-        dot: "bg-emerald-600",
-        pill: "border-emerald-100 bg-emerald-50 text-emerald-700",
-      };
-    }
-    if (a.startsWith("INVOICE_") || a.includes("PAYMENT")) {
-      return {
-        dot: "bg-sky-600",
-        pill: "border-sky-100 bg-sky-50 text-sky-700",
-      };
-    }
-    if (a.includes("USER") || a.includes("OWNER") || a.includes("DRIVER")) {
-      return {
-        dot: "bg-blue-600",
-        pill: "border-blue-100 bg-blue-50 text-blue-700",
-      };
-    }
-    return {
-      dot: "bg-neutral-400",
-      pill: "border-neutral-200 bg-neutral-50 text-neutral-700",
-    };
-  };
-
-  const truncateText = (value: unknown, maxLen = 64) => {
-    const s = String(value ?? "").replace(/\s+/g, " ").trim();
-    if (!s) return "";
-    if (s.length <= maxLen) return s;
-    return s.slice(0, Math.max(1, maxLen - 1)) + "…";
-  };
-
-  const parseDetails = (details: unknown): any => {
-    if (!details) return null;
-    if (typeof details === "object") return details;
-    if (typeof details === "string") {
-      const t = details.trim();
-      if (!t) return null;
+    (async () => {
       try {
-        return JSON.parse(t);
+        const res = await fetch("/api/admin/properties?status=PENDING&pageSize=100&includeTotal=false", { credentials: "include" });
+        const json = res.ok ? await res.json() : null;
+        const items = Array.isArray(json?.items) ? json.items : [];
+        setPending(items.map((p: any) => ({ title: String(p.title || "Untitled listing"), regionName: p.regionName ?? null, updatedAt: p.updatedAt })));
       } catch {
-        return details;
+        setPending([]);
       }
-    }
-    return details;
-  };
+    })();
+  }, [nonce]);
 
-  const formatAuditDetails = (action: unknown, details: unknown) => {
-    const a = String(action ?? "").toUpperCase();
-    const d = parseDetails(details);
-
-    if (!d) return "";
-
-    if (typeof d === "object") {
-      const obj: any = d;
-
-      const status = obj.toStatus ?? obj.status ?? obj.to ?? obj.result ?? "";
-      if (obj.propertyId) return truncateText(`Property ${obj.propertyId}${status ? ` - ${status}` : ""}`);
-      if (obj.invoiceId) return truncateText(`Invoice ${obj.invoiceId}${status ? ` - ${status}` : ""}`);
-      if (obj.bookingId) return truncateText(`Booking ${obj.bookingId}${status ? ` - ${status}` : ""}`);
-
-      if (a.includes("GRANT_BONUS") && obj.ownerId) return truncateText(`Owner ${obj.ownerId} - bonus granted`);
-      if (a.includes("DISABLE_USER") && typeof obj.disable !== "undefined") return truncateText(`disable: ${String(obj.disable)}`);
-      if (a.includes("ENABLE_USER")) return "disable: false";
-
-      const ignoreKeys = new Set([
-        "from",
-        "to",
-        "createdAt",
-        "updatedAt",
-        "payload",
-        "png",
-        "receiptQrPng",
-        "receiptQrPayload",
-        "notes",
-        "reason",
-      ]);
-
-      const parts: string[] = [];
-      for (const [k, v] of Object.entries(obj)) {
-        if (ignoreKeys.has(k)) continue;
-        if (v === null || typeof v === "undefined") continue;
-        if (typeof v === "object") continue;
-        const piece = `${k}: ${String(v)}`;
-        parts.push(piece);
-        if (parts.length >= 2) break;
-      }
-
-      return truncateText(parts.join(", "));
-    }
-
-    return truncateText(d);
-  };
-
-  function useCountUp(value: number, enabled: boolean, durationMs = 650) {
-    const [display, setDisplay] = useState<number>(value);
-
-    useEffect(() => {
-      if (!enabled || reduceMotion) {
-        setDisplay(value);
+  // Revenue by stream, 30 days. Platform revenue sits behind the finance code; plain
+  // fetch so loading the home page never pops the code prompt by itself.
+  const loadRevenue = useCallback(async () => {
+    setRevenue({ state: "loading" });
+    try {
+      const now = new Date();
+      const q = new URLSearchParams({ from: new Date(now.getTime() - 30 * 86_400_000).toISOString(), to: now.toISOString() });
+      const res = await fetch(`/api/admin/finance/overview?${q}`, { credentials: "include" });
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        setRevenue(body?.require2fa ? { state: "locked" } : { state: "error" });
         return;
       }
+      if (!res.ok) { setRevenue({ state: "error" }); return; }
+      const json = await res.json();
+      const streams: Stream[] = (Array.isArray(json?.streams) ? json.streams : []).map((s: any) => ({
+        key: String(s.key), label: String(s.label), nolsafRevenue: Number(s.nolsafRevenue || 0), realizedCount: Number(s.realizedCount || 0),
+      }));
+      setRevenue({ state: "ok", total: Number(json?.totals?.nolsafRevenue || 0), streams });
+    } catch {
+      setRevenue({ state: "error" });
+    }
+  }, []);
+  useEffect(() => { void loadRevenue(); }, [loadRevenue, nonce]);
+  useEffect(() => {
+    const onGranted = () => void loadRevenue();
+    window.addEventListener("finance-grant-granted", onGranted);
+    return () => window.removeEventListener("finance-grant-granted", onGranted);
+  }, [loadRevenue]);
 
-      let raf = 0;
-      const start = performance.now();
-      const from = display;
-      const delta = value - from;
-
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - start) / durationMs);
-        const eased = 1 - Math.pow(1 - t, 3);
-        setDisplay(from + delta * eased);
-        if (t < 1) raf = requestAnimationFrame(tick);
-      };
-
-      raf = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(raf);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value, enabled, durationMs, reduceMotion]);
-
-    return display;
-  }
-
-  const pendingApprovalsValue = monitoring?.pendingApprovals ?? 0;
-  const bookingsValue = monitoring?.bookings ?? 0;
-  const paymentsWaitingValue = Number(paymentsWaiting ?? 0) || 0;
-  const driversPendingValue = Number(driversPending ?? 0) || 0;
-  const usersNewValue = Number(usersNew ?? 0) || 0;
-
-  const pendingApprovalsAnimated = useCountUp(pendingApprovalsValue, Boolean(monitoring));
-  const bookingsAnimated = useCountUp(bookingsValue, Boolean(monitoring));
-  const paymentsWaitingAnimated = useCountUp(paymentsWaitingValue, paymentsWaiting !== null && paymentsWaiting !== undefined);
-
-  const opsSnapshot = useMemo(() => {
-    const labels = ["Approvals", "Payments", "Bookings", "Drivers", "New users"];
-    const values = [pendingApprovalsValue, paymentsWaitingValue, bookingsValue, driversPendingValue, usersNewValue].map((n) =>
-      Number.isFinite(n) ? Math.max(0, Number(n)) : 0
-    );
-    const total = values.reduce((s, v) => s + v, 0);
-    // One colour per metric, matching the KPI tile tone for the same metric above
-    // (emerald, sky, blue, amber, violet). Solid 600-level values: the previous
-    // set used alpha, and slate-400 at 0.70 was invisible on a white surface.
-    const colors = [
-      "#059669",
-      "#0284c7",
-      "#2563eb",
-      "#d97706",
-      "#7c3aed",
-    ];
-
-    return { labels, values, total, colors };
-  }, [bookingsValue, driversPendingValue, paymentsWaitingValue, pendingApprovalsValue, usersNewValue]);
-
-  const formatTsh = (v: number) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "Tsh 0";
-    return `Tsh ${Math.round(n).toLocaleString()}`;
-  };
-
-  type NavItem = {
-    href: string;
-    title: string;
-    description: string;
-    icon: React.ComponentType<{ className?: string }>;
-    tone: Tone;
-    badge?: number | string | null;
-    seriesValues?: number[];
-    seriesStroke?: string;
-    className?: string;
-    featured?: boolean;
-    bottomSlot?: React.ReactNode;
-  };
-
-  function NavTile({
-    href,
-    title,
-    description,
-    icon: Icon,
-    tone,
-    badge,
-    seriesValues,
-    seriesStroke,
-    className,
-    featured,
-    index,
-    bottomSlot,
-  }: NavItem & { index: number }) {
-    const numericBadge = typeof badge === "number" && Number.isFinite(badge) ? badge : null;
-    const badgeDisplay = useCountUp(numericBadge ?? 0, tilesInView && numericBadge !== null);
-    const badgeLabel = numericBadge !== null ? Math.round(badgeDisplay).toLocaleString() : badge;
-    const showBadge = featured && badge !== undefined && badge !== null;
-    const showSparkline = !featured && Array.isArray(seriesValues) && seriesValues.length >= 2;
-
-    return (
-      <Link
-        href={href}
-        className={
-          "group relative block no-underline " +
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 " +
-          "motion-safe:transition-colors motion-safe:duration-200 " +
-          (className ? className : "")
-        }
-        style={
-          reduceMotion
-            ? undefined
-            : {
-                opacity: tilesInView ? 1 : 0,
-                transform: tilesInView ? "translateY(0px)" : "translateY(10px)",
-                transitionProperty: "opacity, transform, box-shadow",
-                transitionDuration: "520ms",
-                transitionTimingFunction: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-                transitionDelay: `${110 + index * 55}ms`,
-              }
-        }
-      >
-        <div className={`relative h-full overflow-hidden rounded-xl border border-solid motion-safe:transition motion-safe:duration-200 ${KPI_SURFACES[tone]}`}>
-          <div className="relative p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <span
-                  className={
-                    "flex shrink-0 items-center justify-center rounded-xl border border-solid " +
-                    (featured ? "h-10 w-10" : "h-9 w-9") +
-                    " " +
-                    KPI_TONES[tone]
-                  }
-                >
-                  <Icon className={featured ? "h-[18px] w-[18px]" : "h-4 w-4"} aria-hidden />
-                </span>
-
-                <div className="min-w-0">
-                  <div
-                    className={
-                      (featured ? "text-base" : "text-sm") +
-                      " font-bold tracking-tight text-neutral-950 leading-tight min-w-0 " +
-                      "[display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden"
-                    }
-                  >
-                    {title}
-                  </div>
-                  <div className="mt-1 min-w-0 overflow-hidden text-xs font-medium leading-snug text-neutral-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-                    {description}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                {showBadge ? (
-                  <span aria-label={`${title}: ${badgeLabel}`} className="flex h-8 min-w-8 items-center justify-center rounded-lg bg-white/80 px-2 text-lg font-bold tabular-nums text-slate-950">
-                    {badgeLabel}
-                  </span>
-                ) : null}
-
-                <ChevronRight
-                  className="h-4 w-4 text-neutral-400 motion-safe:transition motion-safe:duration-200 group-hover:translate-x-0.5 group-hover:text-emerald-600"
-                  aria-hidden
-                />
-              </div>
-            </div>
-
-            {featured && <p className="mb-0 mt-3 text-[10px] font-bold text-slate-600">{title === 'Approvals' ? 'Review queue' : title === 'Payments' ? 'Settlement workspace' : 'Booking workspace'} <span aria-hidden>→</span></p>}
-
-            {bottomSlot ? (
-              <div className="mt-3.5">{bottomSlot}</div>
-            ) : showSparkline ? (
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <span className="text-[11px] font-medium text-neutral-500">Trend</span>
-                <MiniSparkline
-                  values={seriesValues!}
-                  stroke={seriesStroke ?? "#059669"}
-                  width={84}
-                  height={24}
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </Link>
-    );
-  }
-
+  // Revenue over time.
   useEffect(() => {
     (async () => {
       try {
         if (rangeType === "properties") {
-          const res = await fetch(`/api/admin/revenue/properties?top=${encodeURIComponent(String(propertiesCount))}`);
-          if (!res.ok) throw new Error("no properties");
+          const res = await fetch(`/api/admin/revenue/properties?top=5`);
+          if (!res.ok) throw new Error();
           const json = await res.json();
-
-          const rows = Array.isArray(json)
-            ? json
-                .map((it: any) => {
-                  const label = it.name ?? it.title ?? `Property ${it.id ?? ""}`;
-                  const commission = Number(it.commission ?? it.commission_total ?? it.commissionAmount ?? 0);
-                  const subscription = Number(it.subscription ?? it.subscription_total ?? it.subscriptionAmount ?? 0);
-                  const total = commission + subscription;
-                  return { label: String(label), commission, subscription, total };
-                })
-                .sort((a, b) => (b.total || 0) - (a.total || 0))
-                .slice(0, propertiesCount)
-            : [];
-
-          const labels = rows.map((r) => r.label);
-          const commission = rows.map((r) => r.commission);
-          const subscription = rows.map((r) => r.subscription);
-
-          setChartData({
-            labels,
-            datasets: [
-              {
-                label: "Commission",
-                data: commission,
-                borderColor: [
-                  "rgba(34,197,94,0.95)",
-                  "rgba(234,179,8,0.95)",
-                  "rgba(56,189,248,0.95)",
-                  "rgba(249,115,22,0.95)",
-                  "rgba(20,184,166,0.95)",
-                ].slice(0, commission.length),
-                backgroundColor: [
-                  "rgba(34,197,94,0.18)",
-                  "rgba(234,179,8,0.18)",
-                  "rgba(56,189,248,0.18)",
-                  "rgba(249,115,22,0.18)",
-                  "rgba(20,184,166,0.18)",
-                ].slice(0, commission.length),
-                tension: 0.4,
-                borderWidth: 2,
-                pointRadius: 0,
-              },
-              {
-                label: "Subscription",
-                data: subscription,
-                borderColor: "rgba(148,163,184,0.9)",
-                backgroundColor: "rgba(148,163,184,0.08)",
-                tension: 0.4,
-                borderWidth: 2,
-                pointRadius: 0,
-              },
-            ],
-          });
+          const rows = (Array.isArray(json) ? json : []).map((it: any) => ({
+            label: String(it.name ?? it.title ?? "Property"),
+            commission: Number(it.commission ?? it.commission_total ?? it.commissionAmount ?? 0),
+            subscription: Number(it.subscription ?? it.subscription_total ?? it.subscriptionAmount ?? 0),
+          })).sort((a: any, b: any) => b.commission + b.subscription - (a.commission + a.subscription)).slice(0, 5);
+          setSeries({ labels: rows.map((r: any) => r.label), commission: rows.map((r: any) => r.commission), subscription: rows.map((r: any) => r.subscription) });
           return;
         }
-
         const now = new Date();
-        let interval: "hour" | "day" | "month" = "day";
-        let fromDate = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-        if (rangeType === "hours") {
-          interval = "hour";
-          fromDate = new Date(now.getTime() - (Math.max(1, hoursWindow) - 1) * 60 * 60 * 1000);
-        } else if (rangeType === "months") {
-          interval = "month";
-          fromDate = new Date(now.getFullYear(), now.getMonth() - (Math.max(1, monthsWindow) - 1), 1);
-        }
-
-        const q = new URLSearchParams();
-        q.set("from", fromDate.toISOString());
-        q.set("to", now.toISOString());
-        q.set("interval", interval);
-
-        const res = await fetch(`/api/admin/revenue/series?${q.toString()}`);
-        if (!res.ok) throw new Error("no series");
-
-        const json = await res.json();
-        let labels: string[] = [];
-        let commission: number[] = [];
-        let subscription: number[] = [];
-
-        if (Array.isArray(json)) {
-          labels = json.map((r: any) => String(r?.label ?? ""));
-          commission = json.map((r: any) => Number(r?.commission ?? r?.commission_total ?? 0));
-          subscription = json.map((r: any) => Number(r?.subscription ?? r?.subscription_total ?? 0));
-        } else {
-          labels = Array.isArray((json as any)?.labels) ? (json as any).labels.map((v: any) => String(v)) : [];
-          commission = Array.isArray((json as any)?.commission) ? (json as any).commission.map((n: any) => Number(n || 0)) : [];
-          subscription = Array.isArray((json as any)?.subscription) ? (json as any).subscription.map((n: any) => Number(n || 0)) : [];
-        }
-
-        setChartData({
-          labels,
-          datasets: [
-            {
-              label: "Commission",
-              data: commission,
-              borderColor: "rgba(56,189,248,0.95)",
-              backgroundColor: "rgba(56,189,248,0.06)",
-              tension: 0.4,
-              borderWidth: 2,
-              pointRadius: 0,
-            },
-            {
-              label: "Subscription",
-              data: subscription,
-              borderColor: "rgba(34,197,94,0.95)",
-              backgroundColor: "rgba(34,197,94,0.05)",
-              tension: 0.4,
-              borderWidth: 2,
-              pointRadius: 0,
-            },
-          ],
-        });
+        const interval = rangeType === "hours" ? "hour" : "month";
+        const from = rangeType === "hours"
+          ? new Date(now.getTime() - (Math.max(1, hoursWindow) - 1) * 3_600_000)
+          : new Date(now.getFullYear(), now.getMonth() - (Math.max(1, monthsWindow) - 1), 1);
+        const res = await fetch(`/api/admin/revenue/series?${new URLSearchParams({ from: from.toISOString(), to: now.toISOString(), interval })}`);
+        if (!res.ok) throw new Error();
+        setSeries(parseSeries(await res.json()));
       } catch {
-        // keep placeholders on failure
+        setSeries({ labels: [], commission: [], subscription: [] });
       }
     })();
-  }, [hoursWindow, monthsWindow, propertiesCount, rangeType, chartRefreshNonce]);
+  }, [rangeType, hoursWindow, monthsWindow, nonce]);
 
-  const totalCommission = chartData ? chartData.datasets[0].data.reduce((s, v) => s + Number(v || 0), 0) : 0;
-  const totalSubscription = chartData ? chartData.datasets[1].data.reduce((s, v) => s + Number(v || 0), 0) : 0;
+  // ── The queue: everything waiting on an admin, with why ──
+  // Waiting listings, oldest first, with whole days waited (since their last update).
+  const waitingListings = useMemo(
+    () =>
+      pending
+        .map((p) => ({ ...p, days: p.updatedAt ? Math.max(0, Math.floor((Date.now() - new Date(p.updatedAt).getTime()) / 86_400_000)) : 0 }))
+        .sort((a, b) => b.days - a.days),
+    [pending],
+  );
+  const oldestPending = useMemo(() => {
+    const dated = pending.filter((p) => p.updatedAt).sort((a, b) => new Date(a.updatedAt!).getTime() - new Date(b.updatedAt!).getTime());
+    if (!dated.length) return null;
+    const days = Math.max(0, Math.floor((Date.now() - new Date(dated[0].updatedAt!).getTime()) / 86_400_000));
+    return { title: dated[0].title, days };
+  }, [pending]);
+  const pendingCount = monitoring?.pendingApprovals ?? pending.length;
+  const queue = [
+    {
+      key: "listings", count: pendingCount, label: "Listings to review", href: "/admin/properties/previews",
+      why: oldestPending ? `Oldest waiting ${oldestPending.days === 0 ? "since today" : plural(oldestPending.days, "day", "days")}: ${oldestPending.title}` : "New and edited listings",
+    },
+    { key: "payouts", count: Number(paymentsWaiting ?? 0), label: "Owner payouts to send", href: "/admin/payments", why: "Approved invoices, money not yet sent" },
+    { key: "exceptions", count: Number(paymentExceptions ?? 0), label: "Payments to match", href: "/admin/payments", why: "Money received with no booking attached" },
+    { key: "trips", count: Number(driversPending ?? 0), label: "Driver trips to settle", href: "/admin/drivers", why: "Completed trips not yet paid" },
+  ];
+  const live = queue.filter((q) => q.count > 0).sort((a, b) => b.count - a.count);
+  const clear = queue.filter((q) => q.count === 0);
+  const queueReady = Boolean(monitoring) && paymentsWaiting != null;
+
+  // ── The brief: three plain sentences from the live numbers ──
+  // The brief as small cards: the day's facts, each tinted by meaning (amber waits on
+  // you, green is good, grey is quiet) and linked to where you act on it.
+  type BriefCard = { key: string; value: string; caption: string; tone: "amber" | "green" | "grey"; href: string; icon: typeof Lock };
+  const brief = useMemo<BriefCard[] | null>(() => {
+    if (!monitoring) return null;
+    const META: Record<string, [string, string, typeof Lock]> = {
+      listings: ["listing waits for review", "listings wait for review", Building2],
+      payouts: ["owner payout to send", "owner payouts to send", Wallet],
+      exceptions: ["payment to match", "payments to match", AlertTriangle],
+      trips: ["driver trip to settle", "driver trips to settle", Truck],
+    };
+    const cards: BriefCard[] = live.length
+      ? live.map((q) => {
+          const [one, many, icon] = META[q.key];
+          return { key: q.key, value: String(q.count), caption: q.count === 1 ? one : many, tone: "amber" as const, href: q.href, icon };
+        })
+      : [{ key: "clear", value: "All clear", caption: "nothing waits on you", tone: "green", href: "/admin/properties/previews", icon: CheckCircle2 }];
+    const bookings = monitoring.bookings;
+    cards.push({ key: "bookings", value: String(bookings), caption: bookings === 1 ? "new booking, last 24 hours" : "new bookings, last 24 hours", tone: bookings ? "green" : "grey", href: "/admin/bookings", icon: CalendarDays });
+    const top = highlights?.mostBookedRegion;
+    if (top && top.bookings > 0) {
+      cards.push({ key: "region", value: matchRegion(top.regionName)?.name ?? humanize(top.regionName), caption: `led the month, ${plural(top.bookings, "booking", "bookings")}`, tone: "green", href: "/admin/bookings", icon: MapPin });
+    }
+    return cards;
+  }, [monitoring, live, highlights]);
+  const CARD_TONE = {
+    amber: { box: "border-amber-200 bg-amber-50 hover:bg-amber-100/70", icon: "bg-amber-100 text-amber-700", value: "text-amber-950", caption: "text-amber-800/80" },
+    green: { box: "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50", icon: "bg-emerald-100 text-emerald-700", value: "text-emerald-950", caption: "text-emerald-800/80" },
+    grey: { box: "border-neutral-200 bg-white hover:bg-neutral-50", icon: "bg-neutral-100 text-neutral-500", value: "text-neutral-500", caption: "text-neutral-500" },
+  } as const;
+  const hour = Number(new Date().toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Dar_es_Salaam" }));
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const tp = highlights?.topProperty;
+  const leaders = [
+    {
+      label: "Top property", icon: Building2, value: tp?.title,
+      sub: tp ? `${plural(tp.bookings, "booking", "bookings")} · ${humanize(tp.type || "").toLowerCase()}` : null,
+      meta: tp?.interactionsBreakdown && tp.interactions > 0 ? `${plural(tp.interactionsBreakdown.reviews, "review", "reviews")}, ${plural(tp.interactionsBreakdown.saves, "save", "saves")}` : null,
+      rule: "Ranked by bookings, then reviews and saves",
+      href: tp?.propertyId ? `/admin/properties/previews?previewId=${adminRefOrId("property", tp.propertyId)}` : "/admin/properties/previews",
+    },
+    {
+      label: "Best property type", icon: Layers, value: highlights?.bestPropertyType?.type ? humanize(highlights.bestPropertyType.type) : null,
+      sub: highlights?.bestPropertyType ? plural(highlights.bestPropertyType.bookings, "booking", "bookings") : null,
+      meta: highlights?.bestPropertyType && highlights.bestPropertyType.interactions > 0 ? plural(highlights.bestPropertyType.interactions, "review or save", "reviews and saves") : null,
+      rule: "Ranked by bookings across all listings", href: "/admin/properties/previews",
+    },
+    {
+      label: "Best owner", icon: UserRound, value: highlights?.bestOwner?.name,
+      sub: highlights?.bestOwner ? `${tsh(highlights.bestOwner.nolsRevenue)} commission` : null,
+      meta: highlights?.bestOwner ? plural(highlights.bestOwner.bookings, "booking", "bookings") : null,
+      rule: "Ranked by commission on approved invoices",
+      href: highlights?.bestOwner?.ownerId ? recordHref("owner", highlights.bestOwner.ownerId) : "/admin/owners",
+    },
+    {
+      label: "Best driver", icon: Truck, value: highlights?.bestDriver?.name,
+      sub: highlights?.bestDriver ? `${tsh(highlights.bestDriver.nolsRevenue)} commission` : null,
+      meta: highlights?.bestDriver ? plural(highlights.bestDriver.bookings, "trip", "trips") : null,
+      rule: "Ranked by commission on approved invoices",
+      href: highlights?.bestDriver?.driverId ? recordHref("driver", highlights.bestDriver.driverId) : "/admin/drivers",
+    },
+  ];
+
+  const totalC = series ? series.commission.reduce((s, v) => s + v, 0) : 0;
+  const totalS = series ? series.subscription.reduce((s, v) => s + v, 0) : 0;
+  const hasSeries = Boolean(series && series.labels.length && totalC + totalS > 0);
+  const unit = rangeType === "hours" ? "hour" : rangeType === "months" ? "month" : "property";
+  const windowCaption = rangeType === "properties" ? "Top 5 properties by earnings" : rangeType === "hours" ? `Last ${hoursWindow} hours` : `Last ${monthsWindow} months, this month so far included`;
+  const peak = useMemo(() => {
+    if (!series || !hasSeries) return null;
+    let at = 0;
+    series.labels.forEach((_, i) => { if (series.commission[i] + series.subscription[i] > series.commission[at] + series.subscription[at]) at = i; });
+    return { label: series.labels[at], value: series.commission[at] + series.subscription[at] };
+  }, [series, hasSeries]);
+  const revenueStats: Array<{ label: string; value: string; dot?: string; muted?: boolean }> = [
+    { label: "Commission", value: tsh(totalC), dot: "bg-[#02665e]", muted: !totalC },
+    { label: "Subscription", value: tsh(totalS), dot: "bg-amber-600", muted: !totalS },
+    { label: `Best ${unit}`, value: peak ? `${peak.label}, ${tsh(peak.value)}` : "None yet", muted: !peak },
+    rangeType === "properties"
+      ? { label: "Commission share", value: totalC + totalS > 0 ? `${Math.round((totalC / (totalC + totalS)) * 100)}%` : "None yet", muted: totalC + totalS === 0 }
+      : { label: `Average per ${unit}`, value: series && series.labels.length && totalC + totalS > 0 ? tsh((totalC + totalS) / series.labels.length) : "None yet", muted: totalC + totalS === 0 },
+  ];
+  const axisLabels = series && rangeType !== "properties" && series.labels.length
+    ? series.labels.filter((_, i, all) => all.length <= 6 || i % Math.ceil(all.length / 6) === 0 || i === all.length - 1)
+    : [];
+  const emptyTitle = rangeType === "properties"
+    ? "No property has earned commission yet"
+    : series && series.labels.length ? `Nothing recorded from ${series.labels[0]} to ${series.labels[series.labels.length - 1]}` : "Nothing recorded in this window";
+
+  const activityDays = useMemo(() => {
+    const today = eatDay(Date.now());
+    const yesterday = eatDay(Date.now() - 86_400_000);
+    const groups: Array<{ key: string; label: string; items: any[] }> = [];
+    (recentActivities ?? []).slice(0, 6).forEach((a: any) => {
+      const key = a.createdAt ? eatDay(a.createdAt) : "unknown";
+      let g = groups.find((x) => x.key === key);
+      if (!g) {
+        const label = key === today ? "Today" : key === yesterday ? "Yesterday" : a.createdAt ? new Date(a.createdAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Africa/Dar_es_Salaam" }) : "Undated";
+        g = { key, label, items: [] };
+        groups.push(g);
+      }
+      g.items.push(a);
+    });
+    return groups;
+  }, [recentActivities]);
+  const CARD = "min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white";
+  const LABEL = "m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500";
 
   return (
-    <div id="admin-home" className="relative min-h-screen bg-neutral-50 text-neutral-900">
-      <style>{`
-        #admin-home,
-        #admin-home * {
-          box-sizing: border-box;
-        }
-        #admin-home section[aria-label="Revenue analytics"] > div:first-child { background: #e8f2f5; border-color: #d0e3e9; }
-        #admin-home section[aria-label="Recent activities"] > div:first-child { background: #eee9f6; border-color: #ddd3eb; }
-        #admin-home section[aria-label="Recent activities"] { align-self: start; }
-        #admin-home section[aria-label="Operations snapshot"] > div:first-child { background: #f3eee3; border-color: #e6ddca; }
-        #admin-home section[aria-label="Operations hub"] { background: #f6f7f9; }
-        #admin-home section[aria-label="Operations hub"] > div:first-child { background: #e9edf5; border-color: #d7dfec; }
-      `}</style>
-      {/* No max-width here: the admin shell is fluid (see admin-soft-ui.css), so a
-          cap at this level would re-centre the content and reintroduce the gutters.
-          Horizontal padding deliberately mirrors AdminOperationalFooter's
-          `px-3 sm:px-4` so the section cards line up with the footer's edges. */}
-      <div className="relative w-full min-w-0 px-3 py-6 sm:px-4">
-        <div className="grid grid-cols-12 gap-5">
-          <main className="col-span-12 min-w-0">
-            {/* No page hero here. AdminSiteHeader carries the identity block and a
-                primary tab row that already names Approvals, Payments, Bookings and
-                Revenue, so a hero repeated all of it and pushed the KPI tiles
-                ~150px down a pane that is already height-capped. */}
-            <div className="grid grid-cols-12 gap-5">
-              <section className="col-span-12" aria-label="Operations summary">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                  <KpiCard
-                    label="Approvals"
-                    detail="Listings to review"
-                    tone="emerald"
-                    Icon={CheckCircle2}
-                    ready={Boolean(monitoring)}
-                    value={Math.round(pendingApprovalsAnimated).toLocaleString()}
-                  />
-                  <KpiCard
-                    label="Payments"
-                    detail="Payouts and settlements"
-                    tone="sky"
-                    Icon={CreditCard}
-                    ready={paymentsWaiting != null}
-                    value={Math.round(paymentsWaitingAnimated).toLocaleString()}
-                  />
-                  <KpiCard
-                    label="Bookings"
-                    detail="In the current window"
-                    tone="blue"
-                    Icon={CalendarDays}
-                    ready={Boolean(monitoring)}
-                    value={Math.round(bookingsAnimated).toLocaleString()}
-                  />
-                  <KpiCard
-                    label="Drivers"
-                    detail="Awaiting verification"
-                    tone="amber"
-                    Icon={Truck}
-                    ready={driversPending != null}
-                    value={String(driversPending ?? 0)}
-                  />
-                  <KpiCard
-                    label="New users"
-                    detail="Recently joined"
-                    tone="violet"
-                    Icon={Users}
-                    ready={usersNew != null}
-                    value={String(usersNew ?? 0)}
-                  />
-                </div>
-              </section>
+    <div id="admin-home" className="w-full min-w-0 space-y-5 px-3 py-5 sm:px-4">
+      <style>{`#admin-home, #admin-home * { box-sizing: border-box; }`}</style>
 
-              <section className="col-span-12 rounded-2xl border border-solid border-slate-200 bg-[#f6f7f9] p-4 sm:p-5" aria-label="Performance highlights">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
-                      <Sparkles className="h-[18px] w-[18px]" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-sm font-bold text-neutral-950">Performance highlights</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">
-                        Top performers in the last {highlights?.windowDays ?? 30} days
-                      </p>
-                    </div>
-                  </div>
-                  <span className="shrink-0 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-bold text-neutral-600">
-                    {highlights?.windowDays ?? 30}-day view
-                  </span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <HighlightCard
-                    href="/admin/properties/previews"
-                    label="Best property type"
-                    value={highlights?.bestPropertyType?.type ?? "--"}
-                    icon={Building2}
-                    tone="emerald"
-                    primary={(highlights?.bestPropertyType?.bookings ?? 0).toLocaleString()}
-                    secondary={`bookings, ${(highlights?.bestPropertyType?.interactions ?? 0).toLocaleString()} interactions`}
-                    footnote="Bookings plus saves and reviews"
-                  />
-
-                  <HighlightCard
-                    href={highlights?.bestDriver?.driverId ? recordHref("driver", highlights.bestDriver.driverId) : "/admin/drivers"}
-                    label="Best driver"
-                    value={highlights?.bestDriver?.name ?? "--"}
-                    icon={Truck}
-                    tone="amber"
-                    primary={formatTsh(highlights?.bestDriver?.nolsRevenue ?? 0)}
-                    secondary={`${(highlights?.bestDriver?.bookings ?? 0).toLocaleString()} bookings`}
-                    footnote="Commission from approved and paid invoices"
-                  />
-
-                  <HighlightCard
-                    href={highlights?.bestOwner?.ownerId ? recordHref("owner", highlights.bestOwner.ownerId) : "/admin/owners"}
-                    label="Best owner"
-                    value={highlights?.bestOwner?.name ?? "--"}
-                    icon={Briefcase}
-                    tone="violet"
-                    primary={formatTsh(highlights?.bestOwner?.nolsRevenue ?? 0)}
-                    secondary={`${(highlights?.bestOwner?.bookings ?? 0).toLocaleString()} bookings`}
-                    footnote="Owner whose bookings earned most commission"
-                  />
-
-                  <HighlightCard
-                    href="/admin/bookings"
-                    label="Most booked region"
-                    value={highlights?.mostBookedRegion?.regionName ?? "--"}
-                    icon={MapPin}
-                    tone="sky"
-                    primary={(highlights?.mostBookedRegion?.bookings ?? 0).toLocaleString()}
-                    secondary="bookings"
-                    footnote="Region with highest check-ins"
-                  />
-
-                  <HighlightCard
-                    href={
-                      highlights?.topProperty?.propertyId
-                        ? `/admin/properties/previews?previewId=${adminRefOrId("property", highlights.topProperty.propertyId)}`
-                        : "/admin/properties/previews"
-                    }
-                    featured
-                    className="order-first md:col-span-2 xl:row-span-2"
-                    label="Top property"
-                    value={highlights?.topProperty?.title ?? "--"}
-                    meta={highlights?.topProperty ? `${highlights.topProperty.type}, ${highlights.topProperty.regionName}` : undefined}
-                    icon={LayoutDashboard}
-                    tone="blue"
-                    primary={(highlights?.topProperty?.bookings ?? 0).toLocaleString()}
-                    secondary={`bookings, ${(highlights?.topProperty?.interactions ?? 0).toLocaleString()} interactions`}
-                    footnote="Signals: check-ins, saves and reviews"
-                  />
-                </div>
-              </section>
-
-              <section className="col-span-12 lg:col-span-7 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Revenue analytics">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
-                      <LineChart className="h-[18px] w-[18px]" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-sm font-bold text-neutral-950">Revenue analytics</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Commission and subscription series</p>
-                    </div>
-                  </div>
-                  <div className="scrollbar-hide flex max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 touch-pan-x">
-                    <div className="inline-flex shrink-0 rounded-xl border border-solid border-neutral-200 bg-neutral-50 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setRangeType("hours")}
-                        className={revenueRangeTabClass("hours")}
-                      >
-                        Hours
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRangeType("months")}
-                        className={"mx-1 " + revenueRangeTabClass("months")}
-                      >
-                        Months
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRangeType("properties")}
-                        className={revenueRangeTabClass("properties")}
-                      >
-                        Properties
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => router.push("/admin/revenue")}
-                      className="inline-flex shrink-0 appearance-none items-center whitespace-nowrap rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25"
-                    >
-                      View details
-                    </button>
-
-                    {rangeType === "hours" && (
-                      <select
-                        title="Hours range"
-                        aria-label="Hours range"
-                        className="shrink-0 whitespace-nowrap appearance-none rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-neutral-300"
-                        value={hoursWindow}
-                        onChange={(e) => setHoursWindow(Number(e.target.value))}
-                      >
-                        <option value={6}>Last 6 hours</option>
-                        <option value={12}>Last 12 hours</option>
-                        <option value={24}>Last 24 hours</option>
-                        <option value={48}>Last 48 hours</option>
-                      </select>
-                    )}
-                    {rangeType === "months" && (
-                      <select
-                        title="Months range"
-                        aria-label="Months range"
-                        className="shrink-0 whitespace-nowrap appearance-none rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs font-bold text-neutral-700 transition hover:border-neutral-300"
-                        value={monthsWindow}
-                        onChange={(e) => setMonthsWindow(Number(e.target.value))}
-                      >
-                        <option value={1}>Last 1 month</option>
-                        <option value={2}>Last 2 months</option>
-                        <option value={3}>Last 3 months</option>
-                        <option value={6}>Last 6 months</option>
-                        <option value={9}>Last 9 months</option>
-                        <option value={12}>Last 12 months</option>
-                      </select>
-                    )}
-                  </div>
-                </div>
-
-                <div className="p-5 sm:p-6">
-                  {chartData === null ? (
-                    <div className="py-10 text-center text-sm font-medium text-neutral-400">Loading revenue data…</div>
-                  ) : (
-                    (() => {
-                      const commissionArr = chartData.datasets[0].data;
-                      const subscriptionArr = chartData.datasets[1].data;
-                      const totalC = commissionArr.reduce((s, v) => s + Number(v || 0), 0);
-                      const totalS = subscriptionArr.reduce((s, v) => s + Number(v || 0), 0);
-                      const totalT = totalC + totalS;
-                      const hasPoints = (chartData?.labels?.length || 0) > 0;
-                      const fallbackHourPoints = Math.min(6, Math.max(2, hoursWindow));
-                      const fallbackMonthPoints = Math.max(2, monthsWindow);
-                      const fallbackLabels = rangeType === "hours"
-                        ? Array.from({ length: fallbackHourPoints }, (_, index) => {
-                            const hoursAgo = Math.round(((fallbackHourPoints - 1 - index) * Math.max(1, hoursWindow - 1)) / Math.max(1, fallbackHourPoints - 1));
-                            return new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                          })
-                        : rangeType === "months"
-                          ? Array.from({ length: fallbackMonthPoints }, (_, index) => {
-                              const date = new Date();
-                              date.setMonth(date.getMonth() - (fallbackMonthPoints - 1 - index));
-                              return date.toLocaleDateString([], { month: "short" });
-                            })
-                          : Array.from({ length: propertiesCount }, (_, index) => `#${index + 1}`);
-                      const baselineLabels = hasPoints ? chartData.labels : fallbackLabels;
-                      const totalsByPoint = commissionArr.map((value, index) => Number(value || 0) + Number(subscriptionArr[index] || 0));
-                      const activePoints = totalsByPoint.filter((value) => value > 0).length;
-                      const hasRevenue = totalT > 0;
-                      const averageRevenue = hasPoints ? Math.round(totalT / chartData.labels.length) : 0;
-                      const commissionShare = totalT > 0 ? Math.round((totalC / totalT) * 100) : 0;
-                      const pointLabel = rangeType === "properties" ? "properties" : rangeType === "months" ? "months" : "hours";
-
-                      return (
-                        <>
-                          <div className="rounded-xl border border-solid border-[#d2e4ea] bg-[#f2f7f9] p-4">
-                            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-bold text-neutral-950">Revenue performance</div>
-                                <div className="mt-0.5 text-xs font-medium text-neutral-500">
-                                  {rangeType === "properties" ? `Top ${propertiesCount} properties ranked by revenue` : `Commission and subscriptions across ${pointLabel}`}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-3 text-[11px] font-medium text-neutral-600">
-                                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-600" />Commission</span>
-                                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-600" />Subscription</span>
-                              </div>
-                            </div>
-
-                            <div className={hasPoints && hasRevenue ? "h-56 sm:h-64" : "h-44"}>
-                            {hasPoints && hasRevenue ? (
-                              <Chart
-                                type="line"
-                                data={chartData}
-                                options={{
-                                  responsive: true,
-                                  maintainAspectRatio: false,
-                                  layout: { padding: { left: 4, right: 8, top: 6, bottom: 0 } },
-                                  elements: {
-                                    line: { tension: 0.35, borderWidth: 2 },
-                                    point: { radius: 2.5, hoverRadius: 5, borderWidth: 0 },
-                                  },
-                                  interaction: { mode: "index", intersect: false },
-                                  plugins: {
-                                    legend: { display: false },
-                                    tooltip: {
-                                      callbacks: {
-                                        labelColor: (ctx: any) => {
-                                          if (rangeType !== "properties") return undefined as any;
-                                          try {
-                                            const ds: any = ctx?.dataset;
-                                            const i = Number(ctx?.dataIndex ?? 0);
-                                            const borderColor = Array.isArray(ds?.borderColor) ? ds.borderColor[i] : ds?.borderColor;
-                                            const backgroundColor = Array.isArray(ds?.backgroundColor)
-                                              ? ds.backgroundColor[i]
-                                              : ds?.backgroundColor;
-                                            return {
-                                              borderColor: borderColor ?? "rgba(82,82,82,0.9)",
-                                              backgroundColor: backgroundColor ?? "rgba(15,23,42,0.12)",
-                                            };
-                                          } catch {
-                                            return undefined as any;
-                                          }
-                                        },
-                                      },
-                                    },
-                                  },
-                                  scales: {
-                                    y: {
-                                      beginAtZero: true,
-                                      border: { display: false },
-                                      grid: { color: "rgba(15,23,42,0.08)", drawTicks: false },
-                                      ticks: { display: false },
-                                    },
-                                    x: {
-                                      border: { display: false },
-                                      grid: { display: false },
-                                      ticks: {
-                                        color: "rgba(82,82,82,0.9)",
-                                        autoSkip: rangeType !== "properties",
-                                        maxRotation: 45,
-                                        minRotation: 0,
-                                        callback: (value: any) => {
-                                          try {
-                                            const idx = Number(value);
-                                            const axisLabel = Number.isFinite(idx) ? (chartData.labels as any)?.[idx] : value;
-                                            const label = axisLabel ?? value;
-                                            if (rangeType !== "properties") return String(label);
-                                            return truncateLabel(String(label), 14);
-                                          } catch {
-                                            return String(value);
-                                          }
-                                        },
-                                      },
-                                    },
-                                  },
-                                }}
-                              />
-                            ) : (
-                              <div className="relative flex h-full flex-col justify-end overflow-hidden rounded-xl border border-solid border-neutral-200 bg-white px-4 pb-8 pt-5">
-                                <div className="pointer-events-none absolute inset-x-4 top-1/4 border-0 border-t border-dashed border-neutral-200" />
-                                <div className="pointer-events-none absolute inset-x-4 top-1/2 border-0 border-t border-dashed border-neutral-200" />
-                                <div className="pointer-events-none absolute inset-x-4 top-3/4 border-0 border-t border-dashed border-neutral-200" />
-                                <div className="absolute inset-x-0 top-[38%] px-4 text-center">
-                                  <div className="text-sm font-bold text-slate-800">{hasPoints ? 'No revenue in this period' : 'No revenue series available'}</div>
-                                  <div className="mt-1 text-xs font-medium text-slate-500">Try another reporting window or open revenue details.</div>
-                                </div>
-                                <div className="relative flex items-center">
-                                  {baselineLabels.map((label, index) => (
-                                    <div key={`${String(label)}-${index}`} className="flex min-w-0 flex-1 items-center">
-                                      <span className="h-2 w-2 shrink-0 rounded-full border-2 border-solid border-neutral-300 bg-white" />
-                                      {index < baselineLabels.length - 1 && <span className="h-px min-w-0 flex-1 bg-neutral-200" />}
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="mt-3 flex justify-between text-[10px] font-medium text-neutral-400">
-                                  <span>{String(baselineLabels[0] ?? "Start")}</span>
-                                  <span>{String(baselineLabels[baselineLabels.length - 1] ?? "Now")}</span>
-                                </div>
-                              </div>
-                            )}
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                            <div className="rounded-xl border border-solid border-[#b4dfce] bg-[#e3f3eb] p-3">
-                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Total revenue</div>
-                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">Tsh {totalT.toLocaleString()}</div>
-                            </div>
-                            <div className="rounded-xl border border-solid border-[#b6dce9] bg-[#e2f1f7] p-3">
-                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Average / point</div>
-                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">Tsh {averageRevenue.toLocaleString()}</div>
-                            </div>
-                            <div className="rounded-xl border border-solid border-[#d5c7eb] bg-[#eee7f7] p-3">
-                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Active {pointLabel}</div>
-                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">{activePoints} / {baselineLabels.length}</div>
-                            </div>
-                            <div className="rounded-xl border border-solid border-[#ead7ae] bg-[#f8efd9] p-3">
-                              <div className="text-[11px] font-bold uppercase tracking-[0.04em] text-neutral-500">Commission mix</div>
-                              <div className="mt-1.5 text-base font-bold tabular-nums text-neutral-950">{commissionShare}%</div>
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()
-                  )}
-                </div>
-              </section>
-
-              <section className="col-span-12 lg:col-span-5 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Recent activities">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-violet-100 bg-violet-50 text-violet-700">
-                      <Activity className="h-[18px] w-[18px]" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-sm font-bold text-neutral-950">Recent activities</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Latest five recorded actions</p>
-                    </div>
-                  </div>
-                  <Link
-                    href="/admin/management/audit-log"
-                    className="shrink-0 rounded-lg border border-solid border-neutral-200 bg-white px-3 py-1.5 text-xs font-bold text-neutral-700 no-underline transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800 hover:no-underline"
-                  >
-                    View all
-                  </Link>
-                </div>
-                <div className="p-3">
-                  {(() => {
-                    const loading = recentActivities === null;
-                    const hasItems = Array.isArray(recentActivities) && recentActivities.length > 0;
-
-                    if (loading) {
-                      return (
-                        <ul className="m-0 list-none divide-y divide-solid divide-neutral-100 rounded-xl border border-solid border-neutral-200 bg-white p-0">
-                          {Array.from({ length: 5 }).map((_, i) => (
-                            <li key={i} className="py-3 px-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex-1">
-                                  <div className="mb-2 h-3 w-40 animate-pulse rounded bg-neutral-100" />
-                                  <div className="h-2 w-56 animate-pulse rounded bg-neutral-100" />
-                                </div>
-                                <div className="h-3 w-20 animate-pulse rounded bg-neutral-100" />
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      );
-                    }
-
-                    if (!hasItems) {
-                      return <div className="px-3 py-6 text-center text-sm font-medium text-neutral-400">No recent activities</div>;
-                    }
-
-                    return (
-                      <ul className="m-0 list-none space-y-2 p-0">
-                        {recentActivities!.slice(0, 5).map((a: any) => {
-                          const tone = auditTone(a.action);
-                          const detailsText = formatAuditDetails(a.action, a.details);
-
-                          return (
-                            <li
-                              key={a.id ?? `${a.action}-${a.createdAt ?? ""}`}
-                              className="rounded-xl border border-solid border-[#e3dced] bg-[#f8f6fb] px-4 py-3 transition hover:bg-[#f0ebf7]"
-                            >
-                              <div className="flex items-start gap-3">
-                                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-violet-100" aria-hidden><span className={"h-2 w-2 rounded-full " + tone.dot} /></span>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <span className="text-sm font-bold leading-snug text-neutral-900">
-                                      {formatAuditAction(a.action)}
-                                    </span>
-                                    <RelativeTime iso={a.createdAt} />
-                                  </div>
-                                  {detailsText ? (
-                                    <div className="mt-1 break-words text-xs font-medium text-neutral-500">{detailsText}</div>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    );
-                  })()}
-                </div>
-              </section>
-
-
-              <section className="col-span-12 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Operations snapshot">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
-                      <BarChart2 className="h-[18px] w-[18px]" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-sm font-bold text-neutral-950">Operations snapshot</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Live distribution across open work</p>
-                    </div>
-                  </div>
-                  <div className="shrink-0 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-bold text-neutral-600">
-                    Total <span className="tabular-nums text-neutral-950">{opsSnapshot.total.toLocaleString()}</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-12 items-stretch gap-5 p-5 sm:p-6">
-                  {/* Platform revenue. Deliberately plain: the previous version was a
-                      simulated payment card (EMV chip, NFC arcs, dual circles) which
-                      implied a real card product that does not exist. */}
-                  <div className="col-span-12 lg:col-span-4">
-                    <div className="flex h-full flex-col justify-between rounded-xl border border-solid border-[#dbceb4] bg-[#f4eddf] p-5">
-                      <div className="min-w-0">
-                        <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-[#756347]">Total platform revenue</p>
-                        <p className="mb-0 mt-3 break-words text-[2rem] font-bold leading-none tabular-nums tracking-tight text-slate-950">
-                          {formatTsh(totalCommission + totalSubscription)}
-                        </p>
-                      </div>
-
-                      <div className="mt-6 grid grid-cols-2 gap-3">
-                        <div className="min-w-0 rounded-lg border border-solid border-[#b4dfce] bg-[#e3f3eb] px-3.5 py-3">
-                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.1em] text-emerald-800">Commission</p>
-                          <p className="mb-0 mt-1 break-words text-sm font-bold tabular-nums text-slate-950">{formatTsh(totalCommission)}</p>
-                        </div>
-                        <div className="min-w-0 rounded-lg border border-solid border-[#b6dce9] bg-[#e2f1f7] px-3.5 py-3">
-                          <p className="m-0 text-[9px] font-bold uppercase tracking-[0.1em] text-sky-800">Subscription</p>
-                          <p className="mb-0 mt-1 break-words text-sm font-bold tabular-nums text-slate-950">{formatTsh(totalSubscription)}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex items-center gap-2">
-                        <Info className="h-3.5 w-3.5 shrink-0 text-[#756347]" aria-hidden />
-                        <span className="text-[10px] leading-4 text-[#756347]">Commission and subscription totals</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="col-span-12 lg:col-span-8">
-                    <div className="space-y-2">
-                      {opsSnapshot.labels.map((label, i) => {
-                        const value = opsSnapshot.values[i] ?? 0;
-                        const pct = opsSnapshot.total > 0 ? Math.round((value / opsSnapshot.total) * 100) : 0;
-                        return (
-                          <div
-                            key={label}
-                            className={`rounded-xl border border-solid px-4 py-3 ${KPI_SURFACES[(['emerald', 'sky', 'blue', 'amber', 'violet'] as Tone[])[i] ?? 'blue']}`}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="flex min-w-0 items-center gap-2.5">
-                                <span
-                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                  style={{ backgroundColor: opsSnapshot.colors[i] }}
-                                  aria-hidden
-                                />
-                                <span className="truncate text-sm font-bold text-neutral-800">{label}</span>
-                              </div>
-                              <div className="shrink-0 tabular-nums">
-                                <span className="text-sm font-bold text-neutral-950">{value.toLocaleString()}</span>
-                                <span className="ml-1.5 text-xs font-medium text-neutral-500">{pct}%</span>
-                              </div>
-                            </div>
-                            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/70" role="progressbar" aria-label={`${label} share of snapshot total`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-                              <div
-                                className="h-full rounded-full transition-[width] duration-700"
-                                style={{ width: `${pct}%`, backgroundColor: opsSnapshot.colors[i] }}
-                                aria-hidden
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="col-span-12 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_18px_36px_-28px_rgba(15,23,42,0.22)]" aria-label="Operations hub">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4 sm:px-6">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50 text-emerald-700">
-                      <LayoutDashboard className="h-[18px] w-[18px]" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-sm font-bold text-neutral-950">Operations hub</h2>
-                      <p className="mb-0 mt-0.5 text-xs font-medium text-neutral-500">Priority workspaces and management tools</p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2 rounded-full border border-solid border-neutral-200 bg-neutral-50 px-3 py-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" aria-hidden />
-                    <span className="text-xs font-bold text-neutral-600">Live</span>
-                  </div>
-                </div>
-
-                <div
-                  className="grid grid-cols-12 gap-4 p-5 sm:p-6"
-                  ref={(node) => {
-                    if (!node) return;
-                    if (tilesInView) return;
-                    if (typeof window === "undefined") return;
-                    try {
-                      const obs = new IntersectionObserver(
-                        (entries) => {
-                          if (entries.some((e) => e.isIntersecting)) {
-                            setTilesInView(true);
-                            obs.disconnect();
-                          }
-                        },
-                        { threshold: 0.12 }
-                      );
-                      obs.observe(node);
-                    } catch {
-                      setTilesInView(true);
-                    }
-                  }}
-                >
-                  <NavTile
-                    href="/admin/properties/previews"
-                    title="Approvals"
-                    description="Review new properties"
-                    icon={CheckCircle2}
-                    tone="emerald"
-                    badge={monitoring ? monitoring.pendingApprovals : null}
-                    className="col-span-12 sm:col-span-6 lg:col-span-4"
-                    featured
-                    index={0}
-                  />
-
-                  <NavTile
-                    href="/admin/payments"
-                    title="Payments"
-                    description="Payouts & settlements"
-                    icon={CreditCard}
-                    tone="sky"
-                    badge={paymentsWaiting ?? null}
-                    className="col-span-12 sm:col-span-6 lg:col-span-4"
-                    featured
-                    index={1}
-                  />
-
-                  <NavTile
-                    href="/admin/bookings"
-                    title="Bookings"
-                    description="Trips, status, issues"
-                    icon={CalendarDays}
-                    tone="blue"
-                    badge={monitoring ? Math.round(bookingsAnimated) : null}
-                    className="col-span-12 sm:col-span-6 lg:col-span-4"
-                    featured
-                    index={2}
-                  />
-
-                  <NavTile
-                    href="/admin/revenue"
-                    title="Revenue"
-                    description="Reports & breakdown"
-                    icon={BarChart2}
-                    tone="emerald"
-                    className="col-span-12 sm:col-span-6 lg:col-span-3"
-                    index={3}
-                    bottomSlot={
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-medium text-neutral-500">Commission</span>
-                          <span className="text-xs font-bold tabular-nums text-neutral-900">{formatTsh(totalCommission)}</span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                          <div className="h-full rounded-full bg-sky-600 transition-[width] duration-700"
-                            style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalCommission / (totalCommission + totalSubscription)) * 100)}%` : "0%" }} />
-                        </div>
-                        <div className="mt-0.5 flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-medium text-neutral-500">Subscription</span>
-                          <span className="text-xs font-bold tabular-nums text-neutral-900">{formatTsh(totalSubscription)}</span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                          <div className="h-full rounded-full bg-emerald-600 transition-[width] duration-700"
-                            style={{ width: tilesInView && (totalCommission + totalSubscription) > 0 ? `${Math.round((totalSubscription / (totalCommission + totalSubscription)) * 100)}%` : "0%" }} />
-                        </div>
-                      </div>
-                    }
-                  />
-
-                  <NavTile
-                    href="/admin/properties"
-                    title="Properties"
-                    description="Manage listings"
-                    icon={Building2}
-                    tone="blue"
-                    className="col-span-12 sm:col-span-6 lg:col-span-3"
-                    index={4}
-                    bottomSlot={
-                      // The donut ring here showed 1 - exp(-(sessions + approvals) / 12),
-                      // a saturation curve that is not a percentage of anything. Dropped
-                      // in favour of the real session count.
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xl font-bold leading-none tabular-nums text-neutral-950">{monitoring?.activeSessions ?? 0}</span>
-                        <span className="text-[11px] font-medium text-neutral-500">Active sessions</span>
-                      </div>
-                    }
-                  />
-
-                  <NavTile
-                    href="/admin/analytics"
-                    title="Analytics"
-                    description="Trends & performance"
-                    icon={LineChart}
-                    tone="violet"
-                    className="col-span-12 sm:col-span-6 lg:col-span-3"
-                    index={5}
-                    // The "Signals" trend line here was makeSpark(), a seeded generator,
-                    // so it showed a shape unrelated to any analytics data. Removed
-                    // rather than replaced: there is no real series available here.
-                  />
-
-                  <NavTile
-                    href="/admin/messages"
-                    title="Messages"
-                    description="Inbox & communication"
-                    icon={MessagesSquare}
-                    tone="sky"
-                    className="col-span-12 sm:col-span-6 lg:col-span-3"
-                    index={6}
-                    // Previously rendered `usersNewValue` as "N new this week" on the
-                    // Messages tile. That is the new-user count, not a message count, so
-                    // it was mislabelled. Removed until a real unread count is available.
-                  />
-                </div>
-              </section>
-            </div>
-          </main>
+      {/* The brief */}
+      <header className="flex flex-wrap items-end justify-between gap-4 px-1">
+        <div className="min-w-0 flex-1">
+          <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs font-medium text-neutral-500">
+            {stamp ? <><span className="font-semibold text-[#02665e]">{greeting}</span><span aria-hidden className="text-neutral-300">·</span><span>{stamp}</span></> : " "}
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            {brief
+              ? brief.map((c) => {
+                  const t = CARD_TONE[c.tone];
+                  return (
+                    <Link key={c.key} href={c.href} className={`group flex min-w-0 items-center gap-3 rounded-2xl border border-solid px-3.5 py-3 no-underline transition hover:no-underline ${t.box}`}>
+                      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${t.icon}`}><c.icon className="h-[18px] w-[18px]" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className={`block truncate text-xl font-bold tabular-nums leading-tight ${t.value}`}>{c.value}</span>
+                        <span className={`block truncate text-xs ${t.caption}`}>{c.caption}</span>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-neutral-600" aria-hidden />
+                    </Link>
+                  );
+                })
+              : Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-[66px] animate-pulse rounded-2xl bg-neutral-100" />)}
+          </div>
         </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700">
+            <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>
+            {monitoring ? `${monitoring.activeSessions} online` : "Live"}
+          </span>
+          <button type="button" onClick={() => { setNonce((n) => n + 1); refreshRecentActivities(); }} aria-label="Refresh" title="Refresh" className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50">
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        {/* Hero: the map */}
+        <section className={`${CARD} p-5`} aria-label="Activity across Tanzania">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className={LABEL}>Across Tanzania, last {highlights?.windowDays ?? 30} days</p>
+            <p className="m-0 flex items-center gap-3 text-[11px] text-neutral-500">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full border-[1.5px] border-solid border-neutral-500 bg-white" /> Bookings, sized by count</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-amber-600" /> Waiting for review</span>
+            </p>
+          </div>
+          <div className="mx-auto mt-2 max-w-[560px]">
+            <TanzaniaMap regions={highlights?.regions ?? []} pending={pending} selected={region} onSelect={setRegion} />
+          </div>
+          <dl className="m-0 mt-4 grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-neutral-100">
+            {[
+              { label: "Bookings", value: monitoring?.bookings, note: "last 24 hours" },
+              { label: "Owner invoices", value: monitoring?.invoicesReceived, note: "last 24 hours" },
+              { label: "New customers", value: usersNew, note: "last 7 days" },
+            ].map((f) => (
+              <div key={f.label} className="min-w-0 bg-white px-3 py-2.5 first:pl-4">
+                <dt className="truncate text-[11px] text-neutral-500">{f.label}</dt>
+                <dd className={`m-0 mt-0.5 text-lg font-semibold tabular-nums leading-none ${Number(f.value) ? "text-neutral-950" : "text-neutral-300"}`}>{f.value ?? "…"}</dd>
+                <dd className="m-0 mt-0.5 text-[10px] text-neutral-400">{f.note}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <div className="min-w-0 space-y-5">
+          {/* Money: one number, and where it came from */}
+          <section className={`${CARD} p-5`} aria-label="Revenue, last 30 days">
+            <div className="flex items-center justify-between gap-2">
+              <p className={LABEL}>NoLSAF revenue, last 30 days</p>
+              {revenue.state === "locked" ? <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-bold text-neutral-500"><Lock className="h-3 w-3" aria-hidden /> Locked</span> : null}
+            </div>
+            {revenue.state === "ok" ? (
+              <>
+                <p className="m-0 mt-1 text-[32px] font-semibold tabular-nums leading-tight tracking-tight text-neutral-950">{tsh(revenue.total)}</p>
+                <ul className="m-0 mt-4 list-none space-y-2.5 p-0">
+                  {revenue.streams.map((s) => {
+                    const max = Math.max(1, ...revenue.streams.map((x) => x.nolsafRevenue));
+                    const share = revenue.total > 0 ? Math.round((s.nolsafRevenue / revenue.total) * 100) : 0;
+                    return (
+                      <li key={s.key} className="grid grid-cols-[96px_minmax(0,1fr)_88px] items-center gap-3 text-xs">
+                        <span className={s.nolsafRevenue ? "font-medium text-neutral-800" : "text-neutral-400"}>{s.label}</span>
+                        <span className="block h-2 overflow-hidden rounded-full bg-neutral-100">
+                          <span className="block h-full rounded-full bg-[#02665e]" style={{ width: `${(s.nolsafRevenue / max) * 100}%` }} />
+                        </span>
+                        <span className="text-right tabular-nums text-neutral-700">{s.nolsafRevenue ? `${share}%` : "none"}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="m-0 mt-3 text-[11px] text-neutral-400">Realised revenue in TSh, by stream. <Link href="/admin/finance" className="font-semibold text-[#02665e] no-underline hover:underline">Open finance</Link></p>
+              </>
+            ) : revenue.state === "locked" ? (
+              <div className="mt-1">
+                {/* The shape of what unlocks: real stream names, values masked, no invented proportions */}
+                <p className="m-0 flex items-center gap-2 text-[32px] font-semibold leading-tight tracking-tight text-neutral-300">
+                  TSh <span className="inline-flex gap-1" aria-hidden>{Array.from({ length: 6 }).map((_, k) => <span key={k} className="h-2.5 w-2.5 rounded-full bg-neutral-200" />)}</span>
+                  <span className="sr-only">Hidden</span>
+                </p>
+                <ul className="m-0 mt-4 list-none space-y-2.5 p-0" aria-hidden>
+                  {["Accommodation", "Tours", "Transport", "Group stay", "Subscriptions"].map((label) => (
+                    <li key={label} className="grid grid-cols-[96px_minmax(0,1fr)_40px] items-center gap-3 text-xs">
+                      <span className="text-neutral-500">{label}</span>
+                      <span className="block h-2 rounded-full bg-[repeating-linear-gradient(135deg,#e5e7eb_0_4px,#f3f4f6_4px_8px)]" />
+                      <span className="text-right text-neutral-300">••%</span>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent("finance-grant-required"))}
+                  className="mt-5 inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-[#0b2420] text-sm font-semibold text-white transition hover:bg-[#12342f]"
+                >
+                  <Lock className="h-4 w-4 text-emerald-300" aria-hidden /> Unlock with your finance code
+                </button>
+                <p className="m-0 mt-2 text-center text-[11px] text-neutral-400">Platform totals stay hidden until you verify. It lasts for this session.</p>
+              </div>
+            ) : revenue.state === "error" ? (
+              <p className="m-0 mt-3 text-sm text-neutral-500">Revenue did not load. <button type="button" onClick={() => void loadRevenue()} className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-[#02665e] hover:underline">Try again</button></p>
+            ) : (
+              <div className="mt-3 space-y-2"><div className="h-9 w-48 animate-pulse rounded bg-neutral-100" /><div className="h-24 animate-pulse rounded-xl bg-neutral-100" /></div>
+            )}
+          </section>
+
+          {/* Queue: the actual work, oldest first, with how long each item has waited */}
+          <section className={`${CARD} p-5`} aria-label="Your queue">
+            <div className="flex items-baseline justify-between">
+              <p className={LABEL}>Your queue</p>
+              {queueReady ? <span className={`text-[11px] font-semibold ${live.length ? "text-amber-700" : "text-emerald-700"}`}>{live.length ? `${live.reduce((n, q) => n + q.count, 0)} waiting` : "All clear"}</span> : null}
+            </div>
+
+            {!queueReady ? (
+              <div className="mt-3 h-24 animate-pulse rounded-xl bg-neutral-100" />
+            ) : (
+              <div className="mt-3 space-y-4">
+                {live.map((q) =>
+                  q.key === "listings" && waitingListings.length ? (
+                    <div key={q.key}>
+                      <p className="m-0 mb-1.5 flex items-center justify-between text-xs font-semibold text-neutral-800">
+                        <span className="inline-flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-amber-600" aria-hidden /> Listings to review</span>
+                        <Link href={q.href} className="font-semibold text-[#02665e] no-underline hover:underline">Review all {q.count}</Link>
+                      </p>
+                      <ul className="m-0 list-none overflow-hidden rounded-xl border border-solid border-neutral-200 p-0">
+                        {waitingListings.slice(0, 3).map((w, i) => (
+                          <li key={i} className="flex items-center gap-3 border-0 border-t border-solid border-neutral-100 px-3 py-2.5 first:border-t-0">
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] font-semibold text-neutral-900">{w.title}</span>
+                              <span className="block truncate text-[11px] text-neutral-500">{matchRegion(w.regionName)?.name ?? (w.regionName ? humanize(w.regionName) : "Region not set")}</span>
+                            </span>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ${w.days > 14 ? "bg-rose-50 text-rose-700" : w.days > 3 ? "bg-amber-50 text-amber-700" : "bg-neutral-100 text-neutral-600"}`}>
+                              {w.days === 0 ? "Today" : `${w.days}d waiting`}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {q.count > 3 ? <p className="m-0 mt-1.5 text-[11px] text-neutral-400">and {q.count - 3} more</p> : null}
+                    </div>
+                  ) : (
+                    <Link key={q.key} href={q.href} className="group flex items-center gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/60 px-3 py-2.5 no-underline hover:bg-amber-50 hover:no-underline">
+                      <span className="w-8 shrink-0 text-right text-xl font-bold tabular-nums text-amber-700">{q.count}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-neutral-900">{q.label}</span>
+                        <span className="block truncate text-[11px] text-neutral-500">{q.why}</span>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-amber-400 transition group-hover:translate-x-0.5" aria-hidden />
+                    </Link>
+                  ),
+                )}
+
+                {clear.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {clear.map((q) => (
+                      <span key={q.key} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+                        <CheckCircle2 className="h-3 w-3" aria-hidden /> {q.label.replace(/ to (review|send|match|settle)$/, "")} clear
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {payoutsInProgress ? <p className="m-0 text-[11px] text-neutral-400">{plural(payoutsInProgress, "payout is", "payouts are")} already moving through Disbursements.</p> : null}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/* Leaders: who carried the month, and how they rank */}
+      <section className={CARD} aria-label="Leaders, last 30 days">
+        <div className="flex items-center justify-between gap-3 px-5 pb-1 pt-4">
+          <p className={LABEL}>Leaders, last {highlights?.windowDays ?? 30} days</p>
+          <Link href="/admin/analytics" className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e] no-underline hover:underline">Analytics <ChevronRight className="h-3.5 w-3.5" aria-hidden /></Link>
+        </div>
+        <ul className="m-0 grid list-none grid-cols-1 gap-px bg-neutral-100 p-0 sm:grid-cols-2 xl:grid-cols-4">
+          {leaders.map((l) => {
+            const Icon = l.icon;
+            return (
+              <li key={l.label} className="min-w-0 bg-white">
+                <Link href={l.href} className="group flex h-full items-start gap-3 px-5 py-4 no-underline hover:bg-emerald-50/40 hover:no-underline">
+                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${l.value ? "bg-[#02665e]/10 text-[#02665e]" : "border border-dashed border-neutral-200 bg-white text-neutral-300"}`}>
+                    <Icon className="h-[18px] w-[18px]" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{l.label}</span>
+                    <span className={`mt-1 block truncate text-[15px] font-bold ${l.value ? "text-neutral-950" : "font-medium text-neutral-400"}`}>{l.value || "Nobody yet"}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-neutral-500">{l.value ? l.sub : l.rule}</span>
+                    {l.value && l.meta ? <span className="mt-2 inline-flex max-w-full truncate rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600">{l.meta}</span> : null}
+                  </span>
+                  <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-neutral-300 opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" aria-hidden />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        {/* Revenue over time */}
+        <section className={CARD} aria-label="Revenue over time">
+          <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-4">
+            <div className="min-w-0">
+              <p className={LABEL}>Commission and subscriptions</p>
+              <p className="m-0 mt-1 text-[26px] font-semibold leading-tight tabular-nums tracking-tight text-neutral-950">{series ? tsh(totalC + totalS) : "…"}</p>
+              <p className="m-0 mt-0.5 text-[11px] text-neutral-500">{windowCaption}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg bg-neutral-100 p-0.5" role="tablist" aria-label="Revenue range">
+                {([["months", "Months"], ["hours", "Hours"], ["properties", "Top properties"]] as const).map(([k, label]) => (
+                  <button key={k} type="button" role="tab" aria-selected={rangeType === k} onClick={() => setRangeType(k)} className={`h-7 cursor-pointer rounded-md border-0 px-2.5 text-xs font-semibold transition ${rangeType === k ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}>{label}</button>
+                ))}
+              </div>
+              {rangeType !== "properties" ? (
+                <div className="inline-flex rounded-lg bg-neutral-100 p-0.5" role="group" aria-label="Window">
+                  {(rangeType === "hours" ? [6, 24, 48] : [3, 6, 12]).map((n) => {
+                    const on = rangeType === "hours" ? hoursWindow === n : monthsWindow === n;
+                    return (
+                      <button key={n} type="button" aria-pressed={on} onClick={() => (rangeType === "hours" ? setHoursWindow(n) : setMonthsWindow(n))} className={`h-7 cursor-pointer rounded-md border-0 px-2 text-xs font-semibold tabular-nums transition ${on ? "bg-white text-neutral-900 shadow-sm" : "bg-transparent text-neutral-500 hover:text-neutral-800"}`}>
+                        {n}{rangeType === "hours" ? "h" : "m"}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="px-5 pb-5 pt-2">
+            <div className="h-52">
+              {series === null ? (
+                <div className="h-full animate-pulse rounded-xl bg-neutral-100" />
+              ) : hasSeries ? (
+                <Chart
+                  type={rangeType === "properties" ? "bar" : "line"}
+                  data={{
+                    labels: series.labels,
+                    datasets: [
+                      { label: "Commission", data: series.commission, borderColor: "#02665e", backgroundColor: rangeType === "properties" ? "rgba(2,102,94,0.75)" : "rgba(2,102,94,0.08)", tension: 0.35, borderWidth: 2, pointRadius: 0, fill: rangeType !== "properties" },
+                      { label: "Subscription", data: series.subscription, borderColor: "#d97706", backgroundColor: rangeType === "properties" ? "rgba(217,119,6,0.6)" : "rgba(217,119,6,0.05)", tension: 0.35, borderWidth: 2, pointRadius: 0, fill: false },
+                    ],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: "index", intersect: false },
+                    plugins: { legend: { display: false } },
+                    scales: {
+                      y: { beginAtZero: true, border: { display: false }, grid: { color: "rgba(15,23,42,0.06)", drawTicks: false }, ticks: { display: false } },
+                      x: { border: { display: false }, grid: { display: false }, ticks: { color: "rgba(82,82,82,0.8)", autoSkip: true, maxRotation: 0, callback: (v: any) => { const s = String(series.labels[Number(v)] ?? v); return s.length > 14 ? `${s.slice(0, 13)}…` : s; } } },
+                    },
+                  }}
+                />
+              ) : (
+                // Nothing earned: keep the real axis so the window still reads, with a flat baseline.
+                <div className="flex h-full flex-col">
+                  <div className="grid flex-1 place-items-center text-center">
+                    <div>
+                      <span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-neutral-100 text-neutral-400"><TrendingUp className="h-5 w-5" aria-hidden /></span>
+                      <p className="m-0 mt-2 text-sm font-semibold text-neutral-800">{emptyTitle}</p>
+                      <p className="m-0 mt-1 text-xs text-neutral-500">Commission and subscription income draws here as it lands.</p>
+                    </div>
+                  </div>
+                  {axisLabels.length ? (
+                    <div>
+                      <div className="h-px w-full bg-[repeating-linear-gradient(90deg,#d4d4d4_0_6px,transparent_6px_12px)]" />
+                      <div className="mt-2 flex justify-between gap-2 text-[11px] text-neutral-400">
+                        {axisLabels.map((t, i) => <span key={i} className="truncate">{t}</span>)}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+            <dl className="m-0 mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-solid border-neutral-200 bg-neutral-200 sm:grid-cols-4">
+              {revenueStats.map((s) => (
+                <div key={s.label} className="min-w-0 bg-white px-3 py-2.5">
+                  <dt className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-neutral-400">
+                    {s.dot ? <span className={`h-2 w-2 rounded-full ${s.dot}`} aria-hidden /> : null}{s.label}
+                  </dt>
+                  <dd className={`m-0 mt-1 truncate text-[13px] font-semibold tabular-nums ${s.muted ? "text-neutral-400" : "text-neutral-900"}`}>{s.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        {/* Recent activity, grouped by day in EAT */}
+        <section className={`${CARD} self-start`} aria-label="Recent activity">
+          <div className="flex items-center justify-between gap-3 px-5 pb-2 pt-4">
+            <p className={LABEL}>Recent activity</p>
+            <Link href="/admin/management/audit-log" className="inline-flex items-center gap-1 text-xs font-semibold text-[#02665e] no-underline hover:underline">Audit log <ChevronRight className="h-3.5 w-3.5" aria-hidden /></Link>
+          </div>
+          {recentActivities === null ? (
+            <ul className="m-0 list-none space-y-3 px-5 pb-5 pt-1">{Array.from({ length: 5 }).map((_, i) => <li key={i} className="h-9 animate-pulse rounded-lg bg-neutral-100" />)}</ul>
+          ) : recentActivities.length === 0 ? (
+            <p className="m-0 px-5 pb-6 pt-2 text-sm text-neutral-400">No recorded activity yet.</p>
+          ) : (
+            <div className="px-5 pb-5 pt-1">
+              {activityDays.map((day) => (
+                <div key={day.key} className="mt-2 first:mt-0">
+                  <p className="m-0 mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{day.label}</p>
+                  <ol className="m-0 list-none p-0">
+                    {day.items.map((a: any, i: number) => {
+                      const kind = auditKind(a.action);
+                      const Icon = kind.icon;
+                      const detail = auditDetail(a.details);
+                      return (
+                        <li key={a.id ?? `${a.action}-${i}`} className="flex items-center gap-3 rounded-lg py-2">
+                          <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${kind.tone}`}><Icon className="h-4 w-4" aria-hidden /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] font-semibold text-neutral-900">{humanize(String(a.action || ""))}</span>
+                            {detail ? <span className="block truncate text-[11px] text-neutral-500">{detail}</span> : null}
+                          </span>
+                          <time className="shrink-0 text-[11px] tabular-nums text-neutral-400" title={a.createdAt ? `${relTime(a.createdAt)}, ${new Date(a.createdAt).toLocaleString("en-GB", { timeZone: "Africa/Dar_es_Salaam" })} EAT` : undefined}>
+                            {a.createdAt ? new Date(a.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) : ""}
+                          </time>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              ))}
+              <p className="m-0 mt-2 text-[10px] text-neutral-400">Times in EAT</p>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
