@@ -14,6 +14,14 @@ test("balance and payout notices lead to the earnings actions", () => {
   assert.equal(agentNotificationDestination({ notificationKind: "agent_payout_rejected", tourBookingId: 42 })?.href, "/account/agent/revenues");
 });
 
+test("an admin request for documents opens the documents page", () => {
+  assert.deepEqual(agentNotificationDestination({ notificationKind: "account_document_request" }), {
+    href: "/account/agent/documents",
+    label: "Upload documents",
+  });
+  assert.equal(agentNotificationDestination({ notificationKind: "admin_message" }), null);
+});
+
 test("unverified or unsafe metadata never becomes a shortcut", () => {
   assert.equal(agentNotificationDestination({ notificationKind: "agent_tour_booking_paid" }), null);
   assert.equal(agentNotificationDestination({ notificationKind: "agent_tour_booking_paid", tourBookingId: "../admin" }), null);

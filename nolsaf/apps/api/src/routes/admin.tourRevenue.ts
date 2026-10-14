@@ -126,6 +126,7 @@ router.get("/overview", async (req: any, res) => {
         commissionPercent: true,
         commissionAmount: true,
         currency: true,
+        status: true,
         paymentStatus: true,
         payoutStatus: true,
         paymentRef: true,
@@ -135,6 +136,7 @@ router.get("/overview", async (req: any, res) => {
         payoutApprovedAt: true,
         payoutPaidAt: true,
         paidAt: true,
+        startDate: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -157,7 +159,7 @@ router.get("/overview", async (req: any, res) => {
       const taxAmount = Math.round(grossAmount * taxPercent) / 100;
       const operatorName = booking.operator?.user?.fullName || booking.operator?.user?.name || `Operator #${booking.operatorAgentId}`;
 
-      const status = deriveRevenueStatus(
+      const workflowStatus = deriveRevenueStatus(
         booking.paymentStatus,
         booking.payoutStatus,
         booking.payoutRequestedAt,
@@ -165,8 +167,24 @@ router.get("/overview", async (req: any, res) => {
         booking.payoutPaidAt,
         booking.paidAt,
       );
+      // Display only: a cancelled or refunded booking is not payable, whatever stage its
+      // payout reached. Money already disbursed stays DISBURSED (recovery runs elsewhere).
+      const bookingCancelled =
+        ["CANCELED", "CANCELLED", "REFUNDED"].includes(String((booking as any).status || "").toUpperCase()) ||
+        String(booking.paymentStatus || "").toUpperCase() === "REFUNDED";
+      const status: RevenueStatus | "CANCELLED" =
+        bookingCancelled && workflowStatus !== "DISBURSED" && workflowStatus !== "REJECTED" ? "CANCELLED" : workflowStatus;
 
       const metadata = toRevenueMetadata((booking as any)?.metadata);
+      // When the record entered its current stage, so the page can show how long it has waited.
+      const verifiedAt = metadata?.revenueHistory?.verified?.at || null;
+      const stageSince =
+        status === "NEW" ? booking.paidAt
+          : status === "CLAIMED" ? booking.payoutRequestedAt
+            : status === "VERIFIED" ? verifiedAt
+              : status === "APPROVED" ? booking.payoutApprovedAt
+                : status === "DISBURSED" ? booking.payoutPaidAt
+                  : null;
       const historyDisbursedRef = String(metadata?.revenueHistory?.disbursed?.paymentRef || "").trim();
       const paymentRef = String((booking as any)?.paymentRef || "").trim() || historyDisbursedRef || null;
       const historyRejectedReason = String(metadata?.revenueHistory?.rejected?.reason || "").trim();
@@ -192,6 +210,9 @@ router.get("/overview", async (req: any, res) => {
         paymentAccess: paymentAccessSnapshot(booking.metadata, booking.createdAt),
         paymentRef,
         rejectionReason,
+        stageSince: stageSince ? new Date(stageSince as any).toISOString() : null,
+        paidAt: booking.paidAt,
+        tripStart: (booking as any).startDate ?? null,
         createdAt: booking.createdAt,
         updatedAt: booking.updatedAt,
       };
@@ -207,6 +228,7 @@ router.get("/overview", async (req: any, res) => {
       approved: revenueRecords.filter((r) => r.status === "APPROVED").length,
       disbursed: revenueRecords.filter((r) => r.status === "DISBURSED").length,
       rejected: revenueRecords.filter((r) => r.status === "REJECTED").length,
+      cancelled: revenueRecords.filter((r) => r.status === "CANCELLED").length,
       totalAmount: revenueRecords.reduce((sum, r) => sum + r.grossAmount, 0),
       disbursedAmount: revenueRecords
         .filter((r) => r.status === "DISBURSED")

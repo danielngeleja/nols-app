@@ -404,7 +404,8 @@ export default function AdminReportsPage() {
           let currency = String(data?.agentCommissionCurrency || "").trim() || "USD";
           const inRange: TourRow[] = [];
           for (const row of rows) {
-            if (String(row?.status || "").toUpperCase() === "DRAFT") continue;
+            // Unpaid checkouts and cancelled or refunded bookings earn no commission.
+            if (["DRAFT", "CANCELLED"].includes(String(row?.status || "").toUpperCase())) continue;
             const ts = row?.createdAt ? new Date(row.createdAt).getTime() : NaN;
             if (!Number.isFinite(ts) || ts < rangeStart || ts >= rangeEndExclusive) continue;
             totalComm += Number(row?.commissionAmount) || 0;

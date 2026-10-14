@@ -66,13 +66,15 @@ function profileReadiness(profile: OperatorProfile) {
     approvedDocs,
     requiredDocs: required.length,
     packageCount: packages.length,
-    publicReady:
-      isApproved ||
-      Boolean(String(profile.companyName || "").trim()) &&
-      Boolean(String(profile.contactEmail || profile.contactPhone || "").trim()) &&
-      approvedDocs === required.length &&
-      packages.length > 0,
+    profileApproved: isApproved,
   };
+}
+
+// Same rule public.agents.ts applies before listing an operator: an ACTIVE account
+// with an APPROVED profile. Anything looser over-reports who travellers can see.
+function isPublicVisible(agentStatus: unknown, profile: OperatorProfile) {
+  const reviewStatus = String(profile.reviewStatus || profile.review?.status || "").toUpperCase();
+  return String(agentStatus || "").toUpperCase() === "ACTIVE" && reviewStatus === "APPROVED";
 }
 
 function clampPercent(value: unknown, fallback = 0): number {
@@ -125,6 +127,15 @@ function normalizePackage(
     bookingStatsByTitleDestination.get(legacyKey) ||
     { bookingsCount: 0, totalGenerated: 0 };
   const approvedLike = ["APPROVED", "LIVE", "PUBLISHED", "ACTIVE"].includes(status);
+  // A package a traveller can actually buy: approved, complete enough to show, and
+  // sold by an operator the public site lists. Approval alone is inherited from the
+  // operator's profile review, so an empty draft package would otherwise read as live.
+  const issues: string[] = [];
+  if (!String(pkg?.name || pkg?.title || "").trim()) issues.push("No title");
+  if (!(price > 0)) issues.push("No price");
+  if (!destination.trim()) issues.push("No destination");
+  const operatorVisible = isPublicVisible(agent.status, profile);
+  const onSale = approvedLike && issues.length === 0 && operatorVisible;
 
   return {
     id: `${agent.id}:${packageId}`,
@@ -144,6 +155,9 @@ function normalizePackage(
     bookingsCount: stats.bookingsCount,
     totalGenerated: stats.totalGenerated,
     status,
+    onSale,
+    operatorVisible,
+    issues,
   };
 }
 
@@ -174,13 +188,17 @@ async function loadOperators() {
 
 router.get("/overview", async (_req, res) => {
   try {
+    // Money that stayed with us: paid, and not cancelled or refunded afterwards.
+    // (A refunded booking keeps its paidAt, so paidAt alone over-counts.)
     const paidBookingWhere = {
       OR: [
         { paymentStatus: "PAID" },
         { paidAt: { not: null } },
       ],
+      status: { notIn: ["CANCELED", "CANCELLED", "REFUNDED"] },
+      paymentStatus: { not: "REFUNDED" },
     };
-    const [agents, recentBookings, paidTotals, disbursedPayoutTotals, commissionTotals, systemSetting, paidPackageGroupsByPackageId, paidPackageGroupsByTitleDestination] = await Promise.all([
+    const [agents, recentBookings, paidTotals, disbursedPayoutTotals, commissionTotals, systemSetting, paidPackageGroupsByPackageId, paidPackageGroupsByTitleDestination, owedTotals] = await Promise.all([
       loadOperators(),
       prisma.tourBooking.findMany({
         orderBy: { createdAt: "desc" },
@@ -244,6 +262,42 @@ router.get("/overview", async (_req, res) => {
         _count: { _all: true },
         _sum: { grossAmount: true },
       }),
+      // Operator share on paid bookings that has not been disbursed yet, across all time.
+      prisma.tourBooking.aggregate({
+        where: { ...paidBookingWhere, payoutStatus: { not: "DISBURSED" } },
+        _count: { _all: true },
+        _sum: { operatorPayoutAmount: true },
+      }),
+    ]);
+
+    // Booking journey, all time: every checkout, then each stage it can reach.
+    const neverPaidWhere = {
+      paymentStatus: { not: "PAID" },
+      paidAt: null,
+    };
+    const [journeyStarted, journeyCompleted, journeyPaidOut, journeyStuck, journeyDropped] = await Promise.all([
+      prisma.tourBooking.aggregate({ _count: { _all: true }, _sum: { grossAmount: true } }),
+      prisma.tourBooking.aggregate({
+        where: { ...paidBookingWhere, status: "COMPLETED" },
+        _count: { _all: true },
+        _sum: { grossAmount: true },
+      }),
+      prisma.tourBooking.aggregate({
+        where: { ...paidBookingWhere, payoutStatus: "DISBURSED" },
+        _count: { _all: true },
+        _sum: { operatorPayoutAmount: true },
+      }),
+      // Still open and unpaid: the travellers who could still pay.
+      prisma.tourBooking.aggregate({
+        where: { ...neverPaidWhere, status: { notIn: ["CANCELED", "CANCELLED", "REFUNDED"] } },
+        _count: { _all: true },
+        _sum: { grossAmount: true },
+        _min: { createdAt: true },
+      }),
+      // Abandoned or auto-cancelled before any payment.
+      prisma.tourBooking.count({
+        where: { ...neverPaidWhere, status: { in: ["CANCELED", "CANCELLED"] } },
+      }),
     ]);
 
     const defaultAgentCommissionPercent = clampPercent((systemSetting as any)?.agentCommissionPercent ?? 15, 15);
@@ -287,7 +341,7 @@ router.get("/overview", async (_req, res) => {
         regions: asArray<string>(profile.operatingRegions),
         completedTrips: agent.totalCompletedTrips,
         totalRevenueGenerated: Number(agent.totalRevenueGenerated || 0),
-        readiness: profileReadiness(profile),
+        readiness: { ...profileReadiness(profile), publicReady: isPublicVisible(agent.status, profile) },
       };
     });
 
@@ -334,7 +388,7 @@ router.get("/overview", async (_req, res) => {
       String((systemSetting as any)?.agentCommissionCurrency || "").trim().toUpperCase() ||
       String(recentBookings[0]?.currency || "").trim().toUpperCase() ||
       "USD";
-    const livePackageCount = packages.filter((pkg) => ["LIVE", "PUBLISHED", "ACTIVE", "APPROVED"].includes(String(pkg.status).toUpperCase())).length;
+    const livePackageCount = packages.filter((pkg) => pkg.onSale).length;
 
     return res.json({
       ok: true,
@@ -348,9 +402,26 @@ router.get("/overview", async (_req, res) => {
         disbursedPayoutBookings: Number(disbursedPayoutTotals._count?._all || 0),
         grossBookingRevenue: Number(paidTotals._sum.grossAmount || 0),
         nolsafCommission: Number(commissionTotals._sum.commissionAmount || 0),
-        operatorPayout: Number(disbursedPayoutTotals._sum.operatorPayoutAmount || 0),
+        // operatorPayout is the operators' share of paid bookings (so share + commission = gross);
+        // operatorPaidOut / operatorOwed split it into sent and still to send.
+        operatorPayout: Number(paidTotals._sum.operatorPayoutAmount || 0),
+        operatorPaidOut: Number(disbursedPayoutTotals._sum.operatorPayoutAmount || 0),
+        operatorOwed: Number(owedTotals._sum.operatorPayoutAmount || 0),
+        owedPayoutBookings: Number(owedTotals._count?._all || 0),
         grossPackageFloor,
         currency: summaryCurrency,
+        journey: {
+          started: { count: Number(journeyStarted._count?._all || 0), amount: Number(journeyStarted._sum.grossAmount || 0) },
+          paid: { count: paidBookingCount, amount: Number(paidTotals._sum.grossAmount || 0) },
+          completed: { count: Number(journeyCompleted._count?._all || 0), amount: Number(journeyCompleted._sum.grossAmount || 0) },
+          paidOut: { count: Number(journeyPaidOut._count?._all || 0), amount: Number(journeyPaidOut._sum.operatorPayoutAmount || 0) },
+          unpaidOpen: {
+            count: Number(journeyStuck._count?._all || 0),
+            amount: Number(journeyStuck._sum.grossAmount || 0),
+            oldestAt: journeyStuck._min?.createdAt ?? null,
+          },
+          cancelledBeforePayment: journeyDropped,
+        },
       },
       operators,
       packages,

@@ -5,8 +5,7 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
-  type ReactNode } from "react";
+  useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import Image from "next/image";
@@ -20,9 +19,7 @@ import {
   Building2,
   ShieldCheck,
   Bell,
-  Copy,
   History,
-  Activity,
   Clock,
   RefreshCw,
   Ban,
@@ -44,34 +41,64 @@ import {
   Lock,
 } from "lucide-react";
 import apiClient, { clearAuthToken } from "@/lib/apiClient";
-import TableRow from "@/components/TableRow";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
 const api = apiClient;
 
+// Must mirror REQUIRED_DOCUMENTS in app/account/agent/documents/page.tsx (what the
+// operator is asked to upload) and the list in admin/agents/page.tsx. The old list
+// asked for a Vehicle Permit and NDA that no screen ever collects, so this record
+// could never reach complete and never saw the National ID upload.
 const REQUIRED_OPERATOR_DOC_TYPES = [
-  "VEHICLE_PERMIT",
   "BRELA_CERTIFICATE",
   "TIN_NUMBER",
-  "BUSINESS_LICENCE",
   "TOURISM_LICENSE",
-  "NDA",
+  "BUSINESS_LICENCE",
+  "NATIONAL_ID_OR_PASSPORT",
 ] as const;
 
+// Same aliases the operator profile builder accepts (agent.assignments.ts).
 const DOC_TYPE_ALIASES: Record<string, string> = {
+  BUSINESS_REGISTRATION: "BRELA_CERTIFICATE",
+  TIN_CERTIFICATE: "TIN_NUMBER",
+  TOURISM_LICENCE: "TOURISM_LICENSE",
   BUSINESS_LICENSE: "BUSINESS_LICENCE",
   BUSINESS_LISENCE: "BUSINESS_LICENCE",
-  TOURISM_LICENCE: "TOURISM_LICENSE",
+  NATIONAL_ID: "NATIONAL_ID_OR_PASSPORT",
+  PASSPORT: "NATIONAL_ID_OR_PASSPORT",
 };
 
 const DOC_TYPE_LABELS: Record<string, string> = {
-  VEHICLE_PERMIT: "Vehicle Permit",
   BRELA_CERTIFICATE: "BRELA Certificate",
   TIN_NUMBER: "TIN Number",
-  BUSINESS_LICENCE: "Business Licence",
   TOURISM_LICENSE: "Tourism License",
-  NDA: "NDA",
+  BUSINESS_LICENCE: "Business Licence",
+  NATIONAL_ID_OR_PASSPORT: "National ID / Passport",
 };
+
+const DOC_TYPE_HINTS: Record<string, string> = {
+  BRELA_CERTIFICATE: "Business registration certificate",
+  TIN_NUMBER: "Tax identification certificate",
+  TOURISM_LICENSE: "Valid tourism operating licence, carries an expiry",
+  BUSINESS_LICENCE: "Business licence, carries an expiry",
+  NATIONAL_ID_OR_PASSPORT: "Representative's national ID or passport",
+};
+
+type DocState = "APPROVED" | "PENDING" | "REJECTED" | "MISSING";
+const DOC_STATE: Record<DocState, { label: string; pill: string; bar: string; icon: string }> = {
+  APPROVED: { label: "Approved", pill: "bg-emerald-50 text-emerald-700", bar: "bg-emerald-500", icon: "bg-emerald-600 text-white" },
+  PENDING: { label: "Needs review", pill: "bg-amber-50 text-amber-700", bar: "bg-amber-400", icon: "bg-amber-50 text-amber-600" },
+  REJECTED: { label: "Returned", pill: "bg-rose-50 text-rose-700", bar: "bg-rose-400", icon: "bg-rose-50 text-rose-600" },
+  MISSING: { label: "Missing", pill: "bg-neutral-100 text-neutral-500", bar: "bg-neutral-200", icon: "bg-neutral-100 text-neutral-400" },
+};
+
+/** Days until a YYYY-MM-DD date; negative once it has passed. */
+function daysUntil(dateOnly?: string | null) {
+  const v = String(dateOnly || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const end = new Date(`${v}T23:59:59`).getTime();
+  return Math.ceil((end - Date.now()) / 86_400_000);
+}
 
 // Operator data often arrives in capitals ("SALALAMASAKA TOUR COMPANY LIMITED").
 // Title-case shouting values for display; short tokens like CBD or TIN stay as they are.
@@ -102,6 +129,24 @@ function fmtLong(iso?: string | null) {
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
+
+// Tier colours shared with the tour operators register and the ladder editor.
+const TIERS = [
+  { key: "BRONZE", label: "Bronze", hex: "#e0a26f" },
+  { key: "SILVER", label: "Silver", hex: "#cbd5e1" },
+  { key: "GOLD", label: "Gold", hex: "#fbbf24" },
+  { key: "PLATINUM", label: "Platinum", hex: "#a5b4fc" },
+] as const;
+const tierAt = (level?: string | null) => Math.max(0, TIERS.findIndex((t) => t.key === String(level || "").toUpperCase()));
+
+// Tour booking states as the bookings endpoint normalises them.
+const BOOKING_STATES: Record<string, { label: string; pill: string }> = {
+  NEW: { label: "New", pill: "bg-sky-50 text-sky-700" },
+  PENDING: { label: "Pending", pill: "bg-amber-50 text-amber-700" },
+  IN_PROGRESS: { label: "In progress", pill: "bg-teal-50 text-teal-700" },
+  COMPLETED: { label: "Completed", pill: "bg-emerald-50 text-emerald-700" },
+  CANCELLED: { label: "Cancelled", pill: "bg-rose-50 text-rose-700" },
+};
 
 function unwrapApiData<T = any>(axiosData: any): T {
   return axiosData && typeof axiosData === "object" && "data" in axiosData ? (axiosData.data as T) : (axiosData as T);
@@ -135,10 +180,34 @@ type Agent = {
     grossSum: number;
     commissionSum: number;
     netSum: number;
+    disbursedSum?: number;
+    awaitingCount?: number;
+    awaitingGross?: number;
     commissionPercent: number;
     currency?: string;
   };
+  promotionProgress?: {
+    currentLevel: string;
+    nextLevel: string | null;
+    currentTrips: number;
+    minTrips: number;
+    currentRevenue: number;
+    minRevenue: number;
+    revenueCurrency?: string;
+    currentRating: number | null;
+    minRating: number | null;
+    currentReviews: number;
+    minReviews: number | null;
+    tripsProgress: number;
+    revenueProgress: number;
+    ratingProgress: number;
+    reviewsProgress: number;
+    overallProgress: number;
+    eligibleForPromotion: boolean;
+  };
   suspendedAt?: string | null;
+  suspensionReason?: string | null;
+  languages?: string[];
   createdAt: string;
   user: {
     id: number;
@@ -173,6 +242,8 @@ type AgentDocument = {
   status: string;
   reason?: string | null;
   url?: string | null;
+  unsafeUrl?: boolean;
+  metadata?: { expiresOn?: string | null } | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -192,6 +263,10 @@ type AgentAdminNote = {
 
 type Booking = {
   id: number;
+  bookingCode?: string | null;
+  paymentStatus?: string | null;
+  payoutStatus?: string | null;
+  travelerCount?: number | null;
   guestName: string;
   property: string;
   checkIn: string;
@@ -202,20 +277,6 @@ type Booking = {
   status: string;
   createdAt: string;
 };
-
-function fmtDate(iso?: string | null) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("en-GB");
-}
-
-function fmtTime(iso?: string | null) {
-  if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
 
 function fmtMoney(value?: number | null, currency: string = "USD") {
   const n = Number(value ?? 0);
@@ -317,15 +378,10 @@ function SubmittedProfileCard({
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="mb-3">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">Submitted card preview</div>
-          <h3 className="mt-1 min-w-0 truncate text-xl font-black text-slate-950">{companyName}</h3>
-        </div>
-      </div>
+    <div className="rounded-2xl border border-solid border-neutral-200 bg-neutral-50 p-4">
+      <p className="m-0 mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">How customers see the card</p>
 
-      <div className="max-w-[420px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="mx-auto max-w-[420px] overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-sm">
         <div className="relative mx-3 mt-3 overflow-hidden rounded-xl bg-slate-100">
           {photos.length === 0 ? (
             <div className="flex h-52 items-center justify-center bg-gradient-to-br from-[#02665e] via-emerald-600 to-teal-400">
@@ -471,7 +527,7 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [showAccommodationForm, setShowAccommodationForm] = useState(false);
+  const [, setShowAccommodationForm] = useState(false);
   const [showAccommodationConfirmation, setShowAccommodationConfirmation] = useState(false);
   const [accommodationReason, setAccommodationReason] = useState("");
   const [accommodationLoading, setAccommodationLoading] = useState(false);
@@ -484,13 +540,21 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const [showRestoreConfirmation, setShowRestoreConfirmation] = useState(false);
   const [restoreError, setRestoreError] = useState("");
   const [pageNotice, setPageNotice] = useState("");
-  const [notifyAgent, setNotifyAgent] = useState(true);
   const [showImpersonateForm, setShowImpersonateForm] = useState(false);
   const [impersonateReason, setImpersonateReason] = useState("");
   const [impersonateError, setImpersonateError] = useState("");
   const [showNotificationForm, setShowNotificationForm] = useState(false);
   const [notificationSubject, setNotificationSubject] = useState("");
   const [notificationMessage, setNotificationMessage] = useState("");
+  const [notificationDestination, setNotificationDestination] = useState<"documents" | null>(null);
+  const [sendingNotification, setSendingNotification] = useState(false);
+  const [notificationSent, setNotificationSent] = useState<string | null>(null);
+  // The "sent" confirmation is a moment, not a state: it clears itself.
+  useEffect(() => {
+    if (!notificationSent) return;
+    const t = window.setTimeout(() => setNotificationSent(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [notificationSent]);
   const [auditHistory, setAuditHistory] = useState<any[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [tab, setTab] = useState<"overview" | "documents" | "notes" | "bookings" | "profile">(
@@ -500,6 +564,8 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
   const [docActionLoadingId, setDocActionLoadingId] = useState<number | null>(null);
+  const [rejectingDocId, setRejectingDocId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [notes, setNotes] = useState<AgentAdminNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
@@ -531,12 +597,18 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       authify();
       const r = await api.get<Agent>(`/api/admin/agents/${agentId}`);
       setAgent(unwrapApiData<Agent>(r.data));
-      const settingsResp = await api.get("/api/admin/settings");
-      const settingsData = unwrapApiData<any>(settingsResp.data);
-      const settingsPct = Number(settingsData?.agentCommissionPercent ?? settingsData?.commissionPercent);
-      setAdminCommissionPercent(Number.isFinite(settingsPct) ? settingsPct : null);
-      const settingsCurrency = String(settingsData?.agentCommissionCurrency || "").trim().toUpperCase();
-      if (settingsCurrency) setTourCurrency(settingsCurrency);
+      // Settings only fill in the default commission and currency; a failure here must
+      // not blank a record that already loaded.
+      try {
+        const settingsResp = await api.get("/api/admin/settings");
+        const settingsData = unwrapApiData<any>(settingsResp.data);
+        const settingsPct = Number(settingsData?.agentCommissionPercent ?? settingsData?.commissionPercent);
+        setAdminCommissionPercent(Number.isFinite(settingsPct) ? settingsPct : null);
+        const settingsCurrency = String(settingsData?.agentCommissionCurrency || "").trim().toUpperCase();
+        if (settingsCurrency) setTourCurrency(settingsCurrency);
+      } catch {
+        setAdminCommissionPercent(null);
+      }
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || "Failed to load tour operator details");
     } finally {
@@ -674,17 +746,6 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
     }
   }, [tab, agent?.id, loadBookings]);
 
-  const getStatusGradient = (status: string) => {
-    const gradients: Record<string, string> = {
-      all: "bg-gradient-to-r from-blue-500 to-blue-600",
-      new: "bg-gradient-to-r from-sky-500 to-blue-600",
-      in_progress: "bg-gradient-to-r from-cyan-500 to-blue-600",
-      completed: "bg-gradient-to-r from-emerald-500 to-teal-600",
-      cancelled: "bg-gradient-to-r from-red-500 to-rose-600",
-    };
-    return gradients[status] || "bg-gradient-to-r from-gray-500 to-gray-600";
-  };
-
   const sortedBookings = useMemo(() => {
     const rows = [...bookings];
     const read = (b: Booking) => {
@@ -763,26 +824,47 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
     }
   }
 
+  async function rejectDocument(docId: number) {
+    if (!agent?.id) return;
+    const reason = rejectReason.trim();
+    if (reason.length < 5) {
+      setPageNotice("Give the operator a reason of at least 5 characters so they know what to fix.");
+      return;
+    }
+    try {
+      setDocActionLoadingId(docId);
+      await api.patch(`/api/admin/agents/${agent.id}/documents/${docId}`, { status: "REJECTED", reason });
+      setRejectingDocId(null);
+      setRejectReason("");
+      await loadDocuments(agent.id);
+      await load();
+    } catch (err: any) {
+      setPageNotice(err?.response?.data?.error || err?.message || "Failed to reject document");
+    } finally {
+      setDocActionLoadingId(null);
+    }
+  }
+
   async function suspendAgent() {
     if (!agent) return;
     if (!suspendReason.trim()) {
       setPageNotice("Please provide a reason for suspension.");
       return;
     }
+    // The API needs 10+ characters and itself emails the notice and signs the operator out.
+    if (suspendReason.trim().length < 10) {
+      setPageNotice("The suspension reason needs at least 10 characters.");
+      return;
+    }
     try {
       setActionLoading(true);
-      authify();
       await api.post(`/api/admin/agents/${agent.id}/suspend`, { reason: suspendReason.trim() });
       setSuspendReason("");
       setShowSuspendForm(false);
       await load();
-      if (notifyAgent && agent.user.email) {
-        const subject = encodeURIComponent("Account suspension notice");
-        const body = encodeURIComponent(`Hello ${agent.user.fullName || agent.user.name || "Tour Operator"},\n\nYour account has been suspended for the following reason:\n${suspendReason.trim()}\n\nPlease contact support for further guidance.`);
-        window.open(`mailto:${agent.user.email}?subject=${subject}&body=${body}`, "_blank");
-      }
+      if (agent.user.id) void loadAuditHistory(agent.user.id);
     } catch (err: any) {
-      setPageNotice(err?.response?.data?.message || "Failed to suspend tour operator");
+      setPageNotice(err?.response?.data?.error || err?.response?.data?.message || "Failed to suspend tour operator");
     } finally {
       setActionLoading(false);
     }
@@ -803,8 +885,9 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       await api.post(`/api/admin/agents/${agent.id}/restore`, { notes: "Restored by admin from detail page" });
       setShowRestoreConfirmation(false);
       await load();
+      if (agent.user.id) void loadAuditHistory(agent.user.id);
     } catch (err: any) {
-      setRestoreError(err?.response?.data?.message || "Failed to restore tour operator");
+      setRestoreError(err?.response?.data?.error || err?.response?.data?.message || "Failed to restore tour operator");
     } finally {
       setActionLoading(false);
     }
@@ -857,26 +940,33 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   }
 
   function handleNotificationToggle() {
+    setNotificationSent(null);
     setShowNotificationForm((prev) => !prev);
   }
 
-  function sendNotification() {
-    if (!agent?.user.email) {
-      setPageNotice("Tour operator email is not available");
+  // In-app only: lands in the operator's notification inbox, no email is sent.
+  async function sendNotification() {
+    if (!agent?.id || sendingNotification) return;
+    const title = notificationSubject.trim();
+    const message = notificationMessage.trim();
+    if (title.length < 3 || message.length < 5) {
+      setPageNotice("Add a title (3+ characters) and a message (5+ characters).");
       return;
     }
-    if (!notificationSubject.trim() || !notificationMessage.trim()) {
-      setPageNotice("Please provide both subject and message.");
-      return;
+    try {
+      setSendingNotification(true);
+      await api.post(`/api/admin/agents/${agent.id}/notify`, { title, message, destination: notificationDestination });
+      setNotificationSubject("");
+      setNotificationMessage("");
+      setNotificationDestination(null);
+      setShowNotificationForm(false);
+      setNotificationSent(title);
+      if (agent.user.id) void loadAuditHistory(agent.user.id);
+    } catch (err: any) {
+      setPageNotice(err?.response?.data?.error || err?.response?.data?.message || err?.message || "Could not send the notification.");
+    } finally {
+      setSendingNotification(false);
     }
-
-    const subject = encodeURIComponent(notificationSubject.trim());
-    const body = encodeURIComponent(notificationMessage.trim());
-    window.open(`mailto:${agent.user.email}?subject=${subject}&body=${body}`, "_blank");
-
-    setNotificationSubject("");
-    setNotificationMessage("");
-    setShowNotificationForm(false);
   }
 
   function handleImpersonateClick() {
@@ -965,28 +1055,6 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ");
   };
-  const formatDocType = (value: string | null | undefined) => {
-    const raw = String(value || "DOCUMENT").trim();
-    if (!raw) return "Document";
-    const canonical = DOC_TYPE_ALIASES[raw.toUpperCase()] || raw.toUpperCase();
-    return DOC_TYPE_LABELS[canonical] || canonical;
-  };
-  const docStatusBadge = (status: string) => {
-    const s = String(status || "").toUpperCase();
-    if (s === "APPROVED") return "bg-emerald-50 border-emerald-200 text-emerald-700";
-    if (s === "REJECTED") return "bg-red-50 border-red-200 text-red-700";
-    return "bg-amber-50 border-amber-200 text-amber-700";
-  };
-  const docCardTone = (status: string) => {
-    const s = String(status || "").toUpperCase();
-    if (s === "APPROVED") return "border-emerald-200 bg-emerald-50/30";
-    if (s === "REJECTED") return "border-red-200 bg-red-50/25";
-    return "border-gray-200 bg-white";
-  };
-  const docStatusLabel = (status: string | undefined) => {
-    const s = String(status || "PENDING").toUpperCase();
-    return s.charAt(0) + s.slice(1).toLowerCase();
-  };
   const canonicalDocType = (value: string | null | undefined) => {
     const raw = String(value || "").trim().toUpperCase();
     if (!raw) return "";
@@ -1001,19 +1069,17 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       };
     });
   }, [documents]);
+  // A missing file is "Missing", not "Pending": pending means uploaded and waiting on us.
+  const docRows = requiredDocumentCards.map(({ requiredType, doc }) => {
+    const s = String(doc?.status || "").toUpperCase();
+    const state: DocState = !doc ? "MISSING" : s === "APPROVED" ? "APPROVED" : s === "REJECTED" ? "REJECTED" : "PENDING";
+    const expiresOn = doc?.metadata && typeof doc.metadata === "object" ? String(doc.metadata.expiresOn || "").slice(0, 10) || null : null;
+    return { type: requiredType, label: DOC_TYPE_LABELS[requiredType] || requiredType, doc, state, expiresOn };
+  });
   const financialSummary = useMemo(() => {
+    // No guessing: without the server summary the strip shows zeros, not invented money.
     if (agent?.financialSummary) return agent.financialSummary;
-    const gross = Number(agent?.totalRevenueGenerated || 0);
-    const fallbackCommissionPercent = 15;
-    const commission = Math.round((gross * fallbackCommissionPercent) * 100) / 100;
-    return {
-      paidCount: Number(agent?.totalCompletedTrips || 0),
-      grossSum: gross,
-      commissionSum: commission,
-      netSum: Math.round((gross - commission) * 100) / 100,
-      commissionPercent: fallbackCommissionPercent,
-      currency: tourCurrency,
-    };
+    return { paidCount: 0, grossSum: 0, commissionSum: 0, netSum: 0, disbursedSum: 0, awaitingCount: 0, awaitingGross: 0, commissionPercent: 0, currency: tourCurrency };
   }, [agent, tourCurrency]);
   const financialCurrency = String(financialSummary.currency || tourCurrency || "USD").toUpperCase();
   const submittedProfileReviewStatus = String(
@@ -1022,12 +1088,6 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const submittedProfileReviewNote = String(
     (agent?.operatorProfile as any)?.reviewReason || (agent?.operatorProfile as any)?.review?.reason || "",
   ).trim();
-  const submittedProfileReviewBadge =
-    submittedProfileReviewStatus === "APPROVED"
-      ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
-      : submittedProfileReviewStatus === "REJECTED"
-        ? "bg-red-50 border border-red-200 text-red-700"
-        : "bg-amber-50 border border-amber-200 text-amber-700";
   const submittedProfileRaw = submittedProfile && typeof submittedProfile === "object"
     ? (submittedProfile as Record<string, any>)
     : {};
@@ -1036,10 +1096,13 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   );
   const submittedProfileReviewHref = agent?.id ? recordHref("agent", agent.id, { suffix: `/submitted-profile/${submittedProfileSlug}` }) : "#";
   const accommodationCapability = agent?.accommodationCapability;
+  // Mirrors the server's activation rules, including the two blocks it refuses outright.
   const accommodationEligible = agent?.status === "ACTIVE"
     && submittedProfileReviewStatus === "APPROVED"
     && Number(accommodationCapability?.approvedEvidenceCount || 0) > 0
-    && !agent?.suspendedAt;
+    && !agent?.suspendedAt
+    && !["SUSPENDED", "REVOKED"].includes(String(accommodationCapability?.status || "").toUpperCase())
+    && !(accommodationCapability?.identity && (String(accommodationCapability.identity.status || "").toUpperCase() !== "ACTIVE" || String(accommodationCapability.identity.verificationStatus || "").toUpperCase() === "REJECTED"));
   const accommodationUnexpired = !accommodationCapability?.expiresAt
     || new Date(accommodationCapability.expiresAt).getTime() > Date.now();
   const accommodationActive = String(accommodationCapability?.status || "").toUpperCase() === "ACTIVE"
@@ -1090,13 +1153,21 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
       : submittedProfileReviewStatus !== "APPROVED" && submittedProfileReviewStatus !== "REJECTED"
         ? { tone: "amber", title: "Review the submitted profile", text: "Approving it moves the operator toward hotel partnerships.", action: { label: "Review profile", run: () => setTab("profile") } }
         : docsKnown && docsMissing > 0
-          ? { tone: "amber", title: `${docsMissing} ${docsMissing === 1 ? "document is" : "documents are"} missing`, text: "Ask the operator to upload the rest.", action: { label: "Send a reminder", run: () => { setTab("overview"); setShowNotificationForm(true); } } }
+          ? { tone: "amber", title: `${docsMissing} ${docsMissing === 1 ? "document is" : "documents are"} missing`, text: "Ask the operator to upload the rest.", action: { label: "Send a reminder", run: () => {
+            const missing = docRows.filter((r) => r.state === "MISSING").map((r) => r.label);
+            setTab("overview");
+            setNotificationSubject("Documents still needed to verify your company");
+            setNotificationMessage(`We still need ${missing.join(", ")} to finish verifying your tour company on NoLSAF. Please upload ${missing.length === 1 ? "it" : "them"} from Documents in your account.`);
+            setNotificationDestination("documents");
+            setNotificationSent(null);
+            setShowNotificationForm(true);
+          } } }
           : submittedProfileReviewStatus === "REJECTED"
             ? { tone: "red", title: "Profile was rejected", text: "Waiting for the operator to fix it and resubmit.", action: { label: "View profile", run: () => setTab("profile") } }
             : !accommodationActive && accommodationEligible
-              ? { tone: "teal", title: "Activate hotel partnerships", text: "Everything is approved. The operator can now partner with hotels.", action: { label: "Review and activate", run: () => setAccommodationDetailOpen(true) } }
+              ? { tone: "teal", title: "Activate hotel partnerships", text: "Everything is approved. The operator can now partner with hotels.", action: { label: "Review and activate", run: () => { setTab("overview"); setAccommodationMessage(null); setShowAccommodationConfirmation(false); setAccommodationDetailOpen(true); } } }
               : !accommodationActive
-                ? { tone: "amber", title: "Partnerships not ready", text: "Some requirements are still open.", action: { label: "See what is missing", run: () => setAccommodationDetailOpen(true) } }
+                ? { tone: "amber", title: "Partnerships not ready", text: "Some requirements are still open.", action: { label: "See what is missing", run: () => { setTab("overview"); window.setTimeout(() => document.getElementById("hotel-partnerships")?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); } } }
                 : { tone: "green", title: "Fully onboarded", text: "Hired, documented, approved and partnering with hotels." };
   const NEXT_TONES = {
     red: { box: "border-red-200 bg-red-50", eyebrow: "text-red-700", title: "text-red-950", text: "text-red-800", button: "border-red-300 text-red-900 hover:bg-red-100" },
@@ -1108,6 +1179,115 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
   const displayName = niceCase(agent?.user.fullName || agent?.user.name) || `Tour Operator #${agent?.id ?? ""}`;
   const displayCompany = niceCase(companyName);
   const basedIn = uniquePlaces(physicalLocation, profileDistrict, profileRegion);
+
+  // Submitted profile tab: review state, recorded change list and a quick count of what was sent.
+  const reviewMeta = (submittedProfileRaw.review && typeof submittedProfileRaw.review === "object" ? submittedProfileRaw.review : {}) as Record<string, any>;
+  const submittedOn = fmtLong(reviewMeta.submittedAt || submittedProfileRaw.submittedAt);
+  const decidedOn = fmtLong(submittedProfileRaw.reviewedAt || reviewMeta.reviewedAt);
+  const approvedOn = fmtLong(submittedProfileRaw.approvedAt);
+  // public.agents.ts lists an operator only while the CURRENT status is APPROVED,
+  // so an open review hides them from customers even if an older version was approved.
+  const profileReview = submittedProfileReviewStatus === "APPROVED"
+    ? { headline: "Approved and live", sub: `${decidedOn ? `Approved ${decidedOn}. ` : ""}This is the version customers see.`, tone: { border: "border-emerald-200", band: "bg-emerald-50/60", eyebrow: "text-emerald-700" } }
+    : submittedProfileReviewStatus === "REJECTED"
+      ? { headline: "Returned to the operator", sub: `${decidedOn ? `Returned ${decidedOn}. ` : ""}Hidden from customers until they fix it and you approve.`, tone: { border: "border-rose-200", band: "bg-rose-50/60", eyebrow: "text-rose-700" } }
+      : { headline: "Waiting for your review", sub: `${submittedOn ? `Submitted ${submittedOn}. ` : ""}${approvedOn ? `Approved before on ${approvedOn}, but hidden from customers until you approve this version.` : "Hidden from customers until you approve."}`, tone: { border: "border-amber-200", band: "bg-amber-50/60", eyebrow: "text-amber-700" } };
+  const recordedChanges = reviewMeta.changes && typeof reviewMeta.changes === "object" ? reviewMeta.changes as Record<string, any> : null;
+  const profileChanges = recordedChanges
+    ? (() => {
+        const added = Array.isArray(recordedChanges.itemsAdded) ? recordedChanges.itemsAdded as Array<{ category: string; count: number; examples?: string[] }> : [];
+        const removed = Array.isArray(recordedChanges.itemsRemoved) ? recordedChanges.itemsRemoved as Array<{ category: string; count: number; examples?: string[] }> : [];
+        const modified = Array.isArray(recordedChanges.fieldsModified) ? (recordedChanges.fieldsModified as Array<{ field: string }>).map((f) => String(f.field)) : [];
+        return { added, removed, modified, total: added.length + removed.length + modified.length };
+      })()
+    : null;
+  const humanField = (key: string) => {
+    const known: Record<string, string> = {
+      packageItems: "Tour packages", classifiedPhotos: "Photos", operatingRegions: "Operating regions", tourismTypes: "Tourism types",
+      services: "Services", addOns: "Add-ons", companyName: "Company name", description: "Description", physicalLocation: "Location",
+      contactPhone: "Contact phone", contactEmail: "Contact email", vehicles: "Vehicles", languages: "Languages",
+    };
+    return known[key] || niceCase(key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase()).replace(/^./, (c) => c.toUpperCase());
+  };
+  const profilePhotos = (() => {
+    const c = submittedProfileRaw.classifiedPhotos && typeof submittedProfileRaw.classifiedPhotos === "object" ? submittedProfileRaw.classifiedPhotos as Record<string, unknown> : {};
+    return Object.values(c).reduce<number>((n, v) => n + stringList(v).length, 0);
+  })();
+  const profilePackages = Array.isArray(submittedProfileRaw.packageItems) ? submittedProfileRaw.packageItems.length : 0;
+  const profileServices = new Set([...stringList(submittedProfileRaw.services), ...stringList(submittedProfileRaw.addOns), ...stringList(submittedProfileRaw.tourismTypes)]).size;
+  const profileGlance = [
+    { label: "Photos", value: String(profilePhotos), empty: profilePhotos === 0 },
+    { label: "Tour packages", value: String(profilePackages), empty: profilePackages === 0 },
+    { label: "Services", value: String(profileServices), empty: profileServices === 0 },
+    { label: "Regions", value: String(stringList(submittedProfileRaw.operatingRegions).length), empty: stringList(submittedProfileRaw.operatingRegions).length === 0 },
+    { label: "Contact phone", value: String(submittedProfileRaw.contactPhone || "None"), empty: !submittedProfileRaw.contactPhone },
+    { label: "Description", value: submittedProfileRaw.description ? `${String(submittedProfileRaw.description).trim().split(/\s+/).length} words` : "None", empty: !submittedProfileRaw.description },
+  ];
+
+  // Overview chips: tourism types and operating regions, de-duplicated.
+  const splitList = (value: string) => Array.from(new Set(String(value || "").split(/[,/]/).map((s) => niceCase(s.trim())).filter((s) => s && s !== "-")));
+  const tourismList = splitList(tourismTypes);
+  const regionList = splitList(areaOfOperation);
+
+  // What activation actually requires (lib/nrmsPartnerCapability.ts bridgeApprovedOperatorToAccommodation):
+  // an active account, an approved profile and one approved document with a file. The
+  // agency identity is NOT a prerequisite: activation creates and verifies it.
+  const evidenceCount = Number(accommodationCapability?.approvedEvidenceCount || 0);
+  const identity = accommodationCapability?.identity ?? null;
+  const identityBlocked = Boolean(identity) && (String(identity?.status || "").toUpperCase() !== "ACTIVE" || String(identity?.verificationStatus || "").toUpperCase() === "REJECTED");
+  const accessBlocked = ["SUSPENDED", "REVOKED"].includes(String(accommodationCapability?.status || "").toUpperCase());
+  const partnershipChecks: Array<{ label: string; ok: boolean; detail: string; fix?: { label: string; run: () => void } }> = [
+    {
+      label: "Account active",
+      ok: String(agent?.status || "").toUpperCase() === "ACTIVE" && !agent?.suspendedAt,
+      detail: isSuspended ? "Suspended, restore it first" : String(agent?.status || "").toUpperCase() === "ACTIVE" ? "Active" : "Inactive",
+    },
+    {
+      label: "Operator profile approved",
+      ok: submittedProfileReviewStatus === "APPROVED",
+      detail: submittedProfileReviewStatus === "APPROVED" ? "Approved" : submittedProfileReviewStatus === "REJECTED" ? "Returned, waiting for a resubmission" : "Waiting for your review",
+      fix: submittedProfileReviewStatus === "APPROVED" ? undefined : { label: "Review profile", run: () => { setAccommodationDetailOpen(false); setTab("profile"); } },
+    },
+    {
+      label: "Approved document on file",
+      ok: evidenceCount > 0,
+      detail: evidenceCount > 0 ? `${evidenceCount} approved ${evidenceCount === 1 ? "document" : "documents"}` : "Approve at least one uploaded document",
+      fix: evidenceCount > 0 ? undefined : { label: "Open documents", run: () => { setAccommodationDetailOpen(false); setTab("documents"); } },
+    },
+  ];
+  const checksDone = partnershipChecks.filter((c) => c.ok).length;
+  // What activation will do with the agency identity, or why it cannot.
+  const identityNote = accessBlocked
+    ? { tone: "rose", text: "Partnership access was suspended or revoked before. It cannot be switched back on from here." }
+    : identityBlocked
+      ? { tone: "rose", text: "The existing agency identity is suspended or rejected and must be reviewed separately before activation." }
+      : identity && String(identity.verificationStatus).toUpperCase() === "VERIFIED"
+        ? { tone: "neutral", text: "Their agency identity is already verified and will be reused." }
+        : identity
+          ? { tone: "neutral", text: "Activation verifies their existing agency identity using the approved documents." }
+          : { tone: "neutral", text: "Activation creates their agency identity from the approved company details and documents." };
+
+  // Audit details arrive as text or as JSON; show the human parts only.
+  const auditDetailText = (details: unknown) => {
+    if (!details) return "";
+    if (typeof details === "string") return details;
+    if (typeof details === "object") {
+      const d = details as Record<string, unknown>;
+      const parts = [d.reason && `Reason: ${d.reason}`, d.notes && `Note: ${d.notes}`, d.caseRef && `Case ${d.caseRef}`].filter(Boolean);
+      return parts.join(" · ");
+    }
+    return "";
+  };
+
+  // Tier climb, straight from the API's live promotion progress.
+  const promo = agent?.promotionProgress;
+  const tierIdx = tierAt(promo?.currentLevel || agent?.level);
+  const tier = TIERS[tierIdx];
+  const nextTier = promo?.nextLevel ? TIERS[tierAt(promo.nextLevel)] : null;
+  const climbStep = 100 / (TIERS.length - 1);
+  const climbPos = nextTier ? tierIdx * climbStep + (Math.min(100, Number(promo?.overallProgress || 0)) / 100) * climbStep : tierIdx * climbStep;
+  // Commission as actually charged on paid bookings, which can differ from the configured rate.
+  const effectiveRate = financialSummary.grossSum > 0 ? Math.round((financialSummary.commissionSum / financialSummary.grossSum) * 1000) / 10 : null;
 
   return (
     <div id="operator-detail" className="w-full min-w-0 space-y-4">
@@ -1159,75 +1339,106 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
         </div>
       ) : (
         <>
-          {/* Profile hero: who, where, how far along, and what to do next */}
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-            <div className="grid min-w-0 gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center">
+          {/* Identity band: who they are, and their climb toward the next tier */}
+          <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(90%_120%_at_100%_0%,rgba(16,185,129,0.16)_0%,rgba(11,36,32,0)_60%)]" aria-hidden />
+            <div className="relative grid min-w-0 gap-6 px-5 py-5 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
               <div className="flex min-w-0 items-start gap-4">
-                <div className="relative h-[76px] w-[76px] shrink-0">
-                  <svg width="76" height="76" viewBox="0 0 76 76" className="absolute inset-0" aria-hidden>
-                    <circle cx="38" cy="38" r="35" fill="none" stroke="#e5e7eb" strokeWidth="4" />
-                    <circle
-                      cx="38"
-                      cy="38"
-                      r="35"
-                      fill="none"
-                      stroke={isSuspended ? "#ef4444" : "#059669"}
-                      strokeWidth="4"
-                      strokeLinecap="round"
-                      strokeDasharray={2 * Math.PI * 35}
-                      strokeDashoffset={2 * Math.PI * 35 * (1 - stagesDone / journey.length)}
-                      transform="rotate(-90 38 38)"
-                      style={{ transition: "stroke-dashoffset 600ms ease" }}
-                    />
-                  </svg>
-                  <div className="absolute inset-[8px] overflow-hidden rounded-full bg-emerald-50">
-                    {agent.user.avatarUrl ? (
-                      <Image src={agent.user.avatarUrl} alt="" fill unoptimized={/^https?:\/\//i.test(agent.user.avatarUrl)} className="object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-lg font-black text-emerald-800">{initials(agent.user.fullName || agent.user.name)}</span>
-                    )}
-                  </div>
-                  <span className="absolute -bottom-1 -right-1 rounded-full border border-solid border-neutral-200 bg-white px-1.5 py-px text-[10px] font-bold tabular-nums text-emerald-700" title="Onboarding stages done">
-                    {stagesDone}/{journey.length}
-                  </span>
+                <div
+                  className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full bg-[#163a34]"
+                  style={{ boxShadow: `0 0 0 2px #0b2420, 0 0 0 4px ${isSuspended ? "#fb7185" : tier.hex}` }}
+                >
+                  {agent.user.avatarUrl ? (
+                    <Image src={agent.user.avatarUrl} alt="" fill unoptimized={/^https?:\/\//i.test(agent.user.avatarUrl)} className="object-cover" />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-lg font-black text-emerald-200">{initials(agent.user.fullName || agent.user.name)}</span>
+                  )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <Link href="/admin/agents/tour-operators" className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-400 no-underline transition hover:text-emerald-700">
+                  <Link href="/admin/agents/tour-operators" className="inline-flex items-center gap-1 text-[11px] font-semibold text-white/45 no-underline transition hover:text-emerald-300">
                     <ArrowLeft className="h-3 w-3" aria-hidden /> Tour operators
                   </Link>
-                  <h1 className="m-0 mt-1 break-words text-xl font-bold tracking-tight text-neutral-950 sm:text-2xl">{displayName}</h1>
+                  <h1 className="m-0 mt-1 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{displayName}</h1>
                   {displayCompany && displayCompany !== "-" && displayCompany !== displayName ? (
-                    <p className="m-0 mt-0.5 break-words text-sm text-neutral-600">{displayCompany}</p>
+                    <p className="m-0 mt-0.5 break-words text-sm text-white/60">{displayCompany}</p>
                   ) : null}
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-neutral-500">
-                    <span className="font-semibold text-neutral-400">#{agent.id}</span>
+                  <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-white/55">
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: tier.hex, background: `${tier.hex}1f` }}>
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: tier.hex }} aria-hidden /> {tier.label}
+                    </span>
+                    {isSuspended ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-300"><Ban className="h-3 w-3" aria-hidden /> Suspended</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden /> {agent.isAvailable ? "Taking tours" : "Not taking tours"}</span>
+                    )}
                     {basedIn ? <span className="inline-flex min-w-0 items-center gap-1"><MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden /> {basedIn}</span> : null}
                     <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5 shrink-0" aria-hidden /> Joined {fmtLong(agent.createdAt)}</span>
-                    {isSuspended ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-solid border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-700"><Ban className="h-3 w-3" aria-hidden /> Suspended</span>
-                    ) : null}
                   </div>
                 </div>
               </div>
 
-              <div className={`min-w-0 rounded-xl border border-solid p-3.5 ${nextTone.box}`}>
-                <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${nextTone.eyebrow}`}>{nextStep.tone === "green" ? "Status" : "Next step"}</p>
-                <p className={`m-0 mt-1 text-[14px] font-bold leading-snug ${nextTone.title}`}>{nextStep.title}</p>
-                <p className={`m-0 mt-0.5 text-[12px] leading-snug ${nextTone.text}`}>{nextStep.text}</p>
-                {nextStep.action ? (
-                  <button
-                    type="button"
-                    onClick={nextStep.action.run}
-                    className={`mt-2.5 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold transition ${nextTone.button}`}
+              {/* The climb: where they sit on Bronze to Platinum, and what the next tier asks */}
+              <div className="min-w-0 rounded-xl bg-white/[0.04] p-4 ring-1 ring-white/10">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.14em] text-white/45">Tier climb</p>
+                  <p className="m-0 text-[11px] text-white/55">
+                    {promo?.nextLevel ? (
+                      <><span className="font-semibold tabular-nums" style={{ color: nextTier?.hex }}>{Math.round(promo.overallProgress)}%</span> to {nextTier?.label}</>
+                    ) : promo ? "Top tier reached" : "No tier data"}
+                  </p>
+                </div>
+                <div className="relative mt-4 h-1.5 rounded-full bg-white/10">
+                  <span
+                    className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
+                    style={{ width: `${climbPos}%`, background: `linear-gradient(90deg, ${TIERS.map((t) => t.hex).join(", ")})`, opacity: 0.6 }}
+                    aria-hidden
+                  />
+                  {TIERS.map((t, i) => (
+                    <span
+                      key={t.key}
+                      className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-solid"
+                      style={{ left: `${(i / (TIERS.length - 1)) * 100}%`, borderColor: t.hex, background: i <= tierIdx ? t.hex : "#0b2420" }}
+                      aria-hidden
+                    />
+                  ))}
+                  <span
+                    className="absolute top-1/2 grid h-6 w-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-[#0b2420] text-[9px] font-bold text-white transition-all duration-700"
+                    style={{ left: `${climbPos}%`, boxShadow: `0 0 0 2px ${tier.hex}` }}
+                    title={`${displayName} on the climb`}
                   >
-                    {nextStep.action.label} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                  </button>
+                    {initials(agent.user.fullName || agent.user.name)}
+                  </span>
+                </div>
+                <div className="mt-2 flex justify-between text-[9px] font-bold uppercase tracking-[0.12em]">
+                  {TIERS.map((t) => <span key={t.key} style={{ color: t.hex }}>{t.label}</span>)}
+                </div>
+                {promo?.nextLevel ? (
+                  <dl className="m-0 mt-4 grid grid-cols-2 gap-x-4 gap-y-2.5">
+                    {[
+                      { label: "Completed tours", now: String(promo.currentTrips), need: String(promo.minTrips), pct: promo.tripsProgress },
+                      { label: "NoLSAF commission", now: `$${Math.round(promo.currentRevenue).toLocaleString()}`, need: `$${Math.round(promo.minRevenue).toLocaleString()}`, pct: promo.revenueProgress },
+                      { label: "Guest reviews", now: String(promo.currentReviews), need: String(promo.minReviews ?? 0), pct: promo.reviewsProgress },
+                      { label: "Average rating", now: promo.currentRating != null ? promo.currentRating.toFixed(1) : "None", need: promo.minRating != null ? String(promo.minRating) : "0", pct: promo.ratingProgress },
+                    ].map((c) => (
+                      <div key={c.label} className="min-w-0">
+                        <dt className="flex items-baseline justify-between gap-2 text-[11px] text-white/50">
+                          <span className="truncate">{c.label}</span>
+                          <span className="shrink-0 tabular-nums"><span className={c.pct >= 100 ? "font-semibold text-emerald-300" : "font-semibold text-white"}>{c.now}</span> / {c.need}</span>
+                        </dt>
+                        <dd className="m-0 mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+                          <span className="block h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, c.pct)}%`, background: c.pct >= 100 ? "#34d399" : nextTier?.hex }} />
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
                 ) : null}
               </div>
             </div>
+          </section>
 
-            {/* Onboarding journey */}
-            <ol className="relative m-0 grid list-none grid-cols-4 border-0 border-t border-solid border-neutral-100 px-2 py-4 sm:px-5">
+          {/* Onboarding and the next action, side by side */}
+          <section className="grid min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <ol className="relative m-0 grid list-none grid-cols-4 px-2 py-4 sm:px-5">
               <span className="absolute left-[12.5%] right-[12.5%] top-[30px] h-0.5 rounded-full bg-neutral-200" aria-hidden />
               <span
                 className="absolute left-[12.5%] top-[30px] h-0.5 rounded-full bg-emerald-600 transition-all duration-500"
@@ -1252,23 +1463,38 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                 </li>
               ))}
             </ol>
+            <div className={`flex min-w-0 flex-col justify-center border-0 border-t border-solid border-neutral-100 p-4 lg:border-l lg:border-t-0 ${nextTone.box}`}>
+              <p className={`m-0 text-[10px] font-bold uppercase tracking-[0.12em] ${nextTone.eyebrow}`}>{nextStep.tone === "green" ? "Status" : `Next step · ${stagesDone} of ${journey.length} done`}</p>
+              <p className={`m-0 mt-1 text-[14px] font-bold leading-snug ${nextTone.title}`}>{nextStep.title}</p>
+              <p className={`m-0 mt-0.5 text-[12px] leading-snug ${nextTone.text}`}>{nextStep.text}</p>
+              {nextStep.action ? (
+                <button
+                  type="button"
+                  onClick={nextStep.action.run}
+                  className={`mt-2.5 inline-flex cursor-pointer items-center gap-1.5 self-start rounded-lg border border-solid bg-white px-3 py-1.5 text-[12px] font-bold transition ${nextTone.button}`}
+                >
+                  {nextStep.action.label} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              ) : null}
+            </div>
           </section>
 
-          {/* Money */}
-          <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
+          {/* Money: paid bookings only; unpaid bookings are counted apart */}
+          <section aria-label="Money" className="grid min-w-0 grid-cols-2 gap-px overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-neutral-200 lg:grid-cols-5">
             {[
-              { label: "Paid invoices", value: String(financialSummary.paidCount), tone: "text-neutral-950" },
-              { label: "Gross revenue", value: fmtMoney(financialSummary.grossSum, financialCurrency), tone: "text-neutral-950" },
-              { label: `Commission${financialSummary.commissionPercent ? ` ${financialSummary.commissionPercent}%` : ""}`, value: fmtMoney(financialSummary.commissionSum, financialCurrency), tone: "text-neutral-950" },
-              { label: "Net to operator", value: fmtMoney(financialSummary.netSum, financialCurrency), tone: "text-emerald-700" },
+              { label: "Paid bookings", value: String(financialSummary.paidCount), sub: "Guest paid, not cancelled", tone: "text-neutral-950" },
+              { label: "Collected", value: fmtMoney(financialSummary.grossSum, financialCurrency), sub: "Gross from paid bookings", tone: "text-neutral-950" },
+              { label: "NoLSAF commission", value: fmtMoney(financialSummary.commissionSum, financialCurrency), sub: effectiveRate != null ? `${effectiveRate}% of collected` : `${financialSummary.commissionPercent}% configured`, tone: "text-neutral-950" },
+              { label: "Net to operator", value: fmtMoney(financialSummary.netSum, financialCurrency), sub: `${fmtMoney(financialSummary.disbursedSum ?? 0, financialCurrency)} paid out`, tone: "text-emerald-700" },
+              { label: "Awaiting payment", value: String(financialSummary.awaitingCount ?? 0), sub: financialSummary.awaitingCount ? `${fmtMoney(financialSummary.awaitingGross ?? 0, financialCurrency)} not yet paid` : "Nothing outstanding", tone: financialSummary.awaitingCount ? "text-amber-600" : "text-neutral-400" },
             ].map((m) => (
-              <div key={m.label} className="min-w-0 rounded-2xl border border-solid border-neutral-200 bg-white px-4 py-3 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
+              <div key={m.label} className="min-w-0 bg-white px-4 py-3 last:col-span-2 lg:last:col-span-1">
                 <p className="m-0 text-[11px] font-semibold text-neutral-500">{m.label}</p>
                 <p className={`m-0 mt-1 break-words text-lg font-black tabular-nums tracking-tight ${m.tone}`}>{m.value}</p>
+                <p className="m-0 mt-0.5 truncate text-[11px] text-neutral-400">{m.sub}</p>
               </div>
             ))}
-          </div>
-
+          </section>
           {/* Sections */}
           <nav aria-label="Operator sections" className="flex gap-1 overflow-x-auto rounded-2xl border border-solid border-neutral-200 bg-white px-2 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
             {[
@@ -1296,672 +1522,695 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
           </nav>
 
           {tab === "overview" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6 min-w-0">
-              <Card icon={<Building2 className="h-5 w-5" />} title="Company" subtitle="Details from the operator's submitted profile">
-                <dl className="m-0">
-                  <DetailRow label="Company name" value={displayCompany} />
-                  <DetailRow label="Email" value={profileEmail} href={profileEmail && profileEmail !== "-" ? `mailto:${profileEmail}` : undefined} />
-                  <DetailRow label="Phone" value={profilePhone} href={profilePhone && profilePhone !== "-" ? `tel:${profilePhone}` : undefined} />
-                  <DetailRow label="Based in" value={basedIn} />
-                  <DetailRow label="Type of tourism" value={niceCase(tourismTypes)} />
-                  <DetailRow label="Area of operation" value={niceCase(areaOfOperation)} />
-                  <DetailRow label="Experience" value={agent.yearsOfExperience != null ? `${agent.yearsOfExperience} ${Number(agent.yearsOfExperience) === 1 ? "year" : "years"}` : ""} />
-                </dl>
-                <div className="mt-4 rounded-xl bg-neutral-50/80 p-3.5 sm:p-4">
-                  <p className="m-0 text-[11px] font-semibold text-neutral-500">About the company</p>
-                  <p className={`m-0 mt-1 text-[13px] leading-6 ${profileDescription && profileDescription !== "-" ? "text-neutral-700" : "text-neutral-400"}`}>
-                    {profileDescription && profileDescription !== "-" ? profileDescription : "No description provided yet."}
-                  </p>
-                </div>
-              </Card>
-            </div>
-
-            <div className="space-y-6">
-              <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-                <div className="flex items-start justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:px-5">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700"><Handshake className="h-5 w-5" aria-hidden /></span>
-                    <div className="min-w-0">
-                      <h2 className="m-0 text-sm font-bold text-neutral-900">Hotel partnerships</h2>
-                      <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">Lets this operator partner with hotels on NoLSAF.</p>
-                    </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            {/* Company dossier, from the operator's submitted profile */}
+            <section className="min-w-0 self-start overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+              <div className="px-5 pb-4 pt-5">
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">Company</p>
+                <h2 className="m-0 mt-1 break-words text-lg font-bold tracking-tight text-neutral-950">{displayCompany && displayCompany !== "-" ? displayCompany : "Company name not provided"}</h2>
+                {tourismList.length || regionList.length ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {tourismList.map((t) => (
+                      <span key={`t-${t}`} className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">{t}</span>
+                    ))}
+                    {regionList.map((r) => (
+                      <span key={`r-${r}`} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] font-semibold text-neutral-600"><MapPin className="h-3 w-3" aria-hidden /> {r}</span>
+                    ))}
                   </div>
-                  <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${accommodationActive ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-600"}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : "bg-neutral-400"}`} />
-                    {accommodationActive ? "Active" : "Off"}
+                ) : null}
+              </div>
+
+              <dl className="m-0 grid grid-cols-1 gap-px border-0 border-y border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-2">
+                {[
+                  { label: "Email", value: profileEmail, href: profileEmail && profileEmail !== "-" ? `mailto:${profileEmail}` : undefined },
+                  { label: "Phone", value: profilePhone, href: profilePhone && profilePhone !== "-" ? `tel:${profilePhone}` : undefined },
+                  { label: "Based in", value: basedIn },
+                  { label: "Experience", value: agent.yearsOfExperience != null ? `${agent.yearsOfExperience} ${Number(agent.yearsOfExperience) === 1 ? "year" : "years"}` : "" },
+                  { label: "Languages", value: (agent.languages ?? []).map((l) => niceCase(l)).join(", ") },
+                  { label: "Request load", value: `${agent.currentActiveRequests ?? 0} of ${agent.maxActiveRequests ?? 0} active` },
+                ].map((f) => {
+                  const empty = !f.value || f.value === "-";
+                  return (
+                    <div key={f.label} className="min-w-0 bg-white px-5 py-3">
+                      <dt className="text-[11px] text-neutral-500">{f.label}</dt>
+                      <dd className="m-0 mt-0.5 break-words text-[13px] font-semibold text-neutral-900">
+                        {empty ? <span className="font-medium text-neutral-400">Not provided</span> : f.href ? <a href={f.href} className="text-emerald-700 no-underline hover:underline">{f.value}</a> : f.value}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+
+              <div className="px-5 py-4">
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">About the company</p>
+                <p className={`m-0 mt-1.5 whitespace-pre-line text-[13px] leading-6 ${profileDescription && profileDescription !== "-" ? "text-neutral-700" : "text-neutral-400"}`}>
+                  {profileDescription && profileDescription !== "-" ? profileDescription : "The operator has not written a description yet."}
+                </p>
+              </div>
+            </section>
+
+            <div className="min-w-0 space-y-4">
+              {/* While suspended, the reason sits where the admin will look first */}
+              {isSuspended ? (
+                <section className="rounded-2xl border border-solid border-rose-200 bg-rose-50/70 p-4">
+                  <p className="m-0 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-rose-700"><Ban className="h-3.5 w-3.5" aria-hidden /> Suspended{agent.suspendedAt ? ` ${fmtLong(agent.suspendedAt)}` : ""}</p>
+                  <p className="m-0 mt-1.5 text-[13px] leading-5 text-rose-950">{agent.suspensionReason || "No reason was recorded."}</p>
+                  <button type="button" onClick={requestRestore} className="mt-3 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-3 text-xs font-semibold text-white hover:bg-emerald-800">
+                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Restore account
+                  </button>
+                </section>
+              ) : null}
+
+              {/* Hotel partnerships: what activation needs, the fix for each gap, then one action */}
+              <section id="hotel-partnerships" className="min-w-0 scroll-mt-24 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                <div className="flex items-center justify-between gap-3 px-4 pb-1 pt-4">
+                  <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500"><Handshake className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Hotel partnerships</p>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${accommodationActive ? "bg-emerald-50 text-emerald-700" : accommodationEligible ? "bg-amber-50 text-amber-700" : "bg-neutral-100 text-neutral-500"}`}>
+                    <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : accommodationEligible ? "bg-amber-500" : "bg-neutral-400"}`} aria-hidden />
+                    {accommodationActive ? "Active" : accommodationEligible ? "Ready to activate" : `${checksDone} of ${partnershipChecks.length} ready`}
                   </span>
                 </div>
-                <div className="space-y-2 p-4 sm:p-5">
-                  <CapabilityRow label="Operator profile" value={submittedProfileReviewStatus} ready={submittedProfileReviewStatus === "APPROVED"} />
-                  <CapabilityRow label="Approved evidence" value={String(accommodationCapability?.approvedEvidenceCount || 0)} ready={Boolean(accommodationCapability?.approvedEvidenceCount)} />
-                  <CapabilityRow label="Agency identity" value={accommodationCapability?.identity?.verificationStatus || "Not created"} ready={accommodationCapability?.identity?.verificationStatus === "VERIFIED"} />
-                  <button type="button" onClick={() => setAccommodationDetailOpen(true)} className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 mt-1 justify-center">
-                    <Eye className="h-4 w-4" aria-hidden />
-                    {accommodationActive ? "View partnership details" : accommodationEligible ? "Review and activate" : "See what is missing"}
-                  </button>
+                <p className="m-0 px-4 pb-2 text-[11px] text-neutral-400">Lets this operator book hotels on NoLSAF. Each hotel still approves them separately.</p>
+
+                {accommodationActive ? (
+                  <div className="mx-4 mb-3 rounded-xl bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900">
+                    <span className="font-semibold">Active since {fmtLong(accommodationCapability?.grantedAt) || "activation"}.</span>
+                    {accommodationCapability?.expiresAt ? <span className="block text-[11px] text-emerald-800">Runs until {fmtLong(accommodationCapability.expiresAt)}.</span> : null}
+                  </div>
+                ) : (
+                  <ul className="m-0 list-none px-4">
+                    {partnershipChecks.map((c) => (
+                      <li key={c.label} className="flex items-center gap-2.5 border-0 border-b border-solid border-neutral-100 py-2.5 last:border-b-0">
+                        <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full ${c.ok ? "bg-emerald-600 text-white" : "border-2 border-solid border-neutral-200 bg-white text-transparent"}`} aria-hidden>
+                          {c.ok ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-[13px] font-semibold ${c.ok ? "text-neutral-800" : "text-neutral-900"}`}>{c.label}</span>
+                          <span className={`block text-[11px] ${c.ok ? "text-neutral-400" : "text-amber-700"}`}>{c.detail}</span>
+                        </span>
+                        {!c.ok && c.fix ? (
+                          <button type="button" onClick={c.fix.run} className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[11px] font-semibold text-[#02665e] hover:underline">{c.fix.label}</button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {!accommodationActive ? (
+                  <p className={`m-0 mx-4 mt-1 rounded-lg px-3 py-2 text-[11px] leading-snug ${identityNote.tone === "rose" ? "bg-rose-50 text-rose-800" : "bg-neutral-50 text-neutral-500"}`}>{identityNote.text}</p>
+                ) : null}
+
+                <div className="px-4 pb-4 pt-3">
+                  {accommodationActive ? (
+                    <button type="button" onClick={() => setAccommodationDetailOpen(true)} className="inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50">
+                      <Eye className="h-3.5 w-3.5" aria-hidden /> Partnership details
+                    </button>
+                  ) : accommodationEligible ? (
+                    <button type="button" onClick={() => { setAccommodationDetailOpen(true); setShowAccommodationForm(true); setShowAccommodationConfirmation(false); setAccommodationMessage(null); }} className="inline-flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#0b2420] text-xs font-semibold text-white transition hover:bg-[#12342f]">
+                      <Handshake className="h-3.5 w-3.5" aria-hidden /> Activate partnerships
+                    </button>
+                  ) : (
+                    <p className="m-0 text-center text-[11px] text-neutral-400">Activation unlocks once every step above is ready.</p>
+                  )}
                 </div>
               </section>
-
               {mounted && accommodationDetailOpen && createPortal(
                 <div
                   id="accommodation-capability-modal"
-                  className="box-border fixed inset-0 z-[90] flex items-center justify-center bg-neutral-950/55 p-3 backdrop-blur-sm sm:p-6"
+                  className="fixed inset-0 z-[90] flex items-center justify-center bg-neutral-950/55 p-3 backdrop-blur-sm sm:p-6"
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="accommodation-capability-title"
                   onMouseDown={(event) => { if (event.target === event.currentTarget) closeAccommodationDetails(); }}
                 >
                   <style>{`#accommodation-capability-modal, #accommodation-capability-modal * { box-sizing: border-box; }`}</style>
-                  <div className="box-border relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)]">
-                    <div className="flex shrink-0 items-center justify-between gap-3 border-0 border-b border-solid border-gray-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50"><Handshake className="h-5 w-5 text-blue-600" aria-hidden /></span>
-                        <div className="min-w-0">
-                          <h2 id="accommodation-capability-title" className="m-0 truncate text-base font-semibold text-gray-900 sm:text-lg">Accommodation partnerships</h2>
-                          <span className={`mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${accommodationActive ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"}`}>
-                            <span className={`h-1.5 w-1.5 rounded-full ${accommodationActive ? "bg-emerald-500" : "bg-gray-400"}`} />
-                            {accommodationActive ? "Active" : "Not activated"}
-                          </span>
-                        </div>
+                  <div className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-[0_32px_100px_-24px_rgba(0,0,0,.55)]">
+                    <div className="flex shrink-0 items-start justify-between gap-3 border-0 border-b border-solid border-neutral-100 px-5 py-4">
+                      <div className="min-w-0">
+                        <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">Hotel partnerships</p>
+                        <h2 id="accommodation-capability-title" className="m-0 mt-0.5 truncate text-base font-bold text-neutral-950">{accommodationActive ? displayCompany : `Activate for ${displayCompany}`}</h2>
                       </div>
-                      <button type="button" onClick={closeAccommodationDetails} disabled={accommodationLoading} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-gray-200 bg-white text-gray-500 transition hover:border-gray-300 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50" aria-label="Close"><X className="h-4 w-4" /></button>
+                      <button type="button" onClick={closeAccommodationDetails} aria-disabled={accommodationLoading} className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-50" aria-label="Close"><X className="h-4 w-4" /></button>
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-                      <p className="m-0 text-sm leading-5 text-gray-500">
-                        Hotel partnership access for this operator&apos;s existing account. Each hotel relationship still requires separate approval.
-                      </p>
-
-                      <div className="mt-4 space-y-2">
-                        <CapabilityRow label="Operator profile" value={submittedProfileReviewStatus} ready={submittedProfileReviewStatus === "APPROVED"} />
-                        <CapabilityRow label="Approved evidence" value={String(accommodationCapability?.approvedEvidenceCount || 0)} ready={Boolean(accommodationCapability?.approvedEvidenceCount)} />
-                        <CapabilityRow label="Agency identity" value={accommodationCapability?.identity?.verificationStatus || "Not created"} ready={accommodationCapability?.identity?.verificationStatus === "VERIFIED"} />
-                      </div>
-
-                      <div className="mt-4 space-y-3">
-                        {accommodationActive ? (
-                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                            <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-4 w-4 flex-shrink-0" /> Capability is active</div>
-                            <div className="mt-1 pl-6 text-xs leading-5 text-emerald-800">Granted {fmtDate(accommodationCapability?.grantedAt)}. Hotel access remains controlled per partnership.</div>
-                          </div>
-                        ) : (
-                          <>
-                            {!accommodationEligible ? (
-                              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
-                                <div className="font-semibold">Requirements not yet complete</div>
-                                <div className="mt-0.5 text-amber-800">Approve the operator profile and at least one identity or business document before activation.</div>
-                              </div>
-                            ) : null}
-
-                            {showAccommodationForm ? (
-                              showAccommodationConfirmation ? (
-                                <div className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm" role="group" aria-labelledby="accommodation-confirmation-title">
-                                  <div className="flex items-start gap-3">
-                                    <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-700">
-                                      <ShieldCheck className="h-5 w-5" aria-hidden />
-                                    </span>
-                                    <div className="min-w-0">
-                                      <h3 id="accommodation-confirmation-title" className="m-0 text-sm font-semibold text-gray-900">Confirm partnership activation</h3>
-                                      <p className="mt-1 text-xs leading-5 text-gray-600">You are about to enable accommodation partnerships for this tour operator.</p>
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
-                                    <div className="text-[10px] font-bold uppercase tracking-wide text-blue-700">Tour operator</div>
-                                    <div className="mt-1 break-words text-sm font-semibold text-gray-900">{companyName}</div>
-                                    <p className="mb-0 mt-2 text-xs leading-5 text-gray-600">Approved KYC will be reused, but no hotel will be connected automatically.</p>
-                                  </div>
-
-                                  {accommodationReason.trim() ? (
-                                    <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                      <div className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Internal note</div>
-                                      <p className="mb-0 mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-gray-700">{accommodationReason.trim()}</p>
-                                    </div>
-                                  ) : null}
-
-                                  <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                                    <button type="button" onClick={() => setShowAccommodationConfirmation(false)} disabled={accommodationLoading} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">Keep editing</button>
-                                    <button type="button" onClick={() => void activateAccommodationCapability()} disabled={accommodationLoading || !accommodationEligible} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#014f49] disabled:cursor-not-allowed disabled:opacity-50">
-                                      {accommodationLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <ShieldCheck className="h-4 w-4" />}
-                                      {accommodationLoading ? "Activating..." : "Activate partnerships"}
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-                                  <label className="block text-xs font-semibold text-gray-800" htmlFor="accommodation-activation-reason">
-                                    Internal activation note <span className="font-normal text-gray-500">(optional)</span>
-                                  </label>
-                                  <textarea
-                                    id="accommodation-activation-reason"
-                                    value={accommodationReason}
-                                    onChange={(event) => setAccommodationReason(event.target.value.slice(0, 300))}
-                                    placeholder="Why this operator is approved for accommodation partnerships"
-                                    className="min-h-20 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
-                                  />
-                                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                                    <button type="button" onClick={() => { setShowAccommodationForm(false); setShowAccommodationConfirmation(false); setAccommodationReason(""); }} className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50">Cancel</button>
-                                    <button type="button" onClick={() => { setShowAccommodationConfirmation(true); setAccommodationMessage(null); }} disabled={!accommodationEligible} className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#02665e] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#014f49] disabled:cursor-not-allowed disabled:opacity-50">
-                                      <ShieldCheck className="h-4 w-4" />
-                                      Review activation
-                                    </button>
-                                  </div>
-                                </div>
-                              )
-                            ) : (
-                              <button type="button" onClick={() => { setShowAccommodationForm(true); setShowAccommodationConfirmation(false); setAccommodationMessage(null); }} disabled={!accommodationEligible || accommodationLoading} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#02665e] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#014f49] disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none">
-                                <Handshake className="h-4 w-4" /> Activate accommodation capability
-                              </button>
-                            )}
-                          </>
-                        )}
-
-                        {accommodationMessage ? (
-                          <div role="status" className={`rounded-lg border p-3 text-xs leading-5 ${accommodationMessage.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-800"}`}>
-                            {accommodationMessage.text}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>,
-                document.body
-              )}
-
-              <div className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-                <div className="flex items-start gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:px-5">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <h2 className="m-0 text-sm font-bold text-neutral-900">Account actions</h2>
-                    <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">Every action here is written to the audit trail.</p>
-                  </div>
-                </div>
-                <div className="p-4 sm:p-5">
-                  <div className="min-w-0">
-
-                    <div className="space-y-2 sm:space-y-3">
-                      {agent.suspendedAt ? (
-                        <button
-                          className="w-full px-4 py-2.5 sm:py-3 bg-green-600 text-white rounded-lg text-sm sm:text-base font-medium hover:bg-green-700 active:bg-green-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                          onClick={requestRestore}
-                          disabled={actionLoading}
-                        >
-                          {actionLoading ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="h-4 w-4" />
-                              Unsuspend
-                            </>
-                          )}
-                        </button>
+                    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                      {accommodationActive ? (
+                        <dl className="m-0 space-y-2 text-xs">
+                          <div className="flex justify-between gap-3"><dt className="text-neutral-500">Status</dt><dd className="m-0 font-semibold text-emerald-700">Active</dd></div>
+                          <div className="flex justify-between gap-3"><dt className="text-neutral-500">Granted</dt><dd className="m-0 font-semibold text-neutral-900">{fmtLong(accommodationCapability?.grantedAt) || "Not recorded"}</dd></div>
+                          <div className="flex justify-between gap-3"><dt className="text-neutral-500">Runs until</dt><dd className="m-0 font-semibold text-neutral-900">{fmtLong(accommodationCapability?.expiresAt) || "No end date"}</dd></div>
+                          <div className="flex justify-between gap-3"><dt className="text-neutral-500">Agency identity</dt><dd className="m-0 font-semibold text-neutral-900">{niceCase(String(identity?.verificationStatus || "Not created").replace(/_/g, " "))}</dd></div>
+                          <div className="flex justify-between gap-3"><dt className="text-neutral-500">Approved documents</dt><dd className="m-0 font-semibold tabular-nums text-neutral-900">{evidenceCount}</dd></div>
+                          <p className="m-0 border-0 border-t border-solid border-neutral-100 pt-3 text-[11px] text-neutral-500">Each hotel relationship is approved separately in NRMS. Activating this did not connect any hotel.</p>
+                        </dl>
                       ) : (
                         <>
-                          {!showSuspendForm ? (
-                            <button
-                              className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-red-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                              onClick={handleSuspendClick}
-                              disabled={actionLoading}
-                            >
-                              <Ban className="h-4 w-4" />
-                              Suspend operator
-                            </button>
+                          <p className="m-0 text-xs leading-5 text-neutral-600">
+                            This lets the operator partner with hotels using the KYC they already passed. No hotel is connected automatically. Each hotel still approves them.
+                          </p>
+                          <p className="m-0 mt-3 rounded-lg bg-neutral-50 px-3 py-2 text-[11px] text-neutral-600">{identityNote.text}</p>
+
+                          {showAccommodationConfirmation ? (
+                            <div className="mt-4 rounded-xl border border-solid border-amber-200 bg-amber-50/60 p-3.5">
+                              <p className="m-0 text-xs font-semibold text-amber-950">Confirm activation for {displayCompany}?</p>
+                              <p className="m-0 mt-1 text-[11px] text-amber-900">This is written to the audit trail{accommodationReason.trim() ? " with your note" : ""}.</p>
+                              {accommodationReason.trim() ? <p className="m-0 mt-2 whitespace-pre-wrap rounded-lg bg-white px-3 py-2 text-[11px] text-neutral-700">{accommodationReason.trim()}</p> : null}
+                            </div>
                           ) : (
-                            <div className="space-y-3 p-3 sm:p-4 bg-red-50 rounded-lg border border-red-200">
-                              <div>
-                                <label className="block text-xs sm:text-sm font-medium text-gray-900 mb-2">
-                                  Reason for Suspension <span className="text-red-600">*</span>
-                                </label>
-                                <textarea
-                                  className="w-full min-h-[100px] px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 transition-all resize-none text-xs sm:text-sm box-border"
-                                  placeholder="Please provide a clear reason for suspending this agent."
-                                  value={suspendReason}
-                                  onChange={(e) => setSuspendReason(e.target.value)}
-                                />
-                                <p className="text-xs text-gray-500 mt-1">This can be shared with the tour operator.</p>
-                              </div>
-                              <div className="flex items-start gap-2">
-                                <input
-                                  type="checkbox"
-                                  id="notify-agent"
-                                  checked={notifyAgent}
-                                  onChange={(e) => setNotifyAgent(e.target.checked)}
-                                  className="mt-1 h-4 w-4 text-[#02665e] border-gray-300 rounded focus:ring-[#02665e] flex-shrink-0"
-                                />
-                                <label htmlFor="notify-agent" className="text-xs sm:text-sm text-gray-700">
-                                  Open notification draft email after suspension
-                                </label>
-                              </div>
-                              <div className="flex gap-2">
-                                <button
-                                  className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-red-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-red-700 active:bg-red-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 sm:gap-2"
-                                  onClick={() => void suspendAgent()}
-                                  disabled={actionLoading || !suspendReason.trim()}
-                                >
-                                  {actionLoading ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 border-2 border-white border-t-transparent"></div>
-                                      <span className="hidden sm:inline">Suspending...</span>
-                                      <span className="sm:hidden">...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Ban className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-                                      <span className="hidden sm:inline">Confirm Suspension</span>
-                                      <span className="sm:hidden">Suspend</span>
-                                    </>
-                                  )}
-                                </button>
-                                <button
-                                  className="p-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
-                                  onClick={cancelSuspend}
-                                  disabled={actionLoading}
-                                  title="Cancel"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
+                            <div className="mt-4">
+                              <label className="block text-[11px] font-semibold text-neutral-700" htmlFor="accommodation-activation-reason">
+                                Internal note <span className="font-normal text-neutral-400">(optional)</span>
+                              </label>
+                              <textarea
+                                id="accommodation-activation-reason"
+                                value={accommodationReason}
+                                onChange={(event) => setAccommodationReason(event.target.value.slice(0, 300))}
+                                placeholder="Why this operator is cleared for hotel partnerships"
+                                className="mt-1.5 block min-h-[72px] w-full resize-y rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                              />
                             </div>
                           )}
                         </>
                       )}
 
-                      {!showImpersonateForm ? (
-                        <div>
-                        <button
-                          className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={handleImpersonateClick}
-                          disabled={actionLoading || !canImpersonateTourAgent}
-                        >
-                          <ShieldCheck className="h-4 w-4" />
-                          Start read-only support session
-                        </button>
-                        {!canImpersonateTourAgent && (
-                          <p className="mb-0 mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900" role="status">
-                            Support sign-in requires an active tour operator account. This account is {isSuspended ? "suspended" : String(agent.status || "inactive").toLowerCase()}.
-                          </p>
+                      {accommodationMessage ? (
+                        <p role="status" className={`m-0 mt-3 rounded-lg px-3 py-2 text-[11px] leading-5 ${accommodationMessage.tone === "success" ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-800"}`}>
+                          {accommodationMessage.text}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {!accommodationActive ? (
+                      <div className="flex shrink-0 justify-end gap-2 border-0 border-t border-solid border-neutral-100 bg-neutral-50/70 px-5 py-3">
+                        {showAccommodationConfirmation ? (
+                          <>
+                            <button type="button" onClick={() => setShowAccommodationConfirmation(false)} aria-disabled={accommodationLoading} className="h-9 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-50">Back</button>
+                            <button type="button" onClick={() => void activateAccommodationCapability()} aria-disabled={accommodationLoading || !accommodationEligible} className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white hover:bg-[#12342f] aria-disabled:pointer-events-none aria-disabled:opacity-50">
+                              <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {accommodationLoading ? "Activating" : "Activate now"}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button type="button" onClick={closeAccommodationDetails} className="h-9 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50">Cancel</button>
+                            <button type="button" onClick={() => { setShowAccommodationConfirmation(true); setAccommodationMessage(null); }} aria-disabled={!accommodationEligible} className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3.5 text-xs font-semibold text-white hover:bg-[#12342f] aria-disabled:pointer-events-none aria-disabled:opacity-50">
+                              Continue <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                            </button>
+                          </>
                         )}
-                        </div>
-                      ) : (
-                        <div className="space-y-3 p-3 sm:p-4 bg-[#02665e]/5 rounded-lg border border-[#02665e]/20">
-                          <div>
-                            <label className="block text-xs sm:text-sm font-medium text-gray-900 mb-2">
-                              Reason for Impersonation <span className="text-red-600">*</span>
-                            </label>
-                            <textarea
-                              className="w-full min-h-[80px] px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] transition-all resize-none text-xs sm:text-sm box-border"
-                              placeholder="Please provide a reason for impersonating this tour operator (e.g., customer support, troubleshooting, etc.)"
-                              value={impersonateReason}
-                              onChange={(e) => { setImpersonateReason(e.target.value); setImpersonateError(""); }}
-                            />
-                            <p className="text-xs text-gray-500 mt-1">Opens the tour operator workspace in read-only mode for 10 minutes. This action is logged.</p>
-                            {impersonateError && (
-                              <p role="alert" className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">{impersonateError}</p>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-[#02665e] text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-[#02665e]/90 active:bg-[#02665e]/80 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 sm:gap-2"
-                              onClick={() => void confirmImpersonate()}
-                              disabled={actionLoading || !canImpersonateTourAgent || impersonateReason.trim().length < 10}
-                            >
-                              {actionLoading ? (
-                                <>
-                                  <div className="animate-spin rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 border-2 border-white border-t-transparent"></div>
-                                  <span className="hidden sm:inline">Processing...</span>
-                                  <span className="sm:hidden">...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
-                                  <span className="hidden sm:inline">Confirm Impersonation</span>
-                                  <span className="sm:hidden">Confirm</span>
-                                </>
-                              )}
-                            </button>
-                            <button
-                              className="p-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
-                              onClick={cancelImpersonate}
-                              disabled={actionLoading}
-                              title="Cancel"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>,
+                document.body
+              )}
 
-                      <button
-                        className="flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl border border-solid border-neutral-200 bg-white px-3.5 py-2 text-left text-[13px] font-semibold text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={handleNotificationToggle}
-                        disabled={actionLoading || !agent.user.email}
-                      >
-                        <Bell className="h-4 w-4" />
-                        {showNotificationForm ? "Hide notification form" : "Send a notification"}
+              {/* Account actions: one row each, the form opens under its row */}
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                <p className="m-0 px-4 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">Account actions</p>
+                <p className="m-0 px-4 pb-2 text-[11px] text-neutral-400">Every action here is written to the audit trail.</p>
+                <div className="space-y-1 px-2 pb-2">
+                  {/* Suspend or restore */}
+                  {isSuspended ? (
+                    <button type="button" onClick={requestRestore} aria-disabled={actionLoading} className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left transition hover:bg-emerald-50/60 aria-disabled:pointer-events-none aria-disabled:opacity-50">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-emerald-50 text-emerald-700"><CheckCircle2 className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-neutral-900">Restore account</span><span className="block text-[11px] text-neutral-500">Reinstates access and emails the operator</span></span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300" aria-hidden />
+                    </button>
+                  ) : (
+                    <div>
+                      <button type="button" onClick={() => (showSuspendForm ? cancelSuspend() : handleSuspendClick())} aria-expanded={showSuspendForm} className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left transition hover:bg-rose-50/60">
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-rose-50 text-rose-600"><Ban className="h-4 w-4" aria-hidden /></span>
+                        <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-rose-700">Suspend operator</span><span className="block text-[11px] text-neutral-500">Signs them out and stops new tours</span></span>
+                        <ChevronRight className={`h-4 w-4 shrink-0 text-neutral-300 transition ${showSuspendForm ? "rotate-90" : ""}`} aria-hidden />
                       </button>
-
-                      {showNotificationForm ? (
-                        <div className="space-y-3 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200 mt-3">
-                          <div>
-                            <label className="block text-xs sm:text-sm font-medium text-gray-900 mb-2">
-                              Subject <span className="text-red-600">*</span>
-                            </label>
-                            <input
-                              type="text"
-                              className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all text-xs sm:text-sm box-border"
-                              placeholder="Type notification subject"
-                              value={notificationSubject}
-                              onChange={(e) => setNotificationSubject(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs sm:text-sm font-medium text-gray-900 mb-2">
-                              Message <span className="text-red-600">*</span>
-                            </label>
-                            <textarea
-                              className="w-full min-h-[100px] px-3 py-2 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none text-xs sm:text-sm box-border"
-                              placeholder="Enter the notification message to send to the tour operator"
-                              value={notificationMessage}
-                              onChange={(e) => setNotificationMessage(e.target.value)}
-                            />
-                          </div>
+                      {showSuspendForm ? (
+                        <div className="mx-2 mb-2 mt-1 space-y-2 rounded-xl bg-rose-50/70 p-3">
+                          <label htmlFor="suspend-reason" className="block text-[11px] font-semibold text-rose-900">Reason for suspension</label>
+                          <textarea
+                            id="suspend-reason"
+                            maxLength={1000}
+                            className="block min-h-[88px] w-full resize-y rounded-lg border border-solid border-rose-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+                            placeholder="Say clearly what happened. The operator reads this in the suspension email."
+                            value={suspendReason}
+                            onChange={(e) => setSuspendReason(e.target.value)}
+                          />
+                          <p className="m-0 flex justify-between gap-2 text-[11px] text-rose-800/80">
+                            <span>They are signed out and emailed the notice automatically.</span>
+                            <span className="shrink-0 tabular-nums">{suspendReason.trim().length < 10 ? `${10 - suspendReason.trim().length} more` : `${suspendReason.trim().length}/1000`}</span>
+                          </p>
                           <div className="flex gap-2">
                             <button
-                              className="flex-1 px-3 sm:px-4 py-2 sm:py-2.5 bg-blue-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 sm:gap-2"
-                              onClick={sendNotification}
-                              disabled={actionLoading || !notificationSubject.trim() || !notificationMessage.trim()}
+                              type="button"
+                              onClick={() => void suspendAgent()}
+                              aria-disabled={actionLoading || suspendReason.trim().length < 10}
+                              className="inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                             >
-                              <Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                              <span className="hidden sm:inline">Send Notification</span>
-                              <span className="sm:hidden">Send</span>
+                              <Ban className="h-3.5 w-3.5" aria-hidden /> {actionLoading ? "Suspending" : "Confirm suspension"}
                             </button>
-                            <button
-                              className="p-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center flex-shrink-0"
-                              onClick={() => setShowNotificationForm(false)}
-                              disabled={actionLoading}
-                              title="Cancel"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
+                            <button type="button" onClick={cancelSuspend} aria-label="Cancel suspension" className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-solid border-rose-200 bg-white text-rose-700 hover:bg-rose-50"><X className="h-4 w-4" /></button>
                           </div>
                         </div>
                       ) : null}
                     </div>
+                  )}
 
+                  {/* Read-only support session */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => (showImpersonateForm ? cancelImpersonate() : handleImpersonateClick())}
+                      aria-expanded={showImpersonateForm}
+                      aria-disabled={!canImpersonateTourAgent}
+                      className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left transition hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                    >
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-neutral-900">Read-only support session</span>
+                        <span className="block text-[11px] text-neutral-500">{canImpersonateTourAgent ? "See their workspace for 10 minutes" : `Needs an active account, this one is ${isSuspended ? "suspended" : String(agent.status || "inactive").toLowerCase()}`}</span>
+                      </span>
+                      <ChevronRight className={`h-4 w-4 shrink-0 text-neutral-300 transition ${showImpersonateForm ? "rotate-90" : ""}`} aria-hidden />
+                    </button>
+                    {showImpersonateForm ? (
+                      <div className="mx-2 mb-2 mt-1 space-y-2 rounded-xl bg-neutral-50 p-3">
+                        <label htmlFor="impersonate-reason" className="block text-[11px] font-semibold text-neutral-800">Why do you need to see their workspace?</label>
+                        <textarea
+                          id="impersonate-reason"
+                          className="block min-h-[72px] w-full resize-y rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                          placeholder="For example: operator reports their payout page is empty."
+                          value={impersonateReason}
+                          onChange={(e) => { setImpersonateReason(e.target.value); setImpersonateError(""); }}
+                        />
+                        <p className="m-0 text-[11px] text-neutral-500">Read-only, ends after 10 minutes, and is logged with your reason.</p>
+                        {impersonateError ? <p role="alert" className="m-0 rounded-lg bg-rose-50 px-3 py-2 text-[11px] font-medium text-rose-800">{impersonateError}</p> : null}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void confirmImpersonate()}
+                            aria-disabled={actionLoading || !canImpersonateTourAgent || impersonateReason.trim().length < 10}
+                            className="inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white hover:bg-[#12342f] aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {actionLoading ? "Starting" : "Start session"}
+                          </button>
+                          <button type="button" onClick={cancelImpersonate} aria-label="Cancel support session" className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-100"><X className="h-4 w-4" /></button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* In-app message */}
+                  <div>
+                    <button type="button" onClick={handleNotificationToggle} aria-expanded={showNotificationForm} className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left transition hover:bg-neutral-50">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#02665e]/[0.08] text-[#02665e]"><Bell className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-neutral-900">Send an in-app message</span><span className="block text-[11px] text-neutral-500">Lands in their notification inbox</span></span>
+                      <ChevronRight className={`h-4 w-4 shrink-0 text-neutral-300 transition ${showNotificationForm ? "rotate-90" : ""}`} aria-hidden />
+                    </button>
+                    {notificationSent && !showNotificationForm ? (
+                      <p role="status" className="m-0 mx-2 mb-2 flex items-start gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                        <span>Sent to the operator&apos;s notifications: <span className="font-semibold">{notificationSent}</span></span>
+                      </p>
+                    ) : null}
+                    {showNotificationForm ? (
+                      <div className="mx-2 mb-2 mt-1 space-y-2 rounded-xl bg-neutral-50 p-3">
+                        <div>
+                          <label htmlFor="notify-title" className="mb-1 block text-[11px] font-semibold text-neutral-800">Title</label>
+                          <input
+                            id="notify-title"
+                            type="text"
+                            maxLength={120}
+                            className="block min-h-8 w-full rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                            placeholder="What is this about?"
+                            value={notificationSubject}
+                            onChange={(e) => setNotificationSubject(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="notify-message" className="mb-1 block text-[11px] font-semibold text-neutral-800">Message</label>
+                          <textarea
+                            id="notify-message"
+                            maxLength={2000}
+                            className="block min-h-[88px] w-full resize-y rounded-lg border border-solid border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                            placeholder="Write the message the operator will read"
+                            value={notificationMessage}
+                            onChange={(e) => setNotificationMessage(e.target.value)}
+                          />
+                        </div>
+                        <p className="m-0 text-[11px] text-neutral-500">
+                          {notificationDestination === "documents" ? "Includes an \"Upload documents\" button to their Documents page. " : ""}No email is sent.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void sendNotification()}
+                            aria-disabled={sendingNotification || notificationSubject.trim().length < 3 || notificationMessage.trim().length < 5}
+                            className="inline-flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white hover:bg-[#12342f] aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                          >
+                            <Bell className="h-3.5 w-3.5" aria-hidden /> {sendingNotification ? "Sending" : "Send to inbox"}
+                          </button>
+                          <button type="button" onClick={() => { setShowNotificationForm(false); setNotificationDestination(null); }} aria-label="Cancel message" className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-100"><X className="h-4 w-4" /></button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-              </div>
+              </section>
 
-              <div className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white p-4 sm:p-5 shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-                <div className="-mx-4 -mt-4 mb-4 flex items-start gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:-mx-5 sm:-mt-5 sm:px-5">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 text-emerald-700"><History className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <h3 className="m-0 text-sm font-bold text-neutral-900">Audit and history</h3>
-                    <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">Latest admin actions on this account.</p>
-                  </div>
+              {/* Audit trail */}
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4">
+                  <p className="m-0 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500"><History className="h-3.5 w-3.5 text-[#02665e]" aria-hidden /> Audit trail</p>
+                  {auditItems.length > 10 ? <span className="text-[11px] text-neutral-400">Latest 10 of {auditItems.length}</span> : null}
                 </div>
                 {auditLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-300 border-t-purple-600"></div>
-                  </div>
+                  <p className="m-0 px-4 pb-5 pt-2 text-xs text-neutral-500">Loading history</p>
                 ) : auditItems.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Activity className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">No audit history found</p>
-                  </div>
+                  <p className="m-0 px-4 pb-5 pt-2 text-xs text-neutral-500">No admin actions on this account yet.</p>
                 ) : (
-                  <div className="max-h-[420px] overflow-y-auto pr-1">
-                    {auditItems.slice(0, 10).map((audit: any, idx: number) => {
-                      const getActionIcon = () => {
-                        const action = String(audit.action || "").toUpperCase();
-                        if (action.includes("SUSPEND")) return <Ban className="h-4 w-4 text-red-600" />;
-                        if (action.includes("RESTORE") || action.includes("UNSUSPEND")) return <CheckCircle2 className="h-4 w-4 text-green-600" />;
-                        if (action.includes("IMPERSONATE")) return <Copy className="h-4 w-4 text-blue-600" />;
-                        if (action.includes("NOTIFY")) return <Bell className="h-4 w-4 text-blue-600" />;
-                        return <Activity className="h-4 w-4 text-gray-600" />;
-                      };
-
-
+                  <ol className="m-0 max-h-[420px] list-none overflow-y-auto px-4 pb-4 pt-1">
+                    {auditItems.slice(0, 10).map((entry: any, idx: number) => {
+                      const action = String(entry.action || "").toUpperCase();
+                      const tone = action.includes("SUSPEND") ? "bg-rose-500" : action.includes("RESTORE") || action.includes("APPROVE") ? "bg-emerald-500" : action.includes("NOTIFY") ? "bg-sky-500" : "bg-neutral-300";
+                      const detail = auditDetailText(entry.details);
                       return (
-                        <div key={audit.id || idx} className="relative pb-4 pl-7 last:pb-0">
-                          {idx < Math.min(auditItems.length, 10) - 1 ? <span className="absolute bottom-0 left-[9px] top-6 w-px bg-neutral-200" aria-hidden /> : null}
-                          <span className="absolute left-0 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-white ring-1 ring-neutral-200 [&_svg]:h-3 [&_svg]:w-3">{getActionIcon()}</span>
-                          <p className="m-0 text-[13px] font-semibold text-neutral-900">{formatAuditActionLabel(audit.action)}</p>
-                          {audit.details ? (
-                            <p className="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-neutral-500">
-                              {typeof audit.details === "string" ? audit.details : JSON.stringify(audit.details)}
-                            </p>
-                          ) : null}
+                        <li key={entry.id || idx} className="relative pb-3.5 pl-5 last:pb-0">
+                          {idx < Math.min(auditItems.length, 10) - 1 ? <span className="absolute bottom-0 left-[4px] top-3 w-px bg-neutral-200" aria-hidden /> : null}
+                          <span className={`absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${tone}`} aria-hidden />
+                          <p className="m-0 text-[13px] font-semibold text-neutral-900">{formatAuditActionLabel(entry.action)}</p>
+                          {detail ? <p className="m-0 mt-0.5 line-clamp-2 text-[11.5px] text-neutral-500">{detail}</p> : null}
                           <p className="m-0 mt-0.5 text-[11px] text-neutral-400">
-                            {fmtLong(audit.createdAt)}, {new Date(audit.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                            {audit.adminId ? ` · admin #${audit.adminId}` : ""}
+                            {fmtLong(entry.createdAt)}, {new Date(entry.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT
                           </p>
-                        </div>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ol>
                 )}
-                {auditItems.length > 10 ? (
-                  <div className="mt-3 text-center">
-                    <p className="text-xs text-gray-500">Showing 10 of {auditItems.length} entries</p>
-                  </div>
-                ) : null}
-              </div>
+              </section>
             </div>
           </div>
           ) : null}
 
           {tab === "documents" ? (
-            <Card
-              icon={<FileText className="h-5 w-5 text-blue-600" />}
-              title="Submitted Documents"
-              subtitle="Verification files provided by the tour operator"
-            >
-              {docsLoading ? (
-                <div className="text-sm text-gray-500">Loading documents...</div>
-              ) : docsError ? (
-                <div className="text-sm text-red-600">{docsError}</div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-                  {requiredDocumentCards.map(({ requiredType, doc }) => (
-                    <div key={requiredType} className={`rounded-xl border p-4 shadow-sm ${docCardTone(doc?.status || "PENDING")}`}>
-                      {(() => {
-                        const statusUpper = String(doc?.status || "PENDING").toUpperCase();
-                        const isApproved = statusUpper === "APPROVED";
-                        const isRejected = statusUpper === "REJECTED";
-                        const isUploaded = Boolean(doc?.id);
-                        const hasViewUrl = Boolean(doc?.url);
-                        return (
-                          <>
-                      <div className="flex items-center justify-between gap-2 mb-3">
-                        <div className="font-semibold text-gray-900 text-sm sm:text-base truncate pr-2">{formatDocType(requiredType)}</div>
-                        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${docStatusBadge(doc?.status || "PENDING")}`}>
-                          {docStatusLabel(doc?.status)}
-                        </span>
-                      </div>
-                      {!doc ? <p className="text-xs sm:text-sm text-gray-500 mb-2">No file uploaded yet.</p> : null}
-                      {doc && isApproved ? (
-                        <div className="text-xs text-emerald-700 mb-2 font-medium">
-                          Approved: {fmtDate(doc.updatedAt || doc.createdAt)} at {fmtTime(doc.updatedAt || doc.createdAt)}
-                        </div>
-                      ) : null}
-                      {doc && !isApproved ? (
-                        <div className="text-xs text-gray-500 mb-2">
-                          Uploaded: {fmtDate(doc.createdAt)} at {fmtTime(doc.createdAt)}
-                        </div>
-                      ) : null}
-                      {isRejected && doc?.reason ? <p className="text-xs sm:text-sm text-red-700 mb-2">Reason: {doc.reason}</p> : null}
-                      <div className="mt-3 flex items-center gap-2">
-                        <button
-                          type="button"
-                          aria-label="View document"
-                          title="View"
-                          onClick={() => {
-                            if (!isUploaded) return;
-                            if (hasViewUrl && doc?.url) {
-                              window.open(doc.url, "_blank", "noopener,noreferrer");
-                              return;
-                            }
-                            setPageNotice("This file is uploaded but no preview URL is available yet.");
-                          }}
-                          disabled={!isUploaded}
-                          className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium border transition-colors ${
-                            isUploaded
-                              ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                              : "border-gray-200 bg-gray-100 text-gray-400"
-                          } disabled:opacity-60 disabled:cursor-not-allowed`}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </button>
-                        {!isApproved ? (
-                          <button
-                            type="button"
-                            onClick={() => doc?.id && void approveDocument(doc.id)}
-                            disabled={!doc?.id || docActionLoadingId === doc.id}
-                            aria-label={doc?.id && docActionLoadingId === doc.id ? "Approving document" : "Approve document"}
-                            title={doc?.id && docActionLoadingId === doc.id ? "Approving..." : "Approve"}
-                            className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {doc?.id && docActionLoadingId === doc.id ? (
-                              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent" />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        ) : null}
-                      </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  ))}
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+              {/* Checklist summary: one segment per required document */}
+              <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div className="min-w-0">
+                  <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">Verification documents</p>
+                  <p className="m-0 mt-1 text-lg font-bold tabular-nums text-neutral-900">
+                    {docsApproved} of {docsTotal} approved
+                  </p>
+                  <p className="m-0 mt-0.5 text-xs text-neutral-500">The same five documents the operator is asked for in their account.</p>
                 </div>
+                <div className="min-w-0 sm:w-72">
+                  <div className="flex gap-1" aria-hidden>
+                    {docRows.map((row) => (
+                      <span key={row.type} className={`h-2 flex-1 rounded-full ${DOC_STATE[row.state].bar}`} title={`${row.label}: ${DOC_STATE[row.state].label}`} />
+                    ))}
+                  </div>
+                  <p className="m-0 mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+                    {(["APPROVED", "PENDING", "REJECTED", "MISSING"] as const).map((s) => (
+                      <span key={s} className="inline-flex items-center gap-1.5">
+                        <span className={`h-2 w-2 rounded-full ${DOC_STATE[s].bar}`} aria-hidden />
+                        {DOC_STATE[s].label} <span className="font-semibold tabular-nums text-neutral-800">{docRows.filter((r) => r.state === s).length}</span>
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              </div>
+
+              {docsLoading && documents.length === 0 ? (
+                <div className="border-0 border-t border-solid border-neutral-100 py-12 text-center text-sm text-neutral-500">Loading documents</div>
+              ) : docsError ? (
+                <div role="alert" className="m-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:mx-5">{docsError}</div>
+              ) : (
+                <ul className="m-0 list-none p-0">
+                  {docRows.map((row) => {
+                    const st = DOC_STATE[row.state];
+                    const doc = row.doc;
+                    const busy = doc?.id != null && docActionLoadingId === doc.id;
+                    const rejecting = doc?.id != null && rejectingDocId === doc.id;
+                    const expiry = row.expiresOn ? daysUntil(row.expiresOn) : null;
+                    return (
+                      <li key={row.type} className="border-0 border-t border-solid border-neutral-100 px-4 py-3.5 sm:px-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${st.icon}`} aria-hidden>
+                            {row.state === "APPROVED" ? <Check className="h-4 w-4" strokeWidth={3} /> : row.state === "REJECTED" ? <X className="h-4 w-4" /> : row.state === "PENDING" ? <Clock className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-900">
+                              {row.label}
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${st.pill}`}>{st.label}</span>
+                            </p>
+                            <p className="m-0 mt-0.5 text-[11px] text-neutral-500">
+                              {!doc
+                                ? DOC_TYPE_HINTS[row.type]
+                                : row.state === "APPROVED"
+                                  ? `Approved ${fmtLong(doc.updatedAt || doc.createdAt)}`
+                                  : `Uploaded ${fmtLong(doc.createdAt)}`}
+                              {expiry != null ? (
+                                <span className={`ml-2 font-semibold ${expiry < 0 ? "text-rose-600" : expiry <= 60 ? "text-amber-600" : "text-neutral-500"}`}>
+                                  {expiry < 0 ? `Expired ${fmtLong(row.expiresOn)}` : expiry <= 60 ? `Expires in ${expiry} ${expiry === 1 ? "day" : "days"}` : `Valid to ${fmtLong(row.expiresOn)}`}
+                                </span>
+                              ) : null}
+                            </p>
+                            {row.state === "REJECTED" && doc?.reason ? (
+                              <p className="m-0 mt-1 text-[11px] text-rose-700">Returned: {doc.reason}</p>
+                            ) : null}
+                            {doc?.unsafeUrl ? (
+                              <p className="m-0 mt-1 text-[11px] font-semibold text-amber-700">The file link is not from a trusted store, so it is hidden.</p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            {doc?.url ? (
+                              <a href={doc.url} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-700 no-underline hover:bg-neutral-50">
+                                <Eye className="h-3.5 w-3.5" aria-hidden /> View
+                              </a>
+                            ) : null}
+                            {doc?.id && row.state !== "APPROVED" ? (
+                              <button
+                                type="button"
+                                onClick={() => void approveDocument(doc.id)}
+                                aria-disabled={busy}
+                                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-emerald-700 px-2.5 text-xs font-semibold text-white hover:bg-emerald-800 aria-disabled:pointer-events-none aria-disabled:opacity-60"
+                              >
+                                <Check className="h-3.5 w-3.5" aria-hidden /> {busy && !rejecting ? "Approving" : "Approve"}
+                              </button>
+                            ) : null}
+                            {doc?.id && row.state !== "REJECTED" && !rejecting ? (
+                              <button
+                                type="button"
+                                onClick={() => { setRejectingDocId(doc.id); setRejectReason(""); }}
+                                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-rose-200 bg-white px-2.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden /> {row.state === "APPROVED" ? "Revoke" : "Return"}
+                              </button>
+                            ) : null}
+                            {!doc ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTab("overview");
+                                  setNotificationSubject(`Please upload your ${row.label}`);
+                                  setNotificationMessage(`We still need your ${row.label} to finish verifying your tour company on NoLSAF. Please upload it from Documents in your account.`);
+                                  setNotificationDestination("documents");
+                                  setNotificationSent(null);
+                                  setShowNotificationForm(true);
+                                }}
+                                className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
+                              >
+                                <Bell className="h-3.5 w-3.5" aria-hidden /> Ask to upload
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {rejecting && doc?.id ? (
+                          <div className="mt-3 rounded-xl bg-rose-50/70 p-3 sm:ml-12">
+                            <label htmlFor={`reject-${doc.id}`} className="block text-[11px] font-semibold text-rose-900">What should the operator fix?</label>
+                            <textarea
+                              id={`reject-${doc.id}`}
+                              value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value.slice(0, 2000))}
+                              placeholder="For example: the licence is expired, please upload the renewed one."
+                              className="mt-1.5 block min-h-[72px] w-full resize-y rounded-lg border border-solid border-rose-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+                            />
+                            <div className="mt-2 flex justify-end gap-2">
+                              <button type="button" onClick={() => { setRejectingDocId(null); setRejectReason(""); }} className="h-8 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50">Cancel</button>
+                              <button
+                                type="button"
+                                onClick={() => void rejectDocument(doc.id)}
+                                aria-disabled={busy || rejectReason.trim().length < 5}
+                                className="h-8 cursor-pointer rounded-lg border-0 bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                              >
+                                {busy ? "Saving" : row.state === "APPROVED" ? "Revoke approval" : "Return to operator"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </Card>
+            </section>
           ) : null}
 
           {tab === "notes" ? (
-            <Card
-              icon={<Bell className="h-5 w-5 text-blue-600" />}
-              title="Admin Notes"
-              subtitle="Internal support notes for this tour operator"
-            >
-              <div className="space-y-3">
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 sm:p-4">
-                  <div className="text-xs font-medium text-blue-800 uppercase tracking-wide mb-1">How to use Admin Notes</div>
-                  <p className="text-sm text-blue-900 leading-6">
-                    Use this section to record internal follow-ups, decisions, escalation context, and handover updates for other admins.
-                    Notes are for admin team coordination and are shown in Note History with date/time and author.
-                  </p>
-                </div>
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+              <div className="flex items-center justify-between gap-2 px-5 pb-1 pt-4">
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">Team notes</p>
+                <span className="text-[11px] text-neutral-400">{notesLoading && notes.length === 0 ? "Loading" : `${notes.length} ${notes.length === 1 ? "note" : "notes"}`}</span>
+              </div>
+              <p className="m-0 px-5 text-[11px] text-neutral-400">Only admins see these. The operator never does.</p>
 
-                <div className="rounded-lg border border-gray-200 bg-white p-3 sm:p-4">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Add Support Note</div>
+              {/* Composer */}
+              <div className="px-5 pb-4 pt-3">
+                <div className="rounded-xl border border-solid border-neutral-200 bg-white transition focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100">
                   <textarea
                     value={noteText}
-                    onChange={(e) => setNoteText(e.target.value)}
-                    className="w-full min-h-[110px] px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#02665e] focus:border-[#02665e] resize-none text-sm"
-                    placeholder="Example: Called operator, requested updated tourism license, follow-up due tomorrow 10:00."
+                    onChange={(e) => setNoteText(e.target.value.slice(0, 4000))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && noteText.trim() && !savingNote) {
+                        e.preventDefault();
+                        void addNote();
+                      }
+                    }}
+                    aria-label="New note"
+                    className="block min-h-[84px] w-full resize-y rounded-t-xl border-0 bg-transparent px-3.5 py-3 text-sm text-neutral-900 outline-none placeholder:text-neutral-400"
+                    placeholder="What happened, what was decided, and what is next. For example: called the operator, renewed licence promised by Friday."
                   />
-                  <div className="mt-2 flex justify-end">
+                  <div className="flex items-center justify-between gap-2 border-0 border-t border-solid border-neutral-100 px-3 py-2">
+                    <span className="text-[11px] text-neutral-400">Ctrl + Enter to save{noteText.length > 3500 ? ` · ${4000 - noteText.length} left` : ""}</span>
                     <button
                       type="button"
                       onClick={() => void addNote()}
-                      disabled={savingNote || !noteText.trim()}
-                      className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium border border-[#02665e] bg-[#02665e] text-white hover:bg-[#02554e] disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-disabled={savingNote || !noteText.trim()}
+                      className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-3 text-xs font-semibold text-white transition hover:bg-[#12342f] aria-disabled:pointer-events-none aria-disabled:opacity-40"
                     >
-                      {savingNote ? "Saving..." : "Save Note"}
+                      {savingNote ? "Saving" : "Add note"}
                     </button>
                   </div>
                 </div>
-
-                <div className="rounded-lg border border-gray-200 bg-white p-3 sm:p-4">
-                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Note History</div>
-                  {notesLoading ? (
-                    <div className="text-sm text-gray-500">Loading notes...</div>
-                  ) : notesError ? (
-                    <div className="text-sm text-red-600">{notesError}</div>
-                  ) : notes.length === 0 ? (
-                    <div className="text-sm text-gray-500">No admin notes yet.</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {notes.map((n) => (
-                        <div key={n.id} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                          <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.text}</p>
-                          <div className="mt-1 text-xs text-gray-500">
-                            {fmtDate(n.createdAt)} {fmtTime(n.createdAt)}
-                            {n.admin ? ` • ${(n.admin.fullName || n.admin.name || n.admin.email || `Admin #${n.adminId}`)}` : ` • Admin #${n.adminId}`}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
-            </Card>
+
+              {/* History */}
+              {notesError ? (
+                <div role="alert" className="mx-5 mb-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{notesError}</div>
+              ) : notesLoading && notes.length === 0 ? (
+                <p className="m-0 border-0 border-t border-solid border-neutral-100 px-5 py-8 text-center text-xs text-neutral-500">Loading notes</p>
+              ) : notes.length === 0 ? (
+                <div className="border-0 border-t border-solid border-neutral-100 px-6 py-10 text-center">
+                  <span className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0b2420] text-emerald-300"><FileText className="h-5 w-5" aria-hidden /></span>
+                  <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">No notes yet</p>
+                  <p className="m-0 mt-1 text-xs text-neutral-500">Calls, promises and decisions about this operator belong here, so the next admin has the context.</p>
+                </div>
+              ) : (
+                <ol className="m-0 list-none border-0 border-t border-solid border-neutral-100 px-5 py-4">
+                  {notes.map((n, idx) => {
+                    const author = n.admin?.fullName || n.admin?.name || n.admin?.email || "An admin";
+                    return (
+                      <li key={n.id} className="relative flex gap-3 pb-5 last:pb-0">
+                        {idx < notes.length - 1 ? <span className="absolute bottom-0 left-[15px] top-9 w-px bg-neutral-200" aria-hidden /> : null}
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#0b2420] text-[10px] font-bold text-emerald-200" aria-hidden>{initials(author)}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="m-0 flex flex-wrap items-baseline gap-x-2 text-xs">
+                            <span className="font-semibold text-neutral-900">{niceCase(author)}</span>
+                            <span className="text-neutral-400">
+                              {new Date(n.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT
+                            </span>
+                          </p>
+                          <p className="m-0 mt-1 whitespace-pre-wrap break-words text-[13px] leading-6 text-neutral-700">{n.text}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                  {notes.length >= 50 ? <li className="pt-3 text-center text-[11px] text-neutral-400">Showing the latest 50 notes.</li> : null}
+                </ol>
+              )}
+            </section>
           ) : null}
 
           {tab === "profile" ? (
-            <Card
-              icon={<FileText className="h-5 w-5 text-amber-600" />}
-              title="Submitted Operator Profile"
-              subtitle="Admin review controls and audit policy"
-            >
-              <div className="mb-5 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 sm:p-5">
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                  <div className="rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                      <ShieldCheck className="h-4 w-4" />
-                      Admin Can
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_26rem]">
+              <div className="min-w-0 space-y-4">
+                {/* Decision: where the review stands and what customers see meanwhile */}
+                <section className={`min-w-0 overflow-hidden rounded-2xl border border-solid ${profileReview.tone.border} bg-white`}>
+                  <div className={`flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${profileReview.tone.band}`}>
+                    <div className="min-w-0">
+                      <p className={`m-0 text-[11px] font-bold uppercase tracking-[0.1em] ${profileReview.tone.eyebrow}`}>Profile review</p>
+                      <p className="m-0 mt-1 text-base font-bold text-neutral-950">{profileReview.headline}</p>
+                      <p className="m-0 mt-0.5 text-xs text-neutral-600">{profileReview.sub}</p>
                     </div>
-                    <div className="space-y-1.5 text-sm text-slate-700">
-                      <div>Approve submitted operator profile</div>
-                      <div>Reject with mandatory reason</div>
-                      <div>Review all submitted details before decision</div>
-                    </div>
+                    <Link
+                      href={submittedProfileReviewHref}
+                      className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 self-start rounded-lg bg-[#0b2420] px-3.5 text-xs font-semibold text-white no-underline transition hover:bg-[#12342f] sm:self-auto"
+                    >
+                      {submittedProfileReviewStatus === "APPROVED" || submittedProfileReviewStatus === "REJECTED" ? "Open full profile" : "Open and decide"} <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                    </Link>
                   </div>
-
-                  <div className="rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-red-700">
-                      <Ban className="h-4 w-4" />
-                      Admin Cannot
-                    </div>
-                    <div className="space-y-1.5 text-sm text-slate-700">
-                      <div>Edit submitted profile content here</div>
-                      <div>Approve without viewing full submitted card</div>
-                      <div>Reject without providing a reason</div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-800">
-                      <History className="h-4 w-4" />
-                      Audit Notice
-                    </div>
-                    <p className="text-sm text-amber-900">
-                      Every admin review action is logged with timestamp, admin identity, and decision reason for compliance.
+                  {submittedProfileReviewNote ? (
+                    <p className="m-0 border-0 border-t border-solid border-neutral-100 px-5 py-3 text-xs text-neutral-700">
+                      <span className="font-semibold text-neutral-900">{submittedProfileReviewStatus === "REJECTED" ? "Reason given to the operator: " : "Review note: "}</span>{submittedProfileReviewNote}
                     </p>
-                  </div>
-                </div>
+                  ) : null}
+                  <p className="m-0 flex items-start gap-2 border-0 border-t border-solid border-neutral-100 px-5 py-3 text-[11px] text-neutral-500">
+                    <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0 text-[#02665e]" aria-hidden />
+                    <span>Decisions are made on the full profile page. Rejecting needs a reason the operator will read, and every decision is written to the audit trail.</span>
+                  </p>
+                </section>
 
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Review Status</span>
-                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${submittedProfileReviewBadge}`}>
-                    {submittedProfileReviewStatus}
-                  </span>
-                </div>
-                {submittedProfileReviewNote ? (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                    <span className="font-semibold text-slate-800">Last review note:</span> {submittedProfileReviewNote}
+                {/* What changed in this submission, as recorded when the operator submitted */}
+                <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                  <div className="flex items-center justify-between gap-2 px-5 pb-2 pt-4">
+                    <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">What changed</p>
+                    {profileChanges ? <span className="text-[11px] text-neutral-400">{profileChanges.total} {profileChanges.total === 1 ? "change" : "changes"}</span> : null}
                   </div>
-                ) : null}
+                  {!profileChanges ? (
+                    <p className="m-0 px-5 pb-4 text-xs text-neutral-500">
+                      {submittedProfileReviewStatus === "PENDING" ? "This submission did not record a change list." : "Change details are cleared once a decision is made. They return with the operator's next submission."}
+                    </p>
+                  ) : profileChanges.total === 0 ? (
+                    <p className="m-0 px-5 pb-4 text-xs text-neutral-500">Submitted again with no differences from the last version.</p>
+                  ) : (
+                    <ul className="m-0 list-none px-5 pb-3">
+                      {profileChanges.added.map((c) => (
+                        <li key={`a-${c.category}`} className="flex items-start gap-2.5 border-0 border-b border-solid border-neutral-100 py-2 last:border-b-0">
+                          <span className="mt-0.5 rounded bg-emerald-50 px-1.5 text-[10px] font-bold text-emerald-700">+{c.count}</span>
+                          <span className="min-w-0 text-xs text-neutral-700"><span className="font-semibold text-neutral-900">{humanField(c.category)}</span> added{c.examples?.length ? <span className="text-neutral-500">: {c.examples.slice(0, 3).join(", ")}</span> : null}</span>
+                        </li>
+                      ))}
+                      {profileChanges.removed.map((c) => (
+                        <li key={`r-${c.category}`} className="flex items-start gap-2.5 border-0 border-b border-solid border-neutral-100 py-2 last:border-b-0">
+                          <span className="mt-0.5 rounded bg-rose-50 px-1.5 text-[10px] font-bold text-rose-700">-{c.count}</span>
+                          <span className="min-w-0 text-xs text-neutral-700"><span className="font-semibold text-neutral-900">{humanField(c.category)}</span> removed{c.examples?.length ? <span className="text-neutral-500">: {c.examples.slice(0, 3).join(", ")}</span> : null}</span>
+                        </li>
+                      ))}
+                      {profileChanges.modified.length ? (
+                        <li className="flex items-start gap-2.5 py-2">
+                          <span className="mt-0.5 rounded bg-sky-50 px-1.5 text-[10px] font-bold text-sky-700">Edit</span>
+                          <span className="min-w-0 text-xs text-neutral-700">{profileChanges.modified.map((f) => humanField(f)).join(", ")}</span>
+                        </li>
+                      ) : null}
+                    </ul>
+                  )}
+                </section>
+
+                {/* The submission at a glance */}
+                <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+                  <p className="m-0 px-5 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">In this submission</p>
+                  <dl className="m-0 grid grid-cols-2 gap-px border-0 border-t border-solid border-neutral-100 bg-neutral-100 sm:grid-cols-3">
+                    {profileGlance.map((f) => (
+                      <div key={f.label} className="min-w-0 bg-white px-5 py-3">
+                        <dt className="text-[11px] text-neutral-500">{f.label}</dt>
+                        <dd className={`m-0 mt-0.5 truncate text-sm font-bold tabular-nums ${f.empty ? "text-neutral-300" : "text-neutral-900"}`}>{f.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
               </div>
 
-              <div className="mb-4">
+              {/* How the card looks to customers */}
+              <div className="min-w-0">
                 <SubmittedProfileCard
                   profile={submittedProfileRaw}
                   reviewHref={submittedProfileReviewHref}
@@ -1969,216 +2218,153 @@ function AdminAgentDetail({ agentId }: { agentId: number }) {
                   commissionPercent={adminCommissionPercent}
                 />
               </div>
-            </Card>
+            </div>
           ) : null}
 
           {tab === "bookings" ? (
-            <div className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+              <div className="flex flex-col gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-3 sm:flex-row sm:items-center sm:px-5">
                 <input
                   type="text"
-                  placeholder="Search by request ID, requester, or destination..."
+                  placeholder="Search by booking code, guest or destination"
+                  aria-label="Search tour bookings"
                   value={bookingSearch}
                   onChange={(e) => {
                     setBookingSearch(e.target.value);
                     setBookingPage(1);
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="block min-h-9 w-full min-w-0 flex-1 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 hover:border-neutral-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                 />
-              </div>
-
-              <div className="flex flex-wrap gap-2 justify-center">
-                {["all", "new", "in_progress", "completed", "cancelled"].map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      setBookingStatus(s);
-                      setBookingPage(1);
-                    }}
-                    className={
-                      bookingStatus === s
-                        ? `px-4 py-2 rounded-full text-xs font-semibold transition-all text-white border-0 shadow-lg ${getStatusGradient(s)}`
-                        : "px-4 py-2 rounded-full text-xs font-medium transition-colors bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 shadow-sm"
-                    }
-                  >
-                    {s.toUpperCase().replace(/_/g, " ")}
-                  </button>
-                ))}
+                <div className="flex flex-wrap gap-1" role="group" aria-label="Filter bookings by state">
+                  {["all", "new", "pending", "in_progress", "completed", "cancelled"].map((s) => {
+                    const on = bookingStatus === s;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => {
+                          setBookingStatus(s);
+                          setBookingPage(1);
+                        }}
+                        className={`h-8 cursor-pointer rounded-lg border border-solid px-2.5 text-[11px] font-semibold transition ${on ? "border-[#0b2420] bg-[#0b2420] text-white" : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"}`}
+                      >
+                        {s === "all" ? "All" : BOOKING_STATES[s.toUpperCase()]?.label ?? s}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {bookingsError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{bookingsError}</div>
+                <div role="alert" className="m-4 rounded-xl border border-solid border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:mx-5">{bookingsError}</div>
               )}
 
               {bookingsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-gray-500">Loading bookings...</div>
-                </div>
+                <div className="py-14 text-center text-sm text-neutral-500">Loading tour bookings</div>
               ) : bookings.length > 0 ? (
                 <>
-                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("id")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Request ID
-                              {renderBookingSortIcon("id")}
-                            </span>
-                          </th>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("guest")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Requester
-                              {renderBookingSortIcon("guest")}
-                            </span>
-                          </th>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("property")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Destination/Trip
-                              {renderBookingSortIcon("property")}
-                            </span>
-                          </th>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("checkIn")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Start Date
-                              {renderBookingSortIcon("checkIn")}
-                            </span>
-                          </th>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("checkOut")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              End Date
-                              {renderBookingSortIcon("checkOut")}
-                            </span>
-                          </th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("amount")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Amount
-                              {renderBookingSortIcon("amount")}
-                            </span>
-                          </th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("operatorPayout")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Op. Payout
-                              {renderBookingSortIcon("operatorPayout")}
-                            </span>
-                          </th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("platformFee")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Platform Fee
-                              {renderBookingSortIcon("platformFee")}
-                            </span>
-                          </th>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-700 cursor-pointer hover:bg-gray-100 whitespace-nowrap" onClick={() => handleBookingSortClick("status")}>
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              Status
-                              {renderBookingSortIcon("status")}
-                            </span>
-                          </th>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[960px] border-collapse text-left text-xs">
+                      <thead>
+                        <tr className="border-0 border-b border-solid border-neutral-100">
+                          {([
+                            ["id", "Booking", "left"],
+                            ["guest", "Guest", "left"],
+                            ["property", "Trip", "left"],
+                            ["checkIn", "Dates", "left"],
+                            ["amount", "Gross", "right"],
+                            ["platformFee", "Commission", "right"],
+                            ["operatorPayout", "To operator", "right"],
+                            ["status", "State", "left"],
+                          ] as const).map(([key, label, align]) => (
+                            <th key={key} className={`px-3 py-2.5 first:pl-5 last:pr-5 ${align === "right" ? "text-right" : ""}`}>
+                              <button type="button" onClick={() => handleBookingSortClick(key)} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400 hover:text-neutral-700">
+                                {label} {renderBookingSortIcon(key)}
+                              </button>
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedBookings.map((booking) => (
-                          <TableRow key={booking.id} className="border-b border-gray-200">
-                            <td className="px-4 py-3 text-gray-900 font-mono text-xs whitespace-nowrap">{String(booking.id).slice(0, 8)}...</td>
-                            <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{booking.guestName}</td>
-                            <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{booking.property}</td>
-                            <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{fmtDate(booking.checkIn)}</td>
-                            <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{fmtDate(booking.checkOut)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">{fmtMoney(booking.amount, financialCurrency)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-green-600 whitespace-nowrap">{fmtMoney(booking.operatorPayout, financialCurrency)}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-gray-600 whitespace-nowrap">{fmtMoney(booking.platformFee, financialCurrency)}</td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <span className="inline-block px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                                {booking.status.replace(/_/g, " ")}
-                              </span>
-                            </td>
-                          </TableRow>
-                        ))}
+                        {sortedBookings.map((booking) => {
+                          const state = BOOKING_STATES[String(booking.status).toUpperCase()] ?? { label: booking.status.replace(/_/g, " "), pill: "bg-neutral-100 text-neutral-600" };
+                          const paid = String(booking.paymentStatus || "").toUpperCase() === "PAID";
+                          return (
+                            <tr key={booking.id} className="border-0 border-b border-solid border-neutral-100 transition hover:bg-emerald-50/40">
+                              <td className="px-3 py-3 pl-5">
+                                <span className="block font-mono text-[11px] font-semibold text-neutral-800">{booking.bookingCode || "No code"}</span>
+                                <span className="block text-[11px] text-neutral-400">Booked {fmtLong(booking.createdAt)}</span>
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="block font-semibold text-neutral-800">{booking.guestName}</span>
+                                {booking.travelerCount ? <span className="block text-[11px] text-neutral-400">{booking.travelerCount} {booking.travelerCount === 1 ? "traveler" : "travelers"}</span> : null}
+                              </td>
+                              <td className="max-w-[220px] truncate px-3 py-3 text-neutral-700">{booking.property}</td>
+                              <td className="whitespace-nowrap px-3 py-3 text-neutral-600">
+                                {booking.checkIn ? fmtLong(booking.checkIn) : "Not set"}
+                                {booking.checkOut ? <span className="block text-[11px] text-neutral-400">to {fmtLong(booking.checkOut)}</span> : null}
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 text-right">
+                                <span className="block font-semibold tabular-nums text-neutral-900">{fmtMoney(booking.amount, financialCurrency)}</span>
+                                <span className={`block text-[11px] font-semibold ${paid ? "text-emerald-600" : "text-amber-600"}`}>{paid ? "Paid" : "Not paid"}</span>
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-neutral-600">{fmtMoney(booking.platformFee, financialCurrency)}</td>
+                              <td className="whitespace-nowrap px-3 py-3 text-right">
+                                <span className="block font-semibold tabular-nums text-emerald-700">{fmtMoney(booking.operatorPayout, financialCurrency)}</span>
+                                {booking.payoutStatus ? <span className="block text-[11px] text-neutral-400">{niceCase(String(booking.payoutStatus).replace(/_/g, " "))}</span> : null}
+                              </td>
+                              <td className="px-3 py-3 pr-5">
+                                <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${state.pill}`}>{state.label}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-gray-600 px-2">
+                  <div className="flex items-center justify-between gap-2 px-4 py-3 text-xs text-neutral-500 sm:px-5">
                     <span>
-                      Showing {(bookingPage - 1) * pageSize + 1} to {Math.min(bookingPage * pageSize, bookingTotal)} of {bookingTotal} bookings
+                      Showing <span className="font-bold text-neutral-800">{(bookingPage - 1) * pageSize + 1} to {Math.min(bookingPage * pageSize, bookingTotal)}</span> of <span className="font-bold text-neutral-800">{bookingTotal}</span>
                     </span>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setBookingPage((p) => Math.max(1, p - 1))}
-                        disabled={bookingPage <= 1}
-                        className="px-3 py-1 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Previous
-                      </button>
-                      <button
-                        onClick={() => setBookingPage((p) => (p * pageSize < bookingTotal ? p + 1 : p))}
-                        disabled={bookingPage * pageSize >= bookingTotal}
-                        className="px-3 py-1 border border-gray-300 rounded text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Next
-                      </button>
-                    </div>
+                    {bookingTotal > pageSize ? (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBookingPage((p) => Math.max(1, p - 1))}
+                          aria-disabled={bookingPage <= 1}
+                          className="h-8 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-2.5 font-bold text-neutral-600 hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-40"
+                        >
+                          Prev
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBookingPage((p) => (p * pageSize < bookingTotal ? p + 1 : p))}
+                          aria-disabled={bookingPage * pageSize >= bookingTotal}
+                          className="h-8 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-2.5 font-bold text-neutral-600 hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </>
               ) : (
-                <div className="text-center py-12 text-gray-500">No assigned tour requests found for this operator.</div>
+                <div className="px-6 py-14 text-center">
+                  <span className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0b2420] text-emerald-300">
+                    <Package className="h-5 w-5" />
+                  </span>
+                  <p className="m-0 mt-3 text-sm font-semibold text-neutral-800">{bookingStatus === "all" && !bookingSearch ? "No tour bookings yet" : "No bookings match"}</p>
+                  <p className="m-0 mt-1 text-xs text-neutral-500">{bookingStatus === "all" && !bookingSearch ? "Bookings for this operator's tours will appear here." : "Try another state or search."}</p>
+                </div>
               )}
-            </div>
+            </section>
           ) : null}
         </>
       )}
     </div>
   );
 }
-
-function DetailRow({ label, value, href }: { label: string; value?: string | null; href?: string }) {
-  const empty = !value || value === "-";
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5 border-0 border-b border-solid border-neutral-100 py-2.5 last:border-b-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
-      <dt className="shrink-0 text-[12.5px] text-neutral-500">{label}</dt>
-      <dd className="m-0 min-w-0 break-words text-[13px] font-semibold text-neutral-900 sm:text-right">
-        {empty ? (
-          <span className="font-medium text-neutral-400">Not provided</span>
-        ) : href ? (
-          <a href={href} className="text-emerald-700 no-underline hover:underline">{value}</a>
-        ) : (
-          value
-        )}
-      </dd>
-    </div>
-  );
-}
-
-function CapabilityRow({ label, value, ready }: { label: string; value: string; ready: boolean }) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl bg-neutral-50/80 px-3 py-2.5">
-      <span className="min-w-0 text-xs font-medium text-gray-600">{label}</span>
-      <span className={`inline-flex flex-shrink-0 items-center gap-1.5 text-xs font-semibold ${ready ? "text-emerald-700" : "text-gray-700"}`}>
-        <span className={`grid h-4 w-4 place-items-center rounded-full ${ready ? "bg-emerald-100" : "bg-gray-200"}`}>
-          {ready ? <Check className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
-        </span>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function Card({ icon, title, subtitle, children }: { icon: ReactNode; title: string; subtitle: string; children: ReactNode }) {
-  return (
-    <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white shadow-[0_12px_35px_-32px_rgba(15,23,42,0.4)]">
-      <div className="flex items-start gap-3 border-0 border-b border-solid border-neutral-100 px-4 py-4 sm:px-5">
-        {/* One icon colour across the page, whatever colour the caller passed */}
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-solid border-emerald-100 bg-emerald-50/60 [&_svg]:!text-emerald-700">{icon}</span>
-        <div className="min-w-0">
-          <h2 className="m-0 text-sm font-bold text-neutral-900">{title}</h2>
-          <p className="m-0 mt-0.5 text-[12px] leading-snug text-neutral-500">{subtitle}</p>
-        </div>
-      </div>
-      <div className="p-4 sm:p-5">{children}</div>
-    </section>
-  );
-}
-
-
 
 function AgentDetailSkeleton() {
   return (

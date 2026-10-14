@@ -8,6 +8,11 @@ export function agentNotificationDestination(meta: Record<string, unknown>): Age
     return { href: "/account/agent/revenues", label: "View earnings" };
   }
 
+  // Admin asked for a missing verification document.
+  if (kind === "account_document_request") {
+    return { href: "/account/agent/documents", label: "Upload documents" };
+  }
+
   const id = Number(meta.tourBookingId);
   if (kind.startsWith("agent_") && Number.isSafeInteger(id) && id > 0) {
     return { href: `/account/agent/tour-bookings/${id}`, label: "View tour booking" };
