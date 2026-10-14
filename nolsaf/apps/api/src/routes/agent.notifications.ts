@@ -8,6 +8,10 @@ import { deleteReadNotification, deleteReadNotifications, fetchNotifications, ma
 const router = Router();
 router.use(requireAuth as any, requireRole("AGENT") as any);
 
+// Everything addressed to this operator: admin and booking messages ("agent"), tour
+// cancellation cases ("cancellation") and NRMS hotel partnership updates ("system").
+const AGENT_INBOX_TYPES = ["agent", "cancellation", "system"];
+
 const listQuerySchema = z
   .object({
     tab: z.enum(["unread", "viewed"]).optional(),
@@ -46,7 +50,7 @@ router.get(
     const page = parsed.data.page;
     const pageSize = parsed.data.pageSize;
 
-    const result = await fetchNotifications({ tab: tab as any, page, pageSize, userId, types: ["agent"] } as any);
+    const result = await fetchNotifications({ tab: tab as any, page, pageSize, userId, types: AGENT_INBOX_TYPES } as any);
     return res.json(result);
   }) as any
 );
@@ -56,7 +60,7 @@ router.post(
   limitAgentPortalRead as any,
   (async (req: AuthedRequest, res: any) => {
     const result = await prisma.notification.updateMany({
-      where: { userId: req.user!.id, type: "agent", unread: true },
+      where: { userId: req.user!.id, type: { in: AGENT_INBOX_TYPES }, unread: true },
       data: { unread: false, readAt: new Date() },
     });
     return res.json({ ok: true, updated: result.count });
@@ -75,7 +79,7 @@ router.post(
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ ok: false, error: "invalid_id" });
 
     const userId = req.user!.id;
-    const r = await markNotificationRead(id, undefined, userId, { types: ["agent"] });
+    const r = await markNotificationRead(id, undefined, userId, { types: AGENT_INBOX_TYPES });
     if (!r.ok) return res.status(404).json(r);
     return res.json(r);
   }) as any
@@ -85,7 +89,7 @@ router.delete(
   "/read",
   limitAgentPortalRead as any,
   (async (req: AuthedRequest, res: any) => {
-    const result = await deleteReadNotifications({ userId: req.user!.id, types: ["agent"] });
+    const result = await deleteReadNotifications({ userId: req.user!.id, types: AGENT_INBOX_TYPES });
     if (!result.ok) return res.status(500).json(result);
     return res.json(result);
   }) as any
@@ -97,7 +101,7 @@ router.delete(
   (async (req: AuthedRequest, res: any) => {
     const params = idParamsSchema.safeParse(req.params ?? {});
     if (!params.success) return res.status(400).json({ ok: false, error: "invalid_id" });
-    const result = await deleteReadNotification(Number(params.data.id), undefined, req.user!.id, { types: ["agent"] });
+    const result = await deleteReadNotification(Number(params.data.id), undefined, req.user!.id, { types: AGENT_INBOX_TYPES });
     if (!result.ok) return res.status(404).json(result);
     return res.json(result);
   }) as any

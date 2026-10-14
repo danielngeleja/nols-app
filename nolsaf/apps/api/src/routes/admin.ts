@@ -20,6 +20,9 @@ import adminContractTemplatesRouter from "./admin.contractTemplates";
 import adminDriversLevelMessagesRouter from "./admin.drivers.level-messages";
 import adminDriversLevelsRouter from "./admin.drivers.levels";
 import adminDriversSummaryRouter from "./admin.drivers.summary";
+import adminNavCountsRouter from "./admin.navCounts";
+import adminUsersTravellersRouter from "./admin.users.travellers";
+import adminSupportRouter from "./admin.support";
 import adminDriversRouter from "./admin.drivers";
 import adminDisbursementsRouter from "./admin.disbursements.js";
 import adminPaymentsMerchantsRouter from "./admin.payments.merchants.js";
@@ -130,6 +133,8 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/fx", adminFxRouter as RequestHandler);
   app.use("/admin/drivers/summary", adminDriversSummaryRouter);
   app.use("/api/admin/drivers/summary", adminDriversSummaryRouter as RequestHandler);
+  app.use("/api/admin/nav-counts", adminNavCountsRouter as RequestHandler);
+  app.use("/api/admin/support", adminSupportRouter as RequestHandler);
   app.use("/admin/drivers/levels", adminDriversLevelsRouter);
   app.use("/api/admin/drivers/levels", adminDriversLevelsRouter as RequestHandler);
   app.use("/api/admin/drivers", adminDriversRouter as RequestHandler);
@@ -174,6 +179,7 @@ export function registerAdminPrimaryRoutes(app: Express): void {
   app.use("/api/admin/users/summary", adminUsersSummaryRouter as RequestHandler);
   app.use("/admin/users/transport-bookings", adminUsersTransportBookingsRouter);
   app.use("/api/admin/users/transport-bookings", adminUsersTransportBookingsRouter as RequestHandler);
+  app.use("/api/admin/users/travellers", adminUsersTravellersRouter as RequestHandler);
   app.use("/admin/users", adminUsersRouter);
   app.use("/api/admin/trust-verification", adminTrustVerificationRouter as RequestHandler);
   app.use("/api/admin/users", adminUsersRouter as RequestHandler);

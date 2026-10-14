@@ -278,20 +278,20 @@ export default function AdminHomePage() {
       href: tp?.propertyId ? `/admin/properties/previews?previewId=${adminRefOrId("property", tp.propertyId)}` : "/admin/properties/previews",
     },
     {
-      label: "Best property type", icon: Layers, value: highlights?.bestPropertyType?.type ? humanize(highlights.bestPropertyType.type) : null,
+      label: "Top type", icon: Layers, value: highlights?.bestPropertyType?.type ? humanize(highlights.bestPropertyType.type) : null,
       sub: highlights?.bestPropertyType ? plural(highlights.bestPropertyType.bookings, "booking", "bookings") : null,
       meta: highlights?.bestPropertyType && highlights.bestPropertyType.interactions > 0 ? plural(highlights.bestPropertyType.interactions, "review or save", "reviews and saves") : null,
       rule: "Ranked by bookings across all listings", href: "/admin/properties/previews",
     },
     {
-      label: "Best owner", icon: UserRound, value: highlights?.bestOwner?.name,
+      label: "Top owner", icon: UserRound, value: highlights?.bestOwner?.name,
       sub: highlights?.bestOwner ? `${tsh(highlights.bestOwner.nolsRevenue)} commission` : null,
       meta: highlights?.bestOwner ? plural(highlights.bestOwner.bookings, "booking", "bookings") : null,
       rule: "Ranked by commission on approved invoices",
       href: highlights?.bestOwner?.ownerId ? recordHref("owner", highlights.bestOwner.ownerId) : "/admin/owners",
     },
     {
-      label: "Best driver", icon: Truck, value: highlights?.bestDriver?.name,
+      label: "Top driver", icon: Truck, value: highlights?.bestDriver?.name,
       sub: highlights?.bestDriver ? `${tsh(highlights.bestDriver.nolsRevenue)} commission` : null,
       meta: highlights?.bestDriver ? plural(highlights.bestDriver.bookings, "trip", "trips") : null,
       rule: "Ranked by commission on approved invoices",
@@ -349,37 +349,31 @@ export default function AdminHomePage() {
       <style>{`#admin-home, #admin-home * { box-sizing: border-box; }`}</style>
 
       {/* The brief */}
-      <header className="flex flex-wrap items-end justify-between gap-4 px-1">
-        <div className="min-w-0 flex-1">
+      <header className="px-1">
+        <div className="flex items-center justify-between gap-3">
           <p className="m-0 flex flex-wrap items-center gap-x-2 text-xs font-medium text-neutral-500">
-            {stamp ? <><span className="font-semibold text-[#02665e]">{greeting}</span><span aria-hidden className="text-neutral-300">·</span><span>{stamp}</span></> : " "}
+            {stamp ? <><span className="font-semibold text-[#02665e]">{greeting}</span><span aria-hidden className="text-neutral-300">·</span><span>{stamp}</span></> : " "}
           </p>
-          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-            {brief
-              ? brief.map((c) => {
-                  const t = CARD_TONE[c.tone];
-                  return (
-                    <Link key={c.key} href={c.href} className={`group flex min-w-0 items-center gap-3 rounded-2xl border border-solid px-3.5 py-3 no-underline transition hover:no-underline ${t.box}`}>
-                      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${t.icon}`}><c.icon className="h-[18px] w-[18px]" aria-hidden /></span>
-                      <span className="min-w-0 flex-1">
-                        <span className={`block truncate text-xl font-bold tabular-nums leading-tight ${t.value}`}>{c.value}</span>
-                        <span className={`block truncate text-xs ${t.caption}`}>{c.caption}</span>
-                      </span>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-neutral-600" aria-hidden />
-                    </Link>
-                  );
-                })
-              : Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-[66px] animate-pulse rounded-2xl bg-neutral-100" />)}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-solid border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-700">
-            <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" /></span>
-            {monitoring ? `${monitoring.activeSessions} online` : "Live"}
-          </span>
-          <button type="button" onClick={() => { setNonce((n) => n + 1); refreshRecentActivities(); }} aria-label="Refresh" title="Refresh" className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50">
+          <button type="button" onClick={() => { setNonce((n) => n + 1); refreshRecentActivities(); }} aria-label="Refresh" title="Refresh" className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded-lg border border-solid border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50">
             <RefreshCw className="h-3.5 w-3.5" aria-hidden />
           </button>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          {brief
+            ? brief.map((c) => {
+                const t = CARD_TONE[c.tone];
+                return (
+                  <Link key={c.key} href={c.href} className={`group flex min-w-0 items-center gap-3 rounded-xl border border-solid px-3 py-2.5 no-underline transition hover:no-underline ${t.box}`}>
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${t.icon}`}><c.icon className="h-4 w-4" aria-hidden /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block break-words text-base font-semibold tabular-nums leading-snug ${t.value}`}>{c.value}</span>
+                      <span className={`block text-xs leading-snug ${t.caption}`}>{c.caption}</span>
+                    </span>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-neutral-300 transition group-hover:translate-x-0.5 group-hover:text-neutral-600" aria-hidden />
+                  </Link>
+                );
+              })
+            : Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-[58px] animate-pulse rounded-xl bg-neutral-100" />)}
         </div>
       </header>
 
@@ -542,15 +536,15 @@ export default function AdminHomePage() {
             const Icon = l.icon;
             return (
               <li key={l.label} className="min-w-0 bg-white">
-                <Link href={l.href} className="group flex h-full items-start gap-3 px-5 py-4 no-underline hover:bg-emerald-50/40 hover:no-underline">
-                  <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${l.value ? "bg-[#02665e]/10 text-[#02665e]" : "border border-dashed border-neutral-200 bg-white text-neutral-300"}`}>
-                    <Icon className="h-[18px] w-[18px]" aria-hidden />
+                <Link href={l.href} className="group flex h-full items-start gap-3 px-4 py-3.5 no-underline hover:bg-emerald-50/40 hover:no-underline">
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${l.value ? "bg-[#02665e]/10 text-[#02665e]" : "border border-dashed border-neutral-200 bg-white text-neutral-300"}`}>
+                    <Icon className="h-4 w-4" aria-hidden />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-400">{l.label}</span>
-                    <span className={`mt-1 block truncate text-[15px] font-bold ${l.value ? "text-neutral-950" : "font-medium text-neutral-400"}`}>{l.value || "Nobody yet"}</span>
-                    <span className="mt-0.5 block truncate text-[11px] text-neutral-500">{l.value ? l.sub : l.rule}</span>
-                    {l.value && l.meta ? <span className="mt-2 inline-flex max-w-full truncate rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600">{l.meta}</span> : null}
+                    <span className="block text-[11px] font-semibold text-neutral-500">{l.label}</span>
+                    <span className={`mt-0.5 line-clamp-2 block break-words text-sm leading-snug ${l.value ? "font-semibold text-neutral-950" : "font-medium text-neutral-400"}`} title={l.value || undefined}>{l.value || "Nobody yet"}</span>
+                    <span className="mt-0.5 block text-xs leading-snug text-neutral-500">{l.value ? l.sub : l.rule}</span>
+                    {l.value && l.meta ? <span className="mt-1.5 inline-flex max-w-full rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">{l.meta}</span> : null}
                   </span>
                   <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-neutral-300 opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" aria-hidden />
                 </Link>

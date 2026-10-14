@@ -5,6 +5,7 @@ import React from "react";
 import { Home, LayoutDashboard, Users, Truck, LineChart, Building2, Calendar, FileText, Wallet, Settings, ChevronDown, ChevronLeft, ChevronRight, ShieldCheck, Receipt, ListFilter, Award, Megaphone, UserPlus, Trophy, Bell, BarChart3, Activity, Eye, Briefcase, MessageSquare, Ban, Bot, Gift, KeyRound, Play, Calculator, AlertTriangle, TrendingUp, Coins, MapPin, Hotel, Send, Handshake, BadgeCheck, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import apiClient from "@/lib/apiClient";
+import { useAdminNavCounts } from "@/lib/useAdminNavCounts";
 
 /**
  * Twiga conversations waiting on a person. Refreshed when a visitor hands off
@@ -39,9 +40,22 @@ function useTwigaQueueCount() {
   return count;
 }
 
+/** The glowing notch that marks the page you are on (dark rail). */
+function ActiveNotch() {
+  return <span className="pointer-events-none absolute -left-px top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-emerald-300 shadow-[0_0_10px_2px_rgba(110,231,183,0.55)]" aria-hidden />;
+}
+
 /** Small count pill for a sidebar row. */
 function CountBadge({ count, dark }: { count: number; dark: boolean }) {
   if (count <= 0) return null;
+  if (dark) {
+    return (
+      <span aria-label={`${count} waiting`} className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-semibold tabular-nums text-amber-200">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_6px_1px_rgba(251,191,36,0.7)]" aria-hidden />
+        {count > 99 ? "99+" : count}
+      </span>
+    );
+  }
   return (
     <span
       aria-label={`${count} waiting`}
@@ -93,7 +107,7 @@ function Item({
   // glyph inherits the row's text colour instead of a fixed teal.
   const iconWrapClass = dark
     ? active
-      ? "bg-emerald-950/10"
+      ? "bg-emerald-300/15 text-emerald-200 shadow-[0_0_14px_rgba(110,231,183,0.22)]"
       : "bg-white/[0.04] group-hover:bg-white/[0.08]"
     : active
       ? "bg-[#02665e]/10 border border-[#02665e]/15"
@@ -109,7 +123,7 @@ function Item({
         className={dark
           ? `group relative no-underline hover:no-underline flex min-h-9 items-center justify-center rounded-lg border px-2 text-[13px] font-semibold transition
             ${active
-              ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              ? "border-transparent bg-transparent bg-gradient-to-r from-emerald-300/[0.16] via-emerald-300/[0.04] to-transparent text-white"
               // bg-transparent is required, not redundant: Tailwind preflight is
               // disabled, so a <button> with no background falls back to the UA
               // default (light grey) and hides the label.
@@ -122,6 +136,7 @@ function Item({
               : "text-[#02665e] border-[#02665e]/10 hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
             focus:outline-none focus-visible:ring-2 focus-visible:ring-[#02665e]/25`}
       >
+        {dark && active ? <ActiveNotch /> : null}
         {Icon ? (
           dark ? (
             <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
@@ -152,11 +167,11 @@ function Item({
         ? `group relative no-underline hover:no-underline flex min-h-9 items-center gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition
           ${active
             ? isSubItem
-              ? "border-transparent bg-white/10 text-white"
-              : "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              ? "border-transparent bg-white/[0.07] text-white"
+              : "border-transparent bg-transparent bg-gradient-to-r from-emerald-300/[0.16] via-emerald-300/[0.04] to-transparent text-white"
             : "border-transparent bg-transparent text-emerald-50/65 hover:border-white/5 hover:bg-white/[0.07] hover:text-white"}
           focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
-          ${isSubItem ? "min-h-8 font-medium" : ""}`
+          ${isSubItem ? `min-h-8 ${active ? "font-semibold" : "font-medium text-emerald-50/55"}` : ""}`
         : `group no-underline flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm font-medium
           transition-colors duration-200 border bg-white/90 shadow-sm
           ${active
@@ -167,6 +182,20 @@ function Item({
     >
       {dark ? (
         <>
+          {active && !isSubItem ? <ActiveNotch /> : null}
+          {/* Each sub page is a node on the group's rail: lit where you are, amber where work waits, hollow when quiet */}
+          {isSubItem ? (
+            <span
+              className={`pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full ${
+                active
+                  ? "-left-[14.5px] h-[9px] w-[9px] bg-emerald-300 shadow-[0_0_10px_2px_rgba(110,231,183,0.6)]"
+                  : badge > 0
+                    ? "-left-[13.5px] h-[7px] w-[7px] bg-amber-400 shadow-[0_0_6px_1px_rgba(251,191,36,0.55)]"
+                    : "-left-[12.5px] h-[5px] w-[5px] border border-solid border-white/25 bg-[#0c2723] group-hover:border-white/60"
+              }`}
+              aria-hidden
+            />
+          ) : null}
           {Icon && !isSubItem ? (
             <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${iconWrapClass}`}>
               <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -277,7 +306,7 @@ const userDetails: Item[] = [
   { href: "/admin/users", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/admin/users/list", label: "All Users", Icon: Users },
   { href: "/admin/users/transport-bookings", label: "Transport Bookings", Icon: Truck },
-  { href: "/admin/users/bookings", label: "Bookings", Icon: Calendar },
+  { href: "/admin/users/bookings", label: "Travellers", Icon: Calendar },
 ];
 
 const managementDetails: Item[] = [
@@ -307,6 +336,26 @@ const managementDetails: Item[] = [
   { href: "/admin/management/users", label: "Users", Icon: Users },
 ];
 
+/** Every admin page with the section it lives in. Used by the header's jump search and breadcrumb. */
+export const ADMIN_NAV_PAGES: Array<{ href: string; label: string; section: string }> = [
+  { href: "/admin/home", label: "Home", section: "Pages" },
+  { href: "/admin/finance", label: "All Revenue", section: "Pages" },
+  { href: "/admin/expenses", label: "Expenses", section: "Pages" },
+  { href: "/admin/action-center", label: "Action Center", section: "Pages" },
+  { href: "/admin/disbursements", label: "Disbursements", section: "Pages" },
+  ...([
+    ["Owners", adminDetails],
+    ["Drivers", driverDetails],
+    ["Users", userDetails],
+    ["Group Stay", groupStayDetails],
+    ["No4P Agents", agentsDetails],
+    ["NRMS", nrmsDetails],
+    ["Sales partners", salesDetails],
+    ["Cancellations", cancellationsDetails],
+    ["Management", managementDetails],
+  ] as const).flatMap(([section, items]) => items.map((i) => ({ href: i.href, label: i.label, section }))),
+];
+
 // Detailed admin links (analytics, owners, bookings, properties, etc.) remain reachable from the Admin dashboard page.
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -320,7 +369,14 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
   const [groupStayOpen, setGroupStayOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const twigaWaiting = useTwigaQueueCount();
-  const badges: Record<string, number> = { "/admin/agents/ai": twigaWaiting };
+  const nav = useAdminNavCounts();
+  const badges: Record<string, number> = {
+    "/admin/agents/ai": twigaWaiting,
+    "/admin/properties/previews": nav?.listings ?? 0,
+    "/admin/payments": nav?.payouts ?? 0,
+    "/admin/group-stays/requests": nav?.groupStays ?? 0,
+    "/admin/cancellations": nav?.cancellations ?? 0,
+  };
   const [cancellationsOpen, setCancellationsOpen] = useState(false);
   const [nrmsOpen, setNrmsOpen] = useState(false);
   const [salesOpen, setSalesOpen] = useState(false);
@@ -456,6 +512,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     collapsed,
     active,
     badge = 0,
+    pages = 0,
   }: {
     label: string;
     Icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
@@ -464,6 +521,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
     collapsed: boolean;
     active: boolean;
     badge?: number;
+    pages?: number;
   }) => {
     if (collapsed) {
       return (
@@ -473,7 +531,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           className={dark
             ? `group relative w-full appearance-none flex min-h-9 items-center justify-center rounded-lg border px-2 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
               ${active
-                ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+                ? "border-transparent bg-transparent bg-gradient-to-r from-emerald-300/[0.16] via-emerald-300/[0.04] to-transparent text-white"
                 // bg-transparent is required, not redundant: Tailwind preflight is
               // disabled, so a <button> with no background falls back to the UA
               // default (light grey) and hides the label.
@@ -485,8 +543,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
                 : "hover:bg-[#02665e]/5 hover:border-[#02665e]/20"}
               focus-visible:ring-[#02665e]/25`}
         >
+          {dark && active ? <ActiveNotch /> : null}
           {dark ? (
-            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-300/15 text-emerald-200 shadow-[0_0_14px_rgba(110,231,183,0.22)]" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
               <Icon className="h-3.5 w-3.5" aria-hidden />
             </span>
           ) : (
@@ -507,9 +566,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         onClick={onClick}
         title={label}
         className={dark
-          ? `group w-full appearance-none flex min-h-9 items-center justify-between gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
+          ? `group relative w-full appearance-none flex min-h-9 items-center justify-between gap-2.5 rounded-lg border px-2.5 text-[13px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20
             ${active
-              ? "border-emerald-300/70 bg-emerald-300 text-emerald-950 shadow-sm"
+              ? "border-transparent bg-transparent bg-gradient-to-r from-emerald-300/[0.16] via-emerald-300/[0.04] to-transparent text-white"
               // bg-transparent is required, not redundant: Tailwind preflight is
               // disabled, so a <button> with no background falls back to the UA
               // default (light grey) and hides the label.
@@ -522,8 +581,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
             focus-visible:ring-[#02665e]/25`}
       >
         <span className={`flex min-w-0 items-center ${dark ? "gap-2.5" : "gap-3"}`}>
+          {dark && active ? <ActiveNotch /> : null}
           {dark ? (
-            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-950/10" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
+            <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition ${active ? "bg-emerald-300/15 text-emerald-200 shadow-[0_0_14px_rgba(110,231,183,0.22)]" : "bg-white/[0.04] group-hover:bg-white/[0.08]"}`}>
               <Icon className="h-3.5 w-3.5" aria-hidden />
             </span>
           ) : (
@@ -531,15 +591,23 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               <Icon className="h-4 w-4 text-[#02665e]" aria-hidden />
             </span>
           )}
-          <span className="truncate whitespace-nowrap">{label}</span>
+          <span className="flex min-w-0 flex-col items-start text-left">
+            <span className="truncate whitespace-nowrap">{label}</span>
+            {dark && isOpen && pages > 0 ? (
+              <span className="truncate text-[10px] font-medium leading-tight text-emerald-100/45">
+                {pages} {pages === 1 ? "page" : "pages"}
+                {badge > 0 ? <span className="text-amber-200/90"> · {badge} waiting</span> : null}
+              </span>
+            ) : null}
+          </span>
         </span>
         <span className="flex shrink-0 items-center gap-2">
           {/* Folded group: the waiting count rides on the header. Open: the sub-item shows it. */}
           {!isOpen && <CountBadge count={badge} dark={dark} />}
           {isOpen ? (
-            <ChevronDown className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+            <ChevronDown className={dark ? "h-3.5 w-3.5 shrink-0 opacity-50" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
           ) : (
-            <ChevronRight className={dark ? "h-3.5 w-3.5 shrink-0" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
+            <ChevronRight className={dark ? "h-3.5 w-3.5 shrink-0 opacity-50" : `h-4 w-4 text-[#02665e] ${active ? "opacity-90" : "opacity-70"}`} aria-hidden />
           )}
         </span>
       </button>
@@ -570,7 +638,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           <SectionHeader title={title} active={active} />
           <div className="mt-2 space-y-2">
             {items.map(({ href, label, Icon }) => (
-              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} badge={badges[href] ?? 0} />
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} badge={badges[href] ?? 0} exact={items.some((o) => o.href !== href && o.href.startsWith(href + "/"))} />
             ))}
           </div>
         </div>
@@ -585,9 +653,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="ml-[1.35rem] mt-0.5 space-y-0.5 border-0 border-l border-solid border-white/10 pl-2.5">
+          <div className="mb-1 ml-[1.35rem] mt-1 space-y-0.5 border-0 border-l border-solid border-white/10 pl-2.5">
             {items.map(({ href, label, Icon }) => (
-              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} badge={badges[href] ?? 0} />
+              <Item key={href} href={href} label={label} Icon={Icon} isSubItem collapsed={collapsed} path={path} variant={variant} badge={badges[href] ?? 0} exact={items.some((o) => o.href !== href && o.href.startsWith(href + "/"))} />
             ))}
           </div>
         </div>
@@ -624,13 +692,13 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {/* Cross-flow AzamPay payout queue (owner/tour/driver/sales). Self-contained
             workspace (own sidebar, own chrome) — this is just the entry point,
             same pattern as the owner-side NRMS Workspace link. */}
-        <Item href="/admin/disbursements" label="Disbursements" Icon={Send} collapsed={collapsed} path={path} variant={variant} />
+        <Item href="/admin/disbursements" label="Disbursements" Icon={Send} collapsed={collapsed} path={path} variant={variant} badge={nav?.payouts ?? 0} />
 
         {/* Admin/Owners */}
         {collapsed ? (
-          <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} />
+          <Item href="/admin" label="Owners" Icon={Building2} collapsed={collapsed} path={path} variant={variant} badge={nav?.listings ?? 0} />
         ) : (
-          <div>
+          <div className={dark && adminOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Owners" 
               Icon={Building2} 
@@ -638,6 +706,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setAdminOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Owners"}
+              badge={nav?.listings ?? 0}
+              pages={adminDetails.length}
             />
             <NestedGroup open={adminOpen} title="Owners" active={activeSection === "Owners"} items={adminDetails} />
           </div>
@@ -645,9 +715,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Drivers */}
         {collapsed ? (
-          <Item href="/admin/drivers" label="Drivers" Icon={Truck} collapsed={collapsed} path={path} variant={variant} />
+          <Item href="/admin/drivers" label="Drivers" Icon={Truck} collapsed={collapsed} path={path} variant={variant} badge={nav?.trips ?? 0} />
         ) : (
-          <div>
+          <div className={dark && driverOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Drivers" 
               Icon={Truck} 
@@ -655,6 +725,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setDriverOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Drivers"}
+              badge={nav?.trips ?? 0}
+              pages={driverDetails.length}
             />
             <NestedGroup open={driverOpen} title="Drivers" active={activeSection === "Drivers"} items={driverDetails} />
           </div>
@@ -664,7 +736,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/users" label="Users" Icon={Users} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div>
+          <div className={dark && usersOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Users" 
               Icon={Users} 
@@ -672,6 +744,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setUsersOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Users"}
+              pages={userDetails.length}
             />
             <NestedGroup open={usersOpen} title="Users" active={activeSection === "Users"} items={userDetails} />
           </div>
@@ -681,9 +754,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Group Stay */}
         {collapsed ? (
-          <Item href="/admin/group-stays" label="Group Stay" Icon={Users} collapsed={collapsed} path={path} variant={variant} />
+          <Item href="/admin/group-stays" label="Group Stay" Icon={Users} collapsed={collapsed} path={path} variant={variant} badge={nav?.groupStays ?? 0} />
         ) : (
-          <div>
+          <div className={dark && groupStayOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Group Stay" 
               Icon={Users} 
@@ -691,6 +764,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setGroupStayOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Group Stay"}
+              badge={nav?.groupStays ?? 0}
+              pages={groupStayDetails.length}
             />
             <NestedGroup open={groupStayOpen} title="Group Stay" active={activeSection === "Group Stay"} items={groupStayDetails} />
           </div>
@@ -700,7 +775,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/agents/dashboard" label="No4P Agents" Icon={Bot} collapsed={collapsed} path={path} variant={variant} badge={twigaWaiting} />
         ) : (
-          <div>
+          <div className={dark && agentsOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="No4P Agents" 
               Icon={Bot} 
@@ -709,6 +784,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               collapsed={collapsed}
               active={activeSection === "No4P Agents"}
               badge={twigaWaiting}
+              pages={agentsDetails.length}
             />
             <NestedGroup open={agentsOpen} title="No4P Agents" active={activeSection === "No4P Agents"} items={agentsDetails} />
           </div>
@@ -718,7 +794,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/nrms" label="NRMS" Icon={Hotel} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div>
+          <div className={dark && nrmsOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton
               label="NRMS"
               Icon={Hotel}
@@ -726,6 +802,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setNrmsOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "NRMS"}
+              pages={nrmsDetails.length}
             />
             <NestedGroup open={nrmsOpen} title="NRMS" active={activeSection === "NRMS"} items={nrmsDetails} />
           </div>
@@ -735,7 +812,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/sales" label="Sales partners" Icon={Briefcase} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div>
+          <div className={dark && salesOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton
               label="Sales partners"
               Icon={Briefcase}
@@ -743,6 +820,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setSalesOpen((value) => !value)}
               collapsed={collapsed}
               active={activeSection === "Sales"}
+              pages={salesDetails.length}
             />
             <NestedGroup open={salesOpen} title="Sales partners" active={activeSection === "Sales"} items={salesDetails} />
           </div>
@@ -752,9 +830,9 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
 
         {/* Cancellations */}
         {collapsed ? (
-          <Item href="/admin/cancellations" label="Cancellations" Icon={Ban} collapsed={collapsed} path={path} variant={variant} />
+          <Item href="/admin/cancellations" label="Cancellations" Icon={Ban} collapsed={collapsed} path={path} variant={variant} badge={nav?.cancellations ?? 0} />
         ) : (
-          <div>
+          <div className={dark && cancellationsOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Cancellations" 
               Icon={Ban} 
@@ -762,6 +840,8 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setCancellationsOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Cancellations"}
+              badge={nav?.cancellations ?? 0}
+              pages={cancellationsDetails.length}
             />
             <NestedGroup open={cancellationsOpen} title="Cancellations" active={activeSection === "Cancellations"} items={cancellationsDetails} />
           </div>
@@ -771,7 +851,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
         {collapsed ? (
           <Item href="/admin/management" label="Management" Icon={Settings} collapsed={collapsed} path={path} variant={variant} />
         ) : (
-          <div>
+          <div className={dark && managementOpen ? "rounded-xl bg-white/[0.035] p-1 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors" : undefined}>
             <CollapsibleButton 
               label="Management" 
               Icon={Settings} 
@@ -779,6 +859,7 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
               onClick={() => setManagementOpen(v => !v)}
               collapsed={collapsed}
               active={activeSection === "Management"}
+              pages={managementDetails.length}
             />
             <NestedGroup open={managementOpen} title="Management" active={activeSection === "Management"} items={managementDetails} />
           </div>
@@ -794,11 +875,11 @@ export default function AdminNav({ variant = "light", collapsed = false }: { var
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event("toggle-admin-sidebar"))}
-            className={`hidden min-h-8 w-full appearance-none items-center rounded-lg border border-white/[0.06] bg-white/[0.05] text-[11px] font-semibold text-emerald-100/60 transition hover:bg-white/10 hover:text-white md:flex ${collapsed ? "justify-center" : "justify-between px-2.5"}`}
+            className={`hidden h-8 w-8 cursor-pointer appearance-none items-center justify-center rounded-lg border border-solid border-white/[0.06] bg-white/[0.05] text-emerald-100/60 transition hover:bg-white/10 hover:text-white md:flex ${collapsed ? "mx-auto" : "ml-auto"}`}
             aria-label={collapsed ? "Expand admin sidebar" : "Collapse admin sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {!collapsed && "Collapse sidebar"}
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            {collapsed ? <ChevronRight className="h-4 w-4" aria-hidden /> : <ChevronLeft className="h-4 w-4" aria-hidden />}
           </button>
         </div>
       )}
