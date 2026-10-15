@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.nolsaf.app",
-      "versionCode": 39,
+      "versionCode": 40,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"
