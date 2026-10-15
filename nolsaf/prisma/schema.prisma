@@ -2220,6 +2220,9 @@ model SystemSetting {
   /// Support contact phone shown in UI/receipts (optional)
   supportPhone String? @db.VarChar(40)
 
+  /// Office address shown with the support contacts (optional; site shows the head office when empty)
+  supportAddress String? @db.VarChar(160)
+
   // ==================== Security & Cybersecurity Fields ====================
   /// Require two-factor authentication for admin accounts
   requireAdmin2FA Boolean? @default(false)

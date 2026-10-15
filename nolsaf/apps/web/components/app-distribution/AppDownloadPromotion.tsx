@@ -30,7 +30,7 @@ function GooglePlayMark({ compact }: { compact: boolean }) {
   </svg>;
 }
 
-function StoreBadge({ item, compact }: { item: StoreLink; compact: boolean }) {
+function StoreBadge({ item, compact, dark = false }: { item: StoreLink; compact: boolean; dark?: boolean }) {
   const content = <>
     {item.kind === "ios" ? <AppleStoreMark compact={compact} /> : <GooglePlayMark compact={compact} />}
     <span className="min-w-0 text-left">
@@ -38,7 +38,11 @@ function StoreBadge({ item, compact }: { item: StoreLink; compact: boolean }) {
       <span className={`mt-0.5 block whitespace-nowrap font-semibold leading-none tracking-tight ${compact ? "text-sm" : "text-base"}`}>{item.store}</span>
     </span>
   </>;
-  const className = `inline-flex shrink-0 items-center justify-center rounded-lg border border-solid border-slate-300 bg-white text-[#111] no-underline transition hover:border-emerald-300 hover:bg-white hover:text-[#111] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${compact ? "h-10 w-32 gap-1.5 px-1.5" : "h-[52px] w-[168px] gap-2 px-2"}`;
+  // Dark: an outlined badge that sits inside the dark footer instead of a white block.
+  const tone = dark
+    ? "border-white/15 bg-white/[0.04] text-white hover:border-emerald-300/50 hover:bg-white/[0.08] hover:text-white"
+    : "border-slate-300 bg-white text-[#111] hover:border-emerald-300 hover:bg-white hover:text-[#111]";
+  const className = `box-border inline-flex shrink-0 items-center justify-center rounded-lg border border-solid no-underline transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${tone} ${compact ? "h-10 w-[136px] gap-2 px-2.5" : "h-[52px] w-[168px] gap-2 px-2"}`;
   return <a href={item.href} target="_blank" rel="noopener noreferrer" aria-label={`Open ${item.store} for ${item.platform}`} className={className}>{content}</a>;
 }
 
@@ -60,9 +64,9 @@ function AppDownloadPromotionView({ settings, placement }: {
   </div>;
 
   return placement === "footer"
-    ? <section aria-label="Download the NoLSAF app" className="col-span-2 col-start-2 min-w-0">
-        <div className="grid grid-cols-2 gap-3">
-          {links.map((item) => <div key={item.store} className={`flex min-w-0 justify-center ${item.kind === "ios" ? "col-start-2" : "col-start-1"}`}><StoreBadge item={item} compact /></div>)}
+    ? <section aria-label="Download the NoLSAF app" className="col-span-full mt-2 flex min-w-0 flex-wrap items-center justify-end gap-x-6 gap-y-3 border-0 border-t border-solid border-white/[0.08] pt-5">
+        <div className="flex flex-wrap gap-2.5">
+          {links.map((item) => <StoreBadge key={item.store} item={item} compact dark />)}
         </div>
       </section>
     : <section aria-label="Download the NoLSAF app" className="public-container py-5 sm:py-8">

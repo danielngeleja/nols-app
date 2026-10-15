@@ -65,6 +65,27 @@ async function hasCurrencyColumn(): Promise<boolean> {
   }
 }
 
+// supportAddress ships in its own migration (20261015100000), so it is detected separately.
+let supportAddressColumnAvailable: boolean | null = null;
+async function hasSupportAddressColumn(): Promise<boolean> {
+  if (supportAddressColumnAvailable !== null) return supportAddressColumnAvailable;
+  try {
+    await prisma.systemSetting.findUnique({ where: { id: 1 }, select: { supportAddress: true } as any });
+    supportAddressColumnAvailable = true;
+    return true;
+  } catch (err: any) {
+    if (
+      err?.code === "P2022" ||
+      String(err?.message || "").includes("ColumnNotFound") ||
+      String(err?.message || "").includes("Unknown field")
+    ) {
+      supportAddressColumnAvailable = false;
+      return false;
+    }
+    throw err;
+  }
+}
+
 let supportColumnsAvailable: boolean | null = null;
 async function hasSupportColumns(): Promise<boolean> {
   if (supportColumnsAvailable !== null) return supportColumnsAvailable;
@@ -172,6 +193,7 @@ router.get("/", async (_req, res) => {
   const roleCols = await hasRoleTtlColumns();
   const currencyCol = await hasCurrencyColumn();
   const supportCols = await hasSupportColumns();
+  const supportAddrCol = await hasSupportAddressColumn();
   const tierCol = await hasTierLadderColumn();
   const payoutCols = await hasPayoutSafeguardColumns();
   const autoCols = await hasAutoPayoutColumns();
@@ -214,6 +236,7 @@ router.get("/", async (_req, res) => {
         logFailedLoginAttempts: true,
         alertOnSuspiciousActivity: true,
         ...(supportCols ? { supportEmail: true, supportPhone: true } : {}),
+        ...(supportAddrCol ? { supportAddress: true } : {}),
         ...(payoutCols ? { payoutReviewThresholdTzs: true, payoutDailyCapPerPayeeTzs: true, payoutRecentChangeHours: true } : {}),
         ...(autoCols ? { autoPayoutEnabled: true, autoPayoutDailyCapTzs: true, payoutUnclaimedAutoDays: true } : {}),
         ...(roleCols
@@ -246,6 +269,8 @@ router.get("/", async (_req, res) => {
     out.supportEmail = out.supportEmail ?? null;
     out.supportPhone = out.supportPhone ?? null;
   }
+  out.supportAddress = supportAddrCol ? (out.supportAddress ?? null) : null;
+  out.supportAddressAvailable = supportAddrCol;
   out.payoutReviewThresholdTzs = out.payoutReviewThresholdTzs ?? null;
   out.payoutDailyCapPerPayeeTzs = out.payoutDailyCapPerPayeeTzs ?? null;
   out.payoutRecentChangeHours = out.payoutRecentChangeHours ?? PAYOUT_RECENT_CHANGE_DEFAULT_HOURS;
@@ -308,6 +333,7 @@ router.put("/", async (req, res) => {
   const roleCols = await hasRoleTtlColumns();
   const currencyCol = await hasCurrencyColumn();
   const supportCols = await hasSupportColumns();
+  const supportAddrCol = await hasSupportAddressColumn();
   const tierCol = await hasTierLadderColumn();
   const payoutCols = await hasPayoutSafeguardColumns();
   const autoCols = await hasAutoPayoutColumns();
@@ -570,6 +596,13 @@ router.put("/", async (req, res) => {
   if (!supportCols) {
     delete (sanitizedUpdate as any).supportEmail;
     delete (sanitizedUpdate as any).supportPhone;
+  }
+  delete (sanitizedUpdate as any).supportAddressAvailable;
+  if (!supportAddrCol) {
+    delete (sanitizedUpdate as any).supportAddress;
+  } else if (body.supportAddress !== undefined) {
+    const addr = typeof body.supportAddress === "string" ? body.supportAddress.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+    (sanitizedUpdate as any).supportAddress = addr || null;
   }
 
   const s = await prisma.systemSetting.upsert({

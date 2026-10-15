@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, Phone } from "lucide-react";
+import { BadgeCheck, PhoneCall, ShieldCheck, Linkedin, Instagram, Youtube, X, Facebook, Mail, MapPin, MessageCircle } from "lucide-react";
 import AppDownloadPromotion from "./app-distribution/AppDownloadPromotion";
 
 const APP_VERSION = "v0.1.0";
@@ -47,6 +47,36 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
       setNewsletterLoading(false);
     }
   };
+  // Support contacts come from System Settings through /api/public/support (which itself
+  // falls back to the official contacts when Settings is empty). Only if that request
+  // fails do we show the same official contacts, so the card is never blank.
+  const [contact, setContact] = useState<{ email: string; phone: string; address: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const official = { email: "support@nolsaf.com", phone: "+255 736 766 726", address: "Dar es Salaam, Tanzania" };
+    fetch("/api/public/support")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        const email = typeof d?.supportEmail === "string" ? d.supportEmail.trim() : "";
+        const phone = typeof d?.supportPhone === "string" ? d.supportPhone.trim() : "";
+        const address = typeof d?.supportAddress === "string" ? d.supportAddress.trim() : "";
+        setContact({ email: email || official.email, phone: phone || official.phone, address: address || official.address });
+      })
+      .catch(() => { if (!cancelled) setContact(official); });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const phoneDial = (contact?.phone ?? "").replace(/[^0-9+]/g, "");
+  type ContactAction = { href: string; label: string; Icon: typeof Mail };
+  const contactRows: Array<{ key: string; label: string; value: string; primary: ContactAction; secondary: ContactAction | null }> = contact
+    ? [
+        { key: "phone", label: "Phone and WhatsApp", value: contact.phone, primary: { href: `tel:${phoneDial}`, label: "Call", Icon: PhoneCall }, secondary: { href: `https://wa.me/${phoneDial.replace("+", "")}`, label: "Chat on WhatsApp", Icon: MessageCircle } },
+        { key: "email", label: "Email", value: contact.email, primary: { href: `mailto:${contact.email}`, label: "Write an email", Icon: Mail }, secondary: null },
+      ]
+    : [];
+
   // Set navigation context for policy pages
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -84,39 +114,70 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
                 <span className="block font-normal text-emerald-300/90">Growing across Africa.</span>
               </p>
 
-              {/* Contact: one card, labelled rows, divided by hairlines */}
-              <ul className="m-0 mt-5 list-none overflow-hidden rounded-xl border border-solid border-white/[0.08] bg-white/[0.02] p-0">
-                {[
-                  { label: "Call us", value: "+255 736 766 726", href: "tel:+255736766726", Icon: Phone },
-                  { label: "Email", value: "support@nolsaf.com", href: "mailto:support@nolsaf.com", Icon: Mail },
-                  { label: "Office", value: "Dar es Salaam, Tanzania", href: null, Icon: MapPin },
-                ].map(({ label, value, href, Icon }, index) => {
-                  const row = (
-                    <>
-                      <Icon className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[10.5px] font-semibold uppercase tracking-[0.1em] text-white/40">{label}</span>
-                        <span className="block truncate text-[13px] text-white/85">{value}</span>
-                      </span>
-                    </>
-                  );
-                  return (
-                    <li key={label} className={index > 0 ? "border-0 border-t border-solid border-white/[0.06]" : ""}>
-                      {href ? (
-                        <a href={href} className="flex items-center gap-3 px-3.5 py-2.5 no-underline transition-colors hover:bg-white/[0.04] hover:no-underline">
-                          {row}
-                        </a>
-                      ) : (
-                        <div className="flex items-center gap-3 px-3.5 py-2.5">{row}</div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              {/* Official contacts: one joined card (System Settings via /api/public/support) */}
+              <div className="mt-6 overflow-hidden rounded-2xl border border-solid border-white/[0.08] bg-white/[0.025]">
+                <div className="flex items-center justify-between gap-2 px-4 py-3">
+                  <span className="text-[13px] font-semibold text-white">Official contacts</span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-300/12 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-300/25">
+                    <BadgeCheck className="h-3 w-3" aria-hidden /> Verified
+                  </span>
+                </div>
+
+                {contactRows.length === 0
+                  ? [0, 1].map((k) => (
+                      <div key={k} className="border-0 border-t border-solid border-white/[0.06] px-4 py-3" aria-hidden>
+                        <span className="block h-2.5 w-24 animate-pulse rounded bg-white/[0.08]" />
+                        <span className="mt-2 block h-4 w-40 animate-pulse rounded bg-white/[0.08]" />
+                      </div>
+                    ))
+                  : contactRows.map((r) => (
+                      <div key={r.key} className="flex items-center gap-3 border-0 border-t border-solid border-white/[0.06] px-4 py-3">
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] text-white/45">{r.label}</span>
+                          <a href={r.primary.href} className="mt-0.5 block truncate text-[15px] font-semibold tabular-nums tracking-tight text-white no-underline hover:text-emerald-200 hover:no-underline">{r.value}</a>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          {[r.primary, ...(r.secondary ? [r.secondary] : [])].map((a) => (
+                            <a
+                              key={a.label}
+                              href={a.href}
+                              target={a.href.startsWith("http") ? "_blank" : undefined}
+                              rel="noopener noreferrer"
+                              aria-label={a.label}
+                              title={a.label}
+                              className="grid h-8 w-8 place-items-center rounded-full bg-emerald-300/10 text-emerald-300 no-underline transition hover:bg-emerald-300 hover:text-[#012e29]"
+                            >
+                              <a.Icon className="h-[15px] w-[15px]" aria-hidden />
+                            </a>
+                          ))}
+                        </span>
+                      </div>
+                    ))}
+
+                <div className="border-0 border-t border-solid border-white/[0.06] px-4 py-2">
+                  <p className="m-0 flex items-center gap-2 py-1.5 text-[12.5px] text-white/60">
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-emerald-300/80" aria-hidden /> {contact?.address ?? "Dar es Salaam, Tanzania"}
+                  </p>
+                  <Link href="/verify" className="flex items-center gap-2 py-1.5 text-[12.5px] font-medium text-emerald-300/90 no-underline hover:text-emerald-200 hover:no-underline">
+                    <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span className="flex-1">Verify a message</span>
+                    <span aria-hidden>›</span>
+                  </Link>
+                </div>
+              </div>
             </div>
 
-            <div className="col-span-3 grid min-w-0 grid-cols-3 gap-x-8 gap-y-5 lg:gap-x-10">
+            <div className="col-span-3 grid min-w-0 grid-cols-4 gap-x-6 gap-y-5 lg:gap-x-8">
             {[
+              {
+                title: "Explore",
+                links: [
+                  { href: "/public/properties", label: "Stays" },
+                  { href: "/public/tour-packages", label: "Tour packages" },
+                  { href: "/public/group-stays", label: "Group stays" },
+                  { href: "/public/nolscope", label: "Cost estimator" },
+                ],
+              },
               {
                 title: "Company",
                 links: [
@@ -143,6 +204,7 @@ export default function PublicFooter(_props: { withRail?: boolean }) {
                 links: [
                   { href: "/account/register?mode=register&role=owner&next=%2Fowner", label: "Owner portal" },
                   { href: "/account/register?mode=register&role=driver&next=%2Fdriver", label: "Driver portal" },
+                  { href: "/help/become-agent", label: "Tour operators" },
                   { href: "/nrms", label: "NRMS for hotels" },
                 ],
               },

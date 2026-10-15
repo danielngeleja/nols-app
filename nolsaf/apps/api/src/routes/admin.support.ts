@@ -51,8 +51,11 @@ router.get("/overview", async (_req, res) => {
     res.json({
       queues: [twigaWaiting, twigaActive, cancellations, tourCases, guestCodes, groupRequests],
       contact: {
-        email: settings?.supportEmail ?? process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? null,
-        phone: settings?.supportPhone ?? process.env.NEXT_PUBLIC_SUPPORT_PHONE ?? null,
+        // What customers actually see (same order as /api/public/support): Settings,
+        // then the environment, then the official company contacts.
+        email: settings?.supportEmail?.trim() || process.env.NEXT_PUBLIC_SUPPORT_EMAIL?.trim() || "support@nolsaf.com",
+        phone: settings?.supportPhone?.trim() || process.env.NEXT_PUBLIC_SUPPORT_PHONE?.trim() || "+255 736 766 726",
+        fromSettings: Boolean(settings?.supportEmail?.trim() || settings?.supportPhone?.trim()),
       },
       handoffs: (handoffs as any[]).map((h) => ({
         reason: h.handoffReason ?? null,
