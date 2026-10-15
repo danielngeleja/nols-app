@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const saved = {
@@ -41,6 +41,16 @@ vi.mock("../lib/nrmsRestrictions.js", async (importOriginal) => {
 import { router } from "./public.nrmsGuest.js";
 
 describe("public direct hold route idempotency", () => {
+  // The request uses fixed stay dates; pin "today" before them so the test does not
+  // expire with the calendar (the route rejects past check-ins). Only Date is faked.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-12T08:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.prisma.property.findFirst.mockResolvedValue({ id: 19, ownerId: 4, title: "Test Hotel", currency: "TZS", nrmsGuestPayInstructions: {}, nrmsGuestContactSettings: {} });
