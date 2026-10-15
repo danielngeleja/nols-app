@@ -7,9 +7,14 @@ const router = Router();
 router.get("/", async (_req, res) => {
   try {
     const s = await prisma.systemSetting.findUnique({ where: { id: 1 } }) ?? {} as any;
-    const supportEmail = s.supportEmail ?? process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? null;
-    const supportPhone = s.supportPhone ?? process.env.NEXT_PUBLIC_SUPPORT_PHONE ?? null;
-    res.json({ supportEmail, supportPhone });
+    // System Settings wins; then the environment; then the official company contacts
+    // (same defaults as lib/tripSafety.ts), so public pages never show an empty contact.
+    const pick = (...values: unknown[]) => values.map((v) => (typeof v === "string" ? v.trim() : "")).find(Boolean) ?? null;
+    const supportEmail = pick(s.supportEmail, process.env.NEXT_PUBLIC_SUPPORT_EMAIL, "support@nolsaf.com");
+    const supportPhone = pick(s.supportPhone, process.env.NEXT_PUBLIC_SUPPORT_PHONE, "+255 736 766 726");
+    // Office address (column added in 20261015100000); the head office until an admin sets it.
+    const supportAddress = pick((s as any).supportAddress, "Dar es Salaam, Tanzania");
+    res.json({ supportEmail, supportPhone, supportAddress });
   } catch (err) {
     console.error('public support error', err);
     res.status(500).json({ error: 'Could not load support contact' });

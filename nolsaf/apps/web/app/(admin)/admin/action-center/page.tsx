@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -152,61 +152,6 @@ function dueLabel(value: string | null, now = Date.now()) {
     : { label: `Due in ${duration}`, overdue: false };
 }
 
-function SummaryCard({ label, value, note, Icon, tone }: {
-  label: string;
-  value: string | number;
-  note: string;
-  Icon: LucideIcon;
-  tone: "red" | "amber" | "teal" | "slate";
-}) {
-  const tones = {
-    red: "bg-red-50 text-red-700",
-    amber: "bg-amber-50 text-amber-700",
-    teal: "bg-emerald-50 text-[#02665e]",
-    slate: "bg-slate-100 text-slate-700",
-  };
-  return (
-    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.4)]">
-      <div className="flex items-center gap-2.5">
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}>
-          <Icon className="h-4 w-4" aria-hidden />
-        </span>
-        <p className="m-0 text-xs font-bold text-slate-600">{label}</p>
-      </div>
-      <p className="mt-3 break-words text-2xl font-black tracking-tight text-slate-950">{value}</p>
-      <p className="mt-0.5 text-[11px] font-medium leading-4 text-slate-500">{note}</p>
-    </div>
-  );
-}
-
-function SupportingMetric({ label, value, note, Icon, tone }: {
-  label: string;
-  value: string | number;
-  note: string;
-  Icon: LucideIcon;
-  tone: "amber" | "blue" | "teal";
-}) {
-  const tones = {
-    amber: "bg-amber-50 text-amber-700",
-    blue: "bg-blue-50 text-blue-700",
-    teal: "bg-emerald-50 text-[#02665e]",
-  };
-  return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2.5">
-      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}>
-        <Icon className="h-3.5 w-3.5" aria-hidden />
-      </span>
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <p className="m-0 text-xs font-bold text-slate-700">{label}</p>
-          <p className="m-0 break-words text-base font-black text-slate-950">{value}</p>
-        </div>
-        <p className="m-0 mt-0.5 text-[11px] leading-4 text-slate-500">{note}</p>
-      </div>
-    </div>
-  );
-}
-
 type WorkflowAction = "CLAIM" | "ACKNOWLEDGE" | "REOPEN";
 
 function WorkflowActionButtons({ item, busy, onUpdate, onResolve }: {
@@ -215,34 +160,39 @@ function WorkflowActionButtons({ item, busy, onUpdate, onResolve }: {
   onUpdate: (item: ActionItem, action: WorkflowAction) => void;
   onResolve: (item: ActionItem) => void;
 }) {
+  const wf = item.workflow;
+  const ghost = "flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-slate-500 transition hover:bg-white hover:text-slate-900 hover:shadow-sm";
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
+    <div className="flex items-center gap-1.5">
       <Link
         href={item.detailHref}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#02665e] px-2.5 text-[11px] font-bold text-white no-underline hover:bg-[#01544d]"
+        className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#02665e] px-3 text-xs font-semibold text-white no-underline transition hover:bg-[#01544d] hover:no-underline"
         title={item.actionLabel}
       >
         Open <ChevronRight className="h-3.5 w-3.5" aria-hidden />
       </Link>
-      {item.workflow && item.workflow.status !== "RESOLVED" && !item.workflow.assignedTo ? (
-        <button type="button" disabled={busy} onClick={() => onUpdate(item, "CLAIM")} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50" aria-label="Take ownership" title="Take ownership">
-          <UserPlus className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : null}
-      {item.workflow?.status === "OPEN" ? (
-        <button type="button" disabled={busy} onClick={() => onUpdate(item, "ACKNOWLEDGE")} className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" aria-label="Acknowledge" title="Acknowledge">
-          <UserCheck className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : null}
-      {item.workflow && item.workflow.status !== "RESOLVED" ? (
-        <button type="button" disabled={busy} onClick={() => onResolve(item)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50" aria-label="Confirm resolved" title="Confirm resolved">
-          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : null}
-      {item.workflow?.status === "RESOLVED" ? (
-        <button type="button" disabled={busy} onClick={() => onUpdate(item, "REOPEN")} className="flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50" aria-label="Reopen SLA" title="Reopen SLA">
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-        </button>
+      {wf ? (
+        <div className={`flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5 ${busy ? "pointer-events-none opacity-50" : ""}`} aria-busy={busy}>
+          {wf.status !== "RESOLVED" && !wf.assignedTo ? (
+            <button type="button" onClick={() => onUpdate(item, "CLAIM")} className={ghost} aria-label="Take ownership" title="Take ownership">
+              <UserPlus className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : null}
+          {wf.status === "OPEN" ? (
+            <button type="button" onClick={() => onUpdate(item, "ACKNOWLEDGE")} className={ghost} aria-label="Acknowledge" title="Acknowledge">
+              <UserCheck className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : null}
+          {wf.status !== "RESOLVED" ? (
+            <button type="button" onClick={() => onResolve(item)} className={`${ghost} hover:text-emerald-700`} aria-label="Confirm resolved" title="Confirm resolved">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : (
+            <button type="button" onClick={() => onUpdate(item, "REOPEN")} className={`${ghost} hover:text-amber-700`} aria-label="Reopen SLA" title="Reopen SLA">
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
+        </div>
       ) : null}
     </div>
   );
@@ -262,8 +212,6 @@ export default function AdminActionCenterPage() {
   const [resolveTarget, setResolveTarget] = useState<ActionItem | null>(null);
   const [resolutionNote, setResolutionNote] = useState("");
   const [page, setPage] = useState(1);
-  const tableScrollRef = useRef<HTMLDivElement>(null);
-  const [tableCanScroll, setTableCanScroll] = useState({ left: false, right: true });
   const perPage = 10;
 
   const load = useCallback(async (quiet = false) => {
@@ -301,29 +249,6 @@ export default function AdminActionCenterPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const updateTableScrollState = useCallback(() => {
-    const element = tableScrollRef.current;
-    if (!element) return;
-    const maximum = Math.max(0, element.scrollWidth - element.clientWidth);
-    setTableCanScroll({
-      left: element.scrollLeft > 4,
-      right: element.scrollLeft < maximum - 4,
-    });
-  }, []);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(updateTableScrollState);
-    window.addEventListener("resize", updateTableScrollState);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("resize", updateTableScrollState);
-    };
-  }, [data.items.length, updateTableScrollState]);
-
-  function slideTable(direction: -1 | 1) {
-    tableScrollRef.current?.scrollBy({ left: direction * 520, behavior: "smooth" });
-  }
-
   const totalExposure = useMemo(() => {
     const entries = Object.entries(data.summary.exposureByCurrency);
     if (!entries.length) return "TZS 0";
@@ -353,6 +278,35 @@ export default function AdminActionCenterPage() {
     setPage(1);
   }
 
+  // One sentence that says how the queue stands, from the live summary.
+  const pressure = useMemo(() => {
+    const sm = data.summary;
+    const rest = Math.max(0, sm.total - sm.critical - sm.high);
+    if (loading) return { verdict: "Reading the queue…", tone: "calm" as const, rest };
+    if (!sm.total) return { verdict: "Nothing waits on the team. Every deadline is clear.", tone: "calm" as const, rest };
+    const parts: string[] = [];
+    if (sm.responseBreached) parts.push(`${sm.responseBreached} past the response deadline`);
+    if (sm.resolutionBreached) parts.push(`${sm.resolutionBreached} past the resolution target`);
+    if (sm.unassigned) parts.push(`${sm.unassigned} without an owner`);
+    const lead = `${sm.total} ${sm.total === 1 ? "item is" : "items are"} active`;
+    const verdict = parts.length ? `${lead}: ${parts.join(", ")}.` : `${lead}, all inside their deadlines.`;
+    const tone = sm.responseBreached || sm.critical ? ("hot" as const) : sm.resolutionBreached || sm.high ? ("warn" as const) : ("calm" as const);
+    return { verdict, tone, rest };
+  }, [data.summary, loading]);
+
+  type Tile = { label: string; value: string | number; note: string; Icon: LucideIcon; hot: boolean; hotText: string; hotDot: string; filter?: { kind: "severity" | "status"; value: string; shows: string } };
+  const sm = data.summary;
+  const pressureTiles: Tile[] = [
+    { label: "Critical", value: sm.critical, note: "Highest impact first", Icon: AlertTriangle, hot: sm.critical > 0, hotText: "text-rose-300", hotDot: "bg-rose-400", filter: { kind: "severity", value: "CRITICAL", shows: "critical work" } },
+    { label: "High", value: sm.high, note: "Next in line", Icon: Siren, hot: sm.high > 0, hotText: "text-amber-300", hotDot: "bg-amber-300", filter: { kind: "severity", value: "HIGH", shows: "high-priority work" } },
+    { label: "Response overdue", value: sm.responseBreached, note: "Not acknowledged in time", Icon: Clock3, hot: sm.responseBreached > 0, hotText: "text-rose-300", hotDot: "bg-rose-400", filter: { kind: "status", value: "OPEN", shows: "work not yet acknowledged" } },
+    { label: "Resolution overdue", value: sm.resolutionBreached, note: "Beyond the target", Icon: CalendarClock, hot: sm.resolutionBreached > 0, hotText: "text-amber-300", hotDot: "bg-amber-300", filter: { kind: "severity", value: "OVERDUE", shows: "work past its resolution target" } },
+    { label: "Without owner", value: sm.unassigned, note: "Take ownership in the list", Icon: UserPlus, hot: sm.unassigned > 0, hotText: "text-amber-300", hotDot: "bg-amber-300" },
+    { label: "Money at risk", value: totalExposure, note: `${sm.acknowledged} acknowledged`, Icon: CircleDollarSign, hot: false, hotText: "", hotDot: "" },
+  ];
+  // The top-ranked item, only when the whole active queue is in view.
+  const startHere = !loading && page === 1 && category === "ALL" && severity === "ALL" && status === "ACTIVE" && !appliedQuery ? data.items[0] ?? null : null;
+
   const filtersActive = category !== "ALL" || severity !== "ALL" || status !== "ACTIVE" || Boolean(appliedQuery);
 
   async function updateWorkflow(item: ActionItem, action: "CLAIM" | "ACKNOWLEDGE" | "RESOLVE" | "REOPEN", note?: string) {
@@ -373,41 +327,116 @@ export default function AdminActionCenterPage() {
 
   return (
     <div className="min-w-0 space-y-4 p-3 sm:space-y-5 sm:p-5 lg:p-6">
-      <section
-        className="relative overflow-hidden rounded-2xl border border-white/10 shadow-[0_18px_45px_-30px_rgba(2,102,94,0.8)]"
-        style={{ background: "linear-gradient(135deg, #071b19 0%, #0a302c 48%, #0b3f55 100%)" }}
-      >
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-gradient-to-l from-cyan-300/[0.06] to-transparent" aria-hidden />
-        <div className="relative z-10 flex flex-col gap-5 px-5 py-5 sm:px-7 sm:py-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-300/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-100">
-                <Siren className="h-3.5 w-3.5" /> Operations
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.07] px-2.5 py-1 text-[10px] font-bold text-white/70">
-                <ShieldCheck className="h-3.5 w-3.5" /> SLA tracking active
-              </span>
+      {/* Command band: a verdict, the single most urgent item, and pressure tiles that filter the queue */}
+      <section className="relative overflow-hidden rounded-2xl border border-solid border-emerald-950/60 bg-[#0b2420] text-white shadow-[0_18px_45px_-30px_rgba(2,102,94,0.8)]" aria-label="Action Center status">
+        <div className="pointer-events-none absolute inset-0" aria-hidden style={{ background: "radial-gradient(700px circle at 8% -30%, rgba(52,211,153,0.16), transparent 60%), radial-gradient(520px circle at 95% 0%, rgba(56,189,248,0.08), transparent 60%)" }} />
+        <div className="relative px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200/70">
+                <span className={`h-1.5 w-1.5 rounded-full ${pressure.tone === "calm" ? "bg-emerald-300" : pressure.tone === "warn" ? "bg-amber-300" : "bg-rose-400"} shadow-[0_0_8px_2px_currentColor]`} aria-hidden />
+                Operations · SLA tracked
+              </p>
+              <h1 className="m-0 mt-2 text-2xl font-bold tracking-tight text-white sm:text-[28px]">Action Center</h1>
+              <p className="m-0 mt-1.5 max-w-2xl text-sm leading-6 text-emerald-50/75">{pressure.verdict}</p>
             </div>
-            <h1 className="mt-3 text-2xl font-black tracking-tight text-white sm:text-[2rem]">Action Center</h1>
-            <p className="mt-1.5 max-w-3xl text-sm leading-6 text-white/65">
-              Urgent work across money, trips, cancellations, approvals, booking lifecycles, and NRMS. Ranked by impact and response deadline.
-            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              {data.generatedAt ? (
+                <span className="hidden text-[11px] text-emerald-100/50 sm:inline">
+                  Updated {new Date(data.generatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT
+                </span>
+              ) : null}
+              <Link href="/admin/impact-center" className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/10 bg-white/[0.06] px-3 text-xs font-semibold text-emerald-50/80 no-underline transition hover:bg-white/[0.12] hover:text-white hover:no-underline">
+                Technical impact <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
+              <button
+                type="button"
+                onClick={() => void load(true)}
+                aria-disabled={refreshing}
+                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-solid border-white/10 bg-white/[0.06] text-white transition hover:bg-white/[0.12]"
+                aria-label="Refresh action center"
+                title="Refresh"
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
+              </button>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Link href="/admin/impact-center" className="inline-flex h-10 items-center gap-2 rounded-lg border border-white/15 bg-white/[0.07] px-3 text-xs font-bold text-white/75 no-underline transition hover:bg-white/15 hover:text-white">
-              Technical impact <ChevronRight className="h-3.5 w-3.5" />
-            </Link>
-            <button
-              type="button"
-              onClick={() => void load(true)}
-              disabled={refreshing}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-60"
-              aria-label="Refresh action center"
-              title="Refresh"
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            </button>
+
+          {/* Start here: the queue's top-ranked item, when looking at the whole queue */}
+          {startHere ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-white/[0.05] px-3.5 py-3 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-200/60">Start here</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${startHere.severity === "CRITICAL" ? "bg-rose-400/15 text-rose-200" : startHere.severity === "HIGH" ? "bg-amber-400/15 text-amber-200" : "bg-white/10 text-emerald-50/70"}`}>{startHere.severity.charAt(0) + startHere.severity.slice(1).toLowerCase()}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-semibold text-white">{startHere.title}</span>
+                <span className="block truncate text-[11px] text-emerald-100/55">{startHere.subject}</span>
+              </span>
+              {(() => {
+                const due = dueLabel(startHere.workflow?.resolutionDueAt ?? startHere.dueAt);
+                return <span className={`text-[11px] font-semibold tabular-nums ${due.overdue ? "text-rose-300" : "text-emerald-100/60"}`}>{due.label}</span>;
+              })()}
+              <Link href={startHere.detailHref} className="inline-flex h-8 items-center gap-1 rounded-lg bg-emerald-300 px-3 text-[12px] font-bold text-emerald-950 no-underline hover:bg-emerald-200 hover:no-underline">
+                {startHere.actionLabel || "Open"} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </div>
+          ) : null}
+
+          {/* Pressure tiles: each one filters the queue below; click again to clear */}
+          <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(168px,1fr))] gap-2">
+            {pressureTiles.map((t) => {
+              const on = t.filter ? (t.filter.kind === "severity" ? severity === t.filter.value : status === t.filter.value) : false;
+              const Icon = t.Icon;
+              const body = (
+                <>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-start gap-1.5 text-[11px] font-semibold text-emerald-50/65">
+                      <Icon className={`mt-px h-3.5 w-3.5 shrink-0 ${t.hot ? t.hotText : "text-emerald-200/60"}`} aria-hidden />
+                      <span className="leading-tight">{t.label}</span>
+                    </span>
+                    {t.hot ? <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.hotDot}`} aria-hidden /> : null}
+                  </span>
+                  <span className={`mt-1.5 block break-words font-bold tabular-nums leading-tight tracking-tight ${typeof t.value === "string" && t.value.length > 8 ? "text-base" : "text-xl"} ${t.hot ? "text-white" : "text-emerald-50/80"}`}>{loading ? "…" : t.value}</span>
+                  <span className="mt-1 block text-[11px] leading-snug text-emerald-100/45">{t.note}</span>
+                </>
+              );
+              const base = `flex min-w-0 flex-col rounded-xl px-3 py-2.5 text-left transition ${on ? "bg-emerald-300/[0.14] shadow-[inset_0_0_0_1px_rgba(110,231,183,0.45)]" : "bg-white/[0.04] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"}`;
+              return t.filter ? (
+                <button
+                  key={t.label}
+                  type="button"
+                  aria-pressed={on}
+                  title={on ? "Show all work again" : `Show ${t.filter.shows}`}
+                  onClick={() => {
+                    const f = t.filter!;
+                    if (f.kind === "severity") setSeverity(on ? "ALL" : f.value);
+                    else setStatus(on ? "ACTIVE" : f.value);
+                    setPage(1);
+                  }}
+                  className={`${base} w-full cursor-pointer appearance-none border-0 hover:bg-white/[0.08]`}
+                >
+                  {body}
+                </button>
+              ) : (
+                <div key={t.label} className={base}>{body}</div>
+              );
+            })}
           </div>
+
+          {/* Urgency mix of active work: critical, high, everything else */}
+          {!loading && data.summary.total > 0 ? (
+            <div className="mt-4">
+              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]" role="img" aria-label={`Urgency mix: ${data.summary.critical} critical, ${data.summary.high} high, ${pressure.rest} other`}>
+                <span className="h-full bg-rose-400" style={{ width: `${(data.summary.critical / data.summary.total) * 100}%` }} />
+                <span className="h-full bg-amber-300" style={{ width: `${(data.summary.high / data.summary.total) * 100}%` }} />
+                <span className="h-full bg-emerald-300/50" style={{ width: `${(pressure.rest / data.summary.total) * 100}%` }} />
+              </div>
+              <p className="m-0 mt-1.5 flex flex-wrap gap-x-4 text-[11px] text-emerald-100/50">
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" aria-hidden /> {data.summary.critical} critical</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-amber-300" aria-hidden /> {data.summary.high} high</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-emerald-300/50" aria-hidden /> {pressure.rest} medium or low</span>
+              </p>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -417,20 +446,6 @@ export default function AdminActionCenterPage() {
           <button type="button" onClick={() => void load()} className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-700">Retry</button>
         </div>
       ) : null}
-
-      <section className="space-y-2.5" aria-label="Action Center summary">
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard label="Active work" value={loading ? "…" : data.summary.total} note="Items requiring operational attention" Icon={Siren} tone="slate" />
-          <SummaryCard label="Critical priority" value={loading ? "…" : data.summary.critical} note={`${data.summary.high} more items have high priority`} Icon={AlertTriangle} tone={data.summary.critical ? "red" : "teal"} />
-          <SummaryCard label="Response overdue" value={loading ? "…" : data.summary.responseBreached} note="Items waiting for acknowledgment" Icon={Clock3} tone={data.summary.responseBreached ? "red" : "teal"} />
-          <SummaryCard label="Resolution overdue" value={loading ? "…" : data.summary.resolutionBreached} note="Items beyond their resolution target" Icon={CalendarClock} tone={data.summary.resolutionBreached ? "amber" : "teal"} />
-        </div>
-        <div className="grid grid-cols-1 gap-2.5 rounded-xl border border-slate-200/80 bg-white p-2.5 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.35)] md:grid-cols-3">
-          <SupportingMetric label="Without owner" value={loading ? "…" : data.summary.unassigned} note="Needs an individual administrator" Icon={UserPlus} tone="amber" />
-          <SupportingMetric label="Acknowledged" value={loading ? "…" : data.summary.acknowledged} note="Work with an active response" Icon={UserCheck} tone="blue" />
-          <SupportingMetric label="Money at risk" value={loading ? "…" : totalExposure} note="Value connected to active work" Icon={CircleDollarSign} tone="teal" />
-        </div>
-      </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 bg-slate-50/80 p-4 sm:p-5">
@@ -518,126 +533,119 @@ export default function AdminActionCenterPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-          <p className="m-0 text-xs font-semibold text-slate-500">
-            {loading
-              ? "Loading operational state…"
-              : data.pagination.total > 0
-                ? `Showing ${(data.pagination.page - 1) * data.pagination.perPage + 1} to ${Math.min(data.pagination.page * data.pagination.perPage, data.pagination.total)} of ${data.pagination.total}`
-                : "No matching actions"}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-4 py-3 sm:px-5">
+          <p className="m-0 text-xs text-slate-500">
+            {loading ? (
+              "Loading the queue…"
+            ) : data.pagination.total > 0 ? (
+              <>
+                <span className="font-semibold text-slate-900">{data.pagination.total} in this view</span>
+                <span className="text-slate-400"> · showing {(data.pagination.page - 1) * data.pagination.perPage + 1} to {Math.min(data.pagination.page * data.pagination.perPage, data.pagination.total)}, most urgent first</span>
+              </>
+            ) : (
+              "No matching actions"
+            )}
           </p>
-          <div className="flex items-center gap-2">
-            {data.generatedAt ? <p className="m-0 text-[11px] font-medium text-slate-400">Updated {new Date(data.generatedAt).toLocaleTimeString()}</p> : null}
-            <div className="hidden items-center gap-2 lg:flex">
-              <span className="text-[11px] font-semibold text-slate-500">Slide columns</span>
-              <button type="button" onClick={() => slideTable(-1)} disabled={!tableCanScroll.left} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-[#02665e]/30 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-30" aria-label="Slide columns left" title="Slide columns left">
-                <ChevronLeft className="h-4 w-4" aria-hidden />
-              </button>
-              <button type="button" onClick={() => slideTable(1)} disabled={!tableCanScroll.right} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-[#02665e]/30 hover:text-[#02665e] disabled:cursor-not-allowed disabled:opacity-30" aria-label="Slide columns right" title="Slide columns right">
-                <ChevronRight className="h-4 w-4" aria-hidden />
-              </button>
-            </div>
-          </div>
+          {data.generatedAt ? (
+            <p className="m-0 text-[11px] text-slate-400">
+              Updated {new Date(data.generatedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" })} EAT
+            </p>
+          ) : null}
         </div>
 
         {loading ? (
           <div className="space-y-2 p-4">
-            {Array.from({ length: 6 }).map((_, value) => <div key={value} className="h-14 animate-pulse rounded-lg bg-slate-100" />)}
+            {Array.from({ length: 6 }).map((_, value) => <div key={value} className="h-16 animate-pulse rounded-lg bg-slate-100" />)}
           </div>
         ) : data.items.length ? (
           <>
-            <div ref={tableScrollRef} onScroll={updateTableScrollState} className="hidden overflow-x-auto overscroll-x-contain scroll-smooth pb-1 [scrollbar-color:#94a3b8_#f1f5f9] [scrollbar-width:thin] lg:block">
-              <table className="min-w-[1840px] w-full table-fixed border-collapse">
-                <thead className="bg-slate-50 text-left">
-                  <tr className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-500">
-                    <th className="sticky left-0 z-20 w-[12%] bg-slate-50 px-4 py-3 shadow-[5px_0_12px_-12px_rgba(15,23,42,0.6)]">Urgency</th>
-                    <th className="w-[31%] px-4 py-3">Work item</th>
-                    <th className="w-[16%] px-4 py-3">Ownership</th>
-                    <th className="w-[18%] px-4 py-3">SLA timing</th>
-                    <th className="w-[10%] px-4 py-3">Exposure</th>
-                    <th className="sticky right-0 z-20 w-[13%] bg-slate-50 px-4 py-3 text-right shadow-[-5px_0_12px_-12px_rgba(15,23,42,0.6)]">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {data.items.map((item) => {
-                    const categoryDetail = categoryDetails[item.category] || { label: item.category, Icon: Activity };
-                    const operationalDue = dueLabel(item.dueAt);
-                    const responseDue = dueLabel(item.workflow?.responseDueAt || null);
-                    const resolutionDue = dueLabel(item.workflow?.resolutionDueAt || null);
-                    const busy = actionBusy === item.workflow?.id;
-                    return (
-                      <tr key={item.id} className="group/row align-top transition-colors duration-150 hover:bg-emerald-50/60 focus-within:bg-emerald-50/60">
-                        <td className="sticky left-0 z-10 bg-white px-4 py-3.5 shadow-[5px_0_12px_-12px_rgba(15,23,42,0.5)] transition-colors duration-150 group-hover/row:bg-[#f2fbf8] group-focus-within/row:bg-[#f2fbf8]">
-                          <div className="flex items-start gap-2.5">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-[#02665e] transition-transform duration-150 group-hover/row:scale-105"><categoryDetail.Icon className="h-4 w-4" aria-hidden /></span>
-                            <div className="min-w-0 space-y-1.5">
-                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.08em] ${severityStyle[item.severity]}`}>{item.severity}</span>
-                              <p className="m-0 text-[11px] font-bold text-slate-500">{categoryDetail.label}</p>
-                              <p className="m-0 text-[10px] text-slate-400">{formatAge(item.createdAt)}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="m-0 text-sm font-black text-slate-950 transition-colors duration-150 group-hover/row:text-[#02665e]">{item.title}</p>
-                          <p className="m-0 mt-1 text-xs font-bold text-slate-700">{item.subject}</p>
-                          <p className="m-0 mt-1 line-clamp-1 text-xs leading-5 text-slate-500">{item.summary}</p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="m-0 text-xs font-bold text-slate-700">{item.workflow?.assignedTeam || "Admin Operations"}</p>
-                          <p className={`m-0 mt-1 text-[11px] font-semibold ${item.workflow?.assignedTo ? "text-emerald-700" : "text-amber-700"}`}>{item.workflow?.assignedTo?.name || item.workflow?.assignedTo?.email || "No individual owner"}</p>
-                          <p className="m-0 mt-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-400">{item.workflow?.status || "Pending"}</p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <div className="space-y-1.5 text-[11px] font-semibold">
-                            <p className={`m-0 ${item.workflow?.responseBreached ? "text-red-700" : "text-slate-600"}`}>Response: {item.workflow?.acknowledgedAt ? "Met" : responseDue.label}</p>
-                            <p className={`m-0 ${item.workflow?.resolutionBreached ? "text-red-700" : "text-slate-600"}`}>Resolution: {item.workflow?.resolvedAt ? "Met" : resolutionDue.label}</p>
-                            <p className={`m-0 ${operationalDue.overdue ? "text-amber-700" : "text-slate-400"}`}>Operational: {operationalDue.label}</p>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="m-0 break-words text-xs font-black text-emerald-800">{item.exposure ? formatMoney(item.exposure.amount, item.exposure.currency) : "None"}</p>
-                        </td>
-                        <td className="sticky right-0 z-10 bg-white px-4 py-3.5 shadow-[-5px_0_12px_-12px_rgba(15,23,42,0.5)] transition-colors duration-150 group-hover/row:bg-[#f2fbf8] group-focus-within/row:bg-[#f2fbf8]">
-                          <WorkflowActionButtons item={item} busy={busy} onUpdate={(target, action) => void updateWorkflow(target, action)} onResolve={(target) => { setResolveTarget(target); setResolutionNote(""); }} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="divide-y divide-slate-100 lg:hidden">
+            <ol className="m-0 list-none divide-y divide-slate-100 p-0">
               {data.items.map((item) => {
                 const categoryDetail = categoryDetails[item.category] || { label: item.category, Icon: Activity };
-                const responseDue = dueLabel(item.workflow?.responseDueAt || null);
-                const resolutionDue = dueLabel(item.workflow?.resolutionDueAt || null);
-                const busy = actionBusy === item.workflow?.id;
+                const wf = item.workflow;
+                const resolution = dueLabel(wf?.resolutionDueAt || item.dueAt || null);
+                const response = dueLabel(wf?.responseDueAt || null);
+                // Share of the resolution window already used (opened to target).
+                const used = wf
+                  ? Math.min(1, Math.max(0, (Date.now() - new Date(wf.openedAt).getTime()) / Math.max(1, new Date(wf.resolutionDueAt).getTime() - new Date(wf.openedAt).getTime())))
+                  : null;
+                const late = !wf?.resolvedAt && resolution.overdue;
+                const tight = !late && used != null && used > 0.75;
+                const clock = wf?.resolvedAt
+                  ? { pill: "bg-emerald-50 text-emerald-800", bar: "bg-emerald-500" }
+                  : late
+                    ? { pill: "bg-rose-50 text-rose-700", bar: "bg-rose-500" }
+                    : tight
+                      ? { pill: "bg-amber-50 text-amber-800", bar: "bg-amber-500" }
+                      : { pill: "bg-slate-100 text-slate-700", bar: "bg-[#02665e]" };
+                const responseLate = Boolean(wf && !wf.acknowledgedAt && wf.responseBreached);
+                const busy = actionBusy === wf?.id;
+                const owner = wf?.assignedTo?.name || wf?.assignedTo?.email || null;
+                const sevDot = item.severity === "CRITICAL" ? "bg-rose-500" : item.severity === "HIGH" ? "bg-amber-500" : item.severity === "MEDIUM" ? "bg-sky-500" : "bg-slate-400";
                 return (
-                  <article key={item.id} className="p-4 transition-colors duration-150 hover:bg-emerald-50/60 focus-within:bg-emerald-50/60">
-                    <div className="flex items-start gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-[#02665e]"><categoryDetail.Icon className="h-4 w-4" aria-hidden /></span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase ${severityStyle[item.severity]}`}>{item.severity}</span>
-                          <span className="text-[10px] font-bold text-slate-400">{categoryDetail.label}</span>
-                          <span className="text-[10px] text-slate-400">{formatAge(item.createdAt)}</span>
+                  <li key={item.id} className="flex gap-3.5 px-4 py-4 transition-colors hover:bg-slate-50/70 sm:px-5">
+                    <span className="relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                      <categoryDetail.Icon className="h-[18px] w-[18px]" aria-hidden />
+                      <span className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${sevDot}`} aria-hidden />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+                        {/* What it is */}
+                        <div className="min-w-[240px] flex-1">
+                          <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                            <span className={`rounded-full border border-solid px-1.5 py-px text-[10px] font-bold ${severityStyle[item.severity]}`}>{item.severity.charAt(0) + item.severity.slice(1).toLowerCase()}</span>
+                            <span className="whitespace-nowrap font-medium text-slate-600">{categoryDetail.label}</span>
+                            <span className="whitespace-nowrap text-slate-400">opened {formatAge(item.createdAt).replace(" old", " ago")}</span>
+                          </p>
+                          <Link href={item.detailHref} className="mt-1.5 line-clamp-2 block break-words text-[15px] font-semibold leading-snug text-slate-950 no-underline hover:text-[#02665e] hover:no-underline">{item.title}</Link>
+                          <p className="m-0 mt-0.5 line-clamp-1 break-words text-[13px] text-slate-500">
+                            <span className="font-medium text-slate-700">{item.subject}</span>
+                            {item.summary ? <span> · {item.summary}</span> : null}
+                          </p>
                         </div>
-                        <h2 className="mt-2 text-sm font-black text-slate-950">{item.title}</h2>
-                        <p className="mt-1 text-xs font-bold text-slate-700">{item.subject}</p>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-                          <div><span className="block text-slate-400">Owner</span><strong className="font-bold text-slate-700">{item.workflow?.assignedTo?.name || "Not assigned"}</strong></div>
-                          <div><span className="block text-slate-400">Team</span><strong className="font-bold text-slate-700">{item.workflow?.assignedTeam || "Admin Operations"}</strong></div>
-                          <div><span className="block text-slate-400">Response</span><strong className={item.workflow?.responseBreached ? "text-red-700" : "text-slate-700"}>{item.workflow?.acknowledgedAt ? "Met" : responseDue.label}</strong></div>
-                          <div><span className="block text-slate-400">Resolution</span><strong className={item.workflow?.resolutionBreached ? "text-red-700" : "text-slate-700"}>{item.workflow?.resolvedAt ? "Met" : resolutionDue.label}</strong></div>
+
+                        {/* What is at stake, and what to do */}
+                        <div className="flex shrink-0 items-center gap-4">
+                          {item.exposure ? (
+                            <span className="text-right">
+                              <span className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">At stake</span>
+                              <span className="block text-sm font-semibold tabular-nums text-slate-900">{formatMoney(item.exposure.amount, item.exposure.currency)}</span>
+                            </span>
+                          ) : null}
+                          <WorkflowActionButtons item={item} busy={busy} onUpdate={(target, action) => void updateWorkflow(target, action)} onResolve={(target) => { setResolveTarget(target); setResolutionNote(""); }} />
                         </div>
-                        <div className="mt-3"><WorkflowActionButtons item={item} busy={busy} onUpdate={(target, action) => void updateWorkflow(target, action)} onResolve={(target) => { setResolveTarget(target); setResolutionNote(""); }} /></div>
+                      </div>
+
+                      {/* Where it stands: the clock, the response, the owner */}
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${clock.pill}`}>
+                          <Clock3 className="h-3.5 w-3.5" aria-hidden />
+                          {wf?.resolvedAt ? "Resolved" : resolution.label}
+                          {used != null && !wf?.resolvedAt ? (
+                            <span className="h-1 w-12 overflow-hidden rounded-full bg-black/10" aria-hidden>
+                              <span className={`block h-full rounded-full ${clock.bar}`} style={{ width: `${Math.round(used * 100)}%` }} />
+                            </span>
+                          ) : null}
+                        </span>
+                        {wf ? (
+                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${wf.acknowledgedAt ? "bg-emerald-50 text-emerald-800" : responseLate ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600"}`}>
+                            <UserCheck className="h-3.5 w-3.5" aria-hidden />
+                            {wf.acknowledgedAt ? "Acknowledged" : responseLate ? `Response ${response.label}` : `Response ${response.label.replace("Due in", "due in")}`}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">No SLA attached</span>
+                        )}
+                        <span className={`inline-flex items-center gap-1.5 rounded-full py-0.5 pl-0.5 pr-2.5 text-[11px] font-semibold ${owner ? "bg-[#02665e]/[0.07] text-[#02665e]" : "bg-amber-50 text-amber-800"}`}>
+                          <span className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-bold ${owner ? "bg-[#02665e] text-white" : "bg-amber-200 text-amber-900"}`}>{owner ? owner.trim().charAt(0).toUpperCase() : "?"}</span>
+                          {owner || "No owner yet"}
+                        </span>
                       </div>
                     </div>
-                  </article>
+                  </li>
                 );
               })}
-            </div>
+            </ol>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 sm:px-5">
               <p className="m-0 text-xs font-semibold text-slate-500">Page {data.pagination.page} of {data.pagination.totalPages}</p>

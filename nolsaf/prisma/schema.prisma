@@ -2132,6 +2132,25 @@ model PaymentMethodAvailability {
   @@map("payment_method_availability")
 }
 
+/// Website promotion for the native apps. Association files and passkeys are
+/// deliberately independent of this switch.
+model AppDistributionSettings {
+  id              Int      @id @default(1)
+  enabled         Boolean  @default(false)
+  showOnHome      Boolean  @default(true)
+  showInFooter    Boolean  @default(true)
+  headline        String   @default("Take NoLSAF with you") @db.VarChar(120)
+  description     String   @default("Plan and manage your trip in the NoLSAF app.") @db.VarChar(300)
+  androidEnabled  Boolean  @default(false)
+  androidStoreUrl String?  @db.VarChar(500)
+  iosEnabled      Boolean  @default(false)
+  iosStoreUrl     String?  @db.VarChar(500)
+  updatedAt       DateTime @updatedAt
+  updatedById     Int?
+
+  @@map("app_distribution_settings")
+}
+
 model SystemSetting {
   id Int @id @default(1)
 
@@ -2200,6 +2219,9 @@ model SystemSetting {
 
   /// Support contact phone shown in UI/receipts (optional)
   supportPhone String? @db.VarChar(40)
+
+  /// Office address shown with the support contacts (optional; site shows the head office when empty)
+  supportAddress String? @db.VarChar(160)
 
   // ==================== Security & Cybersecurity Fields ====================
   /// Require two-factor authentication for admin accounts

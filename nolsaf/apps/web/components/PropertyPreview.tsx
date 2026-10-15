@@ -61,6 +61,7 @@ import TableRow from "./TableRow";
 import PropertyEditModal from "./PropertyEditModal";
 import PropertyPinEditor from "./admin/PropertyPinEditor";
 import PinHealthBadge from "./admin/PinHealthBadge";
+import PropertyAuditHistory from "./admin/PropertyAuditHistory";
 import NearbyServices from "./NearbyServices";
 import ServicesAndFacilities from "./ServicesAndFacilities";
 import { PropertyVisualizationPreview } from "../app/(owner)/owner/properties/add/_components/PropertyVisualizationPreview";
@@ -1092,8 +1093,8 @@ export default function PropertyPreview({
         const btn =
           "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
         return (
-          <div className="sticky top-0 z-30 border-0 border-b border-solid border-slate-200 bg-white/95 backdrop-blur">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+          <div className="sticky top-0 z-30 border-0 border-b border-solid border-slate-200 bg-white/95 shadow-[0_4px_18px_-16px_rgba(15,23,42,0.35)] backdrop-blur">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-3 py-3">
               {onClose && (
                 <button
                   type="button"
@@ -1104,10 +1105,10 @@ export default function PropertyPreview({
                   <ChevronLeft className="h-5 w-5" />
                 </button>
               )}
-              <p className="m-0 min-w-0 flex-1 truncate text-[13px] text-slate-500">
-                Properties <span className="text-slate-300">/</span>{" "}
-                <span className="font-semibold text-slate-900">#{property.id}</span>
-              </p>
+              <div className="min-w-0 flex-1">
+                <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Properties / #{property.id}</p>
+                <p className="m-0 truncate text-[14px] font-semibold text-slate-900">{property.title || "Property details"}</p>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 {!isEditing ? (
                   <>
@@ -2589,34 +2590,40 @@ export default function PropertyPreview({
               <NeighborhoodGuide location={location} />
             )}
 
-            {/* Location Details - Modern Style */}
+            {/* Location */}
             <section className="pb-8">
-              {/* Header */}
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-[#02665e] flex items-center justify-center">
-                    <MapPin className="w-4.5 h-4.5 text-white" aria-hidden />
+              <div className={mode === "admin" ? "overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm" : ""}>
+                <div className={mode === "admin" ? "flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6" : "mb-5 flex flex-wrap items-center justify-between gap-3"}>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
+                      <MapPin className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="m-0 text-lg font-semibold text-slate-900 sm:text-xl">{mode === "admin" ? "Location & pin" : "Where you'll be"}</h2>
+                      {mode === "admin" && (
+                        <p className="m-0 mt-1 text-sm text-slate-500">
+                          {[location.street, location.ward, location.district, location.regionName || location.city].filter(Boolean).join(", ") || "Add an address and pin to confirm this location"}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Where you&apos;ll be</h2>
+                  {mode === "admin" && (
+                    <PinHealthBadge
+                      latitude={pinCoords?.lat ?? null}
+                      longitude={pinCoords?.lng ?? null}
+                      address={{
+                        street: location.street,
+                        ward: location.ward,
+                        district: location.district,
+                        regionName: location.regionName,
+                        city: location.city,
+                      }}
+                      onFix={openCoordinateEditor}
+                    />
+                  )}
                 </div>
-                {mode === "admin" && (
-                  <PinHealthBadge
-                    latitude={pinCoords?.lat ?? null}
-                    longitude={pinCoords?.lng ?? null}
-                    address={{
-                      street: location.street,
-                      ward: location.ward,
-                      district: location.district,
-                      regionName: location.regionName,
-                      city: location.city,
-                    }}
-                    onFix={openCoordinateEditor}
-                  />
-                )}
-              </div>
 
-              {/* Map Card */}
-              <div className="rounded-2xl overflow-hidden shadow-lg border border-solid border-slate-200/80">
+              <div className={mode === "admin" ? "border-0 border-t border-solid border-slate-100" : "overflow-hidden rounded-2xl border border-solid border-slate-200 shadow-sm"}>
                 {(() => {
                   const lat = pinCoords?.lat ?? 0;
                   const lng = pinCoords?.lng ?? 0;
@@ -2625,7 +2632,7 @@ export default function PropertyPreview({
 
                   if (hasCoords && mapboxToken) {
                     return (
-                      <div className="relative aspect-[2/1] sm:aspect-[16/9] bg-slate-100">
+                      <div className={mode === "admin" ? "relative h-[260px] bg-slate-100 sm:h-[320px]" : "relative aspect-[2/1] bg-slate-100 sm:aspect-[16/9]"}>
                         <Image
                           src={`https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/pin-l+02665e(${lng},${lat})/${lng},${lat},14,0/900x450@2x?access_token=${encodeURIComponent(mapboxToken)}`}
                           alt=""
@@ -2639,212 +2646,51 @@ export default function PropertyPreview({
 
                   if (hasCoords) {
                     return (
-                      <div className="relative aspect-[2/1] sm:aspect-[16/9] bg-slate-50 flex items-center justify-center">
-                        <div className="text-center">
-                          <div className="w-14 h-14 rounded-2xl bg-[#02665e]/10 flex items-center justify-center mx-auto mb-3">
-                            <MapPin className="h-7 w-7 text-[#02665e]" />
+                      <div className={mode === "admin" ? "flex items-center justify-between gap-4 bg-slate-50 px-5 py-6 sm:px-6" : "relative flex aspect-[2/1] items-center justify-center bg-slate-50 sm:aspect-[16/9]"}>
+                        <div className={mode === "admin" ? "flex items-center gap-3" : "text-center"}>
+                          <div className={mode === "admin" ? "flex h-10 w-10 items-center justify-center rounded-xl bg-[#02665e]/10" : "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#02665e]/10"}>
+                            <MapPin className="h-5 w-5 text-[#02665e]" />
                           </div>
-                          <p className="text-xs text-slate-400">{lat.toFixed(4)}, {lng.toFixed(4)}</p>
+                          <div>
+                            {mode === "admin" && <p className="m-0 text-sm font-semibold text-slate-800">Pin saved</p>}
+                            <p className="m-0 mt-0.5 text-xs text-slate-500">{lat.toFixed(4)}, {lng.toFixed(4)}</p>
+                          </div>
                         </div>
                       </div>
                     );
                   }
 
                   return (
-                    <div className="relative aspect-[2/1] sm:aspect-[16/9] bg-slate-50 flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="w-14 h-14 rounded-2xl bg-[#02665e]/10 flex items-center justify-center mx-auto mb-3">
-                          <MapPin className="h-7 w-7 text-[#02665e]/40" />
+                    <div className={mode === "admin" ? "flex flex-col gap-4 bg-amber-50/50 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6" : "relative flex aspect-[2/1] items-center justify-center bg-slate-50 sm:aspect-[16/9]"}>
+                      <div className={mode === "admin" ? "flex items-start gap-3" : "text-center"}>
+                        <div className={mode === "admin" ? "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100" : "mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#02665e]/10"}>
+                          <MapPin className={mode === "admin" ? "h-5 w-5 text-amber-700" : "h-7 w-7 text-[#02665e]/40"} />
                         </div>
-                        <p className="text-sm text-slate-400">No coordinates available</p>
+                        <div>
+                          {mode === "admin" ? (
+                            <>
+                              <p className="m-0 text-sm font-semibold text-slate-900">Location pin needed</p>
+                              <p className="m-0 mt-1 text-sm text-slate-600">Place the pin on the building to make directions and distance accurate.</p>
+                            </>
+                          ) : <p className="m-0 text-sm text-slate-400">No coordinates available</p>}
+                        </div>
                       </div>
+                      {mode === "admin" && <button type="button" onClick={openCoordinateEditor} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border-0 bg-[#02665e] px-4 text-sm font-semibold text-white hover:bg-[#014e47]"><MapPin className="h-4 w-4" /> Place pin</button>}
                     </div>
                   );
                 })()}
               </div>
+              </div>
             </section>
 
-            {/* Audit History Section - Admin Only */}
+            {/* Audit history - Admin Only */}
             {mode === "admin" && (
-              <section className="border-b border-gray-200 pb-6">
-                <div className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
-                  <div className="mb-6 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-                    <div className="flex items-start gap-3">
-                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
-                        <FileText className="h-5 w-5" aria-hidden />
-                      </span>
-                      <div>
-                        <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">Audit history</h2>
-                        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Chronological record of reviews and administrative changes</p>
-                      </div>
-                    </div>
-                    {!auditLoading && auditHistory.length > 0 && (
-                      <span className="shrink-0 rounded-full border border-solid border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                        {auditHistory.length} {auditHistory.length === 1 ? "event" : "events"}
-                      </span>
-                    )}
-                  </div>
-                  
-                  {auditLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <LogoSpinner size="sm" ariaLabel="Loading audit history" />
-                      <span className="ml-2 text-sm text-gray-600">Loading audit history...</span>
-                    </div>
-                  ) : auditHistory.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                      <p className="text-sm">No audit history available</p>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <div className="absolute bottom-4 left-[17px] top-4 w-px bg-slate-200" aria-hidden />
-                      <div className="space-y-0">
-                      {auditHistory.map((audit, index) => {
-                        const actionLabels: Record<string, string> = {
-                          PROPERTY_APPROVE: "Approved",
-                          PROPERTY_REJECT: "Rejected",
-                          PROPERTY_SUSPEND: "Suspended",
-                          PROPERTY_UNSUSPEND: "Unsuspended",
-                          PROPERTY_UPDATE: "Updated",
-                          PROPERTY_COORDINATES_UPDATE: "Coordinates corrected",
-                          PROPERTY_IMAGE_MODERATE: "Image Moderated",
-                        };
-                        
-                        const actionColors: Record<string, string> = {
-                          PROPERTY_APPROVE: "bg-emerald-50 text-emerald-700 border-emerald-200",
-                          PROPERTY_REJECT: "bg-red-50 text-red-700 border-red-200",
-                          PROPERTY_SUSPEND: "bg-amber-50 text-amber-700 border-amber-200",
-                          PROPERTY_UNSUSPEND: "bg-emerald-50 text-emerald-700 border-emerald-200",
-                          PROPERTY_UPDATE: "bg-slate-100 text-slate-700 border-slate-200",
-                          PROPERTY_COORDINATES_UPDATE: "bg-amber-50 text-amber-700 border-amber-200",
-                          PROPERTY_IMAGE_MODERATE: "bg-slate-100 text-slate-700 border-slate-200",
-                        };
-                        
-                        const actionLabel = actionLabels[audit.action] || audit.action.replace(/_/g, " ");
-                        const actionColor = actionColors[audit.action] || "bg-gray-50 text-gray-700 border-gray-200";
-                        const actorName = audit.actor?.name || audit.actor?.email || `Admin #${audit.actorId}`;
-                        const occurredAt = new Date(audit.createdAt);
-                        const auditDate = occurredAt.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
-                        const auditTime = occurredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                        const actorInitial = actorName.trim().charAt(0).toUpperCase() || "A";
-
-                        const allowedStatuses = new Set([
-                          "DRAFT",
-                          "PENDING",
-                          "APPROVED",
-                          "NEEDS_FIXES",
-                          "REJECTED",
-                          "SUSPENDED",
-                        ]);
-
-                        const humanizeStatus = (s: string) => {
-                          const map: Record<string, string> = {
-                            DRAFT: "Draft",
-                            PENDING: "Pending",
-                            APPROVED: "Approved",
-                            NEEDS_FIXES: "Needs fixes",
-                            REJECTED: "Rejected",
-                            SUSPENDED: "Suspended",
-                          };
-                          return map[s] || s;
-                        };
-
-                        const statusTone = (status: string) => {
-                          if (status === "APPROVED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-                          if (status === "REJECTED" || status === "SUSPENDED") return "bg-red-50 text-red-700 border-red-200";
-                          if (status === "PENDING" || status === "NEEDS_FIXES") return "bg-amber-50 text-amber-700 border-amber-200";
-                          return "bg-slate-100 text-slate-600 border-slate-200";
-                        };
-
-                        const beforeStatus =
-                          typeof audit.beforeJson?.status === "string" && allowedStatuses.has(audit.beforeJson.status)
-                            ? audit.beforeJson.status
-                            : null;
-                        const afterStatus =
-                          typeof audit.afterJson?.status === "string" && allowedStatuses.has(audit.afterJson.status)
-                            ? audit.afterJson.status
-                            : null;
-
-                        const changes: Array<{ field: string; from: any; to: any }> = Array.isArray((audit as any).changes)
-                          ? ((audit as any).changes as any[])
-                              .filter(Boolean)
-                              .filter((c) => typeof c.field === "string")
-                              .slice(0, 20)
-                          : [];
-
-                        const extraChanges = changes.filter((c) => c.field !== "Status");
-                        
-                        return (
-                          <article key={audit.id?.toString() || index} className="relative pb-6 pl-12 last:pb-0">
-                            <span className="absolute left-2 top-5 flex h-5 w-5 items-center justify-center rounded-full border-4 border-white bg-[#02665e] ring-1 ring-slate-200" aria-hidden />
-                            <div className="rounded-xl border border-solid border-slate-200 bg-slate-50/60 p-4 sm:p-5">
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                <div className="min-w-0">
-                                  <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${actionColor}`}>{actionLabel}</span>
-                                  <div className="mt-3 flex items-center gap-2.5">
-                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-700">{actorInitial}</span>
-                                    <div className="min-w-0">
-                                      <div className="truncate text-sm font-semibold text-slate-800">{actorName}</div>
-                                      <div className="text-xs capitalize text-slate-500">{audit.actorRole?.toLowerCase() || "Administrator"}</div>
-                                    </div>
-                                  </div>
-                                </div>
-                                <time dateTime={audit.createdAt} className="shrink-0 text-left sm:text-right">
-                                  <span className="block text-xs font-medium text-slate-600">{auditDate}</span>
-                                  <span className="mt-0.5 block text-xs text-slate-400">{auditTime}</span>
-                                </time>
-                              </div>
-                              {beforeStatus && afterStatus && beforeStatus !== afterStatus && (
-                                  <div className="mt-4 rounded-lg border border-solid border-slate-200 bg-white p-3">
-                                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Status change</div>
-                                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                                      <span className={`rounded-md border px-2 py-1 font-medium ${statusTone(beforeStatus)}`}>{humanizeStatus(beforeStatus)}</span>
-                                      <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden />
-                                      <span className={`rounded-md border px-2 py-1 font-semibold ${statusTone(afterStatus)}`}>{humanizeStatus(afterStatus)}</span>
-                                    </div>
-                                    {audit.afterJson?.reason && (
-                                      <div className="mt-3 border-t border-slate-100 pt-2 text-xs leading-5 text-slate-600">
-                                        <span className="font-semibold text-slate-700">Reason:</span> {audit.afterJson.reason}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                              {(audit.action === "PROPERTY_UPDATE" || audit.action === "PROPERTY_COORDINATES_UPDATE") && extraChanges.length > 0 && (
-                                  <div className="mt-4 overflow-hidden rounded-lg border border-solid border-slate-200 bg-white">
-                                    <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                                      Updated fields
-                                    </div>
-                                    <div className="divide-y divide-slate-100">
-                                      {extraChanges.map((c, i) => (
-                                        <div key={`${audit.id}-chg-${i}`} className="px-3 py-2.5 text-xs">
-                                          <div className="grid gap-2 sm:grid-cols-[minmax(110px,0.35fr)_1fr]">
-                                            <div className="font-semibold text-slate-700">{c.field}</div>
-                                            <div className="grid min-w-0 gap-1 text-left sm:grid-cols-2">
-                                              <div className="text-slate-500 truncate">
-                                                <span className="font-medium">From:</span> {c.from ?? "—"}
-                                              </div>
-                                              <div className="text-slate-700 truncate">
-                                                <span className="font-medium">To:</span> {c.to ?? "—"}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
+              <PropertyAuditHistory
+                events={auditHistory}
+                loading={auditLoading}
+                currentStatus={String(status || "UNKNOWN")}
+              />
             )}
-
             {/* Owner Audit Trail */}
             {mode === "owner" && (
               <section className="border-b border-gray-200 pb-6">

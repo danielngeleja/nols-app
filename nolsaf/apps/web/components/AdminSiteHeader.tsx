@@ -50,12 +50,15 @@ import {
 import { clearAuthToken } from "@/lib/apiClient";
 import { fetchAccountSession } from "@/lib/accountSession";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
+import AdminJumpSearch from "@/components/AdminJumpSearch";
+import { ADMIN_NAV_PAGES } from "@/components/AdminSidebar";
+import { useAdminNavCounts, type AdminNavCounts } from "@/lib/useAdminNavCounts";
 
-const PRIMARY_TABS = [
+const PRIMARY_TABS: Array<{ href: string; label: string; icon: typeof Bell; exact?: boolean; count?: keyof AdminNavCounts }> = [
   { href: "/admin/home", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/admin/action-center", label: "Actions", icon: Siren },
-  { href: "/admin/properties/previews", label: "Approvals", icon: CheckCircle2 },
-  { href: "/admin/payments", label: "Payments", icon: CreditCard },
+  { href: "/admin/properties/previews", label: "Approvals", icon: CheckCircle2, count: "listings" },
+  { href: "/admin/payments", label: "Payments", icon: CreditCard, count: "payouts" },
   { href: "/admin/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/admin/finance", label: "Revenue", icon: BarChart3 },
   { href: "/admin/nrms", label: "NRMS", icon: Building2 },
@@ -71,8 +74,21 @@ function isActive(pathname: string, tab: { href: string; exact?: boolean }) {
   return tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
 }
 
+/** Where you are, from the sidebar's page index: the longest page path that contains this one. */
+function locate(pathname: string) {
+  let best: (typeof ADMIN_NAV_PAGES)[number] | null = null;
+  for (const p of ADMIN_NAV_PAGES) {
+    if ((pathname === p.href || pathname.startsWith(p.href + "/")) && (!best || p.href.length > best.href.length)) best = p;
+  }
+  if (!best) return null;
+  const deeper = pathname.length > best.href.length;
+  return { section: best.section === "Pages" ? null : best.section, page: best.label, deeper };
+}
+
 export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages?: number }) {
   const pathname = usePathname() ?? "";
+  const navCounts = useAdminNavCounts();
+  const here = useMemo(() => locate(pathname), [pathname]);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
@@ -272,10 +288,11 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
 
   // border-solid on every bordered element: preflight is disabled project-wide,
   // so a bare `border` utility draws nothing.
+  // Toolbar buttons sit inside one grouped pill, so they carry no border of their own.
   const iconButton =
-    "inline-flex h-10 w-10 shrink-0 appearance-none items-center justify-center rounded-xl " +
-    "border border-solid border-white/10 bg-white/[0.06] text-emerald-50/80 no-underline " +
-    "transition duration-200 hover:border-white/20 hover:bg-white/[0.12] hover:text-white " +
+    "inline-flex h-8 w-8 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-lg " +
+    "border-0 bg-transparent text-emerald-50/75 no-underline " +
+    "transition duration-200 hover:bg-white/[0.1] hover:text-white " +
     "hover:no-underline active:scale-95 focus-visible:outline-none focus-visible:ring-2 " +
     "focus-visible:ring-emerald-300/40";
 
@@ -319,7 +336,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
           />
 
           <div className="relative flex min-h-[4.75rem] items-center gap-3 px-3 sm:px-5">
-            <button type="button" onClick={toggleSidebar} className={iconButton} aria-label="Toggle sidebar" title="Toggle sidebar">
+            <button type="button" onClick={toggleSidebar} className={`${iconButton} h-10 w-10 rounded-xl border border-solid border-white/10 bg-white/[0.06]`} aria-label="Toggle sidebar" title="Toggle sidebar">
               <Menu className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
             </button>
 
@@ -329,36 +346,48 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
 
             {/* One label only. The logo tile beside it already carries the brand,
                 so a title, a pill and a subtitle were three ways of saying it. */}
-            <div className="min-w-0 flex-1">
-              <p className="m-0 truncate text-base font-bold tracking-[-0.01em] text-white">Admin Console</p>
+            <div className="min-w-0 shrink-0 lg:max-w-[240px] xl:max-w-[300px]">
+              <p className="m-0 truncate text-[15px] font-bold leading-tight tracking-[-0.01em] text-white">Admin Console</p>
+              {here ? (
+                <p className="m-0 mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium text-emerald-100/55">
+                  {here.section ? <><span className="truncate">{here.section}</span><span aria-hidden className="text-emerald-100/30">/</span></> : null}
+                  <span className="truncate text-emerald-200/90">{here.page}</span>
+                  {here.deeper ? <><span aria-hidden className="text-emerald-100/30">/</span><span className="truncate">Record</span></> : null}
+                </p>
+              ) : null}
             </div>
+
+            {/* Jump anywhere: pages and records in one box */}
+            <div className="hidden min-w-0 flex-1 justify-center px-2 lg:flex">
+              <AdminJumpSearch />
+            </div>
+            <div className="flex-1 lg:hidden" />
 
             {sessionLabel && (
               <div
-                className={`hidden shrink-0 select-none items-center gap-2 rounded-xl border border-solid px-3 py-2 transition duration-200 sm:inline-flex ${
+                className={`hidden h-10 shrink-0 select-none items-center gap-1.5 rounded-xl border border-solid px-3 transition duration-200 sm:inline-flex ${
                   sessionCritical
                     ? "admin-session-blink border-rose-300/30 bg-rose-400/15 text-rose-100"
                     : "border-white/10 bg-white/[0.06] text-emerald-50/85"
                 }`}
                 title={sessionExpiresAt ? `Session ends at ${new Date(sessionExpiresAt).toLocaleTimeString()}` : "Session time remaining"}
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${sessionCritical ? "bg-rose-300" : "bg-emerald-300"}`} aria-hidden />
-                <Clock className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-                <span className="hidden text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-100/50 lg:inline">Session</span>
-                <span className="text-sm font-bold tabular-nums tracking-tight text-white">{sessionLabel}</span>
+                <Clock className={`h-3.5 w-3.5 shrink-0 ${sessionCritical ? "text-rose-200" : "text-emerald-200/80"}`} strokeWidth={2} aria-hidden />
+                <span className="text-[13px] font-semibold tabular-nums tracking-tight text-white">{sessionLabel}</span>
+                <span className="hidden text-[11px] font-medium text-emerald-100/50 xl:inline">left</span>
               </div>
             )}
 
-            <div className="hidden shrink-0 items-center gap-1.5 md:flex">
+            <div className="hidden shrink-0 items-center gap-0.5 rounded-xl border border-solid border-white/10 bg-white/[0.05] p-1 md:flex">
               <button type="button" onClick={handleRefresh} disabled={isRefreshing} className={iconButton} aria-label="Refresh" title="Refresh">
-                <RefreshCw className={`h-5 w-5 shrink-0 ${isRefreshing ? "animate-spin" : ""}`} strokeWidth={2} aria-hidden />
+                <RefreshCw className={`h-[18px] w-[18px] shrink-0 ${isRefreshing ? "animate-spin" : ""}`} strokeWidth={2} aria-hidden />
               </button>
 
               <button type="button" onClick={openNotifications} className={`relative ${iconButton}`} aria-label="Notifications" title="Notifications">
-                <Bell className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                <Bell className="h-[18px] w-[18px] shrink-0" strokeWidth={2} aria-hidden />
                 {badgeCount > 0 && (
                   <span
-                    className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-[#082f2a]"
+                    className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[9px] font-bold leading-none text-amber-950 ring-2 ring-[#0c3530]"
                     aria-label={`${badgeCount} unread notifications`}
                   >
                     {badgeCount > 9 ? "9+" : badgeCount}
@@ -367,11 +396,11 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
               </button>
 
               <Link href="/admin/support" className={iconButton} aria-label="Support" title="Support">
-                <LifeBuoy className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                <LifeBuoy className="h-[18px] w-[18px] shrink-0" strokeWidth={2} aria-hidden />
               </Link>
 
               <Link href="/admin/management/settings" className={iconButton} aria-label="Settings" title="Settings">
-                <Settings className="h-5 w-5 shrink-0" strokeWidth={2} aria-hidden />
+                <Settings className="h-[18px] w-[18px] shrink-0" strokeWidth={2} aria-hidden />
               </Link>
             </div>
 
@@ -381,7 +410,7 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
               <button
                 type="button"
                 onClick={() => setProfileOpen((v) => !v)}
-                className="group inline-flex h-10 appearance-none items-center justify-center gap-2 rounded-xl border-0 bg-transparent px-1.5 transition duration-200 hover:bg-white/[0.1] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40"
+                className="group inline-flex h-10 cursor-pointer appearance-none items-center justify-center gap-2.5 rounded-xl border-0 bg-transparent px-1.5 transition duration-200 hover:bg-white/[0.1] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/40"
                 aria-label="Profile menu"
                 aria-expanded={profileOpen}
               >
@@ -394,6 +423,10 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
                     <User className="h-5 w-5 text-emerald-50/80" strokeWidth={2} aria-hidden />
                   </span>
                 )}
+                <span className="hidden min-w-0 max-w-[140px] flex-col items-start text-left xl:flex">
+                  <span className="block w-full truncate text-[13px] font-semibold leading-tight text-white">{userName || "Administrator"}</span>
+                  <span className="block text-[11px] leading-tight text-emerald-100/50">Administrator</span>
+                </span>
                 <ChevronDown className={`h-4 w-4 shrink-0 text-emerald-100/50 transition duration-200 ${profileOpen ? "rotate-180" : ""}`} strokeWidth={2} aria-hidden />
               </button>
 
@@ -465,19 +498,24 @@ export default function AdminSiteHeader({ unreadMessages = 0 }: { unreadMessages
             <div className="flex w-max min-w-full gap-1">
               {PRIMARY_TABS.map((tab) => {
                 const active = isActive(pathname, tab);
+                const waiting = tab.count && navCounts ? navCounts[tab.count] : 0;
                 return (
                   <Link
                     key={tab.href}
                     href={tab.href}
                     aria-current={active ? "page" : undefined}
-                    className={`inline-flex min-h-11 shrink-0 items-center gap-2 border-0 border-b-2 border-solid px-3 text-xs font-bold no-underline transition duration-200 hover:no-underline ${
-                      active
-                        ? "border-emerald-300 text-emerald-200"
-                        : "border-transparent text-emerald-50/45 hover:border-white/15 hover:text-white"
+                    className={`relative inline-flex min-h-11 shrink-0 items-center gap-2 border-0 px-3 text-xs font-semibold no-underline transition duration-200 hover:no-underline ${
+                      active ? "text-white" : "text-emerald-50/50 hover:text-white"
                     }`}
                   >
-                    <tab.icon className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                    <tab.icon className={`h-4 w-4 shrink-0 ${active ? "text-emerald-300" : ""}`} strokeWidth={2} aria-hidden />
                     {tab.label}
+                    {waiting > 0 ? (
+                      <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-amber-400/15 px-1.5 text-[10px] font-bold tabular-nums text-amber-200" aria-label={`${waiting} waiting`}>
+                        {waiting > 99 ? "99+" : waiting}
+                      </span>
+                    ) : null}
+                    {active ? <span className="pointer-events-none absolute inset-x-3 bottom-0 h-[2px] rounded-full bg-emerald-300 shadow-[0_0_10px_1px_rgba(110,231,183,0.55)]" aria-hidden /> : null}
                   </Link>
                 );
               })}

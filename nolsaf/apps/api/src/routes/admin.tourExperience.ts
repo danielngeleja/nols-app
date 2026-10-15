@@ -309,7 +309,7 @@ router.get("/overview", (async (req, res) => {
       })).map((user) => [user.id, user] as [number, any])
     );
 
-    const items = bookings.map((booking) => {
+    const allItems = bookings.map((booking) => {
       const md = safeObject(booking.metadata);
       const invites = safeArray(md.timelineInvites);
       const activeInvite = invites.find((invite) => String(invite?.status || "ACTIVE").toUpperCase() === "ACTIVE");
@@ -364,29 +364,85 @@ router.get("/overview", (async (req, res) => {
         updatedAt: booking.updatedAt,
         createdAt: booking.createdAt,
       };
-    }).filter((item) => {
-      const hasTimelineSignal = item.meetup.validated || item.sharing.generated || item.sharing.joined > 0 || item.rating.totalRatings > 0;
-      if (!hasTimelineSignal) return false;
+    });
+
+    // Every timeline with any experience signal. The summary, stage counts and moment
+    // map are built from this full set, so switching the list tab never changes them.
+    const withSignal = allItems.filter((item) =>
+      item.meetup.validated || item.sharing.generated || item.sharing.joined > 0 || item.rating.totalRatings > 0
+    );
+    const items = withSignal.filter((item) => {
       if (status !== "ALL" && item.lifecycleStatus !== status) return false;
       if (!q) return true;
       return [item.bookingCode, item.title, item.destination, item.operatorName, item.customerName].filter(Boolean).join(" ").toLowerCase().includes(q);
     });
 
+    const totalRatingsAll = withSignal.reduce((sum, item) => sum + item.rating.totalRatings, 0);
     const summary = {
-      total: items.length,
-      meetupValidated: items.filter((item) => item.meetup.validated).length,
-      inviteGenerated: items.filter((item) => item.sharing.generated).length,
-      joinedTravellers: items.reduce((sum, item) => sum + item.sharing.joined, 0),
-      totalRatings: items.reduce((sum, item) => sum + item.rating.totalRatings, 0),
-      averageRating: (() => {
-        const totalRatings = items.reduce((sum, item) => sum + item.rating.totalRatings, 0);
-        if (!totalRatings) return 0;
-        return Number((items.reduce((sum, item) => sum + item.rating.averageRating * item.rating.totalRatings, 0) / totalRatings).toFixed(2));
-      })(),
-      completedTravellers: items.reduce((sum, item) => sum + item.rating.completedTravellers, 0),
+      total: withSignal.length,
+      meetupValidated: withSignal.filter((item) => item.meetup.validated).length,
+      inviteGenerated: withSignal.filter((item) => item.sharing.generated).length,
+      joinedTravellers: withSignal.reduce((sum, item) => sum + item.sharing.joined, 0),
+      totalRatings: totalRatingsAll,
+      averageRating: totalRatingsAll
+        ? Number((withSignal.reduce((sum, item) => sum + item.rating.averageRating * item.rating.totalRatings, 0) / totalRatingsAll).toFixed(2))
+        : 0,
+      completedTravellers: withSignal.reduce((sum, item) => sum + item.rating.completedTravellers, 0),
+      ratedTimelines: withSignal.filter((item) => item.rating.totalRatings > 0).length,
+      stageCounts: {
+        WAITING_MEETUP: withSignal.filter((item) => item.lifecycleStatus === "WAITING_MEETUP").length,
+        ACTIVE_TIMELINE: withSignal.filter((item) => item.lifecycleStatus === "ACTIVE_TIMELINE").length,
+        RATED: withSignal.filter((item) => item.lifecycleStatus === "RATED").length,
+      },
     };
 
-    return res.json({ ok: true, summary, items });
+    // Moment map: per package, each itinerary moment's score pooled across all its trips.
+    // A weak moment that repeats on every trip is a pattern to raise with the operator,
+    // not a one-off; ratingCount and trips say how much evidence sits behind each score.
+    type MomentAcc = { key: string; axisLabel: string; day: number; slotIndex: number; title: string; sum: number; ratingCount: number; trips: Set<string> };
+    const byPackage = new Map<string, { key: string; title: string; operatorName: string; trips: Set<string>; moments: Map<string, MomentAcc> }>();
+    for (const item of withSignal) {
+      const pkgKey = `${item.operatorAgentId}::${item.packageId || String(item.title || "").trim().toLowerCase()}`;
+      const pkg = byPackage.get(pkgKey) || { key: pkgKey, title: item.title || "Tour", operatorName: item.operatorName, trips: new Set<string>(), moments: new Map() };
+      pkg.trips.add(item.bookingCode);
+      for (const point of item.rating.eventPoints as any[]) {
+        const mKey = `${point.day}-${point.slotIndex}::${String(point.title || "").trim().toLowerCase()}`;
+        const m = pkg.moments.get(mKey) || { key: mKey, axisLabel: point.axisLabel, day: Number(point.day || 0), slotIndex: Number(point.slotIndex || 0), title: point.title, sum: 0, ratingCount: 0, trips: new Set<string>() };
+        if (point.ratingCount > 0) {
+          m.sum += Number(point.average) * Number(point.ratingCount);
+          m.ratingCount += Number(point.ratingCount);
+          m.trips.add(item.bookingCode);
+        }
+        pkg.moments.set(mKey, m);
+      }
+      byPackage.set(pkgKey, pkg);
+    }
+    const momentMap = [...byPackage.values()].map((pkg) => {
+      const moments = [...pkg.moments.values()]
+        .sort((a, b) => a.day - b.day || a.slotIndex - b.slotIndex)
+        .map((m) => ({
+          key: m.key,
+          axisLabel: m.axisLabel,
+          day: m.day,
+          title: m.title,
+          average: m.ratingCount ? Number((m.sum / m.ratingCount).toFixed(2)) : 0,
+          ratingCount: m.ratingCount,
+          trips: m.trips.size,
+        }));
+      const rated = moments.filter((m) => m.ratingCount > 0);
+      const ratingCount = rated.reduce((n, m) => n + m.ratingCount, 0);
+      return {
+        key: pkg.key,
+        title: pkg.title,
+        operatorName: pkg.operatorName,
+        trips: pkg.trips.size,
+        ratingCount,
+        average: ratingCount ? Number((rated.reduce((n, m) => n + m.average * m.ratingCount, 0) / ratingCount).toFixed(2)) : 0,
+        moments,
+      };
+    }).sort((a, b) => b.ratingCount - a.ratingCount || a.title.localeCompare(b.title));
+
+    return res.json({ ok: true, summary, items, momentMap });
   } catch (err: any) {
     console.error("[GET /api/admin/tour-experience/overview] Error:", err);
     return res.status(500).json({ ok: false, error: "Failed to load tour experience overview" });

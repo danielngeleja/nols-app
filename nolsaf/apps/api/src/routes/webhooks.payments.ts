@@ -33,6 +33,7 @@ import { ensurePaidGroupStayAvailabilityBlock } from "../lib/groupStayAvailabili
 import { markNrmsPaymentFailed, reconcileNrmsPaymentAndAccrue } from "../lib/nrmsBilling.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { confirmNoLsafBooking, MARKETPLACE_CONNECT_TX_OPTIONS } from "../lib/nolsafMarketplaceNrms.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
 import {
   expectedInvoicePaymentAmount,
   isPaymentAmountWithinTolerance,
@@ -64,8 +65,9 @@ async function notifyOwnerInvoicePaid(params: {
   if (!ownerId) return;
 
   const title = "New paid booking";
+  const bookingReference = customerBookingReference(bookingId);
   const body =
-    `Booking #${bookingId} has been paid` +
+    `Booking ${bookingReference} has been paid` +
     (propertyTitle ? ` for ${propertyTitle}` : "") +
     (receiptNumber ? `. Receipt: ${receiptNumber}` : ".") +
     (checkIn ? ` Check-in: ${new Date(checkIn).toISOString().slice(0, 10)}` : "") +
@@ -102,7 +104,8 @@ async function notifyOwnerInvoicePaid(params: {
             kind: "invoice_paid",
             invoiceId,
             bookingId,
-            actionUrl: "/owner/bookings/recent",
+            bookingReference,
+            actionUrl: `/owner/bookings/checked-in/${bookingReference}`,
           },
         },
         select: { id: true },
@@ -136,7 +139,7 @@ async function notifyOwnerInvoicePaid(params: {
       if (owner?.phone) {
         const smsText =
           `NoLSAF: New booking!\n` +
-          `Booking #${bookingId}` + (propertyTitle ? ` at ${String(propertyTitle).slice(0, 40)}` : "") + `\n` +
+          `Booking ${bookingReference}` + (propertyTitle ? ` at ${String(propertyTitle).slice(0, 40)}` : "") + `\n` +
           (checkIn ? `Check-in: ${new Date(checkIn).toISOString().slice(0, 10)}\n` : "") +
           (amount ? `Your payout: ${Number(amount).toLocaleString("en-US")} TZS\n` : "") +
           `support@nolsaf.com`;

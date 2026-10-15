@@ -1495,7 +1495,6 @@ export async function decideMerchantApplication(
           kind: `merchant_application_${input.decision.toLowerCase()}`,
           applicationId: application.id,
           applicationVersion: application.version,
-          actionUrl: "/owner/nrms/payments",
         },
       },
     });

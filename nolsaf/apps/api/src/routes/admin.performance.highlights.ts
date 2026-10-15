@@ -105,7 +105,7 @@ router.get("/highlights", async (req, res) => {
               WHERE b.checkIn >= ${sinceIso} AND b.status <> 'CANCELED'
               GROUP BY regionName
               ORDER BY bookings DESC
-              LIMIT 1
+              LIMIT 60
             `,
 
             prisma.$queryRaw<any[]>`
@@ -174,6 +174,12 @@ router.get("/highlights", async (req, res) => {
                   nolsRevenue: Number(bestOwner.nolsRevenue || 0),
                 }
               : null,
+            // Every region with bookings in the window, same definition as mostBookedRegion
+            // (first row), so the home map and the leaders strip always agree.
+            regions: (bestRegionRows || []).map((r: any) => ({
+              regionName: String(r.regionName || "Unknown"),
+              bookings: Number(r.bookings || 0),
+            })),
             mostBookedRegion: mostBookedRegion
               ? {
                   regionName: String(mostBookedRegion.regionName || "Unknown"),
