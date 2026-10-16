@@ -35,6 +35,31 @@ interface Update {
 
 const PAGE_SIZE = 8;
 const VIEW_KEY = "admin.updates.view";
+const MAX_IMAGES = 10;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+type UploadedImage = { publicId: string; version: number; signature: string };
+type ImageSignature = {
+  cloudName: string;
+  apiKey: string;
+  params: { timestamp: number; folder: string; public_id: string; overwrite: string; allowed_formats: string };
+  signature: string;
+};
+
+async function uploadUpdateImage(file: File): Promise<UploadedImage> {
+  const { data: signed } = await api.get<ImageSignature>("/api/admin/updates/image-signature", { withCredentials: true });
+  const body = new FormData();
+  body.append("file", file);
+  body.append("api_key", signed.apiKey);
+  for (const [key, value] of Object.entries(signed.params)) body.append(key, String(value));
+  body.append("signature", signed.signature);
+  const { data } = await axios.post(`https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`, body);
+  if (typeof data?.public_id !== "string" || !Number.isSafeInteger(data?.version) || typeof data?.signature !== "string") {
+    throw new Error("The photo upload returned an invalid response.");
+  }
+  return { publicId: data.public_id, version: data.version, signature: data.signature };
+}
 
 const heroButton =
   "inline-flex h-9 items-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/[0.12] hover:text-white disabled:opacity-60";
@@ -122,7 +147,7 @@ export default function UpdatesPage() {
     content: "",
     images: [] as File[],
     videoUrls: [] as string[],
-    existingImages: [] as string[],
+    existingImages: [] as { src: string; index: number }[],
     existingVideos: [] as string[],
   });
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
@@ -136,6 +161,14 @@ export default function UpdatesPage() {
   const [view, setView] = useState<"cards" | "list">("list");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const draftIdRef = useRef<string>("");
+  const uploadedImagesRef = useRef<Map<File, UploadedImage>>(new Map());
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
+  }, []);
 
   useEffect(() => {
     void loadUpdates();
@@ -184,15 +217,25 @@ export default function UpdatesPage() {
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const imageFiles = Array.from(e.target.files || []).filter((f) => f.type.startsWith("image/"));
-    setFormData((prev) => ({ ...prev, images: [...prev.images, ...imageFiles] }));
-    imageFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => setImagePreviews((prev) => [...prev, ev.target?.result as string]);
-      reader.readAsDataURL(file);
-    });
-    // Allow picking the same file again after removing it.
+    const imageFiles = Array.from(e.target.files || []);
     e.target.value = "";
+    if (imageFiles.some((file) => !IMAGE_TYPES.has(file.type))) {
+      setFormError("Choose JPG, PNG, WebP or GIF photos.");
+      return;
+    }
+    if (imageFiles.some((file) => file.size > MAX_IMAGE_BYTES)) {
+      setFormError("Each photo must be 5 MiB or smaller.");
+      return;
+    }
+    if (formData.existingImages.length + formData.images.length + imageFiles.length > MAX_IMAGES) {
+      setFormError("You can add up to 10 photos.");
+      return;
+    }
+    setFormError(null);
+    setFormData((prev) => ({ ...prev, images: [...prev.images, ...imageFiles] }));
+    const previews = imageFiles.map((file) => URL.createObjectURL(file));
+    previews.forEach((url) => previewUrlsRef.current.add(url));
+    setImagePreviews((prev) => [...prev, ...previews]);
   };
 
   const addVideoUrl = () => {
@@ -209,16 +252,26 @@ export default function UpdatesPage() {
   };
 
   const removeImage = (index: number) => {
+    const file = formData.images[index];
+    if (file) uploadedImagesRef.current.delete(file);
+    const url = imagePreviews[index];
+    if (url) {
+      URL.revokeObjectURL(url);
+      previewUrlsRef.current.delete(url);
+    }
     setFormData((prev) => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }));
     setImagePreviews((prev) => prev.filter((_, i) => i !== index));
   };
-  const removeExistingImage = (url: string) => setFormData((prev) => ({ ...prev, existingImages: prev.existingImages.filter((img) => img !== url) }));
+  const removeExistingImage = (index: number) => setFormData((prev) => ({ ...prev, existingImages: prev.existingImages.filter((img) => img.index !== index) }));
   const removeVideoUrl = (index: number) => setFormData((prev) => ({ ...prev, videoUrls: prev.videoUrls.filter((_, i) => i !== index) }));
   const removeExistingVideo = (url: string) => setFormData((prev) => ({ ...prev, existingVideos: prev.existingVideos.filter((vid) => vid !== url) }));
 
   // Closing the composer must not wipe the page banners: the success message
   // used to be set and then cleared by this same reset, so it never showed.
   const closeForm = () => {
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    previewUrlsRef.current.clear();
+    uploadedImagesRef.current.clear();
     setFormData({ title: "", content: "", images: [], videoUrls: [], existingImages: [], existingVideos: [] });
     setImagePreviews([]);
     setNewVideoUrl("");
@@ -229,17 +282,19 @@ export default function UpdatesPage() {
 
   const openNew = () => {
     closeForm();
+    draftIdRef.current = crypto.randomUUID();
     setSuccess(null);
     setShowForm(true);
   };
 
   const handleEdit = (update: Update) => {
+    uploadedImagesRef.current.clear();
     setFormData({
       title: update.title,
       content: update.content,
       images: [],
       videoUrls: [],
-      existingImages: update.images || [],
+      existingImages: (update.images || []).map((src, index) => ({ src, index })),
       existingVideos: update.videos || [],
     });
     setImagePreviews([]);
@@ -257,25 +312,35 @@ export default function UpdatesPage() {
     setSuccess(null);
 
     try {
-      const fd = new FormData();
-      fd.append("title", formData.title);
-      fd.append("content", formData.content);
-      formData.images.forEach((img) => fd.append("images", img));
-      // New video links and the ones already on the update go up together.
-      [...formData.videoUrls, ...formData.existingVideos].forEach((vid) => fd.append("existingVideos", vid));
-      formData.existingImages.forEach((img) => fd.append("existingImages", img));
+      const images: UploadedImage[] = [];
+      for (const file of formData.images) {
+        let uploaded = uploadedImagesRef.current.get(file);
+        if (!uploaded) {
+          uploaded = await uploadUpdateImage(file);
+          uploadedImagesRef.current.set(file, uploaded);
+        }
+        images.push(uploaded);
+      }
+      const payload = {
+        clientId: draftIdRef.current,
+        title: formData.title,
+        content: formData.content,
+        images,
+        retainedImageIndexes: formData.existingImages.map((image) => image.index),
+        videos: [...formData.videoUrls, ...formData.existingVideos],
+      };
 
       const wasEditing = Boolean(editingId);
       if (editingId) {
-        await api.put(`/api/admin/updates/${editingId}`, fd, { headers: { "Content-Type": "multipart/form-data" }, withCredentials: true });
+        await api.put(`/api/admin/updates/${editingId}`, payload, { withCredentials: true });
       } else {
-        await api.post("/api/admin/updates", fd, { headers: { "Content-Type": "multipart/form-data" }, withCredentials: true });
+        await api.post("/api/admin/updates", payload, { withCredentials: true });
       }
       closeForm();
       setSuccess(wasEditing ? "Update saved." : "Update published.");
       void loadUpdates();
     } catch (err: any) {
-      setFormError(err?.response?.data?.message || "Failed to save update");
+      setFormError(err?.response?.data?.message || err?.response?.data?.error?.message || err?.message || "Failed to save update");
     } finally {
       setUploading(false);
     }
@@ -597,10 +662,11 @@ export default function UpdatesPage() {
                   <p className={sectionLabel}>Photos</p>
                   <span className="text-[11px] tabular-nums text-neutral-400">{formData.existingImages.length + imagePreviews.length} added</span>
                 </div>
-                <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={handleImageSelect} className="hidden" />
+                <p className="mt-1 text-[11px] text-neutral-500">Up to 10 photos, 5 MiB each. JPG, PNG, WebP or GIF.</p>
+                <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple onChange={handleImageSelect} className="hidden" />
                 <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-5">
                   {formData.existingImages.map((img, idx) => (
-                    <PhotoThumb key={`existing-${img}`} src={img} alt={`Photo ${idx + 1}`} onRemove={() => removeExistingImage(img)} />
+                    <PhotoThumb key={`existing-${img.index}`} src={img.src} alt={`Photo ${idx + 1}`} onRemove={() => removeExistingImage(img.index)} />
                   ))}
                   {imagePreviews.map((preview, idx) => (
                     <PhotoThumb key={`new-${idx}`} src={preview} alt={`New photo ${idx + 1}`} onRemove={() => removeImage(idx)} />
@@ -608,7 +674,8 @@ export default function UpdatesPage() {
                   <button
                     type="button"
                     onClick={() => imageInputRef.current?.click()}
-                    className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500 transition-colors hover:border-emerald-500 hover:bg-emerald-50/50 hover:text-emerald-700"
+                    disabled={formData.existingImages.length + formData.images.length >= MAX_IMAGES}
+                    className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 text-neutral-500 transition-colors hover:border-emerald-500 hover:bg-emerald-50/50 hover:text-emerald-700 disabled:opacity-40"
                   >
                     <ImageIcon className="h-5 w-5" />
                     <span className="text-[11px] font-semibold">Add photos</span>
