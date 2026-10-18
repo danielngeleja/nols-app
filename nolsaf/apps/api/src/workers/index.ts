@@ -36,6 +36,7 @@ import { startPayoutReleaseWorker } from "./payoutRelease.js";
 import { startGuestCodeRequestReminders } from "./guestCodeRequestReminders.js";
 import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
 import { startFinalizeTourCompletionWorker } from "./finalizeTourCompletion.js";
+import { startMobilePushWorker } from "./mobilePush.js";
 
 /**
  * Decide whether this process is *allowed* to run background workers.
@@ -105,6 +106,7 @@ export function startBackgroundWorkers(io: SocketServer): void {
       startTransportAutoDispatch({ io });
       startOwnerBusinessLicenceExpiryReminders({ io });
       startTravellerTripReminders({ io });
+      startMobilePushWorker();
       // Expire NEW bookings that were never paid within 30 minutes (anti-squatting).
       startExpireStaleBookings();
       // Remind admins when a guest code request waits past 30 minutes.
