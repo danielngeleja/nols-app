@@ -25,6 +25,7 @@ import {
   FireExtinguisher,
   Fuel,
   Gamepad2,
+  Images,
   Bus,
   Landmark,
   Layers,
@@ -105,12 +106,14 @@ import {
   PropertyReview,
   PropertyReviewsResponse,
   PublicPropertyDetail,
+  RoomSpec,
   useSavedProperties
 } from "../properties";
 import { extractNrmsMenuToken, fetchNrmsActiveRoomOrdering, NrmsActiveRoomOrdering } from "../nrms";
 import { fetchSystemCommission } from "../bookings/checkoutApi";
 import { getPropertyCommission, priceWithCommission } from "../bookings/priceUtils";
 import { colors, radius, shadows, spacing } from "../theme";
+import { PhotoTour } from "../components/PhotoTour";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PropertyDetail">;
 
@@ -869,7 +872,13 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
     );
   }
 
-  const location = [detail.street, detail.ward, detail.district, detail.regionName, detail.country].filter(Boolean).join(", ");
+  const location = [
+    detail.locationPrecision === "EXACT" ? detail.street : null,
+    detail.ward,
+    detail.district,
+    detail.regionName,
+    detail.country
+  ].filter(Boolean).join(", ");
   const parsed = parsePropertyServices(detail.services);
   const verificationRecord = normalizeVerificationRecord(detail);
   const houseRules = parsed.houseRules;
@@ -888,6 +897,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <HeroGallery
           images={detail.images}
+          roomsSpec={detail.roomsSpec}
           title={detail.title}
           location={location}
           topInset={insets.top}
@@ -1304,7 +1314,13 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
 
             {/* Location */}
             <Section title="Location" icon={<MapPin color={colors.primary} size={18} />}>
-              <LocationMapCard latitude={detail.latitude} longitude={detail.longitude} address={location} />
+              <LocationMapCard
+                latitude={detail.latitude}
+                longitude={detail.longitude}
+                address={location}
+                precision={detail.locationPrecision}
+                radiusMeters={detail.locationRadiusMeters}
+              />
             </Section>
 
             {/* Nearby services */}
@@ -1418,6 +1434,7 @@ export function PropertyDetailScreen({ navigation, route }: Props) {
 
 function HeroGallery({
   images,
+  roomsSpec,
   title,
   location,
   topInset,
@@ -1426,6 +1443,7 @@ function HeroGallery({
   onToggleSave
 }: {
   images: string[];
+  roomsSpec: RoomSpec[];
   title: string;
   location: string;
   topInset: number;
@@ -1440,6 +1458,7 @@ function HeroGallery({
   const pausedRef = useRef(false);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [index, setIndex] = useState(0);
+  const [tourIndex, setTourIndex] = useState<number | null>(null);
 
   const cardWidth = width - spacing[4] * 2;
   const cardHeight = Math.round(cardWidth * 1.12);
@@ -1483,6 +1502,19 @@ function HeroGallery({
     }, HERO_RESUME_MS);
   }
 
+  function openTour(photoIndex: number) {
+    pause();
+    setTourIndex(photoIndex);
+  }
+
+  function closeTour(photoIndex: number) {
+    indexRef.current = photoIndex;
+    setIndex(photoIndex);
+    listRef.current?.scrollToOffset({ offset: photoIndex * cardWidth, animated: false });
+    setTourIndex(null);
+    resumeSoon();
+  }
+
   return (
     <View style={[styles.heroCard, { marginTop: topInset + spacing[2], height: cardHeight }]}>
       {images.length > 0 ? (
@@ -1508,12 +1540,18 @@ function HeroGallery({
           onMomentumScrollEnd={onScroll}
           onScrollBeginDrag={pause}
           onScrollEndDrag={resumeSoon}
-          renderItem={({ item }) => (
-            <Image
-              source={{ uri: item }}
-              style={{ width: cardWidth, height: cardHeight, backgroundColor: colors.brand[100] }}
-              resizeMode="cover"
-            />
+          renderItem={({ item, index: photoIndex }) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Open photo tour at photo ${photoIndex + 1} of ${images.length}`}
+              onPress={() => openTour(photoIndex)}
+            >
+              <Image
+                source={{ uri: item }}
+                style={{ width: cardWidth, height: cardHeight, backgroundColor: colors.brand[100] }}
+                resizeMode="cover"
+              />
+            </Pressable>
           )}
         />
       ) : (
@@ -1541,11 +1579,17 @@ function HeroGallery({
 
       <View style={styles.heroTopRight}>
         {images.length > 0 ? (
-          <View style={styles.heroCounter}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open photo tour at photo ${index + 1} of ${images.length}`}
+            onPress={() => openTour(indexRef.current)}
+            style={styles.heroCounter}
+          >
+            <Images color={colors.white} size={14} />
             <AppText variant="caption" weight="bold" tone="inverse">
               {index + 1} / {images.length}
             </AppText>
-          </View>
+          </Pressable>
         ) : null}
 
         {onToggleSave ? (
@@ -1560,14 +1604,7 @@ function HeroGallery({
         ) : null}
       </View>
 
-      <View style={styles.heroOverlay}>
-        {images.length > 1 ? (
-          <View style={styles.heroDots}>
-            {images.slice(0, 8).map((_, i) => (
-              <View key={i} style={[styles.heroDot, i === index && styles.heroDotActive]} />
-            ))}
-          </View>
-        ) : null}
+      <View style={styles.heroOverlay} pointerEvents="none">
         <AppText variant="headline" weight="extraBold" tone="inverse" numberOfLines={2}>
           {title}
         </AppText>
@@ -1580,6 +1617,17 @@ function HeroGallery({
           </View>
         ) : null}
       </View>
+      {tourIndex !== null ? (
+        <PhotoTour
+          images={images}
+          roomsSpec={roomsSpec}
+          initialIndex={tourIndex}
+          title={title}
+          saved={saved}
+          onToggleSave={onToggleSave}
+          onClose={closeTour}
+        />
+      ) : null}
     </View>
   );
 }
@@ -2098,7 +2146,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: "rgba(2,6,23,0.55)",
     paddingHorizontal: spacing[3],
-    paddingVertical: spacing[1]
+    paddingVertical: spacing[1],
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
   },
   heroSaveButton: {
     width: 42,
@@ -2117,21 +2168,6 @@ const styles = StyleSheet.create({
     right: spacing[4],
     bottom: spacing[4],
     gap: spacing[2]
-  },
-  heroDots: {
-    flexDirection: "row",
-    gap: spacing[1],
-    marginBottom: spacing[1]
-  },
-  heroDot: {
-    width: 6,
-    height: 6,
-    borderRadius: radius.full,
-    backgroundColor: "rgba(255,255,255,0.5)"
-  },
-  heroDotActive: {
-    width: 18,
-    backgroundColor: colors.white
   },
   heroLocation: {
     flexDirection: "row",

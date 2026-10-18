@@ -1,4 +1,5 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import * as Notifications from "expo-notifications";
 import { ArrowLeft, Bell, CheckCheck, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
@@ -9,6 +10,7 @@ import { RootStackParamList } from "../navigation/types";
 import {
   deleteCustomerNotification,
   deleteCustomerReadNotifications,
+  fetchCustomerNotification,
   fetchCustomerNotifications,
   markCustomerNotificationRead,
   NotificationItem
@@ -27,8 +29,9 @@ function formatWhen(iso: string) {
     : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-export function NotificationsScreen({ navigation }: Props) {
+export function NotificationsScreen({ navigation, route }: Props) {
   const { token } = useAuth();
+  const [focusedItem, setFocusedItem] = useState<NotificationItem | null>(null);
   const [tab, setTab] = useState<Tab>("unread");
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +52,9 @@ export function NotificationsScreen({ navigation }: Props) {
       setError(null);
       try {
         const response = await fetchCustomerNotifications(token, { tab, page: 1, pageSize: 50 });
-        setItems(response.items || []);
+        const list = response.items || [];
+        setItems(focusedItem && focusedItem.unread === (tab === "unread") && !list.some((item) => item.id === focusedItem.id)
+          ? [focusedItem, ...list] : list);
         if (tab === "unread") setUnreadCount(response.total ?? response.items?.length ?? 0);
         else setViewedCount(response.total ?? response.items?.length ?? 0);
       } catch (e) {
@@ -59,8 +64,21 @@ export function NotificationsScreen({ navigation }: Props) {
         setRefreshing(false);
       }
     },
-    [token, tab]
+    [token, tab, focusedItem]
   );
+
+  useEffect(() => {
+    const id = route.params?.notificationId;
+    if (!token || !id) return;
+    let active = true;
+    setFocusedItem(null);
+    void fetchCustomerNotification(token, id).then(({ item }) => {
+      if (!active) return;
+      setFocusedItem(item);
+      setTab(item.unread ? "unread" : "viewed");
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [route.params?.notificationId, token]);
 
   const loadOtherCount = useCallback(async () => {
     if (!token) return;
@@ -95,12 +113,21 @@ export function NotificationsScreen({ navigation }: Props) {
     };
   }, [load, loadOtherCount, token]);
 
+  useEffect(() => {
+    const subscription = Notifications.addNotificationReceivedListener(() => {
+      void load("silent");
+      void loadOtherCount();
+    });
+    return () => subscription.remove();
+  }, [load, loadOtherCount]);
+
   const markRead = useCallback(
     async (id: NotificationItem["id"]) => {
       if (!token) return;
       try {
         await markCustomerNotificationRead(token, id);
         setItems((prev) => prev.filter((n) => n.id !== id));
+        setFocusedItem((prev) => prev?.id === id ? { ...prev, unread: false } : prev);
         setUnreadCount((prev) => Math.max(0, prev - 1));
         setViewedCount((prev) => prev + 1);
       } catch {
@@ -116,6 +143,7 @@ export function NotificationsScreen({ navigation }: Props) {
       try {
         await deleteCustomerNotification(token, id);
         setItems((prev) => prev.filter((n) => n.id !== id));
+        setFocusedItem((prev) => prev?.id === id ? null : prev);
         setViewedCount((prev) => Math.max(0, prev - 1));
       } catch {
         // ignore
@@ -129,6 +157,7 @@ export function NotificationsScreen({ navigation }: Props) {
     try {
       await deleteCustomerReadNotifications(token);
       setItems([]);
+      setFocusedItem(null);
       setViewedCount(0);
     } catch {
       // ignore
@@ -219,7 +248,7 @@ export function NotificationsScreen({ navigation }: Props) {
                 accessibilityRole="button"
                 onPress={() => void openNotification(item)}
                 onLongPress={() => (tab === "viewed" ? removeOne(item.id) : undefined)}
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                style={({ pressed }) => [styles.card, focusedItem?.id === item.id && { borderColor: colors.primary }, pressed && styles.cardPressed]}
               >
                 <View style={[styles.cardIcon, item.unread && styles.cardIconUnread]}>
                   <Bell color={item.unread ? colors.primary : colors.softText} size={16} />

@@ -34,7 +34,7 @@ export type RootStackParamList = {
   KaribuStory: { focus?: "preferences" } | undefined;
   PrivacyData: undefined;
   BusinessAccess: undefined;
-  Notifications: undefined;
+  Notifications: { notificationId?: number } | undefined;
   SafetyCenter: undefined;
   SavedProperties: undefined;
   AccountSecurity: { mode: "password" | "passkeys" | "2fa" | "applock" | "sessions" | "logins" };

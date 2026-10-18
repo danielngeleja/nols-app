@@ -58,6 +58,9 @@ export type PublicPropertyDetail = {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** The public API shifts private-home coordinates and withholds their street. */
+  locationPrecision?: "EXACT" | "APPROXIMATE";
+  locationRadiusMeters?: number | null;
   images: string[];
   basePrice: number | null;
   currency: string | null;

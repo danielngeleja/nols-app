@@ -15,14 +15,40 @@ function assert(condition, message) {
 
 assert(app.android?.package === "com.nolsaf.app", "Android package must be com.nolsaf.app.");
 assert(Number.isInteger(app.android?.versionCode) && app.android.versionCode > 0, "Android versionCode must be a positive integer.");
+assert(!["portrait", "landscape"].includes(app.orientation), "The app must not lock orientation on large-screen Android devices.");
 for (const permission of ["android.permission.READ_MEDIA_IMAGES", "android.permission.READ_MEDIA_VIDEO"]) {
   assert(app.android?.blockedPermissions?.includes(permission), `${permission} must be blocked for Play photo/video policy.`);
 }
 assert(eas.build?.production?.android?.buildType === "app-bundle", "Production Android builds must use app-bundle.");
 assert(String(pkg.dependencies?.expo || "").startsWith("~56."), "Expo SDK 56 is required for the current Android target SDK baseline.");
+assert(Boolean(pkg.dependencies?.["expo-build-properties"]), "expo-build-properties is required for Android release optimization.");
+const buildPropertiesPlugin = app.plugins?.find((plugin) => Array.isArray(plugin) && plugin[0] === "expo-build-properties");
+assert(buildPropertiesPlugin?.[1]?.android?.enableMinifyInReleaseBuilds === true, "Android release builds must enable R8 minification.");
+assert(buildPropertiesPlugin?.[1]?.android?.enableShrinkResourcesInReleaseBuilds === true, "Android release builds must enable resource shrinking.");
 assert(Boolean(pkg.dependencies?.["expo-secure-store"]), "expo-secure-store is required for session tokens.");
 assert(Boolean(pkg.dependencies?.["react-native-passkeys"]), "react-native-passkeys is required for native passkeys.");
 assert(Boolean(pkg.dependencies?.["socket.io-client"]), "socket.io-client is required for foreground real-time updates.");
+assert(Boolean(pkg.dependencies?.["expo-notifications"]), "expo-notifications is required for phone alerts.");
+assert(Boolean(pkg.dependencies?.["expo-constants"]), "expo-constants is required for the EAS push project ID.");
+const notificationsPlugin = app.plugins?.find((plugin) => plugin === "expo-notifications" ||
+  (Array.isArray(plugin) && plugin[0] === "expo-notifications"));
+assert(Boolean(notificationsPlugin), "The expo-notifications config plugin is required for Android push.");
+const notificationIcon = Array.isArray(notificationsPlugin) ? notificationsPlugin[1]?.icon : null;
+const notificationIconPath = notificationIcon && resolve(mobileRoot, notificationIcon);
+assert(Boolean(notificationIconPath) && existsSync(notificationIconPath), "A dedicated Android notification icon is required.");
+if (notificationIconPath && existsSync(notificationIconPath)) {
+  const png = readFileSync(notificationIconPath);
+  assert(png.length >= 24 && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+    png.readUInt32BE(16) === 96 && png.readUInt32BE(20) === 96,
+    "The Android notification icon must be a 96x96 PNG.");
+}
+const googleServicesPath = app.android?.googleServicesFile && resolve(mobileRoot, app.android.googleServicesFile);
+assert(Boolean(googleServicesPath) && existsSync(googleServicesPath), "Android google-services.json is missing.");
+if (googleServicesPath && existsSync(googleServicesPath)) {
+  const firebase = JSON.parse(readFileSync(googleServicesPath, "utf8"));
+  assert(firebase.client?.some((client) => client.client_info?.android_client_info?.package_name === app.android.package),
+    "Firebase Android package must match app.json.");
+}
 assert(app.ios?.associatedDomains?.includes("applinks:nolsaf.com"), "iOS must declare the nolsaf.com applinks association.");
 
 const androidLinks = app.android?.intentFilters || [];

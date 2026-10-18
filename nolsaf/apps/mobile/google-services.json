@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "497703106557",
+    "project_id": "com-nolsaf-app",
+    "storage_bucket": "com-nolsaf-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:497703106557:android:392a43357273747dd6cb94",
+        "android_client_info": {
+          "package_name": "com.nolsaf.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAdi9q8t8mCwl2an7E-NUR2aK9h9stdFk8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

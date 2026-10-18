@@ -3,7 +3,6 @@
     "name": "NoLSAF",
     "slug": "nolsaf",
     "version": "0.1.1",
-    "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "nolsaf",
     "icon": "./assets/icon.png",
@@ -25,7 +24,8 @@
     },
     "android": {
       "package": "com.nolsaf.app",
-      "versionCode": 40,
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 41,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO"
@@ -72,6 +72,22 @@
       ]
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1C7975"
+        }
+      ],
       [
         "expo-location",
         {

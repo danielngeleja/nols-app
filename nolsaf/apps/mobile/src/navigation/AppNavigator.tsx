@@ -1,5 +1,7 @@
-import { LinkingOptions, NavigationContainer, DefaultTheme, getStateFromPath } from "@react-navigation/native";
+import { LinkingOptions, NavigationContainer, DefaultTheme, getStateFromPath, useNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import * as Notifications from "expo-notifications";
+import { useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { useAuth } from "../auth";
@@ -50,6 +52,7 @@ import { MyGroupStaysScreen } from "../screens/MyGroupStaysScreen";
 import { VerifiedStaysScreen } from "../screens/VerifiedStaysScreen";
 import { colors } from "../theme";
 import { RootStackParamList } from "./types";
+import { notificationIdFromResponse, registerPushDevice } from "../notifications/pushNotifications";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -95,14 +98,53 @@ const navigationTheme = {
 };
 
 export function AppNavigator() {
-  const { status, user } = useAuth();
+  const { status, user, token } = useAuth();
+  const navigationRef = useNavigationContainerRef<RootStackParamList>();
+  const pendingPushId = useRef<number | null>(null);
+  const handledPushResponse = useRef<string | null>(null);
   const registrationComplete = user?.registrationStatus === "COMPLETE" || Boolean(
     String(user?.fullName || user?.name || "").trim() && String(user?.email || "").trim() && String(user?.phone || "").trim()
   );
   const needsRegistrationCompletion = status === "authenticated" && !registrationComplete;
 
+  useEffect(() => {
+    if (status !== "authenticated" || !registrationComplete || !token) return;
+    let current = true;
+    void registerPushDevice(token, () => current).catch((error) => {
+      console.warn("[push] device registration failed", error);
+    });
+    return () => { current = false; };
+  }, [status, registrationComplete, token]);
+
+  const openPendingPush = useCallback(() => {
+    if (status !== "authenticated" || !registrationComplete || !navigationRef.isReady() || pendingPushId.current == null) return;
+    const notificationId = pendingPushId.current;
+    pendingPushId.current = null;
+    navigationRef.navigate("Notifications", { notificationId });
+  }, [navigationRef, registrationComplete, status]);
+
+  useEffect(() => {
+    const accept = (response: Notifications.NotificationResponse) => {
+      const key = response.notification.request.identifier;
+      if (handledPushResponse.current === key) return;
+      handledPushResponse.current = key;
+      const id = notificationIdFromResponse(response);
+      if (id != null) {
+        pendingPushId.current = id;
+        openPendingPush();
+      }
+    };
+    const subscription = Notifications.addNotificationResponseReceivedListener(accept);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) accept(response);
+    }).catch(() => undefined);
+    return () => subscription.remove();
+  }, [openPendingPush]);
+
+  useEffect(() => { openPendingPush(); }, [openPendingPush]);
+
   return (
-    <NavigationContainer theme={navigationTheme} linking={linking}>
+    <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking} onReady={openPendingPush}>
       <View style={styles.root}>
         <Stack.Navigator
           initialRouteName={needsRegistrationCompletion ? "ProfileCompletion" : "Onboarding"}

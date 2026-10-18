@@ -10,6 +10,10 @@ export async function fetchCustomerNotifications(token: string, params: { tab?: 
   return apiRequest<NotificationListResponse>(`/api/customer/notifications?${query.toString()}`, { token });
 }
 
+export async function fetchCustomerNotification(token: string, id: number) {
+  return apiRequest<{ item: import("./types").NotificationItem }>(`/api/customer/notifications/${id}`, { token });
+}
+
 /** Mark one notification as read. */
 export async function markCustomerNotificationRead(token: string, id: number | string) {
   return apiRequest<{ ok: boolean }>(`/api/customer/notifications/${id}/mark-read`, { token, method: "POST" });

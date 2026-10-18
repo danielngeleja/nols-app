@@ -5,6 +5,7 @@ import { clearStoredToken, getStoredToken, storeToken } from "./secureSession";
 import { getCurrentAccount, loginWithPassword, logoutSession, registerCustomer, updateAccountProfile, verifyAccountMfa } from "./authApi";
 import { AccountMfaChallenge, AuthState, AuthUser, RegisterCustomerInput, UpdateProfileInput } from "./types";
 import { ApiError, setUnauthorizedHandler } from "../lib/apiClient";
+import { unregisterPushDevice } from "../notifications/pushNotifications";
 
 /** A sign-in held at the authenticator step (the account has 2FA turned on). */
 export type PendingMfa = { challengeId: string; expiresAt: number };
@@ -189,6 +190,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signOut = useCallback(async () => {
     const token = state.token;
+    try {
+      if (token) await unregisterPushDevice(token);
+    } catch {
+      // A network error must not prevent the normal server logout.
+    }
     try {
       await logoutSession(token);
     } catch {
