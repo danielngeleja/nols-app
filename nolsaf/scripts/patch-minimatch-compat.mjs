@@ -8,6 +8,7 @@ const pluginVersions = {
   "eslint-plugin-import": "2.32.0",
   "eslint-plugin-jsx-a11y": "6.10.2",
   "eslint-plugin-react": "7.37.5",
+  "proper-lockfile": "4.1.2",
 };
 
 const installedPlugins = new Set();
@@ -36,6 +37,11 @@ for (const [pluginName, expectedVersion] of Object.entries(pluginVersions)) {
 }
 
 const patches = [
+  {
+    relativePath: path.join("proper-lockfile", "lib", "lockfile.js"),
+    original: "const onExit = require('signal-exit');",
+    replacement: "const signalExit = require('signal-exit');\nconst onExit = typeof signalExit === 'function' ? signalExit : signalExit.onExit;",
+  },
   ...[
     "forbid-component-props.js",
     "jsx-handler-names.js",
@@ -97,6 +103,6 @@ for (const patch of patches) {
 
 console.log(
   patchedFileCount === 0
-    ? "Minimatch compatibility patches already applied."
-    : `Applied minimatch compatibility patches to ${patchedFileCount} lint plugin files.`,
+    ? "Dependency compatibility patches already applied."
+    : `Applied dependency compatibility patches to ${patchedFileCount} files.`,
 );
