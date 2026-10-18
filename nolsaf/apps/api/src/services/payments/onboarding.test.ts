@@ -1043,7 +1043,7 @@ describe("administrator decisions", () => {
       ownerId: 3,
       userId: 3,
       title: "Payment application was not approved",
-      meta: { kind: "merchant_application_reject", actionUrl: "/owner/nrms/payments" },
+      meta: { kind: "merchant_application_reject", applicationId: 50 },
     });
   });
 

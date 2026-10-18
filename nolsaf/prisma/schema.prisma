@@ -233,6 +233,7 @@ model User {
 
   // Notifications for this user
   notifications Notification[]
+  pushDevices PushDevice[]
 
   // Owner-specific notifications (legacy)
   ownerNotifications Notification[] @relation("OwnerNotifications")
@@ -2132,6 +2133,25 @@ model PaymentMethodAvailability {
   @@map("payment_method_availability")
 }
 
+/// Website promotion for the native apps. Association files and passkeys are
+/// deliberately independent of this switch.
+model AppDistributionSettings {
+  id              Int      @id @default(1)
+  enabled         Boolean  @default(false)
+  showOnHome      Boolean  @default(true)
+  showInFooter    Boolean  @default(true)
+  headline        String   @default("Take NoLSAF with you") @db.VarChar(120)
+  description     String   @default("Plan and manage your trip in the NoLSAF app.") @db.VarChar(300)
+  androidEnabled  Boolean  @default(false)
+  androidStoreUrl String?  @db.VarChar(500)
+  iosEnabled      Boolean  @default(false)
+  iosStoreUrl     String?  @db.VarChar(500)
+  updatedAt       DateTime @updatedAt
+  updatedById     Int?
+
+  @@map("app_distribution_settings")
+}
+
 model SystemSetting {
   id Int @id @default(1)
 
@@ -2200,6 +2220,9 @@ model SystemSetting {
 
   /// Support contact phone shown in UI/receipts (optional)
   supportPhone String? @db.VarChar(40)
+
+  /// Office address shown with the support contacts (optional; site shows the head office when empty)
+  supportAddress String? @db.VarChar(160)
 
   // ==================== Security & Cybersecurity Fields ====================
   /// Require two-factor authentication for admin accounts
@@ -2907,6 +2930,7 @@ model Notification {
   // Relations
   user  User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   owner User? @relation("OwnerNotifications", fields: [ownerId], references: [id], onDelete: Cascade)
+  pushDeliveries PushDelivery[]
 
   @@index([userId])
   @@index([ownerId])
@@ -2916,6 +2940,55 @@ model Notification {
   @@index([userId, unread])
   @@index([ownerId, unread])
   @@map("notification")
+}
+
+model PushDevice {
+  id Int @id @default(autoincrement())
+  userId Int
+  sessionId String @db.VarChar(191)
+  token String @unique @db.VarChar(255)
+  platform String @db.VarChar(10)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries PushDelivery[]
+
+  @@index([userId, active])
+  @@map("push_device")
+}
+
+model PushDelivery {
+  id Int @id @default(autoincrement())
+  notificationId Int
+  deviceId Int
+  status String @default("PENDING") @db.VarChar(20)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  ticketId String? @db.VarChar(100)
+  sentAt DateTime?
+  checkedAt DateTime?
+  lastError String? @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  device PushDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, deviceId])
+  @@index([status, nextAttemptAt])
+  @@index([status, sentAt])
+  @@map("push_delivery")
+}
+
+model PushCursor {
+  id Int @id
+  lastNotificationId Int @default(0)
+  activatedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("push_cursor")
 }
 
 // =========================================================

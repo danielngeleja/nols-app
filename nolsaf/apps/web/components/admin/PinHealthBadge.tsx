@@ -50,13 +50,9 @@ export default function PinHealthBadge({
 
   if (!hasPin) {
     return (
-      <button
-        type="button"
-        onClick={onFix}
-        className="inline-flex items-center gap-2 rounded-lg border-0 bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200 hover:bg-amber-100"
-      >
-        <MapPin className="h-4 w-4" /> No pin saved · Place pin
-      </button>
+      <span className="inline-flex items-center gap-2 self-start rounded-lg bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+        <MapPin className="h-4 w-4" /> Pin missing
+      </span>
     );
   }
 

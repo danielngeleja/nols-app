@@ -428,7 +428,7 @@ router.patch("/:id", (async (req: AuthedRequest, res) => {
         try {
           await notifyOwner(ownerId, ownerTemplate, {
             bookingId: current.bookingId,
-            bookingCode: customerBookingReference(current.bookingId),
+            bookingReference: customerBookingReference(current.bookingId),
             propertyTitle,
             requestId: id,
             newStatus: nextStatus,

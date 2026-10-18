@@ -171,6 +171,7 @@ export default function AdminOperationalFooter() {
   const envTone = /prod/i.test(environment) ? "bg-emerald-400" : /stag|preview/i.test(environment) ? "bg-amber-400" : "bg-sky-400";
 
   const recheck = () => {
+    if (health === "checking") return;
     setHealth("checking");
     void checkHealth();
     void checkImpact();
@@ -205,10 +206,12 @@ export default function AdminOperationalFooter() {
           <button
             type="button"
             onClick={recheck}
-            disabled={health === "checking"}
+            // aria-disabled, not disabled: browsers restore a native disabled
+            // state on reload, which made hydration mismatch the server HTML.
+            aria-disabled={health === "checking"}
             aria-label="Check again"
             title="Check again"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-white disabled:cursor-default"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border-0 bg-transparent text-slate-500 transition-colors hover:bg-white/[0.07] hover:text-white aria-disabled:cursor-default"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${health === "checking" ? "animate-spin" : ""}`} aria-hidden />
           </button>

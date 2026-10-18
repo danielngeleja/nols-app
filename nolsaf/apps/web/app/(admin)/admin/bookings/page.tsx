@@ -1,6 +1,7 @@
 "use client";
+import { FileClock as IcDraft, BadgeCheck as IcPaid, BedDouble as IcIn, DoorOpen as IcOut, Ban as IcCancel, ChevronRight as IcNext } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { BarChart2, Calendar, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock, CreditCard, Eye, Landmark, LogIn, LogOut, Search, Smartphone, X, XCircle } from "lucide-react";
+import { Calendar, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock, CreditCard, Eye, Landmark, LogIn, LogOut, Search, Smartphone, X, XCircle } from "lucide-react";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import TableRow from "@/components/TableRow";
 import DatePicker from "@/components/ui/DatePicker";
@@ -312,68 +313,96 @@ export default function AdminBookingsPage() {
 
   return (
     <>
-      {/* ── Page header ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div className="flex items-center gap-3 mb-0.5">
-              <div className="h-9 w-9 rounded-xl bg-[#02665e]/10 flex items-center justify-center flex-shrink-0">
-                <Calendar className="h-4.5 w-4.5 text-[#02665e]" />
+      {/* ── Lifecycle band: the booking journey, each stage filters the list ── */}
+      {(() => {
+        const c = (k: string) => counts[k] ?? 0;
+        const inHouse = c("CHECKED_IN") + c("PENDING_CHECKIN");
+        const paid = c("CONFIRMED") + inHouse + c("CHECKED_OUT") + c("CANCELED");
+        const stages: Array<{ value: string; label: string; hint: string; n: number; Icon: typeof IcPaid; dot: string; dashed?: boolean }> = [
+          { value: "DRAFT", label: "Draft", hint: "Checkout started, not paid", n: c("DRAFT"), Icon: IcDraft, dot: "bg-violet-300", dashed: true },
+          { value: "CONFIRMED", label: "Validated", hint: "Paid, waiting to arrive", n: c("CONFIRMED"), Icon: IcPaid, dot: "bg-emerald-300" },
+          { value: "CHECKED_IN", label: "In house", hint: "Checked in or arriving", n: inHouse, Icon: IcIn, dot: "bg-amber-300" },
+          { value: "CHECKED_OUT", label: "Checked out", hint: "Stay completed", n: c("CHECKED_OUT"), Icon: IcOut, dot: "bg-sky-300" },
+        ];
+        const verdict = !Object.keys(counts).length
+          ? "Reading bookings…"
+          : `${paid} paid ${paid === 1 ? "booking" : "bookings"}: ${inHouse} in house now, ${c("CONFIRMED")} waiting to arrive, ${c("CHECKED_OUT")} completed and ${c("CANCELED")} cancelled.`;
+        return (
+          <section className="relative overflow-hidden rounded-2xl border border-solid border-emerald-950/60 bg-[#0b2420] px-5 py-5 text-white sm:px-6" aria-label="Bookings overview">
+            <div className="pointer-events-none absolute inset-0" aria-hidden style={{ background: "radial-gradient(680px circle at 6% -30%, rgba(52,211,153,0.16), transparent 60%)" }} />
+            <div className="relative">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200/70">Owners · Bookings</p>
+                  <h1 className="m-0 mt-2 text-2xl font-bold tracking-tight">Bookings</h1>
+                  <p className="m-0 mt-1.5 max-w-2xl text-sm leading-6 text-emerald-50/75">
+                    {verdict}
+                    {c("DRAFT") > 0 ? <span className="text-violet-200"> {c("DRAFT")} more {c("DRAFT") === 1 ? "checkout was" : "checkouts were"} started and not paid.</span> : null}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStatus("")}
+                  aria-pressed={status === ""}
+                  className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-solid px-3 text-xs font-semibold transition ${status === "" ? "border-emerald-300/50 bg-emerald-300/15 text-white" : "border-white/10 bg-white/[0.06] text-emerald-50/75 hover:bg-white/[0.12] hover:text-white"}`}
+                >
+                  All bookings <span className="rounded-md bg-white/10 px-1.5 py-px tabular-nums">{c("DRAFT") + paid}</span>
+                </button>
               </div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">Bookings</h1>
+
+              {/* The journey: draft, paid, in house, done. Cancelled sits apart. */}
+              <div className="mt-5 flex flex-col gap-2 lg:flex-row lg:items-stretch">
+                <ol className="m-0 grid flex-1 list-none grid-cols-2 gap-2 p-0 md:grid-cols-4">
+                  {stages.map((st, i) => {
+                    const on = status === st.value;
+                    const share = paid > 0 && !st.dashed ? Math.round((st.n / paid) * 100) : null;
+                    return (
+                      <li key={st.value} className="relative min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => setStatus(on ? "" : st.value)}
+                          aria-pressed={on}
+                          title={on ? "Show all bookings" : `Show ${st.label.toLowerCase()} bookings`}
+                          className={`flex h-full w-full cursor-pointer flex-col rounded-xl border-0 px-3.5 py-3 text-left transition ${
+                            on
+                              ? "bg-emerald-300/[0.16] shadow-[inset_0_0_0_1px_rgba(110,231,183,0.5)]"
+                              : st.dashed
+                                ? "bg-transparent shadow-[inset_0_0_0_1px_rgba(196,181,253,0.25)] hover:bg-white/[0.05]"
+                                : "bg-white/[0.05] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] hover:bg-white/[0.09]"
+                          }`}
+                        >
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-50/70">
+                              <st.Icon className="h-3.5 w-3.5" aria-hidden />
+                              {st.label}
+                            </span>
+                            <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} aria-hidden />
+                          </span>
+                          <span className="mt-1.5 text-2xl font-bold tabular-nums leading-none text-white">{st.n}</span>
+                          <span className="mt-1.5 text-[11px] leading-snug text-emerald-100/50">{st.hint}{share != null ? ` · ${share}% of paid` : ""}</span>
+                        </button>
+                        {i < stages.length - 1 ? (
+                          <IcNext className="pointer-events-none absolute -right-[9px] top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-emerald-200/40 md:block" aria-hidden />
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+                <button
+                  type="button"
+                  onClick={() => setStatus(status === "CANCELED" ? "" : "CANCELED")}
+                  aria-pressed={status === "CANCELED"}
+                  className={`flex cursor-pointer flex-col rounded-xl border-0 px-3.5 py-3 text-left transition lg:w-44 ${status === "CANCELED" ? "bg-rose-400/[0.16] shadow-[inset_0_0_0_1px_rgba(251,113,133,0.5)]" : "bg-white/[0.03] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.07)] hover:bg-white/[0.07]"}`}
+                >
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-50/70"><IcCancel className="h-3.5 w-3.5" aria-hidden /> Cancelled</span>
+                  <span className="mt-1.5 text-2xl font-bold tabular-nums leading-none text-white">{c("CANCELED")}</span>
+                  <span className="mt-1.5 text-[11px] text-emerald-100/50">Left the journey</span>
+                </button>
+              </div>
             </div>
-            <p className="text-sm text-gray-500 ml-12">View and manage guest bookings and codes</p>
-          </div>
-          {/* KPI chips */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {[
-              { label: 'Total',     val: (counts['DRAFT'] ?? 0) + (counts['CONFIRMED'] ?? 0) + (counts['CHECKED_IN'] ?? 0) + (counts['PENDING_CHECKIN'] ?? 0) + (counts['CHECKED_OUT'] ?? 0) + (counts['CANCELED'] ?? 0), cls: 'bg-gray-100 text-gray-700 ring-gray-200' },
-              { label: 'Draft',     val: counts['DRAFT'] ?? 0, cls: 'bg-purple-50 text-purple-700 ring-purple-200' },
-              { label: 'Active',    val: (counts['CHECKED_IN'] ?? 0) + (counts['PENDING_CHECKIN'] ?? 0), cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-              { label: 'Checked out', val: counts['CHECKED_OUT'] ?? 0, cls: 'bg-sky-50 text-sky-700 ring-sky-200' },
-              { label: 'Cancelled', val: counts['CANCELED'] ?? 0, cls: 'bg-red-50 text-red-600 ring-red-200' },
-            ].map(k => (
-              <div key={k.label} className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ring-1 ${k.cls}`}>
-                <span className="font-bold tabular-nums">{k.val}</span>
-                <span className="opacity-60 font-medium">{k.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        {/* ── Distribution bar ── */}
-        {(() => {
-          const _total = (counts['CONFIRMED'] ?? 0) + (counts['CHECKED_IN'] ?? 0) + (counts['PENDING_CHECKIN'] ?? 0) + (counts['CHECKED_OUT'] ?? 0) + (counts['CANCELED'] ?? 0);
-          const segs = [
-            { label: 'Validated',  val: counts['CONFIRMED'] ?? 0,                                         color: '#10b981' },
-            { label: 'Check-in',   val: (counts['CHECKED_IN'] ?? 0) + (counts['PENDING_CHECKIN'] ?? 0),  color: '#f59e0b' },
-            { label: 'Check-out',  val: counts['CHECKED_OUT'] ?? 0,                                       color: '#0ea5e9' },
-            { label: 'Cancelled',  val: counts['CANCELED'] ?? 0,                                          color: '#ef4444' },
-          ].filter(s => s.val > 0);
-          if (!_total) return null;
-          return (
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <BarChart2 className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Booking distribution</span>
-              </div>
-              <div className="flex h-2 rounded-full overflow-hidden gap-px w-full">
-                {segs.map(s => (
-                  <div key={s.label} className="h-full transition-all" style={{ flex: s.val / _total, background: s.color }} title={`${s.label}: ${s.val}`} />
-                ))}
-              </div>
-              <div className="flex items-center gap-4 mt-2 flex-wrap">
-                {segs.map(s => (
-                  <div key={s.label} className="flex items-center gap-1 text-[10px]">
-                    <div className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: s.color }} />
-                    <span className="text-gray-400">{s.label}</span>
-                    <span className="font-bold text-gray-700 tabular-nums">{s.val}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
-      </div>
+          </section>
+        );
+      })()}
 
       {/* ── Search + Filters ── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
@@ -406,45 +435,10 @@ export default function AdminBookingsPage() {
 
         {/* Status tabs + date */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap">
-            {([
-              { label: 'All',        value: '',            color: '#02665e' },
-              { label: 'Draft',      value: 'DRAFT',       color: '#a855f7' },
-              { label: 'Validated',  value: 'CONFIRMED',   color: '#10b981' },
-              { label: 'Check-in',   value: 'CHECKED_IN',  color: '#f59e0b' },
-              { label: 'Check-out',  value: 'CHECKED_OUT', color: '#0ea5e9' },
-              { label: 'Cancelled',  value: 'CANCELED',    color: '#ef4444' },
-            ] as { label: string; value: string; color: string }[]).map((s) => {
-              const cnt =
-                s.value === ''
-                  ? (counts['DRAFT'] ?? 0) + (counts['CONFIRMED'] ?? 0) + (counts['CHECKED_IN'] ?? 0) + (counts['PENDING_CHECKIN'] ?? 0) + (counts['CHECKED_OUT'] ?? 0) + (counts['CANCELED'] ?? 0)
-                  : s.value === 'CHECKED_IN'
-                  ? (counts['CHECKED_IN'] ?? 0) + (counts['PENDING_CHECKIN'] ?? 0)
-                  : (counts[s.value] ?? 0);
-              const active = status === s.value;
-              return (
-                <button
-                  key={s.value}
-                  type="button"
-                  onClick={() => { setStatus(s.value); setTimeout(() => load(), 0); }}
-                  aria-pressed={active ? 'true' : 'false'}
-                  aria-label={`Filter ${s.label} bookings`}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all border"
-                  style={active
-                    ? { background: s.color, color: '#fff', borderColor: 'transparent', boxShadow: `0 2px 10px ${s.color}55` }
-                    : { background: `${s.color}12`, color: s.color, borderColor: `${s.color}28` }}
-                >
-                  {s.label}
-                  <span
-                    className="tabular-nums text-[10px] font-bold rounded-lg px-1.5 py-0.5"
-                    style={active
-                      ? { background: 'rgba(255,255,255,0.22)', color: '#fff' }
-                      : { background: `${s.color}1a`, color: s.color }}
-                  >{cnt}</span>
-                </button>
-              );
-            })}
-          </div>
+          <p className="m-0 text-xs text-gray-500">
+            Showing <span className="font-semibold text-gray-800">{({ "": "all bookings", DRAFT: "drafts (unpaid)", CONFIRMED: "validated bookings", CHECKED_IN: "guests in house", CHECKED_OUT: "checked-out stays", CANCELED: "cancelled bookings" } as Record<string, string>)[status] ?? "bookings"}</span>
+            {status ? <button type="button" onClick={() => setStatus("")} className="ml-2 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline">Show all</button> : null}
+          </p>
 
           {/* Date picker button — shows active state when date is selected */}
           <div className="relative flex-shrink-0">

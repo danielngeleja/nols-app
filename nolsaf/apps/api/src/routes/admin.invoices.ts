@@ -18,6 +18,7 @@ import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import type { AuthedRequest } from "../middleware/auth.js";
 import { MONEY_STAGES, MONEY_STAGE_KEYS, moneyStageOf } from "../lib/invoiceMoneyStage.js";
 import { indexMoneyStages } from "../lib/invoiceMoneyStageIndex.js";
+import { customerBookingReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 
@@ -650,8 +651,10 @@ router.post("/:id/pay", async (req, res) => {
     });
     const propertyTitle = (invoiceFull as any)?.booking?.property?.title ?? null;
     const title = "New paid booking";
+    const bookingId = Number((invoiceFull as any)?.bookingId ?? updated.bookingId);
+    const bookingReference = customerBookingReference(bookingId);
     const body =
-      `Booking #${(invoiceFull as any)?.bookingId ?? updated.bookingId} has been paid` +
+      `Booking ${bookingReference} has been paid` +
       (propertyTitle ? ` for ${propertyTitle}` : "") +
       ((invoiceFull as any)?.receiptNumber ? `. Receipt: ${(invoiceFull as any).receiptNumber}` : ".");
 
@@ -673,7 +676,7 @@ router.post("/:id/pay", async (req, res) => {
             title,
             body,
             type: "invoice",
-            meta: { kind: "invoice_paid", invoiceId: updated.id, bookingId: (invoiceFull as any)?.bookingId ?? updated.bookingId, actionUrl: "/owner/bookings/recent" },
+            meta: { kind: "invoice_paid", invoiceId: updated.id, bookingId, bookingReference, actionUrl: `/owner/bookings/checked-in/${bookingReference}` },
           },
           select: { id: true },
         });
@@ -865,8 +868,9 @@ router.post("/:id/mark-paid", blockImpersonated as RequestHandler, requireAdminF
       try {
         const propertyTitle = (inv as any).booking?.property?.title ?? null;
         const title = "New paid booking";
+        const bookingReference = customerBookingReference(updated.bookingId);
         const body =
-          `Booking #${updated.bookingId} has been paid` +
+          `Booking ${bookingReference} has been paid` +
           (propertyTitle ? ` for ${propertyTitle}` : "") +
           (updated.receiptNumber ? `. Receipt: ${updated.receiptNumber}` : ".");
 
@@ -888,7 +892,7 @@ router.post("/:id/mark-paid", blockImpersonated as RequestHandler, requireAdminF
                 title,
                 body,
                 type: "invoice",
-                meta: { kind: "invoice_paid", invoiceId: updated.id, bookingId: updated.bookingId, actionUrl: "/owner/bookings/recent" },
+                meta: { kind: "invoice_paid", invoiceId: updated.id, bookingId: updated.bookingId, bookingReference, actionUrl: `/owner/bookings/checked-in/${bookingReference}` },
               },
               select: { id: true },
             });

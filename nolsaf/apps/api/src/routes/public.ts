@@ -2,6 +2,7 @@ import { type Express, type RequestHandler } from "express";
 import { maybeAuth } from "../middleware/auth.js";
 import clientErrorsRouter from "./clientErrors";
 import publicAvailabilityRouter from "./public.availability";
+import publicAppDistributionRouter from "./public.appDistribution";
 import publicBookingRouter from "./public.booking";
 import publicBookingsRouter from "./public.bookings";
 import publicCareersApplyRouter from "./public.careers.apply";
@@ -50,6 +51,7 @@ export function registerPublicContentRoutes(app: Express): void {
   app.use("/api/public", maybeAuth as RequestHandler);
   app.use("/api/client-errors", maybeAuth as RequestHandler, clientErrorsRouter);
   app.use("/api/public/support", publicSupportRouter);
+  app.use("/api/public/app-distribution", publicAppDistributionRouter);
   app.use("/api/public/updates", publicUpdatesRouter);
   app.use("/api/public/newsletter", publicNewsletterRouter);
   app.use("/api/public/podcasts", publicPodcastsRouter);

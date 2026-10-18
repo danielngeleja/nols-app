@@ -31,6 +31,8 @@ export type RevenueSummaryResponse = {
 
 export type PaymentsSummaryResponse = {
   waiting?: number;
+  payouts?: { open?: number; paid?: number };
+  exceptions?: { unmatched?: number; variance?: number; total?: number };
 };
 
 export type AdminMonitoring = {
@@ -49,6 +51,8 @@ export type AdminAuditEntry = {
 
 export type AdminPerformanceHighlights = {
   windowDays: number;
+  /** Bookings per region in the window; first row equals mostBookedRegion. */
+  regions?: Array<{ regionName: string; bookings: number }>;
   from: string;
   to: string;
   bestPropertyType: null | {
@@ -192,6 +196,8 @@ export function useAdminHomeKpis() {
   const [usersNew, setUsersNew] = useState<number | null>(null);
   const [revenueDelta, setRevenueDelta] = useState<string | null>(null);
   const [paymentsWaiting, setPaymentsWaiting] = useState<number | null>(null);
+  const [paymentExceptions, setPaymentExceptions] = useState<number | null>(null);
+  const [payoutsInProgress, setPayoutsInProgress] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -211,6 +217,8 @@ export function useAdminHomeKpis() {
       setUsersNew(toNumber(users?.newCustomersLast7Days, 0));
       setRevenueDelta(typeof revenue?.delta === "string" ? revenue.delta : null);
       setPaymentsWaiting(toNumber(payments?.waiting, 0));
+      setPaymentExceptions(toNumber(payments?.exceptions?.total, 0));
+      setPayoutsInProgress(toNumber(payments?.payouts?.open, 0));
     }
 
     loadAll();
@@ -222,7 +230,7 @@ export function useAdminHomeKpis() {
     };
   }, []);
 
-  return { driversPending, usersNew, revenueDelta, paymentsWaiting };
+  return { driversPending, usersNew, revenueDelta, paymentsWaiting, paymentExceptions, payoutsInProgress };
 }
 
 export function useAdminRecentActivities() {

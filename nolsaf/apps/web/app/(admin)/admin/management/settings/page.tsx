@@ -122,6 +122,8 @@ export default function SystemSettingsPage(){
     alertOnSuspiciousActivity?: boolean;
     supportEmail?: string | null;
     supportPhone?: string | null;
+    supportAddress?: string | null;
+    supportAddressAvailable?: boolean;
     featureFlags?: any;
     notificationTemplates?: any;
     invoiceTemplate?: string;
@@ -195,6 +197,7 @@ export default function SystemSettingsPage(){
   // support contact (editable by admin)
   const [supportEmail, setSupportEmail] = useState<string>('');
   const [supportPhone, setSupportPhone] = useState<string>('');
+  const [supportAddress, setSupportAddress] = useState<string>('');
   // Referral credit is stored as a decimal fraction (0.0035), but shown to the admin
   // as a percentage (0.35) for readability.
   const [referralPercentInput, setReferralPercentInput] = useState<string>('');
@@ -263,6 +266,7 @@ export default function SystemSettingsPage(){
     setPayoutCron(s.payoutCron ?? '');
     setSupportEmail(s.supportEmail ?? '');
     setSupportPhone(s.supportPhone ?? '');
+    setSupportAddress((s as any).supportAddress ?? '');
     // Round away float noise (0.00239 * 100 = 0.23900000000000002).
     setReferralPercentInput(s.referralCreditPercent != null ? String(Number((Number(s.referralCreditPercent) * 100).toFixed(6))) : '');
     if ((s as any).agentTierLadder) setTierLadder((s as any).agentTierLadder);
@@ -485,6 +489,8 @@ export default function SystemSettingsPage(){
     : {}),
   supportEmail: supportEmail || s.supportEmail,
   supportPhone: supportPhone || s.supportPhone,
+  // Only once the column exists (migration 20261015100000); empty clears it back to the head office default.
+  ...((s as any).supportAddressAvailable ? { supportAddress: supportAddress.trim() } : {}),
   driverLevelGoldThreshold: Number(s.driverLevelGoldThreshold ?? 500000),
   driverLevelDiamondThreshold: Number(s.driverLevelDiamondThreshold ?? 2000000),
   // Convert the percentage shown in the UI back to a decimal fraction for storage.
@@ -1335,6 +1341,23 @@ export default function SystemSettingsPage(){
               <label className="block min-w-0">
                 <span className={sectionLabel}>Support phone</span>
                 <input className={`${fieldClass} mt-1.5`} value={supportPhone} onChange={(e) => setSupportPhone(e.target.value)} placeholder="+255 736 766 726" type="tel" />
+              </label>
+              <label className="block min-w-0 sm:col-span-2">
+                <span className={sectionLabel}>Office address</span>
+                <input
+                  className={`${fieldClass} mt-1.5`}
+                  value={supportAddress}
+                  onChange={(e) => setSupportAddress(e.target.value)}
+                  placeholder="Dar es Salaam, Tanzania"
+                  maxLength={160}
+                  aria-disabled={!(s as any)?.supportAddressAvailable}
+                  readOnly={!(s as any)?.supportAddressAvailable}
+                />
+                <span className="mt-1 block text-[11px] text-neutral-500">
+                  {(s as any)?.supportAddressAvailable
+                    ? "Shown with the official contacts in the site footer. Leave empty to show Dar es Salaam, Tanzania."
+                    : "Available after the support address migration is applied."}
+                </span>
               </label>
             </div>
           </section>

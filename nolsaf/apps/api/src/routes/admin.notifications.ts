@@ -5,6 +5,15 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = Router();
+
+// The admin inbox holds only what is addressed to admins: platform rows with no
+// recipient (system, chatbot, operator-to-admin) and rows sent to this admin.
+// Messages addressed to owners, operators, drivers or travellers belong to their
+// own inboxes; reading or deleting them here would mark them read for, or remove
+// them from, the person they were meant for.
+const adminScope = (req: any) => ({
+  OR: [{ userId: null, ownerId: null }, ...(req.user?.id ? [{ userId: Number(req.user.id) }] : [])],
+});
 // Note: requireAuth and requireRole are already applied in index.ts at route registration
 // We keep it here as well for safety (double protection)
 router.use(requireAuth as any, requireRole('ADMIN') as any);
@@ -18,8 +27,7 @@ router.get('/', asyncHandler(async (req, res) => {
     const page = Number(req.query.page || 1);
     const pageSize = Number(req.query.pageSize || 20);
 
-    // For admin, fetch all notifications (no userId/ownerId filter)
-    const where: any = {};
+    const where: any = { ...adminScope(req) };
     if (tab === 'unread') {
       where.unread = true;
     } else {
@@ -37,7 +45,7 @@ router.get('/', asyncHandler(async (req, res) => {
         },
       }),
       prisma.notification.count({ where }),
-      prisma.notification.count({ where: { unread: true } }),
+      prisma.notification.count({ where: { ...adminScope(req), unread: true } }),
     ]);
 
     const propertyIds = Array.from(
@@ -132,9 +140,8 @@ router.post('/:id/mark-read', asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
     const { id } = req.params;
-    // For admin, we can mark any notification as read (no userId/ownerId restriction)
     const result = await prisma.notification.updateMany({
-      where: { id: Number(id) },
+      where: { id: Number(id), ...adminScope(req) },
       data: { unread: false, readAt: new Date() },
     });
     
@@ -159,7 +166,7 @@ router.delete('/:id', asyncHandler(async (req, res) => {
     }
 
     const result = await prisma.notification.deleteMany({
-      where: { id, unread: false },
+      where: { id, unread: false, ...adminScope(req) },
     });
 
     if (result.count === 0) {

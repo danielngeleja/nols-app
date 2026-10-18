@@ -124,7 +124,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
+    const refreshUnread = async () => {
       try {
         const response = await fetch("/api/owner/notifications?tab=unread&page=1&pageSize=1", {
           credentials: "include",
@@ -135,9 +135,14 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
       } catch {
         // Notification count is non-critical layout data.
       }
-    })();
+    };
+    void refreshUnread();
+    window.addEventListener("nols:owner-notifications-changed", refreshUnread);
+    window.addEventListener("focus", refreshUnread);
     return () => {
       mounted = false;
+      window.removeEventListener("nols:owner-notifications-changed", refreshUnread);
+      window.removeEventListener("focus", refreshUnread);
     };
   }, []);
 
@@ -176,7 +181,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
           }`}
         >
           <aside className="owner-sidebar-container h-full min-h-0" aria-label="Owner workspace navigation">
-            <OwnerSidebar collapsed={!sidebarOpen} />
+            <OwnerSidebar collapsed={!sidebarOpen} unreadCount={unreadCount} />
           </aside>
         </div>
 
@@ -196,7 +201,7 @@ export default function OwnerLayout({ children }: { children: ReactNode }) {
                   if (target?.closest("a[href]")) setMobileSidebarOpen(false);
                 }}
               >
-                <OwnerSidebar collapsed={false} />
+                <OwnerSidebar collapsed={false} unreadCount={unreadCount} />
               </div>
             </aside>
           </div>

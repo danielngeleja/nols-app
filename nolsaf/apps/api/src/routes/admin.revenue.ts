@@ -16,6 +16,7 @@ import { getOwnerDisbursementEmail } from "../lib/bookingEmailTemplates.js";
 import { accrueMarketplaceSalesCommission } from "../lib/salesCommission.js";
 import { BASE_CURRENCY, getFxRates } from "../lib/fx.js";
 import {
+  customerBookingReference,
   isOwnerInvoiceReference,
   matchesOwnerInvoiceReference,
   ownerInvoiceReference,
@@ -1149,8 +1150,9 @@ router.post("/invoices/:id/mark-paid", async (req, res) => {
       try {
         const propertyTitle = (inv as any).booking?.property?.title ?? null;
         const title = "New paid booking";
+        const bookingReference = customerBookingReference(updated.bookingId);
         const body =
-          `Booking #${updated.bookingId} has been paid` +
+          `Booking ${bookingReference} has been paid` +
           (propertyTitle ? ` for ${propertyTitle}` : "") +
           (updated.receiptNumber ? `. Receipt: ${updated.receiptNumber}` : ".");
 
@@ -1172,7 +1174,7 @@ router.post("/invoices/:id/mark-paid", async (req, res) => {
                 title,
                 body,
                 type: "invoice",
-                meta: { kind: "invoice_paid", invoiceId: updated.id, bookingId: updated.bookingId, actionUrl: "/owner/bookings/recent" },
+                meta: { kind: "invoice_paid", invoiceId: updated.id, bookingId: updated.bookingId, bookingReference, actionUrl: `/owner/bookings/checked-in/${bookingReference}` },
               },
               select: { id: true },
             });

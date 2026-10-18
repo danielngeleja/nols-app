@@ -1,31 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// Tour payouts: the conveyor that moves an operator's share from a paid booking to
+// money in their account. Each stage says who acts next (operator or admin), what is
+// sitting there and how long it has waited; the stages double as the list filter.
+// Data: /api/admin/tour-revenue/overview (one row per tour booking).
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   ChevronsUpDown,
-  CheckCircle2,
   Eye,
-  Clock,
-  DollarSign,
-  FileText,
-  Filter,
   RefreshCw,
-  TrendingUp,
-  Wallet,
+  Search,
+  Send,
   X,
-  XCircle,
-  type LucideIcon,
 } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import { useAdminHref } from "@/lib/adminRecordRefs";
 
-const api = apiClient;
-
-type RevenueStatus = "DRAFT" | "NEW" | "CLAIMED" | "VERIFIED" | "APPROVED" | "DISBURSED" | "REJECTED";
+type RevenueStatus = "DRAFT" | "NEW" | "CLAIMED" | "VERIFIED" | "APPROVED" | "DISBURSED" | "REJECTED" | "CANCELLED";
 
 interface TourRevenueRecord {
   id: number;
@@ -44,15 +42,11 @@ interface TourRevenueRecord {
   netAmount: number;
   currency: string;
   status: RevenueStatus;
-  paymentAccess?: {
-    status?: "ACTIVE" | "EXPIRED" | string;
-    issuedAt?: string | null;
-    expiresAt?: string | null;
-    tokenHours?: number;
-    source?: string | null;
-  } | null;
+  paymentAccess?: { status?: string; expiresAt?: string | null } | null;
   paymentRef: string | null;
   rejectionReason: string | null;
+  stageSince?: string | null;
+  tripStart?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,673 +60,473 @@ interface RevenueSummary {
   approved: number;
   disbursed: number;
   rejected: number;
+  cancelled?: number;
   totalAmount: number;
   disbursedAmount: number;
 }
 
-type RevenueSortKey =
-  | "bookingCode"
-  | "operatorName"
-  | "createdAt"
-  | "tourTitle"
-  | "numberOfPeople"
-  | "grossAmount"
-  | "commissionAmount"
-  | "taxAmount"
-  | "status"
-  | "netAmount";
+type Filter = RevenueStatus | "ALL";
+type SortKey = "createdAt" | "bookingCode" | "operatorName" | "tourTitle" | "grossAmount" | "commissionAmount" | "netAmount" | "waiting";
 
-type StatusMeta = { label: string; color: string; bgColor: string; icon: LucideIcon };
+// The conveyor. `actor` is who must move the record forward; `staleDays` is when waiting turns amber.
+const STAGES: Array<{ key: RevenueStatus; label: string; actor: "operator" | "admin" | "done"; next: string; staleDays: number; dot: string }> = [
+  { key: "NEW", label: "Paid, not claimed", actor: "operator", next: "Operator claims the payout", staleDays: 14, dot: "bg-sky-400" },
+  { key: "CLAIMED", label: "Claimed", actor: "admin", next: "You verify the claim", staleDays: 2, dot: "bg-amber-400" },
+  { key: "VERIFIED", label: "Verified", actor: "admin", next: "You approve the payout", staleDays: 2, dot: "bg-amber-300" },
+  { key: "APPROVED", label: "Approved", actor: "admin", next: "You send it in Disbursements", staleDays: 3, dot: "bg-emerald-300" },
+  { key: "DISBURSED", label: "Paid out", actor: "done", next: "Money is with the operator", staleDays: Infinity, dot: "bg-emerald-500" },
+];
 
-const fallbackStatus: StatusMeta = {
-  label: "Pending",
-  color: "text-slate-700",
-  bgColor: "bg-slate-50 border-slate-200",
-  icon: Clock,
+const STATE_PILL: Record<RevenueStatus, { label: string; pill: string }> = {
+  DRAFT: { label: "Unpaid checkout", pill: "bg-neutral-100 text-neutral-600" },
+  NEW: { label: "Not claimed", pill: "bg-sky-50 text-sky-700" },
+  CLAIMED: { label: "Claimed", pill: "bg-amber-50 text-amber-700" },
+  VERIFIED: { label: "Verified", pill: "bg-amber-50 text-amber-700" },
+  APPROVED: { label: "Approved", pill: "bg-emerald-50 text-emerald-700" },
+  DISBURSED: { label: "Paid out", pill: "bg-emerald-600 text-white" },
+  REJECTED: { label: "Rejected", pill: "bg-rose-50 text-rose-700" },
+  CANCELLED: { label: "Booking cancelled", pill: "bg-rose-50 text-rose-700" },
 };
 
-const statusConfig: Record<RevenueStatus, StatusMeta> = {
-  DRAFT: { label: "Draft", color: "text-slate-700", bgColor: "bg-slate-50 border-slate-200", icon: FileText },
-  NEW: { label: "New", color: "text-blue-700", bgColor: "bg-blue-50 border-blue-200", icon: Clock },
-  CLAIMED: { label: "Claimed", color: "text-sky-700", bgColor: "bg-sky-50 border-sky-200", icon: FileText },
-  VERIFIED: { label: "Verified", color: "text-yellow-700", bgColor: "bg-yellow-50 border-yellow-200", icon: AlertCircle },
-  APPROVED: { label: "Approved", color: "text-emerald-700", bgColor: "bg-emerald-50 border-emerald-200", icon: CheckCircle2 },
-  DISBURSED: { label: "Disbursed", color: "text-green-700", bgColor: "bg-green-50 border-green-200", icon: TrendingUp },
-  REJECTED: { label: "Rejected", color: "text-rose-700", bgColor: "bg-rose-50 border-rose-200", icon: XCircle },
-};
-
-function authify() {}
-
-function money(value: number, currency = "TZS") {
+function money(value: number, currency = "USD") {
   try {
-    return new Intl.NumberFormat("en", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-      currencyDisplay: "narrowSymbol",
-    }).format(Math.round(Number(value || 0)));
+    return new Intl.NumberFormat("en", { style: "currency", currency, maximumFractionDigits: 0, currencyDisplay: "narrowSymbol" }).format(Math.round(Number(value || 0)));
   } catch {
     return `${currency} ${Math.round(Number(value || 0)).toLocaleString()}`;
   }
 }
 
-function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+function daysSince(iso?: string | null) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
 
-function formatTokenRemaining(expiresAt: string | null | undefined, nowMs: number) {
-  const expiresMs = expiresAt ? new Date(expiresAt).getTime() : 0;
-  if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) return "Expired";
-  const totalSeconds = Math.floor((expiresMs - nowMs) / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+function ageLabel(days: number | null) {
+  if (days == null) return "";
+  return days === 0 ? "today" : days === 1 ? "1 day" : `${days} days`;
 }
+
+function eatDate(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Dar_es_Salaam" }) + " EAT";
+}
+
+function tokenLeft(expiresAt: string | null | undefined, nowMs: number) {
+  const ms = expiresAt ? new Date(expiresAt).getTime() : 0;
+  if (!Number.isFinite(ms) || ms <= nowMs) return null;
+  const s = Math.floor((ms - nowMs) / 1000);
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
+const HERO_BUTTON =
+  "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-solid border-white/15 bg-white/[0.06] px-3 text-xs font-semibold text-white/85 no-underline transition-colors hover:bg-white/[0.12] hover:text-white hover:no-underline";
 
 export default function AdminTourRevenueOverview() {
   const recordHref = useAdminHref();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<RevenueStatus | "ALL">("ALL");
   const [summary, setSummary] = useState<RevenueSummary | null>(null);
   const [revenues, setRevenues] = useState<TourRevenueRecord[]>([]);
-  const [agentCommissionCurrency, setAgentCommissionCurrency] = useState<string>("TZS");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
+  const [currency, setCurrency] = useState("USD");
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [query, setQuery] = useState("");
   const [operatorFilter, setOperatorFilter] = useState("");
-  const [destinationFilter, setDestinationFilter] = useState("");
   const [amountMin, setAmountMin] = useState("");
   const [amountMax, setAmountMax] = useState("");
-  const [sortBy, setSortBy] = useState<RevenueSortKey>("createdAt");
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [currentPage, setCurrentPage] = useState(1);
+  const [page, setPage] = useState(1);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const searchRef = useRef<HTMLInputElement | null>(null);
-  const pageSize = 10;
+  const pageSize = 12;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      authify();
-      const res = await api.get<{
-        ok: boolean;
-        summary: RevenueSummary;
-        revenues: TourRevenueRecord[];
-        agentCommissionCurrency?: string;
-      }>("/api/admin/tour-revenue/overview");
+      const res = await apiClient.get<{ ok: boolean; summary: RevenueSummary; revenues: TourRevenueRecord[]; agentCommissionCurrency?: string }>("/api/admin/tour-revenue/overview");
       if (res.data.ok) {
         setSummary(res.data.summary);
         setRevenues(res.data.revenues);
-        setAgentCommissionCurrency(res.data.agentCommissionCurrency ?? "TZS");
+        setCurrency(res.data.agentCommissionCurrency || res.data.revenues[0]?.currency || "USD");
       }
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || "Failed to load tour revenue");
+      setError(e?.response?.data?.error || e?.message || "Failed to load tour payouts");
     } finally {
       setLoading(false);
     }
   }, []);
 
+  useEffect(() => { void load(); }, [load]);
+
+  // Payment-link countdowns only tick while unpaid checkouts are on screen.
   useEffect(() => {
-    void load();
-    try {
-      searchRef.current?.focus();
-    } catch {
-      // ignore
-    }
-  }, [load]);
-
-  const filteredRevenues = useMemo(() => {
-    let filtered = revenues;
-    if (activeTab !== "ALL") filtered = filtered.filter((r) => r.status === activeTab);
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (r) =>
-          (r.bookingCode || "").toLowerCase().includes(q) ||
-          (r.operatorName || "").toLowerCase().includes(q) ||
-          (r.tourTitle || "").toLowerCase().includes(q) ||
-          (r.destination || "").toLowerCase().includes(q)
-      );
-    }
-    if (operatorFilter) filtered = filtered.filter((r) => String(r.operatorAgentId) === operatorFilter);
-    if (destinationFilter) {
-      const target = destinationFilter.toLowerCase();
-      filtered = filtered.filter((r) => `${r.destination || ""} ${r.tourTitle || ""}`.toLowerCase().includes(target));
-    }
-    if (amountMin) {
-      const min = Number(amountMin);
-      if (!Number.isNaN(min)) filtered = filtered.filter((r) => Number(r.grossAmount || 0) >= min);
-    }
-    if (amountMax) {
-      const max = Number(amountMax);
-      if (!Number.isNaN(max)) filtered = filtered.filter((r) => Number(r.grossAmount || 0) <= max);
-    }
-    return filtered;
-  }, [revenues, activeTab, searchQuery, operatorFilter, destinationFilter, amountMin, amountMax]);
-
-  const sortedRevenues = useMemo(() => {
-    const rows = [...filteredRevenues];
-    const readValue = (row: TourRevenueRecord): number | string => {
-      switch (sortBy) {
-        case "bookingCode":
-          return String(row.bookingCode || "").toLowerCase();
-        case "operatorName":
-          return String(row.operatorName || "").toLowerCase();
-        case "createdAt":
-          return new Date(row.createdAt || "").getTime() || 0;
-        case "tourTitle":
-          return String(row.tourTitle || "").toLowerCase();
-        case "numberOfPeople":
-          return Number(row.numberOfPeople || 0);
-        case "grossAmount":
-          return Number(row.grossAmount || 0);
-        case "commissionAmount":
-          return Number(row.commissionAmount || 0);
-        case "taxAmount":
-          return Number(row.taxAmount || 0);
-        case "status":
-          return String(row.status || "").toLowerCase();
-        case "netAmount":
-          return Number(row.netAmount || 0);
-        default:
-          return 0;
-      }
-    };
-
-    rows.sort((a, b) => {
-      const av = readValue(a);
-      const bv = readValue(b);
-      if (typeof av === "number" && typeof bv === "number") {
-        return sortDir === "asc" ? av - bv : bv - av;
-      }
-      const cmp = String(av).localeCompare(String(bv));
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-
-    return rows;
-  }, [filteredRevenues, sortBy, sortDir]);
-
-  const totalRows = sortedRevenues.length;
-  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, searchQuery, operatorFilter, destinationFilter, amountMin, amountMax]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-  }, [currentPage, totalPages]);
-
-  useEffect(() => {
-    if (activeTab !== "DRAFT") return;
+    if (filter !== "DRAFT") return;
     setNowMs(Date.now());
-    const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [activeTab]);
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [filter]);
 
-  const paginatedRevenues = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sortedRevenues.slice(start, start + pageSize);
-  }, [sortedRevenues, currentPage]);
-
-  const onSort = (field: RevenueSortKey) => {
-    if (sortBy === field) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-      return;
+  // ── Conveyor numbers ──
+  const stageStats = useMemo(() => {
+    const out = {} as Record<RevenueStatus, { count: number; amount: number; oldest: number | null; stale: number }>;
+    (Object.keys(STATE_PILL) as RevenueStatus[]).forEach((k) => { out[k] = { count: 0, amount: 0, oldest: null, stale: 0 }; });
+    for (const r of revenues) {
+      const s = out[r.status];
+      if (!s) continue;
+      s.count += 1;
+      s.amount += r.status === "DRAFT" ? Number(r.grossAmount || 0) : Number(r.netAmount || 0);
+      const age = daysSince(r.stageSince);
+      if (age != null) {
+        s.oldest = s.oldest == null ? age : Math.max(s.oldest, age);
+        const stage = STAGES.find((x) => x.key === r.status);
+        if (stage && age > stage.staleDays) s.stale += 1;
+      }
     }
-    setSortBy(field);
-    setSortDir(field === "createdAt" ? "desc" : "asc");
-  };
+    return out;
+  }, [revenues]);
 
-  const sortIcon = (field: RevenueSortKey) => {
-    if (sortBy !== field) return <ChevronsUpDown className="h-3.5 w-3.5 text-slate-400" />;
-    return sortDir === "asc"
-      ? <ChevronUp className="h-3.5 w-3.5 text-[#02665e]" />
-      : <ChevronDown className="h-3.5 w-3.5 text-[#02665e]" />;
-  };
+  const yourQueue = STAGES.filter((s) => s.actor === "admin").map((s) => ({ ...s, ...stageStats[s.key] }));
+  const queueCount = yourQueue.reduce((n, s) => n + s.count, 0);
+  const owedTotal = ["NEW", "CLAIMED", "VERIFIED", "APPROVED"].reduce((n, k) => n + stageStats[k as RevenueStatus].amount, 0);
+  const cancelledLive = revenues.filter((r) => r.status === "CANCELLED").length;
 
-  const sortHeaderBtnClass = "inline-flex items-center gap-1 bg-transparent border-0 p-0 m-0 appearance-none cursor-pointer hover:text-slate-900";
+  // The single most useful next move for an admin.
+  const nextMove = (() => {
+    const approved = stageStats.APPROVED;
+    if (approved.count) return { text: `Send ${approved.count} approved ${approved.count === 1 ? "payout" : "payouts"} worth ${money(approved.amount, currency)}.`, href: "/admin/disbursements", cta: "Open Disbursements" };
+    const verified = stageStats.VERIFIED;
+    if (verified.count) return { text: `Approve ${verified.count} verified ${verified.count === 1 ? "claim" : "claims"}${verified.oldest ? `, oldest waiting ${ageLabel(verified.oldest)}` : ""}.`, filter: "VERIFIED" as Filter, cta: "Show them" };
+    const claimed = stageStats.CLAIMED;
+    if (claimed.count) return { text: `Verify ${claimed.count} new ${claimed.count === 1 ? "claim" : "claims"}${claimed.oldest ? `, oldest waiting ${ageLabel(claimed.oldest)}` : ""}.`, filter: "CLAIMED" as Filter, cta: "Show them" };
+    if (stageStats.NEW.count) return { text: `Nothing waits on you. ${stageStats.NEW.count} paid ${stageStats.NEW.count === 1 ? "booking is" : "bookings are"} waiting for the operator to claim.`, filter: "NEW" as Filter, cta: "See them" };
+    return { text: "Nothing waits on you. Every payout is either sent or not yet earned.", cta: null };
+  })();
 
-  const tabs = [
-    { key: "ALL", label: "All", count: summary?.total ?? 0 },
-    { key: "DRAFT", label: "Draft", count: summary?.draft ?? 0 },
-    { key: "NEW", label: "New", count: summary?.new ?? 0 },
-    { key: "CLAIMED", label: "Claimed", count: summary?.claimed ?? 0 },
-    { key: "VERIFIED", label: "Verified", count: summary?.verified ?? 0 },
-    { key: "APPROVED", label: "Approved", count: summary?.approved ?? 0 },
-    { key: "DISBURSED", label: "Paid / Disbursed", count: summary?.disbursed ?? 0 },
-    { key: "REJECTED", label: "Rejected", count: summary?.rejected ?? 0 },
-  ];
-
-  const showingDraftOnly = activeTab === "DRAFT";
-  const payableRevenues = filteredRevenues.filter((item) => item.status !== "DRAFT");
-  const shownGross = (showingDraftOnly ? filteredRevenues : payableRevenues).reduce((sum, item) => sum + Number(item.grossAmount || 0), 0);
-  const shownCommission = payableRevenues.reduce((sum, item) => sum + Number(item.commissionAmount || 0), 0);
-  const shownPayout = payableRevenues.reduce((sum, item) => sum + Number(item.netAmount || 0), 0);
-  const summaryDisplayCurrency = agentCommissionCurrency || filteredRevenues[0]?.currency || "TZS";
+  // ── List ──
   const operators = useMemo(() => {
     const map = new Map<number, string>();
-    revenues.forEach((item) => {
-      if (item.operatorAgentId) map.set(item.operatorAgentId, item.operatorName || `Operator ${item.operatorAgentId}`);
-    });
+    revenues.forEach((r) => { if (r.operatorAgentId) map.set(r.operatorAgentId, r.operatorName); });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [revenues]);
-  const destinations = useMemo(() => {
-    const set = new Set<string>();
-    revenues.forEach((item) => {
-      if (item.destination) set.add(item.destination);
-      if (item.tourTitle) set.add(item.tourTitle);
+
+  const filtered = useMemo(() => {
+    let rows = filter === "ALL" ? revenues.filter((r) => r.status !== "DRAFT") : revenues.filter((r) => r.status === filter);
+    const q = query.trim().toLowerCase();
+    if (q) rows = rows.filter((r) => `${r.bookingCode} ${r.operatorName} ${r.tourTitle} ${r.destination} ${r.paymentRef || ""}`.toLowerCase().includes(q));
+    if (operatorFilter) rows = rows.filter((r) => String(r.operatorAgentId) === operatorFilter);
+    const min = Number(amountMin);
+    if (amountMin && Number.isFinite(min)) rows = rows.filter((r) => Number(r.grossAmount || 0) >= min);
+    const max = Number(amountMax);
+    if (amountMax && Number.isFinite(max)) rows = rows.filter((r) => Number(r.grossAmount || 0) <= max);
+    return rows;
+  }, [revenues, filter, query, operatorFilter, amountMin, amountMax]);
+
+  const sorted = useMemo(() => {
+    const read = (r: TourRevenueRecord): number | string => {
+      switch (sortBy) {
+        case "bookingCode": return r.bookingCode.toLowerCase();
+        case "operatorName": return r.operatorName.toLowerCase();
+        case "tourTitle": return r.tourTitle.toLowerCase();
+        case "grossAmount": return Number(r.grossAmount || 0);
+        case "commissionAmount": return Number(r.commissionAmount || 0);
+        case "netAmount": return Number(r.netAmount || 0);
+        case "waiting": return daysSince(r.stageSince) ?? -1;
+        default: return new Date(r.createdAt).getTime() || 0;
+      }
+    };
+    return [...filtered].sort((a, b) => {
+      const av = read(a);
+      const bv = read(b);
+      const cmp = typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv));
+      return sortDir === "asc" ? cmp : -cmp;
     });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [revenues]);
+  }, [filtered, sortBy, sortDir]);
+
+  useEffect(() => { setPage(1); }, [filter, query, operatorFilter, amountMin, amountMax]);
+  const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, pages);
+  const shown = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  const totals = filtered.reduce(
+    (t, r) => ({ gross: t.gross + Number(r.grossAmount || 0), commission: t.commission + Number(r.commissionAmount || 0), tax: t.tax + Number(r.taxAmount || 0), net: t.net + Number(r.netAmount || 0) }),
+    { gross: 0, commission: 0, tax: 0, net: 0 },
+  );
+  const draftView = filter === "DRAFT";
+  const activeChips = [
+    operatorFilter ? { key: "op", label: operators.find((o) => String(o.id) === operatorFilter)?.name || "Operator", clear: () => setOperatorFilter("") } : null,
+    amountMin ? { key: "min", label: `From ${money(Number(amountMin), currency)}`, clear: () => setAmountMin("") } : null,
+    amountMax ? { key: "max", label: `Up to ${money(Number(amountMax), currency)}`, clear: () => setAmountMax("") } : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; clear: () => void }>;
+
+  const onSort = (key: SortKey) => {
+    if (sortBy === key) { setSortDir((d) => (d === "asc" ? "desc" : "asc")); return; }
+    setSortBy(key);
+    setSortDir(key === "createdAt" || key === "waiting" || key.endsWith("Amount") ? "desc" : "asc");
+  };
+  const sortIcon = (key: SortKey) =>
+    sortBy !== key ? <ChevronsUpDown className="h-3 w-3 text-neutral-300" /> : sortDir === "asc" ? <ChevronUp className="h-3 w-3 text-emerald-700" /> : <ChevronDown className="h-3 w-3 text-emerald-700" />;
+  const pickStage = (key: Filter) => setFilter((cur) => (cur === key ? "ALL" : key));
 
   return (
-    <div className="space-y-4 sm:space-y-6 min-w-0 w-full">
-      <div
-        className="relative overflow-hidden rounded-2xl shadow-2xl"
-        style={{
-          background: "linear-gradient(135deg, #0e2a7a 0%, #0a5c82 38%, #02665e 100%)",
-          boxShadow: "0 28px 65px -15px rgba(2,102,94,0.45), 0 8px 22px -8px rgba(14,42,122,0.50)",
-        }}
-      >
-        <svg aria-hidden className="pointer-events-none absolute inset-0 h-full w-full select-none" preserveAspectRatio="xMidYMid slice" viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="860" cy="45" r="200" stroke="white" strokeOpacity="0.06" strokeWidth="1" fill="none" />
-          <circle cx="860" cy="45" r="155" stroke="white" strokeOpacity="0.05" strokeWidth="1" fill="none" />
-          <circle cx="28" cy="208" r="130" stroke="white" strokeOpacity="0.04" strokeWidth="1" fill="none" />
-          {[44, 88, 132, 176].map((y) => (
-            <line key={y} x1="0" y1={y} x2="900" y2={y} stroke="rgba(255,255,255,0.030)" strokeWidth="1" />
-          ))}
-          <polyline points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78" fill="none" stroke="white" strokeOpacity="0.16" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <polygon points="0,188 80,165 160,178 240,145 320,160 400,125 480,142 560,108 640,124 720,90 800,106 880,78 900,220 0,220" fill="white" fillOpacity="0.026" />
-          {([[720, 90], [560, 108], [880, 78], [240, 145]] as [number, number][]).map(([px, py]) => (
-            <circle key={`${px}-${py}`} cx={px} cy={py} r="3" fill="white" fillOpacity="0.22" />
-          ))}
-        </svg>
+    <div id="tour-payouts" className="w-full min-w-0 space-y-4">
+      <style>{`#tour-payouts, #tour-payouts * { box-sizing: border-box; }`}</style>
 
-        <div className="relative z-10 flex flex-col items-center px-6 py-10 text-center sm:py-14">
-          <div
-            className="mb-5 inline-flex items-center justify-center rounded-full"
-            style={{
-              width: 64,
-              height: 64,
-              background: "rgba(255,255,255,0.10)",
-              border: "1.5px solid rgba(255,255,255,0.18)",
-              boxShadow: "0 0 0 8px rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.35)",
-            }}
-          >
-            <Wallet className="h-7 w-7 text-white/90" aria-hidden />
+      {/* Header: the payout conveyor */}
+      <section className="relative overflow-hidden rounded-2xl bg-[#0b2420] text-white">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_140%_at_100%_0%,rgba(16,185,129,0.18)_0%,rgba(11,36,32,0)_55%)]" aria-hidden />
+        <div className="relative px-5 pt-5 sm:px-6 sm:pt-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">Agents module</p>
+              <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Tour payouts</h1>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">
+                {loading && !summary ? "Reading the pipeline" : <>{money(owedTotal, currency)} owed to operators across {stageStats.NEW.count + queueCount} bookings. {queueCount ? <span className="font-semibold text-amber-200">{queueCount} {queueCount === 1 ? "waits" : "wait"} on you.</span> : "Nothing waits on you."}</>}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/admin/disbursements" className={HERO_BUTTON}><Send className="h-3.5 w-3.5" aria-hidden /> Disbursements</Link>
+              <Link href="/admin/agents/tour-bookings" className={HERO_BUTTON}>Tour commerce</Link>
+              <button type="button" onClick={() => void load()} aria-disabled={loading} aria-label="Refresh tour payouts" title="Refresh" className={`${HERO_BUTTON} w-9 px-0`}>
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
+              </button>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl" style={{ textShadow: "0 2px 12px rgba(0,0,0,0.4)" }}>
-            Tour Revenue Pipeline
-          </h1>
-          <p className="mt-2 text-sm text-white/55 sm:text-base">All tour packages bookings and disbursement tracking</p>
-        </div>
-      </div>
 
-      {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
-
-      <div className="overflow-hidden rounded-xl" style={{ background: "linear-gradient(135deg, #0a1a19 0%, #0d2320 60%, #0a1f2e 100%)", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)" }}>
-        <div className="px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6">
-          <div className="flex flex-col gap-3 sm:gap-4">
-            <div className="w-full min-w-0 max-w-full">
-              <div className="relative w-full min-w-0 max-w-full">
-                  <input
-                    ref={searchRef}
-                    type="text"
-                    placeholder="Search # / booking / operator"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="box-border w-full min-w-0 max-w-full rounded-lg py-2 pl-9 pr-3 text-xs outline-none transition-all sm:py-2.5 sm:pl-10 sm:pr-4 sm:text-sm"
-                    style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.90)" }}
-                  />
-                  <FileText className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 sm:left-3 sm:h-5 sm:w-5" style={{ color: "rgba(255,255,255,0.40)" }} />
-              </div>
-            </div>
-
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-              {tabs.map((tab) => {
-                const key = String(tab.key);
-                const isActive = activeTab === tab.key;
-                type PillColors = { activeBg: string; activeBorder: string; activeText: string; inactiveBg: string; inactiveBorder: string; badgeBg: string; badgeText: string };
-                const colorMap: Record<string, PillColors> = {
-                  ALL: { activeBg: "rgba(255,255,255,0.18)", activeBorder: "rgba(255,255,255,0.38)", activeText: "#ffffff", inactiveBg: "rgba(255,255,255,0.06)", inactiveBorder: "rgba(255,255,255,0.12)", badgeBg: "rgba(255,255,255,0.15)", badgeText: "#e2e8f0" },
-                  DRAFT: { activeBg: "rgba(148,163,184,0.25)", activeBorder: "rgba(148,163,184,0.55)", activeText: "#cbd5e1", inactiveBg: "rgba(148,163,184,0.08)", inactiveBorder: "rgba(148,163,184,0.20)", badgeBg: "rgba(148,163,184,0.20)", badgeText: "#cbd5e1" },
-                  NEW: { activeBg: "rgba(59,130,246,0.25)", activeBorder: "rgba(59,130,246,0.55)", activeText: "#93c5fd", inactiveBg: "rgba(59,130,246,0.08)", inactiveBorder: "rgba(59,130,246,0.20)", badgeBg: "rgba(59,130,246,0.20)", badgeText: "#93c5fd" },
-                  CLAIMED: { activeBg: "rgba(14,165,233,0.25)", activeBorder: "rgba(14,165,233,0.55)", activeText: "#7dd3fc", inactiveBg: "rgba(14,165,233,0.08)", inactiveBorder: "rgba(14,165,233,0.20)", badgeBg: "rgba(14,165,233,0.20)", badgeText: "#7dd3fc" },
-                  VERIFIED: { activeBg: "rgba(245,158,11,0.25)", activeBorder: "rgba(245,158,11,0.55)", activeText: "#fcd34d", inactiveBg: "rgba(245,158,11,0.08)", inactiveBorder: "rgba(245,158,11,0.20)", badgeBg: "rgba(245,158,11,0.20)", badgeText: "#fcd34d" },
-                  APPROVED: { activeBg: "rgba(16,185,129,0.25)", activeBorder: "rgba(16,185,129,0.55)", activeText: "#6ee7b7", inactiveBg: "rgba(16,185,129,0.08)", inactiveBorder: "rgba(16,185,129,0.20)", badgeBg: "rgba(16,185,129,0.20)", badgeText: "#6ee7b7" },
-                  DISBURSED: { activeBg: "rgba(20,184,166,0.25)", activeBorder: "rgba(20,184,166,0.55)", activeText: "#5eead4", inactiveBg: "rgba(20,184,166,0.08)", inactiveBorder: "rgba(20,184,166,0.20)", badgeBg: "rgba(20,184,166,0.20)", badgeText: "#5eead4" },
-                  REJECTED: { activeBg: "rgba(239,68,68,0.25)", activeBorder: "rgba(239,68,68,0.55)", activeText: "#fca5a5", inactiveBg: "rgba(239,68,68,0.08)", inactiveBorder: "rgba(239,68,68,0.20)", badgeBg: "rgba(239,68,68,0.20)", badgeText: "#fca5a5" },
-                };
-                const col = colorMap[key] ?? colorMap.ALL;
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setActiveTab(tab.key as any)}
-                    className="flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs transition-all duration-200 sm:gap-1.5 sm:px-2.5 sm:py-1.5"
-                    style={isActive ? { background: col.activeBg, border: `1.5px solid ${col.activeBorder}`, color: col.activeText } : { background: col.inactiveBg, border: `1.5px solid ${col.inactiveBorder}`, color: "rgba(255,255,255,0.65)" }}
-                  >
-                    <span className="whitespace-nowrap">{tab.label}</span>
-                    <span className="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] sm:px-2 sm:text-xs" style={{ background: col.badgeBg, color: col.badgeText }}>
-                      {tab.count}
-                    </span>
-                  </button>
-                );
-              })}
-
-              <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
-                <button
-                  onClick={() => void load()}
-                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs transition-all sm:h-9 sm:w-9"
-                  style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.14)", color: "rgba(255,255,255,0.75)" }}
-                  title="Refresh"
-                  aria-label="Refresh revenue"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${loading ? "animate-spin" : ""}`} />
-                </button>
-                <button
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="flex flex-shrink-0 items-center justify-center gap-1.5 rounded-full px-2 py-1 text-xs transition-all sm:px-2.5 sm:py-1.5"
-                  style={showFilters ? { background: "rgba(2,102,94,0.30)", border: "1.5px solid rgba(2,102,94,0.65)", color: "#5eead4" } : { background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.14)", color: "rgba(255,255,255,0.75)" }}
-                >
-                  <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  Filters
-                </button>
-              </div>
-            </div>
-
-            <div className="text-[11px] sm:text-xs" style={{ color: "rgba(255,255,255,0.38)" }}>
-              List shows one row per booking. Use search to filter by booking code, operator name, tour title, or destination.
-            </div>
-
-            {showFilters ? (
-              <div className="space-y-3 pt-3 sm:space-y-4 sm:pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.10)" }}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>Advanced Filters</h3>
+          {/* Stages: each one filters the list below */}
+          <ol className="m-0 mt-6 grid list-none grid-cols-2 gap-2 p-0 md:grid-cols-5">
+            {STAGES.map((stage, i) => {
+              const s = stageStats[stage.key];
+              const on = filter === stage.key;
+              const yours = stage.actor === "admin" && s.count > 0;
+              return (
+                <li key={stage.key} className="relative min-w-0">
                   <button
                     type="button"
-                    onClick={() => {
-                      setOperatorFilter("");
-                      setDestinationFilter("");
-                      setAmountMin("");
-                      setAmountMax("");
-                      setShowFilters(false);
-                    }}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors duration-200"
-                    style={{ color: "rgba(255,255,255,0.45)", background: "rgba(255,255,255,0.06)" }}
+                    onClick={() => pickStage(stage.key)}
+                    aria-pressed={on}
+                    className={`flex h-full w-full cursor-pointer flex-col rounded-xl border border-solid p-3 text-left transition ${on ? "border-white/50 bg-white/[0.12]" : yours ? "border-amber-300/40 bg-amber-300/[0.07] hover:bg-amber-300/[0.12]" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]"}`}
                   >
-                    <X className="h-3 w-3" />
-                    Clear
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white/55">
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stage.dot}`} aria-hidden />
+                        <span className="truncate">{stage.label}</span>
+                      </span>
+                      <span className={`shrink-0 rounded-full px-1.5 py-px text-[9px] font-bold uppercase tracking-wide ${stage.actor === "admin" ? "bg-amber-300/20 text-amber-200" : stage.actor === "operator" ? "bg-sky-300/15 text-sky-200" : "bg-emerald-300/15 text-emerald-200"}`}>
+                        {stage.actor === "admin" ? "You" : stage.actor === "operator" ? "Operator" : "Done"}
+                      </span>
+                    </span>
+                    <span className={`mt-2 text-2xl font-bold tabular-nums leading-none ${s.count ? "text-white" : "text-white/30"}`}>{loading && !summary ? "..." : s.count}</span>
+                    <span className={`mt-1 text-xs tabular-nums ${s.count ? "text-white/75" : "text-white/30"}`}>{money(s.amount, currency)}</span>
+                    <span className={`mt-1.5 text-[11px] ${s.stale ? "font-semibold text-amber-200" : "text-white/40"}`}>
+                      {s.count === 0 ? stage.next : s.stale ? `${s.stale} waiting too long, oldest ${ageLabel(s.oldest)}` : s.oldest != null && stage.actor !== "done" ? `Oldest ${ageLabel(s.oldest)}` : stage.next}
+                    </span>
                   </button>
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-                  <div className="min-w-0">
-                    <label className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Tour Operator</label>
-                    <select
-                      value={operatorFilter}
-                      onChange={(e) => setOperatorFilter(e.target.value)}
-                      className="box-border w-full rounded-lg px-3 py-2 text-xs outline-none transition-all sm:text-sm"
-                      style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.85)" }}
-                    >
-                      <option value="" style={{ background: "#0d2320" }}>All Operators</option>
-                      {operators.map((operator) => (
-                        <option key={operator.id} value={operator.id} style={{ background: "#0d2320" }}>
-                          {operator.name} ({operator.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {i < STAGES.length - 1 ? (
+                    <ChevronRight className="absolute -right-2.5 top-1/2 z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full bg-[#0b2420] p-0.5 text-white/40 ring-1 ring-white/15 md:block" aria-hidden />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
 
-                  <div className="min-w-0">
-                    <label className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Destination / Package</label>
-                    <select
-                      value={destinationFilter}
-                      onChange={(e) => setDestinationFilter(e.target.value)}
-                      className="box-border w-full rounded-lg px-3 py-2 text-xs outline-none transition-all sm:text-sm"
-                      style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.85)" }}
-                    >
-                      <option value="" style={{ background: "#0d2320" }}>All Destinations</option>
-                      {destinations.map((destination) => (
-                        <option key={destination} value={destination} style={{ background: "#0d2320" }}>
-                          {destination}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+          {/* Off the conveyor */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="text-white/40">Off the line</span>
+            {([
+              ["DRAFT", "Unpaid checkouts", stageStats.DRAFT.count, "bg-white/10 text-white/70"],
+              ["REJECTED", "Rejected claims", stageStats.REJECTED.count, "bg-rose-400/15 text-rose-200"],
+              ["CANCELLED", "Cancelled bookings", cancelledLive, "bg-rose-400/15 text-rose-200"],
+            ] as const).map(([key, label, count, tone]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => pickStage(key)}
+                aria-pressed={filter === key}
+                className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border-0 px-2.5 font-semibold transition ${filter === key ? "bg-white text-neutral-900" : `${tone} hover:bg-white/20`}`}
+              >
+                {label} <span className="tabular-nums">{count}</span>
+              </button>
+            ))}
+          </div>
 
-                  <div className="min-w-0">
-                    <label className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Min Amount (TZS)</label>
-                    <input
-                      type="number"
-                      value={amountMin}
-                      onChange={(e) => setAmountMin(e.target.value)}
-                      placeholder="0"
-                      className="box-border w-full rounded-lg px-3 py-2 text-xs outline-none transition-all sm:text-sm"
-                      style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.85)" }}
-                    />
-                  </div>
-
-                  <div className="min-w-0">
-                    <label className="mb-1.5 block text-xs font-medium" style={{ color: "rgba(255,255,255,0.55)" }}>Max Amount (TZS)</label>
-                    <input
-                      type="number"
-                      value={amountMax}
-                      onChange={(e) => setAmountMax(e.target.value)}
-                      placeholder="No limit"
-                      className="box-border w-full rounded-lg px-3 py-2 text-xs outline-none transition-all sm:text-sm"
-                      style={{ background: "rgba(255,255,255,0.07)", border: "1.5px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.85)" }}
-                    />
-                  </div>
-                </div>
-              </div>
+          {/* Next move */}
+          <div className="mt-5 flex flex-col gap-3 border-0 border-t border-solid border-white/10 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="m-0 text-sm text-white/75"><span className="mr-1.5 font-semibold text-emerald-300">Next:</span>{nextMove.text}</p>
+            {nextMove.cta ? (
+              "href" in nextMove && nextMove.href ? (
+                <Link href={nextMove.href} className={`${HERO_BUTTON} shrink-0`}>{nextMove.cta} <ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
+              ) : (
+                <button type="button" onClick={() => "filter" in nextMove && nextMove.filter && setFilter(nextMove.filter)} className={`${HERO_BUTTON} shrink-0`}>{nextMove.cta} <ArrowRight className="h-3.5 w-3.5" aria-hidden /></button>
+              )
             ) : null}
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="rounded-xl border border-[#02665e]/20 bg-gradient-to-r from-[#02665e]/10 to-emerald-50 p-4 shadow-sm sm:p-6">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#02665e]/20">
-              <DollarSign className="h-5 w-5 text-[#02665e]" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-gray-600 sm:text-sm">{showingDraftOnly ? "Draft Value" : "Total Paid (shown)"}</div>
-              <div className="text-lg font-bold text-[#02665e] sm:text-xl">{money(shownGross, summaryDisplayCurrency)}</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
-              <TrendingUp className="h-5 w-5 text-blue-700" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-gray-600 sm:text-sm">Commission</div>
-              <div className="text-lg font-bold text-blue-700 sm:text-xl">{money(shownCommission, agentCommissionCurrency)}</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
-              <CheckCircle2 className="h-5 w-5 text-emerald-700" />
-            </div>
-            <div>
-              <div className="text-xs font-medium text-gray-600 sm:text-sm">Tour Payout</div>
-              <div className="text-lg font-bold text-emerald-700 sm:text-xl">{money(shownPayout, summaryDisplayCurrency)}</div>
-            </div>
-          </div>
+      {error ? (
+        <div role="alert" className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" aria-hidden /> {error}
         </div>
-      </div>
+      ) : null}
 
-      <div className="mx-auto w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="w-full max-w-full overflow-x-auto overflow-y-visible overscroll-x-contain [scrollbar-gutter:stable]">
-          <table className="w-full min-w-[1120px] text-xs">
+      {cancelledLive > 0 ? (
+        <div className="flex items-start gap-2 rounded-xl border border-solid border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" aria-hidden />
+          <span className="flex-1">
+            <span className="font-semibold">{cancelledLive} cancelled or refunded {cancelledLive === 1 ? "booking still has" : "bookings still have"} a payout on record.</span>{" "}
+            They are kept off the conveyor so nobody pays them by mistake.
+          </span>
+          <button type="button" onClick={() => setFilter("CANCELLED")} className="shrink-0 border-0 bg-transparent p-0 text-xs font-semibold text-rose-700 hover:underline">Review</button>
+        </div>
+      ) : null}
+
+      {/* List */}
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-solid border-neutral-200 bg-white">
+        <div className="flex flex-col gap-2.5 px-5 pb-3 pt-4 sm:flex-row sm:items-center">
+          <p className="m-0 shrink-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-neutral-500">
+            {filter === "ALL" ? "All payouts" : STATE_PILL[filter].label}
+          </p>
+          <div className="relative min-w-0 flex-1 sm:ml-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" aria-hidden />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Booking code, operator, tour or receipt"
+              aria-label="Search tour payouts"
+              className="block h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white pl-9 pr-8 text-xs text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+            />
+            {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-1.5 top-1/2 grid h-6 w-6 -translate-y-1/2 cursor-pointer place-items-center rounded border-0 bg-transparent text-neutral-400 hover:bg-neutral-100"><X className="h-3.5 w-3.5" /></button> : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowFilters((v) => !v)}
+            aria-expanded={showFilters}
+            className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-solid px-3 text-xs font-semibold ${showFilters || activeChips.length ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-neutral-200 bg-white text-neutral-600"}`}
+          >
+            Filters{activeChips.length ? ` (${activeChips.length})` : ""}
+          </button>
+          {filter !== "ALL" ? (
+            <button type="button" onClick={() => setFilter("ALL")} className="h-9 shrink-0 cursor-pointer rounded-lg border-0 bg-transparent px-2 text-xs font-semibold text-neutral-500 hover:text-neutral-900">Show all</button>
+          ) : null}
+        </div>
+
+        {showFilters ? (
+          <div className="grid grid-cols-1 gap-3 border-0 border-t border-solid border-neutral-100 bg-neutral-50/60 px-5 py-3 sm:grid-cols-3">
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Operator</span>
+              <select value={operatorFilter} onChange={(e) => setOperatorFilter(e.target.value)} className="block h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs text-neutral-900 outline-none focus:border-emerald-400">
+                <option value="">Every operator</option>
+                {operators.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Booking at least ({currency})</span>
+              <input type="number" min={0} value={amountMin} onChange={(e) => setAmountMin(e.target.value)} placeholder="0" className="block h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs text-neutral-900 outline-none focus:border-emerald-400" />
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 block text-[11px] font-semibold text-neutral-500">Booking at most ({currency})</span>
+              <input type="number" min={0} value={amountMax} onChange={(e) => setAmountMax(e.target.value)} placeholder="No limit" className="block h-9 w-full rounded-lg border border-solid border-neutral-200 bg-white px-2.5 text-xs text-neutral-900 outline-none focus:border-emerald-400" />
+            </label>
+          </div>
+        ) : null}
+
+        {activeChips.length ? (
+          <div className="flex flex-wrap items-center gap-2 border-0 border-t border-solid border-neutral-100 px-5 py-2.5">
+            {activeChips.map((c) => (
+              <span key={c.key} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 py-0.5 pl-2.5 pr-1 text-[11px] font-semibold text-emerald-800">
+                {c.label}
+                <button type="button" onClick={c.clear} aria-label={`Remove ${c.label}`} className="grid h-5 w-5 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-emerald-700 hover:bg-emerald-100"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {/* What the rows on screen add up to */}
+        <dl className="m-0 grid grid-cols-2 gap-px border-0 border-y border-solid border-neutral-100 bg-neutral-100 lg:grid-cols-4">
+          {[
+            { label: draftView ? "Would have been paid" : "Travellers paid", value: money(totals.gross, currency), tone: "text-neutral-900" },
+            { label: "NoLSAF commission", value: draftView ? "None yet" : money(totals.commission, currency), tone: "text-violet-700" },
+            { label: "Tax", value: draftView ? "None yet" : money(totals.tax, currency), tone: "text-neutral-900" },
+            { label: "To operators", value: draftView ? "None yet" : money(totals.net, currency), tone: "text-emerald-700" },
+          ].map((f) => (
+            <div key={f.label} className="min-w-0 bg-white px-5 py-3">
+              <dt className="text-[11px] text-neutral-500">{f.label}</dt>
+              <dd className={`m-0 mt-0.5 truncate text-base font-bold tabular-nums ${f.tone}`}>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1050px] border-collapse text-left text-xs">
             <thead>
-              <tr className="whitespace-nowrap border-b border-slate-200 bg-slate-50">
-                <th className="min-w-max px-2 py-3 text-center font-semibold text-slate-600">SN</th>
-                <th className="min-w-max px-2 py-3 text-left font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("bookingCode")} className={sortHeaderBtnClass}>
-                    INVOICE {sortIcon("bookingCode")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-left font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("operatorName")} className={sortHeaderBtnClass}>
-                    TOUR OPERATOR {sortIcon("operatorName")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-left font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("createdAt")} className={sortHeaderBtnClass}>
-                    TIME {sortIcon("createdAt")}
-                  </button>
-                </th>
-                {activeTab === "DRAFT" ? (
-                  <th className="min-w-max px-2 py-3 text-left font-semibold text-slate-600">
-                    TOKEN STATUS
+              <tr className="border-0 border-b border-solid border-neutral-100">
+                {([
+                  ["bookingCode", "Booking", "left"],
+                  ["operatorName", "Operator", "left"],
+                  ["tourTitle", "Tour", "left"],
+                  ["grossAmount", draftView ? "Would pay" : "Paid", "right"],
+                  ["commissionAmount", "NoLSAF", "right"],
+                  ["netAmount", "To operator", "right"],
+                  ["waiting", draftView ? "Payment link" : "Stage", "left"],
+                ] as const).map(([key, label, align]) => (
+                  <th key={key} className={`px-3 py-2.5 first:pl-5 ${align === "right" ? "text-right" : ""}`}>
+                    <button type="button" onClick={() => onSort(key)} className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[10px] font-bold uppercase tracking-wide text-neutral-400 hover:text-neutral-700">
+                      {label} {sortIcon(key)}
+                    </button>
                   </th>
-                ) : null}
-                <th className="min-w-max px-2 py-3 text-left font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("tourTitle")} className={sortHeaderBtnClass}>
-                    PACKAGE NAME {sortIcon("tourTitle")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-center font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("numberOfPeople")} className={sortHeaderBtnClass}>
-                    NO OF PEOPLE {sortIcon("numberOfPeople")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-right font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("grossAmount")} className={sortHeaderBtnClass}>
-                    {showingDraftOnly ? "DRAFT VALUE" : "TOTAL PAID"} {sortIcon("grossAmount")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-right font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("commissionAmount")} className={sortHeaderBtnClass}>
-                    COMMISSION {sortIcon("commissionAmount")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-right font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("taxAmount")} className={sortHeaderBtnClass}>
-                    TAX {sortIcon("taxAmount")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-center font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("status")} className={sortHeaderBtnClass}>
-                    STATUS {sortIcon("status")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-right font-semibold text-slate-600">
-                  <button type="button" onClick={() => onSort("netAmount")} className={sortHeaderBtnClass}>
-                    TOUR PAYOUT {sortIcon("netAmount")}
-                  </button>
-                </th>
-                <th className="min-w-max px-2 py-3 text-center font-semibold text-slate-600">ACTION</th>
+                ))}
+                <th className="px-3 py-2.5 pr-5"><span className="sr-only">Open</span></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={activeTab === "DRAFT" ? 13 : 12} className="px-4 py-8 text-center text-slate-500">Loading...</td>
-                </tr>
-              ) : paginatedRevenues.length === 0 ? (
-                <tr>
-                  <td colSpan={activeTab === "DRAFT" ? 13 : 12} className="px-4 py-8 text-center text-slate-500">No records found</td>
-                </tr>
+            <tbody>
+              {loading && revenues.length === 0 ? (
+                <tr><td colSpan={8} className="px-5 py-12 text-center text-neutral-500">Loading payouts</td></tr>
+              ) : shown.length === 0 ? (
+                <tr><td colSpan={8} className="px-5 py-12 text-center text-neutral-500">{query || activeChips.length ? "Nothing matches these filters." : filter === "ALL" ? "No paid tour booking yet." : `Nothing in ${STATE_PILL[filter].label.toLowerCase()}.`}</td></tr>
               ) : (
-                paginatedRevenues.map((revenue, index) => {
-                  const status = statusConfig[revenue.status] ?? fallbackStatus;
-                  const StatusIcon = status.icon;
-                  const rowReceipt = String(revenue.paymentRef || "").trim();
+                shown.map((r) => {
+                  const pill = STATE_PILL[r.status] ?? STATE_PILL.NEW;
+                  const stage = STAGES.find((s) => s.key === r.status);
+                  const age = daysSince(r.stageSince);
+                  const stale = stage && age != null && age > stage.staleDays;
+                  const isDraft = r.status === "DRAFT";
+                  const left = isDraft ? tokenLeft(r.paymentAccess?.expiresAt, nowMs) : null;
                   return (
-                    <tr key={revenue.id} className="border-slate-100 text-xs transition-colors hover:bg-slate-50">
-                      <td className="px-2 py-2 text-center font-medium text-slate-500">{(currentPage - 1) * pageSize + index + 1}</td>
-                      <td className="whitespace-nowrap px-2 py-2">
-                        <div className="text-xs font-semibold text-slate-900">{revenue.bookingCode}</div>
-                        {rowReceipt ? (
-                          <div className="text-xs font-semibold text-[#02665e]">Receipt: {rowReceipt}</div>
-                        ) : null}
-                        <div className="text-xs text-slate-500">{new Date(revenue.createdAt).toLocaleDateString()}</div>
+                    <tr key={r.id} className="border-0 border-b border-solid border-neutral-100 transition hover:bg-emerald-50/40">
+                      <td className="px-3 py-3 pl-5">
+                        <div className="whitespace-nowrap font-mono text-[11px] font-semibold text-neutral-800">{r.bookingCode}</div>
+                        <div className="whitespace-nowrap text-[11px] text-neutral-400">{eatDate(r.createdAt)}</div>
+                        {r.paymentRef ? <div className="whitespace-nowrap text-[11px] font-semibold text-emerald-700">Receipt {r.paymentRef}</div> : null}
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-700">{revenue.operatorName}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-500">{formatTime(revenue.createdAt)}</td>
-                      {activeTab === "DRAFT" ? (
-                        <td className="whitespace-nowrap px-2 py-2">
-                          {(() => {
-                            const expiresAt = revenue.paymentAccess?.expiresAt || null;
-                            const active = revenue.paymentAccess?.status === "ACTIVE" && new Date(expiresAt || "").getTime() > nowMs;
-                            return (
-                              <div className="space-y-1">
-                                <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold ${
-                                  active
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : "border-rose-200 bg-rose-50 text-rose-700"
-                                }`}>
-                                  {active ? "Active" : "Expired"}
-                                </span>
-                                <div className="text-[11px] font-semibold text-slate-500">
-                                  {formatTokenRemaining(expiresAt, nowMs)}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                      ) : null}
-                      <td className="whitespace-nowrap px-2 py-2">
-                        <div className="text-xs font-semibold text-slate-900">{revenue.tourTitle}</div>
-                        <div className="text-xs text-slate-500">{revenue.destination}</div>
+                      <td className="whitespace-nowrap px-3 py-3 text-neutral-700">{r.operatorName}</td>
+                      <td className="px-3 py-3">
+                        <div className="max-w-[220px] truncate font-semibold text-neutral-900">{r.tourTitle}</div>
+                        <div className="text-[11px] text-neutral-500">{r.destination} · {r.numberOfPeople} {r.numberOfPeople === 1 ? "traveller" : "travellers"}</div>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-center text-xs font-semibold text-slate-900">{revenue.numberOfPeople || 0}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-semibold text-slate-900">
-                        {revenue.status === "DRAFT" && activeTab !== "DRAFT" ? (
-                          <div>
-                            <div className="text-slate-500">{money(revenue.grossAmount, revenue.currency)}</div>
-                            <div className="text-[10px] font-semibold text-slate-400">Draft value</div>
-                          </div>
-                        ) : money(revenue.grossAmount, revenue.currency)}
+                      <td className={`whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums ${isDraft ? "text-neutral-400" : "text-neutral-900"}`}>{money(r.grossAmount, r.currency)}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                        {isDraft ? <span className="text-neutral-300">None</span> : <><span className="text-violet-700">{money(r.commissionAmount, r.currency)}</span><span className="block text-[10px] text-neutral-400">{Number(r.commissionPercent || 0)}%{r.taxAmount ? ` · tax ${money(r.taxAmount, r.currency)}` : ""}</span></>}
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right">
-                        {revenue.status === "DRAFT" ? (
-                          <div className="text-xs font-semibold text-slate-400">Not eligible</div>
-                        ) : (
-                          <>
-                            <div className="text-xs font-semibold text-orange-700">{Number(revenue.commissionPercent || 0)}%</div>
-                            <div className="text-xs font-semibold text-purple-700">{money(revenue.commissionAmount, revenue.currency)}</div>
-                          </>
-                        )}
+                      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums text-emerald-700">{isDraft ? <span className="font-normal text-neutral-300">None</span> : money(r.netAmount, r.currency)}</td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${pill.pill}`}>{pill.label}</span>
+                        <div className={`mt-1 text-[11px] ${stale ? "font-semibold text-amber-700" : "text-neutral-500"}`}>
+                          {isDraft
+                            ? left ? `Link open, ${left} left` : "Payment link expired"
+                            : r.status === "REJECTED" ? (r.rejectionReason || "No reason recorded")
+                              : r.status === "CANCELLED" ? "Do not pay"
+                                : r.status === "DISBURSED" ? (age != null ? `Paid ${ageLabel(age)} ago`.replace("today ago", "today") : "Paid")
+                                  : stage ? `${stage.next}${age != null ? `, ${ageLabel(age)}` : ""}` : ""}
+                        </div>
                       </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right">
-                        {revenue.status === "DRAFT" ? (
-                          <div className="text-xs font-semibold text-slate-400">Not eligible</div>
-                        ) : (
-                          <>
-                            <div className="text-xs font-semibold text-orange-700">{Number(revenue.taxPercent || 0)}%</div>
-                            <div className="text-xs font-semibold text-rose-600">{money(revenue.taxAmount, revenue.currency)}</div>
-                          </>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-center">
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${status.bgColor} ${status.color}`}>
-                          <StatusIcon className="h-3 w-3" />
-                          {status.label}
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-semibold text-emerald-700">
-                        {revenue.status === "DRAFT" ? <span className="text-slate-400">Not eligible</span> : money(revenue.netAmount, revenue.currency)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-center">
-                        <Link
-                          href={recordHref("tour", revenue.id)}
-                          className="inline-flex items-center gap-1 text-xs font-medium text-[#02665e] hover:text-emerald-700"
-                          aria-label={`View ${revenue.bookingCode}`}
-                          title="View details"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
+                      <td className="px-3 py-3 pr-5 text-right">
+                        <Link href={recordHref("tour", r.id)} aria-label={`Open ${r.bookingCode}`} title="Open" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 no-underline transition hover:bg-emerald-50 hover:text-emerald-700">
+                          <Eye className="h-4 w-4" aria-hidden />
                         </Link>
                       </td>
                     </tr>
@@ -742,33 +536,18 @@ export default function AdminTourRevenueOverview() {
             </tbody>
           </table>
         </div>
-        {!loading && totalRows > 0 ? (
-          <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2 text-xs text-slate-600 sm:px-4 sm:py-3">
-            <span>
-              Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, totalRows)} of {totalRows}
-            </span>
+
+        {!loading && sorted.length > pageSize ? (
+          <div className="flex items-center justify-between gap-2 px-5 py-3 text-xs text-neutral-500">
+            <span>Showing <span className="font-bold text-neutral-800">{(safePage - 1) * pageSize + 1} to {Math.min(safePage * pageSize, sorted.length)}</span> of <span className="font-bold text-neutral-800">{sorted.length}</span></span>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage <= 1}
-                className="rounded border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <span className="text-xs font-medium text-slate-700">Page {currentPage} / {totalPages}</span>
-              <button
-                type="button"
-                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage >= totalPages}
-                className="rounded border border-slate-300 px-2.5 py-1 text-xs text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Next
-              </button>
+              <button type="button" onClick={() => setPage(Math.max(1, safePage - 1))} aria-disabled={safePage <= 1} className="h-8 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-2.5 font-bold text-neutral-600 hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-40">Prev</button>
+              <span className="tabular-nums">Page {safePage} of {pages}</span>
+              <button type="button" onClick={() => setPage(Math.min(pages, safePage + 1))} aria-disabled={safePage >= pages} className="h-8 cursor-pointer rounded-lg border border-solid border-neutral-200 bg-white px-2.5 font-bold text-neutral-600 hover:bg-neutral-50 aria-disabled:pointer-events-none aria-disabled:opacity-40">Next</button>
             </div>
           </div>
         ) : null}
-      </div>
+      </section>
     </div>
   );
 }

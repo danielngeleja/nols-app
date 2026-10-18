@@ -86,12 +86,17 @@ interface AgentResponse {
   overallRating?: number | null;
   totalReviews?: number;
   promotionProgress?: any;
+  suspendedAt?: Date | null;
+  suspensionReason?: string | null;
   operatorProfile?: Prisma.JsonValue | null;
   financialSummary?: {
     paidCount: number;
     grossSum: number;
     commissionSum: number;
     netSum: number;
+    disbursedSum: number;
+    awaitingCount: number;
+    awaitingGross: number;
     commissionPercent: number;
     currency: string;
   };
@@ -952,6 +957,12 @@ router.get("/", validate(listAgentsQuerySchema, "query"), async (req: any, res) 
       };
     }
 
+    // Tier, area, specialisation and language are filtered in memory (JSON columns /
+    // live-computed tier). Filtering only the current page would miss matches on other
+    // pages, so with any of them active we read the whole matching set, filter, then page.
+    const postFilter = Boolean(areasOfOperation || specializations || languages || level);
+    const POST_FILTER_CAP = 2000;
+
     // Fetch agents with user info
     const [total, agents] = await Promise.all([
       prisma.agent.count({ where }),
@@ -974,8 +985,8 @@ router.get("/", validate(listAgentsQuerySchema, "query"), async (req: any, res) 
             },
           },
         },
-        skip,
-        take,
+        skip: postFilter ? 0 : skip,
+        take: postFilter ? POST_FILTER_CAP : take,
         orderBy: { createdAt: "desc" },
       }),
     ]);
@@ -1072,6 +1083,8 @@ router.get("/", validate(listAgentsQuerySchema, "query"), async (req: any, res) 
         noLSAFRevenue,
         overallRating,
         totalReviews,
+        // Progress toward the next tier (null at the top), for the promotion track.
+        nextLevel: levelInfo.next,
       };
     });
 
@@ -1080,10 +1093,9 @@ router.get("/", validate(listAgentsQuerySchema, "query"), async (req: any, res) 
       items = items.filter((it) => it.level === level);
     }
 
-    // Adjust total count after in-memory filtering
-    const filteredTotal = areasOfOperation || specializations || languages || level
-      ? items.length
-      : total;
+    // After in-memory filtering, the total is the full match count and this page is sliced from it.
+    const filteredTotal = postFilter ? items.length : total;
+    if (postFilter) items = items.slice(skip, skip + take);
 
     const response: PaginatedResponse<AgentResponse> = {
       page: pageNum,
@@ -1293,11 +1305,13 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
     const maxTrips = systemSettings?.agentPromotionMaxTrips || DEFAULT_PROMOTION_MAX_TRIPS;
     const commissionPercent = systemSettings?.agentCommissionPercent || DEFAULT_COMMISSION_PERCENT;
 
-    // Financial summary split:
-    // - Gross/commission/net: from bookings as soon as bookings are made.
-    // - Paid invoices: only invoices that are actually paid/disbursed.
-    const paidInvoiceStatuses = ["PAID", "DISBURSED"];
-    const [bookingRevenue, paidInvoicesCount, accommodationAccess, accommodationIdentity, approvedEvidenceCount] = await Promise.all([
+    // Financial summary, from tour bookings only (operators have no owner invoices):
+    // - Money counts bookings the guest actually paid and that were not cancelled or refunded.
+    // - Awaiting: live bookings still waiting for payment, shown apart, never in the totals.
+    // - Paid out: operator payouts already disbursed.
+    // `bookingRevenue` (every booking) is kept for the tier, which other surfaces share.
+    const notCancelled = { notIn: ["CANCELED", "CANCELLED", "REFUNDED"] };
+    const [bookingRevenue, paidRevenue, awaitingRevenue, disbursedRevenue, accommodationAccess, accommodationIdentity, approvedEvidenceCount] = await Promise.all([
       prisma.tourBooking.aggregate({
         where: { operatorAgentId: agent.id },
         _sum: {
@@ -1306,11 +1320,19 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
           operatorPayoutAmount: true,
         },
       }),
-      prisma.invoice.count({
-        where: {
-          ownerId: agent.userId,
-          status: { in: paidInvoiceStatuses },
-        },
+      prisma.tourBooking.aggregate({
+        where: { operatorAgentId: agent.id, paymentStatus: "PAID", status: notCancelled },
+        _count: { _all: true },
+        _sum: { grossAmount: true, commissionAmount: true, operatorPayoutAmount: true },
+      }),
+      prisma.tourBooking.aggregate({
+        where: { operatorAgentId: agent.id, paymentStatus: { not: "PAID" }, status: notCancelled },
+        _count: { _all: true },
+        _sum: { grossAmount: true },
+      }),
+      prisma.tourBooking.aggregate({
+        where: { operatorAgentId: agent.id, payoutStatus: "DISBURSED" },
+        _sum: { operatorPayoutAmount: true },
       }),
       prisma.userWorkspaceAccess.findUnique({
         where: { userId_workspace: { userId: agent.userId, workspace: "ACCOMMODATION" } },
@@ -1325,11 +1347,12 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
       }),
     ]);
 
-    const grossFromBookings = Number(bookingRevenue._sum.grossAmount ?? 0);
-    const commissionFromBookings = Number(bookingRevenue._sum.commissionAmount ?? 0);
-    const netFromBookingsRaw = Number(bookingRevenue._sum.operatorPayoutAmount ?? 0);
+    const grossFromBookings = Number(paidRevenue._sum.grossAmount ?? 0);
+    const commissionFromBookings = Number(paidRevenue._sum.commissionAmount ?? 0);
+    const netFromBookingsRaw = Number(paidRevenue._sum.operatorPayoutAmount ?? 0);
     const netFromBookings =
       netFromBookingsRaw > 0 ? netFromBookingsRaw : Math.max(0, grossFromBookings - commissionFromBookings);
+    const money2 = (n: unknown) => Math.round(Number(n ?? 0) * 100) / 100;
 
     // Promotion progress — computed LIVE from tour-company activity (the same
     // source the operator dashboard uses), not the retired Plan-With-Us counters.
@@ -1358,6 +1381,9 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
     const response: AgentResponse = {
       ...formatAgentResponse(agent),
       level: levelInfo.level,
+      // Shown on the record while suspended, so admins see why without opening the audit log.
+      suspendedAt: (agent as any).suspendedAt ?? null,
+      suspensionReason: (agent as any).suspensionReason ?? null,
       performanceMetrics,
       promotionProgress: {
         currentLevel: levelInfo.level,
@@ -1386,10 +1412,13 @@ router.get("/:id", validate(getAgentParamsSchema, "params"), async (req: any, re
       },
       reviews: reviews,
       financialSummary: {
-        paidCount: paidInvoicesCount,
-        grossSum: Math.round(grossFromBookings * 100) / 100,
-        commissionSum: Math.round(commissionFromBookings * 100) / 100,
-        netSum: Math.round(netFromBookings * 100) / 100,
+        paidCount: paidRevenue._count._all,
+        grossSum: money2(grossFromBookings),
+        commissionSum: money2(commissionFromBookings),
+        netSum: money2(netFromBookings),
+        disbursedSum: money2(disbursedRevenue._sum.operatorPayoutAmount),
+        awaitingCount: awaitingRevenue._count._all,
+        awaitingGross: money2(awaitingRevenue._sum.grossAmount),
         commissionPercent,
         currency: String(systemSettings?.agentCommissionCurrency || "USD"),
       },
@@ -1587,6 +1616,82 @@ router.post(
     } catch (err: any) {
       console.error("[POST /admin/agents/:id/notes] Error:", err);
       return sendError(res, 500, "Failed to add agent note");
+    }
+  },
+);
+
+// ============================================================
+// POST /api/admin/agents/:id/notify
+// Sends an in-app message to the operator's notification inbox (no email).
+// type "agent" is what /api/agent/notifications lists and the live inbox reacts to.
+// ============================================================
+const notifyAgentSchema = z
+  .object({
+    title: z.string().trim().min(3).max(120),
+    message: z.string().trim().min(5).max(2000),
+    // Where the operator's "open" button should take them, if anywhere.
+    destination: z.enum(["documents"]).optional().nullable(),
+  })
+  .strict();
+
+router.post(
+  "/:id/notify",
+  validate(getAgentParamsSchema, "params"),
+  validate(notifyAgentSchema, "body"),
+  async (req: any, res) => {
+    try {
+      const { id } = req.validatedParams;
+      const { title, message, destination } = req.validatedData;
+      const adminId = getAdminId(req as AuthedRequest);
+
+      const agent = await prisma.agent.findUnique({ where: { id: Number(id) }, select: { id: true, userId: true } });
+      if (!agent) return sendError(res, 404, "Agent not found");
+
+      const cleanTitle = sanitizeText(String(title)).trim();
+      const cleanMessage = sanitizeText(String(message)).trim();
+      if (!cleanTitle || !cleanMessage) return sendError(res, 400, "Title and message are required");
+
+      const created = await prisma.notification.create({
+        data: {
+          userId: agent.userId,
+          ownerId: null,
+          type: "agent",
+          title: cleanTitle,
+          body: cleanMessage,
+          unread: true,
+          meta: {
+            notificationKind: destination === "documents" ? "account_document_request" : "admin_message",
+            sentByAdminId: adminId,
+          },
+        },
+      });
+
+      try {
+        const io = (global as any).io;
+        io?.to?.(`user:${agent.userId}`).emit("notification:new", {
+          id: created.id, userId: agent.userId, type: created.type,
+          title: created.title, body: created.body, createdAt: created.createdAt,
+        });
+      } catch { /* realtime is best-effort; the inbox row is already saved */ }
+
+      await prisma.adminAudit.create({
+        data: {
+          adminId,
+          targetUserId: agent.userId,
+          action: "NOTIFY_AGENT",
+          details: `In-app message: ${cleanTitle.substring(0, 100)}`,
+        },
+      });
+      await audit(req as AuthedRequest, "AGENT_NOTIFIED", `agent:${agent.id}`, null, {
+        notificationId: created.id,
+        title: cleanTitle,
+        destination: destination ?? null,
+      });
+
+      return sendSuccess(res, { notificationId: created.id }, "Notification sent");
+    } catch (err: any) {
+      console.error("[POST /admin/agents/:id/notify] Error:", err);
+      return sendError(res, 500, "Failed to send notification");
     }
   },
 );
@@ -1828,6 +1933,9 @@ router.get(
             operatorPayoutAmount: true,
             metadata: true,
             status: true,
+            paymentStatus: true,
+            payoutStatus: true,
+            travelerCount: true,
             createdAt: true,
           },
         }),
@@ -1848,6 +1956,10 @@ router.get(
 
       const tourBookings = tourItems.map((item) => ({
         id: item.id,
+        bookingCode: item.bookingCode,
+        paymentStatus: item.paymentStatus,
+        payoutStatus: item.payoutStatus,
+        travelerCount: item.travelerCount,
         guestName: item.guestName || "-",
         property: item.destination || item.title || item.bookingCode || "Tour booking",
         checkIn: item.startDate,
