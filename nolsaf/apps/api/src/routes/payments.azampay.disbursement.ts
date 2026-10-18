@@ -98,7 +98,7 @@ export const azamPayDisbursementCallbackSchema = z.object({
     .pipe(z.enum(["success", "failure"])),
   message: z.string().trim().default(""),
   operator: z.string().trim().min(1),
-  additionalProperties: z.record(z.unknown()).optional(),
+  additionalProperties: z.record(z.string(), z.unknown()).optional(),
 });
 
 router.post(

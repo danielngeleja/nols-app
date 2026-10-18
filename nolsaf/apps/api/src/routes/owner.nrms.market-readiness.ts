@@ -382,7 +382,7 @@ router.post("/:propertyId/onboarding/start", (async (req: AuthedRequest, res: Re
 }) as RequestHandler);
 
 router.patch("/:propertyId/onboarding/checks/:checkId", (async (req: AuthedRequest, res: Response) => {
-  const parsed = z.object({ status: z.enum(["PENDING", "VERIFIED", "BLOCKED"]), evidence: z.record(z.unknown()).optional() }).safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Invalid checklist update" });
+  const parsed = z.object({ status: z.enum(["PENDING", "VERIFIED", "BLOCKED"]), evidence: z.record(z.string(), z.unknown()).optional() }).safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Invalid checklist update" });
   try { const active = await owned(req, res); if (!active) return; const check = await prisma.nrmsOnboardingChecklist.findFirst({ where: { id: Number(req.params.checkId), run: { propertyId: Number(req.params.propertyId), status: "IN_PROGRESS" } } }); if (!check) return res.status(404).json({ error: "Active checklist item not found" }); const updated = await prisma.nrmsOnboardingChecklist.update({ where: { id: check.id }, data: { status: parsed.data.status, evidence: parsed.data.evidence ? json(parsed.data.evidence) : undefined, verifiedAt: parsed.data.status === "VERIFIED" ? new Date() : null, updatedById: req.user!.id } }); res.json({ check: updated }); }
   catch (error) { console.error("[owner.nrms.market-readiness] checklist failed", error); res.status(500).json({ error: "Failed to update readiness check" }); }
 }) as RequestHandler);
@@ -496,7 +496,7 @@ router.post("/:propertyId/portfolios", (async (req: AuthedRequest, res: Response
   catch (error) { console.error("[owner.nrms.market-readiness] portfolio failed", error); res.status(500).json({ error: "Failed to create portfolio" }); }
 }) as RequestHandler);
 
-const offlineSchema = z.object({ deviceId: z.string().trim().min(3).max(100), mutations: z.array(z.object({ clientMutationId: z.string().trim().min(3).max(100), action: z.enum(["SERVICE_CASE_CREATE", "SERVICE_CASE_STATUS", "ROOM_HOUSEKEEPING_STATUS"]), targetId: z.number().int().positive().nullable().optional(), baseVersion: z.number().int().positive().nullable().optional(), payload: z.record(z.unknown()) })).min(1).max(100) });
+const offlineSchema = z.object({ deviceId: z.string().trim().min(3).max(100), mutations: z.array(z.object({ clientMutationId: z.string().trim().min(3).max(100), action: z.enum(["SERVICE_CASE_CREATE", "SERVICE_CASE_STATUS", "ROOM_HOUSEKEEPING_STATUS"]), targetId: z.number().int().positive().nullable().optional(), baseVersion: z.number().int().positive().nullable().optional(), payload: z.record(z.string(), z.unknown()) })).min(1).max(100) });
 router.post("/:propertyId/offline/replay", (async (req: AuthedRequest, res: Response) => {
   const parsed = offlineSchema.safeParse(req.body); if (!parsed.success) return res.status(400).json({ error: "Invalid offline replay batch", details: parsed.error.flatten() });
   try {
