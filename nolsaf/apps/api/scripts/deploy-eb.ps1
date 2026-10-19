@@ -236,6 +236,12 @@ try {
     }
     Write-Host "   Bundle contains $($compiledJavaScript.Count) production JavaScript files with adjacent source maps."
 
+    # The EB CLI's actual Windows source packaging must exclude local
+    # node_modules. Otherwise EB skips npm install, even when the lock and
+    # manifest correctly declare Prisma as a production dependency.
+    python "$ApiDir\scripts\validate-eb-archive.py" $ApiDir
+    Assert-CommandSucceeded "Validating EB source archive"
+
     if ($ValidateOnly) {
         Write-Host "`n-- ValidateOnly selected; skipping Elastic Beanstalk deployment."
     } else {
