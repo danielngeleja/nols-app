@@ -23,7 +23,7 @@ param(
     [string]$Profile,
     [string]$Region = "eu-north-1",
     [string]$ApplicationName = "nolsaf-api",
-    [string]$EnvironmentName = "nolsaf-api-production-alb",
+    [string]$EnvironmentName = "nolsaf-api-production-nat",
     [string]$RdsInstance = "database-1",
     [string]$ApiUrl = "https://api.nolsaf.com",
 
@@ -233,7 +233,7 @@ Manual NoLSAF AWS operations
   health     Call /health, /ready, and /live.
   events     Show recent EB environment events.
   logs       Download full EB logs through the EB CLI.
-  ssh        Open an interactive SSH session to the EB environment.
+  ssh        SSH requires private-network access; instances have no public IP.
   open       Open the EB environment URL in the default browser.
   console    Print direct AWS Console links for this production stack.
 

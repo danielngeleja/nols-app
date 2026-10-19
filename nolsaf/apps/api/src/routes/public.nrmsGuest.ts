@@ -351,7 +351,7 @@ router.get("/reviews/:token", limitPublicNrmsGuestCapability as RequestHandler, 
 }) as RequestHandler);
 
 router.post("/reviews/:token", limitPublicNrmsGuestCapability as RequestHandler, (async (req, res: Response) => {
-  const parsed = z.object({ rating: z.number().int().min(1).max(5), feedback: z.string().trim().max(1000).nullable().optional(), categoryRatings: z.record(z.number()).nullable().optional(), platformIntent: z.enum(["YES", "MAYBE", "NO"]).nullable().optional() }).safeParse(req.body);
+  const parsed = z.object({ rating: z.number().int().min(1).max(5), feedback: z.string().trim().max(1000).nullable().optional(), categoryRatings: z.record(z.string(), z.number()).nullable().optional(), platformIntent: z.enum(["YES", "MAYBE", "NO"]).nullable().optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a rating from 1 to 5" });
   try {
     const review = await prisma.nrmsReviewRequest.findUnique({ where: { publicToken: req.params.token }, include: { property: { select: { nrmsBookingKey: true, title: true, nrmsReviewCategories: true } } } });

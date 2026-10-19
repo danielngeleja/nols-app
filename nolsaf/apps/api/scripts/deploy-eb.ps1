@@ -8,7 +8,7 @@
 
 param(
     [switch]$ValidateOnly,
-    [string]$EnvironmentName = "nolsaf-api-production-alb"
+    [string]$EnvironmentName = "nolsaf-api-production-nat"
 )
 
 Set-StrictMode -Off
