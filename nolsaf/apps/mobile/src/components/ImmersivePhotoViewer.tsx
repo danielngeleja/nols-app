@@ -1,6 +1,7 @@
 import { X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
   FlatList,
   Image,
@@ -55,9 +56,12 @@ function PhotoCanvas({
   const pinchCenterRef = useRef({ x: 0, y: 0 });
   const pinchOffsetRef = useRef({ x: 0, y: 0 });
   const [imageRatio, setImageRatio] = useState<number | null>(null);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let mounted = true;
+    setLoadState("loading");
     Image.getSize(uri, (imageWidth, imageHeight) => {
       if (mounted && imageHeight > 0) setImageRatio(imageWidth / imageHeight);
     }, () => {});
@@ -198,12 +202,36 @@ function PhotoCanvas({
       >
         <Animated.View style={{ width, height, transform: [{ translateX }, { translateY }] }}>
           <Animated.Image
+            key={`${uri}-${retry}`}
             source={{ uri }}
             resizeMode="contain"
             style={{ width, height, transform: [{ scale }] }}
+            onLoad={() => setLoadState("ready")}
+            onError={() => setLoadState("error")}
           />
         </Animated.View>
       </Pressable>
+      {active && loadState === "loading" ? (
+        <View pointerEvents="none" style={styles.imageStatus}>
+          <ActivityIndicator color="#ffffff" />
+        </View>
+      ) : null}
+      {active && loadState === "error" ? (
+        <View style={styles.imageStatus}>
+          <Text style={styles.imageError}>This photo could not load.</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading photo"
+            onPress={() => {
+              setLoadState("loading");
+              setRetry((value) => value + 1);
+            }}
+            style={styles.retryButton}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -259,6 +287,8 @@ export function ImmersivePhotoViewer({
           keyExtractor={(item, photoIndex) => `${photoIndex}-${item}`}
           horizontal
           pagingEnabled
+          extraData={index}
+          removeClippedSubviews={false}
           scrollEnabled={!zoomed}
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={indexRef.current}
@@ -328,6 +358,10 @@ export function ImmersivePhotoViewer({
 const styles = StyleSheet.create({
   viewer: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, flex: 1, backgroundColor: "#05070b" },
   photoTouch: { flex: 1, justifyContent: "center", alignItems: "center" },
+  imageStatus: { ...StyleSheet.absoluteFill, justifyContent: "center", alignItems: "center", gap: 14 },
+  imageError: { color: "#ffffff", fontSize: 15 },
+  retryButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.18)" },
+  retryText: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
   topBar: {
     position: "absolute",
     top: 0,
