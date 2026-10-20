@@ -9,7 +9,6 @@ import {
   NativeSyntheticEvent,
   PanResponder,
   Pressable,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -58,15 +57,6 @@ function PhotoCanvas({
   const [imageRatio, setImageRatio] = useState<number | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [retry, setRetry] = useState(0);
-
-  useEffect(() => {
-    let mounted = true;
-    setLoadState("loading");
-    Image.getSize(uri, (imageWidth, imageHeight) => {
-      if (mounted && imageHeight > 0) setImageRatio(imageWidth / imageHeight);
-    }, () => {});
-    return () => { mounted = false; };
-  }, [uri]);
 
   const setZoomed = useCallback((value: boolean) => {
     if (zoomedRef.current === value) return;
@@ -206,7 +196,10 @@ function PhotoCanvas({
             source={{ uri }}
             resizeMode="contain"
             style={{ width, height, transform: [{ scale }] }}
-            onLoad={() => setLoadState("ready")}
+            onLoad={({ nativeEvent: { source } }) => {
+              if (source.height > 0) setImageRatio(source.width / source.height);
+              setLoadState("ready");
+            }}
             onError={() => setLoadState("error")}
           />
         </Animated.View>
@@ -252,11 +245,25 @@ export function ImmersivePhotoViewer({
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList<string>>(null);
-  const thumbsRef = useRef<ScrollView>(null);
+  const thumbsRef = useRef<FlatList<string>>(null);
   const indexRef = useRef(clamp(initialIndex, 0, images.length - 1));
+  const prefetchedRef = useRef(new Set<string>());
   const [index, setIndex] = useState(indexRef.current);
   const [zoomed, setZoomed] = useState(false);
   const [chromeVisible, setChromeVisible] = useState(true);
+
+  useEffect(() => {
+    for (const neighbor of [index + 1, index - 1]) {
+      const uri = images[neighbor];
+      if (!uri || prefetchedRef.current.has(uri)) continue;
+      prefetchedRef.current.add(uri);
+      void Image.prefetch(uri).then((cached) => {
+        if (!cached) prefetchedRef.current.delete(uri);
+      }).catch(() => {
+        prefetchedRef.current.delete(uri);
+      });
+    }
+  }, [images, index]);
 
   const thumbnailOffset = useCallback((photoIndex: number) =>
     Math.max(0, photoIndex * THUMB_STEP - width / 2 + THUMB_STEP / 2), [width]);
@@ -266,7 +273,7 @@ export function ImmersivePhotoViewer({
     setIndex(next);
     onIndexChange?.(next);
     setZoomed(false);
-    thumbsRef.current?.scrollTo({ x: thumbnailOffset(next), animated: true });
+    thumbsRef.current?.scrollToOffset({ offset: thumbnailOffset(next), animated: true });
   }, [onIndexChange, thumbnailOffset]);
 
   const onSwipeEnd = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -327,16 +334,22 @@ export function ImmersivePhotoViewer({
             <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 14) + 10 }]}>
               <Text style={styles.title} numberOfLines={1}>{title}</Text>
               {images.length > 1 ? (
-                <ScrollView
+                <FlatList
                   ref={thumbsRef}
+                  data={images}
+                  keyExtractor={(uri, photoIndex) => `${photoIndex}-${uri}`}
                   horizontal
+                  extraData={index}
                   showsHorizontalScrollIndicator={false}
-                  onLayout={() => thumbsRef.current?.scrollTo({ x: thumbnailOffset(indexRef.current), animated: false })}
+                  initialScrollIndex={indexRef.current}
+                  getItemLayout={(_, photoIndex) => ({ length: THUMB_STEP, offset: THUMB_STEP * photoIndex, index: photoIndex })}
+                  onLayout={() => thumbsRef.current?.scrollToOffset({ offset: thumbnailOffset(indexRef.current), animated: false })}
+                  initialNumToRender={5}
+                  maxToRenderPerBatch={5}
+                  windowSize={3}
                   contentContainerStyle={styles.thumbRow}
-                >
-                  {images.map((uri, photoIndex) => (
+                  renderItem={({ item: uri, index: photoIndex }) => (
                     <Pressable
-                      key={`${photoIndex}-${uri}`}
                       accessibilityRole="button"
                       accessibilityLabel={`Photo ${photoIndex + 1} of ${images.length}`}
                       accessibilityState={{ selected: photoIndex === index }}
@@ -345,8 +358,8 @@ export function ImmersivePhotoViewer({
                     >
                       <Image source={{ uri }} style={styles.thumbImage} resizeMode="cover" />
                     </Pressable>
-                  ))}
-                </ScrollView>
+                  )}
+                />
               ) : null}
             </View>
           </>
