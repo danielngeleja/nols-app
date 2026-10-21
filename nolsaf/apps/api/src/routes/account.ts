@@ -48,6 +48,7 @@ import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
 import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import { azamPayProvidersMatch, canonicalAzamPayProvider } from "../services/azampay/disbursement/providers.js";
 import { getRegistrationStatus } from "../lib/registrationLifecycle.js";
+import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
 import { buildDriverVerificationCode } from "../lib/driverVerificationCode.js";
 import { isTravellerDocumentPublicId, signedTravellerDocumentUrl } from "../lib/travellerDocuments.js";
 
@@ -1239,24 +1240,49 @@ async function sendContactChangedAlerts(
   await Promise.allSettled(tasks);
 }
 
-async function sendPayoutDestinationChangedAlerts(
+type PayoutDestinationAction = "added" | "changed" | "reverified";
+
+function hasSavedPayoutDestination(payout: unknown): boolean {
+  if (!payout || typeof payout !== "object" || Array.isArray(payout)) return false;
+  const saved = payout as Record<string, unknown>;
+  return [saved.mobileMoneyNumber, saved.bankAccountNumber].some(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
+}
+
+async function sendPayoutDestinationSecurityAlerts(
   user: { email: string | null; phone: string | null },
   provider: string,
   accountNumber: string,
+  action: PayoutDestinationAction,
+  savedAt: Date,
+  isBank: boolean,
 ): Promise<void> {
-  const maskedDestination = maskSensitiveDestination(accountNumber);
+  const lastFour = maskSensitiveDestination(accountNumber).slice(-4);
+  const savedAtEat = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Dar_es_Salaam", day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(savedAt);
+  const actionText = action === "added" ? "added" : action === "changed" ? "changed" : "reverified";
+  const bankNote = "Automated bank payouts are not enabled; any bank transfer is handled manually.";
+  const waitingHours = isBank ? null : (await loadPayoutSafeguards()).recentChangeHours;
+  const mobileNote = waitingHours === null ? "" : `A ${waitingHours}-hour security waiting period applies before this account can be used for payouts. Additional eligibility and approval checks still apply.`;
+  const waitingNote = isBank ? bankNote : mobileNote;
+  const noPayoutNote = "Saving this account did not approve or send a payout.";
+  const details = `${provider} ending in ${lastFour}`;
   const tasks: Array<Promise<unknown>> = [];
   if (user.email) {
     tasks.push(sendMail(
       user.email,
-      "Security alert: payout destination changed",
-      `<p>Your NoLSAF payout destination was changed to <strong>${escapeContactHtml(provider)}</strong> ending in <strong>${escapeContactHtml(maskedDestination.slice(-4))}</strong>.</p><p>If you did not make this change, contact <a href="mailto:support@nolsaf.com">support@nolsaf.com</a> immediately.</p>`,
+      `Security alert: payout account ${actionText}`,
+      `<p>Your NoLSAF payout account was ${actionText}: <strong>${escapeContactHtml(details)}</strong> on ${escapeContactHtml(savedAtEat)} EAT.</p><p>${escapeContactHtml(waitingNote)} ${noPayoutNote}</p><p>If you did not ${action === "added" ? "add" : action === "changed" ? "change" : "reverify"} this account, contact <a href="mailto:support@nolsaf.com">support@nolsaf.com</a> immediately.</p>`,
       undefined,
       { bypassEligibilityCheck: true, from: SECURITY_EMAIL_FROM, replyTo: "support@nolsaf.com" },
     ));
   }
   if (user.phone) {
-    tasks.push(sendSms(user.phone, `NoLSAF security alert: your payout destination changed to ${provider} ending ${maskedDestination.slice(-4)}. If this was not you, contact support immediately.`));
+    const smsPolicy = isBank ? "Automated bank payouts unavailable; transfers are manual." : `${waitingHours}h security hold applies.`;
+    tasks.push(sendSms(user.phone, `NoLSAF security: payout account ${actionText}: ${details}, ${savedAtEat} EAT. ${smsPolicy} Saving it did not approve or send a payout. If not you, contact support@nolsaf.com.`));
   }
   await Promise.allSettled(tasks);
 }
@@ -1785,7 +1811,15 @@ const updatePayouts: RequestHandler = async (req, res) => {
           mobileMoneyAccountName: resolvedName,
         };
 
-    const account = await prisma.$transaction(async (tx) => {
+    const { account, action } = await prisma.$transaction(async (tx) => {
+      const previous = await tx.payoutAccount.findFirst({
+        where: { userId, isActive: true },
+        orderBy: { isDefault: "desc" },
+        select: { provider: true, accountNumber: true },
+      });
+      const action: PayoutDestinationAction = previous
+        ? previous.provider === provider && previous.accountNumber === accountNumber ? "reverified" : "changed"
+        : hasSavedPayoutDestination(before) ? "changed" : "added";
       const existing = await tx.payoutAccount.findUnique({
         where: { userId_provider_accountNumber: { userId, provider, accountNumber } },
       });
@@ -1839,7 +1873,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
           payoutAccount: accountNumber,
         },
       });
-      return verified;
+      return { account: verified, action };
     });
 
     await audit(req as AuthedRequest, "USER_PAYOUT_DESTINATION_VERIFIED", `user:${userId}`, before, {
@@ -1850,7 +1884,7 @@ const updatePayouts: RequestHandler = async (req, res) => {
       payoutAccountId: account.id,
       destinationChangedAt: account.destinationChangedAt,
     });
-    await sendPayoutDestinationChangedAlerts(currentUser, provider, accountNumber);
+    await sendPayoutDestinationSecurityAlerts(currentUser, payoutMethodLabel(isBank, provider), accountNumber, action, now, isBank);
 
     sendSuccess(
       res,

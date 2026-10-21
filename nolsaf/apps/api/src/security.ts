@@ -6,8 +6,16 @@ import { rateLimitWithRedis as rateLimit } from "./lib/redisRateLimitStore.js";
 import { dynamicRateLimiter } from "./lib/rateLimiter.js";
 import hpp from "hpp";
 
+export function configureTrustProxy(app: Express) {
+  // Production Elastic Beanstalk: client -> ALB -> nginx -> Express.
+  // Trust nginx and the ALB, then use the address the ALB appended. Trusting
+  // only nginx reports the ALB's private address for every client; trusting
+  // more than two hops would let a client-supplied X-Forwarded-For entry win.
+  app.set("trust proxy", process.env.NODE_ENV === "production" ? 2 : 1);
+}
+
 export function configureSecurity(app: Express) {
-  app.set("trust proxy", 1);
+  configureTrustProxy(app);
   const isProduction = process.env.NODE_ENV === "production";
 
   // Strict headers + basic CSP (adjust CONNECT/IMG src for your domains)

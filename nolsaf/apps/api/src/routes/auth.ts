@@ -1208,6 +1208,10 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     
     // Get client IP for tracking
     const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const attemptContext = {
+      requestId: String((req as any).requestId || ''),
+      userAgent: String(req.get('user-agent') || ''),
+    };
     
     let user;
     try {
@@ -1258,7 +1262,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     if (!user || !user.passwordHash) {
       // Record failed attempt even if user doesn't exist (prevents email enumeration)
       try {
-        await recordFailedAttempt(identifier, clientIp);
+        await recordFailedAttempt(identifier, clientIp, attemptContext);
       } catch (err) {
         console.error('[LOGIN] Failed to record failed attempt:', err);
       }
@@ -1275,7 +1279,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     } catch (verifyError: any) {
       console.error("Password verification error:", verifyError);
       try {
-        await recordFailedAttempt(identifier, clientIp);
+        await recordFailedAttempt(identifier, clientIp, attemptContext);
       } catch (err) {
         console.error('[LOGIN] Failed to record failed attempt:', err);
       }
@@ -1304,7 +1308,7 @@ router.post("/login-password", limitLoginAttempts, asyncHandler(async (req, res,
     if (!ok) {
       // Record failed attempt
       try {
-        await recordFailedAttempt(identifier, clientIp);
+        await recordFailedAttempt(identifier, clientIp, attemptContext);
       } catch (err) {
         console.error('[LOGIN] Failed to record failed attempt:', err);
       }

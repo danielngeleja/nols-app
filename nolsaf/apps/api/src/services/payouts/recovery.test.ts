@@ -5,7 +5,7 @@ const m = vi.hoisted(() => ({
   prisma: {
     $transaction: vi.fn(),
     ownerPayoutRecovery: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), findUniqueOrThrow: vi.fn() },
-    ownerPayoutRecoveryApplication: { create: vi.fn(), aggregate: vi.fn() },
+    ownerPayoutRecoveryApplication: { create: vi.fn(), aggregate: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
     invoice: { findFirst: vi.fn() },
     disbursement: { aggregate: vi.fn() },
     auditLog: { create: vi.fn() },
@@ -19,7 +19,7 @@ vi.mock("@nolsaf/prisma", () => ({ prisma: m.prisma }));
 vi.mock("./eligibility.js", () => ({ confirmedCustomerPaymentForBooking: m.collected }));
 vi.mock("../../lib/notifications.js", () => ({ notifyOwner: m.notifyOwner, notifyAdmins: m.notifyAdmins }));
 
-import { addBusinessDays, applyRecoveriesToClaim, ownerShareOfGuestAmount, recordRecovery } from "./recovery.js";
+import { addBusinessDays, applyRecoveriesToClaim, ensureRecoveryDeduction, ownerShareOfGuestAmount, recordRecovery } from "./recovery.js";
 
 const NOW = new Date("2026-10-07T09:00:00Z"); // Wednesday
 
@@ -33,6 +33,37 @@ beforeEach(() => {
   m.prisma.disbursement.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal(180000) } });
   m.collected.mockResolvedValue(new Prisma.Decimal(200000));
   m.prisma.ownerPayoutRecovery.create.mockImplementation(async ({ data }: any) => ({ id: 1, ...data }));
+  m.prisma.ownerPayoutRecoveryApplication.aggregate.mockResolvedValue({ _sum: { amount: null } });
+  m.prisma.ownerPayoutRecoveryApplication.findMany.mockResolvedValue([]);
+  m.prisma.ownerPayoutRecoveryApplication.updateMany.mockResolvedValue({ count: 1 });
+});
+
+describe("ensureRecoveryDeduction", () => {
+  it("resumes an earlier partial application without inserting a duplicate row", async () => {
+    m.prisma.ownerPayoutRecoveryApplication.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal(10000) } });
+    m.prisma.ownerPayoutRecoveryApplication.findMany.mockResolvedValue([{ id: 6, recoveryId: 1, amount: new Prisma.Decimal(10000) }]);
+    m.prisma.ownerPayoutRecovery.findMany.mockResolvedValue([{ id: 1, amount: new Prisma.Decimal(30000), recoveredAmount: new Prisma.Decimal(10000) }]);
+    m.prisma.ownerPayoutRecovery.updateMany.mockResolvedValue({ count: 1 });
+    expect(await ensureRecoveryDeduction(3, 202, 30000, NOW)).toBe(30000);
+    expect(m.prisma.ownerPayoutRecoveryApplication.updateMany).toHaveBeenCalledWith({
+      where: { id: 6, amount: new Prisma.Decimal(10000) },
+      data: { amount: { increment: new Prisma.Decimal(20000) } },
+    });
+    expect(m.prisma.ownerPayoutRecoveryApplication.create).not.toHaveBeenCalled();
+    expect(m.prisma.auditLog.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      action: "OWNER_PAYOUT_RECOVERY_DEDUCTED",
+      entityId: 202,
+      afterJson: { ownerId: 3, recoveryId: 1, deducted: 20000, confirmedTarget: 30000 },
+    }) });
+  });
+
+  it("does nothing when the confirmed deduction is already complete", async () => {
+    m.prisma.ownerPayoutRecoveryApplication.aggregate.mockResolvedValue({ _sum: { amount: new Prisma.Decimal(30000) } });
+    expect(await ensureRecoveryDeduction(3, 202, 30000, NOW)).toBe(30000);
+    expect(m.prisma.ownerPayoutRecovery.findMany).not.toHaveBeenCalled();
+    expect(m.prisma.ownerPayoutRecoveryApplication.create).not.toHaveBeenCalled();
+    expect(m.prisma.auditLog.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("ownerShareOfGuestAmount", () => {

@@ -34,6 +34,7 @@ type UserRow = {
   createdAt?: string;
   twoFactorEnabled?: boolean;
   isDisabled?: boolean | null;
+  deletedAt?: string | null;
 };
 
 type Notice = { tone: "success" | "error"; title: string; message?: string };
@@ -44,6 +45,15 @@ type UserAuditRow = {
   details?: any;
   createdAt: string;
   admin?: { id: number; name?: string | null; email?: string | null };
+};
+type LifecycleAction = 'CORRECT_TO_TRAVELLER' | 'RETIRE_UNUSED';
+type LifecycleVerificationMethod = 'VERIFIED_EMAIL' | 'VERIFIED_PHONE' | 'SUPPORT_IDENTITY_CHECK';
+type LifecyclePreview = {
+  role: string;
+  blockers: string[];
+  actions: Record<LifecycleAction, boolean>;
+  caseReference: string;
+  verifiedChannels: { email: boolean; phone: boolean };
 };
 
 const api = apiClient;
@@ -95,6 +105,9 @@ function auditLabel(action: string) {
   if (action === "DISABLE_USER") return "Disabled account access";
   if (action === "ENABLE_USER") return "Restored account access";
   if (action === "RESET_2FA") return "Reset two-step sign-in";
+  if (action === "CORRECT_USER_TO_TRAVELLER") return "Corrected registration to traveller";
+  if (action === "RETIRE_UNUSED_USER") return "Retired unused account";
+  if (action === "ACCOUNT_LIFECYCLE_NOTICE_FAILED") return "Security notice needs follow-up";
   return action.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 }
 
@@ -121,6 +134,12 @@ export default function Page() {
   const [dialogNotice, setDialogNotice] = useState<Notice | null>(null);
   const [auditRows, setAuditRows] = useState<UserAuditRow[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [lifecycle, setLifecycle] = useState<LifecyclePreview | null>(null);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | ''>('');
+  const [verificationMethod, setVerificationMethod] = useState<LifecycleVerificationMethod | ''>('');
+  const [lifecycleReason, setLifecycleReason] = useState('');
+  const [lifecycleConfirmed, setLifecycleConfirmed] = useState(false);
   const deepLinkedUserIdRef = useRef<number | null>(null);
 
   const hasPendingConfirmation = pendingReset2FA || pendingDisableUser;
@@ -180,6 +199,21 @@ export default function Page() {
     return () => { cancelled = true; };
   }, [editing?.id]);
 
+  useEffect(() => {
+    const userId = editing?.id;
+    if (!userId || editing.deletedAt || !['OWNER', 'DRIVER', 'CUSTOMER'].includes(editing.role)) {
+      setLifecycle(null);
+      return;
+    }
+    let cancelled = false;
+    setLifecycleLoading(true);
+    void api.get<{ data: LifecyclePreview }>(`/api/admin/users/${userId}/lifecycle`)
+      .then((response) => { if (!cancelled) setLifecycle(response.data.data); })
+      .catch(() => { if (!cancelled) setLifecycle(null); })
+      .finally(() => { if (!cancelled) setLifecycleLoading(false); });
+    return () => { cancelled = true; };
+  }, [editing?.id, editing?.role, editing?.deletedAt]);
+
   const openEdit = (u: UserRow) => {
     setEditing(u);
     setFinanceRole(String(u.nrmsFinanceRole || "NONE").toUpperCase());
@@ -190,6 +224,11 @@ export default function Page() {
     setPendingDisableUser(false);
     setAckDisableUser(false);
     setDialogNotice(null);
+    setLifecycle(null);
+    setLifecycleAction('');
+    setVerificationMethod('');
+    setLifecycleReason('');
+    setLifecycleConfirmed(false);
   };
 
   const closeEdit = () => {
@@ -202,6 +241,11 @@ export default function Page() {
     setPendingDisableUser(false);
     setAckDisableUser(false);
     setDialogNotice(null);
+    setLifecycle(null);
+    setLifecycleAction('');
+    setVerificationMethod('');
+    setLifecycleReason('');
+    setLifecycleConfirmed(false);
   };
 
   useEffect(() => {
@@ -280,6 +324,39 @@ export default function Page() {
     }
   }
 
+  async function submitLifecycle() {
+    if (!editing || !lifecycleAction || !lifecycleConfirmed || !lifecycle?.actions[lifecycleAction] || !lifecycle.caseReference || !verificationMethod || lifecycleReason.trim().length < 30) return;
+    if (pendingChanges.length || hasPendingConfirmation) {
+      setDialogNotice({ tone: 'error', title: 'Finish other account edits first', message: 'Save or discard the pending access and security changes before this action.' });
+      return;
+    }
+    setSaving(true);
+    setDialogNotice(null);
+    try {
+      const response = await api.post(`/api/admin/users/${editing.id}/lifecycle`, {
+        action: lifecycleAction, caseReference: lifecycle.caseReference, verificationMethod, reason: lifecycleReason.trim(), confirm: lifecycleAction,
+      });
+      const label = lifecycleAction === 'RETIRE_UNUSED' ? 'Account retired' : 'Registration corrected to traveller';
+      closeEdit();
+      setNotice({ tone: 'success', title: label, message: response.data?.data?.noticeFailed ? 'The change succeeded, but the security notice was not fully delivered. Follow up through support.' : 'Sessions were revoked and verified contacts were notified.' });
+      await load();
+    } catch (err: unknown) {
+      const data = axios.isAxiosError(err) ? err.response?.data as any : null;
+      const blockers = Array.isArray(data?.blockers) ? data.blockers.join(', ') : '';
+      setDialogNotice({ tone: 'error', title: data?.error || 'Unable to complete account action', message: blockers || (data?.require2fa ? 'Complete the administrator security check and submit again.' : 'No changes were made.') });
+      if (axios.isAxiosError(err) && err.response?.status === 409 && editing) {
+        try {
+          const preview = await api.get<{ data: LifecyclePreview }>(`/api/admin/users/${editing.id}/lifecycle`);
+          setLifecycle(preview.data.data);
+          setVerificationMethod('');
+          setLifecycleConfirmed(false);
+        } catch { /* The action remains blocked. */ }
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const countsTotal = Object.values(countsByRole).reduce((sum, n) => sum + (Number(n) || 0), 0);
   const count = (r: string) => Number(countsByRole?.[r] ?? 0);
   const partners = count("OWNER") + count("DRIVER") + count("AGENT");
@@ -312,7 +389,7 @@ export default function Page() {
             <div className="min-w-0">
               <p className="m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300/80">People</p>
               <h1 className="m-0 mt-1 text-xl font-bold tracking-tight text-white sm:text-2xl">Users</h1>
-              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Every account on the platform. Open one to reset two-step sign-in, change finance access or disable it. Roles are fixed.</p>
+              <p className="m-0 mt-1 max-w-2xl text-sm text-white/60">Every account on the platform. Open one to manage access, review a mistaken registration, or retire an unused account. Partner roles require onboarding.</p>
             </div>
             <button type="button" onClick={() => void load()} disabled={loading} className={`${heroButton} w-9 justify-center px-0`} aria-label="Refresh" title="Refresh">
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -452,7 +529,7 @@ export default function Page() {
                       <td className="px-3 py-3">
                         <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${u.isDisabled ? "text-rose-600" : "text-neutral-700"}`}>
                           <span className={`h-1.5 w-1.5 rounded-full ${u.isDisabled ? "bg-rose-500" : "bg-emerald-500"}`} />
-                          {u.isDisabled ? "Disabled" : "Active"}
+                          {u.deletedAt ? "Retired" : u.isDisabled ? "Disabled" : "Active"}
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-xs text-neutral-500">{joined(u.createdAt) || "Unknown"}</td>
@@ -512,7 +589,7 @@ export default function Page() {
                   { label: "Phone", value: editing.phone || "Not set" },
                   { label: "Joined", value: joined(editing.createdAt) || "Unknown" },
                   { label: "Two-step sign-in", value: editing.twoFactorEnabled ? "On" : "Off", tone: editing.twoFactorEnabled ? "text-emerald-700" : "text-neutral-500" },
-                  { label: "Access", value: editing.isDisabled ? "Disabled" : "Active", tone: editing.isDisabled ? "text-rose-600" : "text-emerald-700" },
+                  { label: "Access", value: editing.deletedAt ? "Retired" : editing.isDisabled ? "Disabled" : "Active", tone: editing.isDisabled ? "text-rose-600" : "text-emerald-700" },
                 ].map((f) => (
                   <div key={f.label} className="min-w-[150px] flex-1 bg-white px-4 py-3">
                     <dt className={sectionLabel}>{f.label}</dt>
@@ -528,6 +605,9 @@ export default function Page() {
                 </div>
               )}
 
+              {editing.deletedAt && <p className="mx-5 mt-4 rounded-lg bg-neutral-100 p-3 text-xs text-neutral-700">This account is retired. Access and role settings cannot be changed here.</p>}
+
+              {!editing.deletedAt && <>
               {/* Security */}
               <div className="px-5 py-4">
                 <p className={sectionLabel}>Security</p>
@@ -615,6 +695,91 @@ export default function Page() {
                 )}
               </div>
 
+              </>}
+
+              {['OWNER', 'DRIVER', 'CUSTOMER'].includes(editing.role) && !editing.deletedAt && (
+                <div className="border-0 border-t border-solid border-neutral-200 px-5 py-4">
+                  <p className={sectionLabel}>Account correction or retirement</p>
+                  <p className="m-0 mt-1 text-xs text-neutral-500">For a documented support case only. Any business, payout, KYC or partner record requires manual review. Retirement disables sign-in and masks contact details while retaining required records.</p>
+                  {lifecycleLoading ? <p className="mt-3 text-xs text-neutral-500">Checking linked records…</p> : lifecycle ? (
+                    <>
+                      {lifecycle.blockers.length > 0 ? (
+                        <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                          <strong>Automated action blocked. Review these records:</strong>
+                          <ul className="mb-0 mt-1 list-disc pl-4">{lifecycle.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
+                        </div>
+                      ) : <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900">No blocking links found. The server checks again when you submit.</p>}
+                      {(lifecycle.actions.CORRECT_TO_TRAVELLER || lifecycle.actions.RETIRE_UNUSED) && (
+                        <div className="mt-4 space-y-4">
+                          {(pendingChanges.length > 0 || hasPendingConfirmation) && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">Save or discard the other account edits before continuing.</p>}
+                          <div className="rounded-xl border border-solid border-neutral-200 bg-neutral-50 px-3.5 py-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-neutral-700">Internal case reference</span>
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">Generated automatically</span>
+                            </div>
+                            <p className="m-0 mt-1 break-all font-mono text-sm font-semibold text-neutral-900">{lifecycle.caseReference || 'Reference unavailable; reopen after the API update'}</p>
+                            <p className="m-0 mt-1 text-[11px] text-neutral-500">Saved with the audit record. Add any existing support ticket in the notes below.</p>
+                          </div>
+
+                          <fieldset className="m-0 min-w-0 border-0 p-0">
+                            <legend className="mb-2 text-xs font-semibold text-neutral-800">1. Choose the outcome</legend>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {lifecycle.actions.CORRECT_TO_TRAVELLER && (
+                                <label className={`flex cursor-pointer items-start gap-2.5 rounded-xl border border-solid p-3 transition-colors focus-within:ring-2 focus-within:ring-emerald-500 ${lifecycleAction === 'CORRECT_TO_TRAVELLER' ? 'border-emerald-500 bg-emerald-50' : 'border-neutral-200 bg-white hover:border-neutral-300'}`}>
+                                  <input type="radio" name="lifecycle-action" value="CORRECT_TO_TRAVELLER" checked={lifecycleAction === 'CORRECT_TO_TRAVELLER'} onChange={() => { setLifecycleAction('CORRECT_TO_TRAVELLER'); setLifecycleConfirmed(false); }} className="mt-0.5 accent-emerald-700" />
+                                  <span><span className="block text-xs font-semibold text-neutral-900">Correct to traveller</span><span className="mt-1 block text-[11px] leading-4 text-neutral-600">For an owner or driver registered in the wrong role. Keeps this account and its verified contacts.</span></span>
+                                </label>
+                              )}
+                              {lifecycle.actions.RETIRE_UNUSED && (
+                                <label className={`flex cursor-pointer items-start gap-2.5 rounded-xl border border-solid p-3 transition-colors focus-within:ring-2 focus-within:ring-rose-500 ${lifecycleAction === 'RETIRE_UNUSED' ? 'border-rose-500 bg-rose-50' : 'border-neutral-200 bg-white hover:border-neutral-300'}`}>
+                                  <input type="radio" name="lifecycle-action" value="RETIRE_UNUSED" checked={lifecycleAction === 'RETIRE_UNUSED'} onChange={() => { setLifecycleAction('RETIRE_UNUSED'); setLifecycleConfirmed(false); }} className="mt-0.5 accent-rose-700" />
+                                  <span><span className="block text-xs font-semibold text-neutral-900">Retire unused account</span><span className="mt-1 block text-[11px] leading-4 text-neutral-600">Disables sign-in and masks direct contact details. Required records stay retained.</span></span>
+                                </label>
+                              )}
+                            </div>
+                          </fieldset>
+
+                          {lifecycleAction && (
+                            <div className="space-y-3 rounded-xl border border-solid border-neutral-200 bg-white p-3.5">
+                              <p className="m-0 text-xs font-semibold text-neutral-800">2. Document the holder&apos;s request</p>
+                              <label className="block text-xs font-medium text-neutral-700">How was their identity verified?
+                                <select value={verificationMethod} onChange={(event) => { setVerificationMethod(event.target.value as LifecycleVerificationMethod | ''); setLifecycleConfirmed(false); }} className="mt-1.5 block w-full rounded-lg border border-solid border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900">
+                                  <option value="">Select the completed support check</option>
+                                  {lifecycle.verifiedChannels?.email && <option value="VERIFIED_EMAIL">Request confirmed through verified account email</option>}
+                                  {lifecycle.verifiedChannels?.phone && <option value="VERIFIED_PHONE">Request confirmed through verified account phone</option>}
+                                  <option value="SUPPORT_IDENTITY_CHECK">Approved support identity check</option>
+                                </select>
+                              </label>
+                              <label className="block text-xs font-medium text-neutral-700">Case notes
+                                <textarea value={lifecycleReason} onChange={(event) => { setLifecycleReason(event.target.value); setLifecycleConfirmed(false); }} maxLength={1000} rows={4} placeholder="State what the holder requested, how you verified them, and any existing support ticket. Do not include passwords, OTPs or identity-document numbers." className="mt-1.5 block w-full resize-y rounded-lg border border-solid border-neutral-300 px-3 py-2.5 text-sm text-neutral-900" />
+                              </label>
+                              <p className="m-0 text-[11px] text-neutral-500">{lifecycleReason.trim().length}/30 minimum characters · 1,000 maximum</p>
+                            </div>
+                          )}
+
+                          {lifecycleAction && verificationMethod && lifecycleReason.trim().length >= 30 && (
+                            <div className="rounded-xl border border-solid border-rose-200 bg-rose-50/60 p-3.5">
+                              <p className="m-0 text-xs font-semibold text-rose-950">3. Final review for {editing.name || editing.email || `user #${editing.id}`}</p>
+                              <p className="m-0 mt-1 text-xs leading-5 text-rose-900">{lifecycleAction === 'RETIRE_UNUSED' ? 'Retire this account, disable sign-in, mask contact details and revoke sessions.' : 'Change this account to traveller, clear unused role-specific details and revoke sessions.'} The server will recheck linked records before saving.</p>
+                              <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-rose-950">
+                                <input type="checkbox" checked={lifecycleConfirmed} onChange={(event) => setLifecycleConfirmed(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-rose-700" />
+                                <span>I verified the holder&apos;s request, reviewed this account&apos;s linked records and approve this exact action.</span>
+                              </label>
+                            </div>
+                          )}
+                          <div className="flex justify-end">
+                            <button type="button" onClick={() => void submitLifecycle()} disabled={saving || pendingChanges.length > 0 || hasPendingConfirmation || !lifecycleAction || !verificationMethod || !lifecycleConfirmed || !lifecycle.caseReference || lifecycleReason.trim().length < 30} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border-0 bg-rose-700 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-40">
+                              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                              {saving ? 'Submitting…' : lifecycleAction === 'RETIRE_UNUSED' ? 'Retire account' : 'Correct to traveller'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : <p className="mt-3 text-xs text-rose-700">Could not check linked records. Try reopening this account.</p>}
+                </div>
+              )}
+
               {/* Audit history */}
               <div className="border-0 border-t border-solid border-neutral-200 px-5 py-4">
                 <p className={sectionLabel}>History</p>
@@ -631,6 +796,9 @@ export default function Page() {
                           <span className="min-w-0">
                             <span className="block text-sm font-semibold text-neutral-900">{auditLabel(row.action)}</span>
                             <span className="block text-xs text-neutral-500">By {actor}</span>
+                            {typeof row.details?.caseReference === 'string' && <span className="block text-xs text-neutral-500">Case {row.details.caseReference}</span>}
+                            {typeof row.details?.verificationMethod === 'string' && <span className="block text-xs text-neutral-500">Verified via {row.details.verificationMethod === 'VERIFIED_EMAIL' ? 'account email' : row.details.verificationMethod === 'VERIFIED_PHONE' ? 'account phone' : 'support identity check'}</span>}
+                            {typeof row.details?.reason === 'string' && ['CORRECT_USER_TO_TRAVELLER', 'RETIRE_UNUSED_USER'].includes(row.action) && <span className="mt-1 block whitespace-pre-wrap text-xs leading-4 text-neutral-600">{row.details.reason}</span>}
                           </span>
                           <span className="shrink-0 text-[11px] tabular-nums text-neutral-400">{row.createdAt ? eat(row.createdAt) : ""}</span>
                         </li>
@@ -646,7 +814,7 @@ export default function Page() {
                 {hasPendingConfirmation ? "Confirm or cancel the action above first." : pendingChanges.length ? `Will save: ${pendingChanges.join(", ")}` : "No changes yet"}
               </span>
               <button type="button" onClick={closeEdit} disabled={saving} className="inline-flex h-9 items-center rounded-lg border border-solid border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">Close</button>
-              <button type="button" onClick={() => void saveEdit()} disabled={saving || hasPendingConfirmation || pendingChanges.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#12342f] disabled:opacity-50">
+              <button type="button" onClick={() => void saveEdit()} disabled={saving || Boolean(editing.deletedAt) || hasPendingConfirmation || pendingChanges.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-lg border-0 bg-[#0b2420] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#12342f] disabled:opacity-50">
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save changes
               </button>
             </div>

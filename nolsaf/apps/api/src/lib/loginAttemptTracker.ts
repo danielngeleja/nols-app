@@ -13,6 +13,7 @@ const REDIS_IP_PREFIX      = 'login:ip:';
 // ─── In-memory fallback (used when Redis is unavailable) ─────────────────────
 interface EmailAttempt { count: number; lockedUntil: number | null; lastAttempt: number; }
 interface IpAttempt    { count: number; lastAttempt: number; }
+export interface LoginAttemptContext { requestId?: string; userAgent?: string; }
 const memEmail = new Map<string, EmailAttempt>();
 const memIp    = new Map<string, IpAttempt>();
 setInterval(() => {
@@ -67,8 +68,12 @@ export async function isEmailLocked(email: string): Promise<{ locked: boolean; l
 /**
  * Record a failed login attempt
  */
-export async function recordFailedAttempt(email: string, ip: string): Promise<void> {
+export async function recordFailedAttempt(email: string, ip: string, context: LoginAttemptContext = {}): Promise<void> {
   const key = email.toLowerCase();
+  // Both values originate in request headers. Keep alerts and logs bounded and
+  // single-line so a forged user agent cannot inject a fake security event.
+  const requestId = String(context.requestId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+  const userAgent = String(context.userAgent || "").replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 100);
   try {
     const maxAttempts = await getMaxLoginAttempts();
     const lockoutSec  = (await getAccountLockoutDurationMinutes()) * 60;
@@ -86,7 +91,7 @@ export async function recordFailedAttempt(email: string, ip: string): Promise<vo
       if (count === 1) await r.expire(attemptKey, windowSec);
 
       if (shouldLog) {
-        console.warn(`[SECURITY] Failed login: ${email} from ${ip} (attempt ${count}/${maxAttempts})`);
+        console.warn(`[SECURITY] Failed login: ${email} from ${ip} (attempt ${count}/${maxAttempts})${requestId ? ` requestId=${requestId}` : ""}`);
       }
 
       if (count >= maxAttempts) {
@@ -95,7 +100,7 @@ export async function recordFailedAttempt(email: string, ip: string): Promise<vo
         if (shouldLog) {
           console.warn(`[SECURITY] Account locked: ${email} for ${lockoutSec}s after ${count} failed attempts`);
         }
-        void raiseSecurityAlert('security_account_locked', key, { identifier: email, ip, attempts: count, lockoutMinutes: Math.round((lockoutSec || 300) / 60) });
+        void raiseSecurityAlert('security_account_locked', key, { identifier: email, ip, attempts: count, lockoutMinutes: Math.round((lockoutSec || 300) / 60), requestId, userAgent });
       }
 
       // IP tracking (1 h window); crossing the burst threshold alerts once
@@ -122,7 +127,7 @@ export async function recordFailedAttempt(email: string, ip: string): Promise<vo
     if (emailAttempt.count >= maxAttempts) {
       emailAttempt.lockedUntil = now + lockoutMs;
       if (shouldLog) console.warn(`[SECURITY] Account locked (mem): ${email} until ${new Date(emailAttempt.lockedUntil).toISOString()}`);
-      void raiseSecurityAlert('security_account_locked', key, { identifier: email, ip, attempts: emailAttempt.count, lockoutMinutes: Math.round(lockoutMs / 60000) });
+      void raiseSecurityAlert('security_account_locked', key, { identifier: email, ip, attempts: emailAttempt.count, lockoutMinutes: Math.round(lockoutMs / 60000), requestId, userAgent });
     }
     memEmail.set(key, emailAttempt);
     const ipAttempt = memIp.get(ip) || { count: 0, lastAttempt: now };
@@ -132,7 +137,7 @@ export async function recordFailedAttempt(email: string, ip: string): Promise<vo
     if (ipAttempt.count === IP_BURST_ALERT_THRESHOLD) {
       void raiseSecurityAlert('security_ip_burst', ip, { ip, attempts: ipAttempt.count });
     }
-    if (shouldLog) console.warn(`[SECURITY] Failed login (mem): ${email} from ${ip} (attempt ${emailAttempt.count}/${maxAttempts})`);
+    if (shouldLog) console.warn(`[SECURITY] Failed login (mem): ${email} from ${ip} (attempt ${emailAttempt.count}/${maxAttempts})${requestId ? ` requestId=${requestId}` : ""}`);
   } catch (err) {
     console.error('[recordFailedAttempt] Fallback error:', err);
   }

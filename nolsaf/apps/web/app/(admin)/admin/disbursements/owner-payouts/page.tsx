@@ -14,13 +14,19 @@ import apiClient from "@/lib/apiClient";
  * security review, money moves through the Queue and Batches.
  */
 
-type Stage = "UNLOCKING" | "WAITING" | "ON_HOLD" | "READY" | "SENDING" | "UNDER_REVIEW" | "PAID" | "SETTLED" | "CANCELLED";
+type Stage = "UNLOCKING" | "WAITING" | "ON_HOLD" | "READY" | "PROCESSING" | "SENDING" | "UNDER_REVIEW" | "PAID" | "SETTLED" | "CANCELLED";
 
 type OwnerPayout = {
   id: number;
+  status: string;
   ownerId: number;
   withdrawalOtpLockedAt: string | null;
   stage: Stage;
+  handoffStatus: string | null;
+  handoffAttempts: number | null;
+  handoffError: string | null;
+  handoffPayoutAccountId: number | null;
+  handoffPlannedDeduction: string | number | null;
   ownerName: string | null;
   propertyTitle: string | null;
   guestName: string | null;
@@ -45,7 +51,8 @@ const STAGES: Record<Stage, { label: string; chip: string }> = {
   WAITING: { label: "Waiting", chip: "bg-neutral-100 text-neutral-700" },
   ON_HOLD: { label: "On hold", chip: "bg-amber-50 text-amber-800" },
   READY: { label: "Ready", chip: "bg-emerald-50 text-emerald-800" },
-  SENDING: { label: "Sending", chip: "bg-sky-50 text-sky-800" },
+  PROCESSING: { label: "Processing request", chip: "bg-sky-50 text-sky-800" },
+  SENDING: { label: "Queued for payout", chip: "bg-sky-50 text-sky-800" },
   UNDER_REVIEW: { label: "Under review", chip: "bg-sky-50 text-sky-800" },
   PAID: { label: "Paid", chip: "bg-emerald-50 text-emerald-800" },
   SETTLED: { label: "Settled", chip: "bg-neutral-100 text-neutral-700" },
@@ -53,7 +60,7 @@ const STAGES: Record<Stage, { label: string; chip: string }> = {
 };
 
 const FILTERS: Array<{ key: string; label: string; stages: Stage[] }> = [
-  { key: "active", label: "Active", stages: ["UNLOCKING", "WAITING", "ON_HOLD", "READY", "SENDING", "UNDER_REVIEW"] },
+  { key: "active", label: "Active", stages: ["UNLOCKING", "WAITING", "ON_HOLD", "READY", "PROCESSING", "SENDING", "UNDER_REVIEW"] },
   { key: "hold", label: "On hold", stages: ["ON_HOLD"] },
   { key: "waiting", label: "Waiting", stages: ["WAITING"] },
   { key: "review", label: "Under review", stages: ["UNDER_REVIEW"] },
@@ -88,10 +95,12 @@ function detail(p: OwnerPayout): string {
       return p.reason ?? "No reason recorded";
     case "READY":
       return `Ready since ${eat(p.availableAt ?? p.releaseAt)}. Owner has not withdrawn yet.`;
+    case "PROCESSING":
+      return "Owner confirmed the withdrawal; queue handoff is in progress";
     case "SENDING":
-      return "Withdrawn; system is sending it";
+      return "Withdrawal queued for payout; provider delivery is not yet confirmed";
     case "UNDER_REVIEW":
-      return p.reason ? `In the admin queue: ${p.reason}` : "In the admin queue";
+      return p.reason ? `Finance review: ${p.reason}` : "In the admin queue";
     case "PAID":
       return `Paid ${eat(p.paidAt ?? p.releasedAt)}`;
     case "SETTLED":
@@ -126,6 +135,10 @@ export default function AdminOwnerPayoutsPage() {
   const [supportCaseRef, setSupportCaseRef] = useState("");
   const [unlockBusy, setUnlockBusy] = useState(false);
   const [unlockMessage, setUnlockMessage] = useState("");
+  const [reviewPayout, setReviewPayout] = useState<OwnerPayout | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -167,6 +180,27 @@ export default function AdminOwnerPayoutsPage() {
         : cause?.response?.data?.error || "Could not unlock withdrawal OTP.");
     } finally {
       setUnlockBusy(false);
+    }
+  };
+
+  const resolveHandoff = async (action: "RETRY" | "RESET") => {
+    if (!reviewPayout || reviewNote.trim().length < 20) return;
+    setReviewBusy(true);
+    setError("");
+    try {
+      await apiClient.post(`/api/admin/disbursements/owner-payouts/${reviewPayout.id}/withdrawal-handoff/resolve`, {
+        action, note: reviewNote.trim(),
+      });
+      setReviewMessage(action === "RETRY" ? "Withdrawal returned to the handoff queue." : "Withdrawal is available again; the owner can request a new code.");
+      setReviewPayout(null);
+      setReviewNote("");
+      await load();
+    } catch (cause: any) {
+      setError(cause?.response?.data?.require2fa
+        ? "Finance verification is required. Complete it in the verification panel, then try again."
+        : cause?.response?.data?.error || "Could not resolve the withdrawal handoff.");
+    } finally {
+      setReviewBusy(false);
     }
   };
 
@@ -230,6 +264,23 @@ export default function AdminOwnerPayoutsPage() {
 
       {error && <p className="m-0 rounded-xl border border-solid border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800" role="alert">{error}</p>}
       {unlockMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800" role="status">{unlockMessage}</p>}
+      {reviewMessage && <p className="m-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800" role="status">{reviewMessage}</p>}
+      {reviewPayout && (
+        <section className="rounded-2xl border border-solid border-amber-300 bg-amber-50 p-4" aria-label="Resolve withdrawal handoff">
+          <h2 className="m-0 text-base font-bold text-amber-950">Review withdrawal for {reviewPayout.ownerName ?? `owner #${reviewPayout.ownerId}`}</h2>
+          <p className="mt-1 text-sm text-amber-900">Check the recovery deductions, invoice and any AzamPay disbursement before taking action. Retry rechecks existing work. Return for a new code is allowed only if no money or claim step exists.</p>
+          <p className="mt-2 text-xs text-amber-950">Release #{reviewPayout.id} · Payout account #{reviewPayout.handoffPayoutAccountId ?? "unknown"} · Planned deduction {reviewPayout.handoffPlannedDeduction === null ? "unknown" : tzs(reviewPayout.handoffPlannedDeduction)} · Attempts {reviewPayout.handoffAttempts ?? "unknown"}</p>
+          {reviewPayout.handoffError && <p className="mt-1 text-xs text-amber-900">Worker finding: {reviewPayout.handoffError}</p>}
+          <label className="mt-3 block text-sm text-amber-950">Finance review note
+            <textarea value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} minLength={20} maxLength={1000} rows={3} className="mt-1 block w-full rounded-lg border border-solid border-amber-300 bg-white p-2" placeholder="Record what you checked and why this action is safe." />
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => void resolveHandoff("RETRY")} disabled={reviewBusy || reviewNote.trim().length < 20 || !reviewPayout.handoffStatus} className="rounded-lg border-0 bg-[#02665e] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Retry handoff</button>
+            <button type="button" onClick={() => void resolveHandoff("RESET")} disabled={reviewBusy || reviewNote.trim().length < 20} className="rounded-lg border border-solid border-amber-500 bg-white px-4 py-2 text-sm font-semibold text-amber-950 disabled:opacity-50">Return for new code</button>
+            <button type="button" onClick={() => setReviewPayout(null)} disabled={reviewBusy} className="rounded-lg border border-solid border-amber-300 bg-white px-4 py-2 text-sm">Cancel</button>
+          </div>
+        </section>
+      )}
       {unlockOwner && (
         <section className="rounded-2xl border border-solid border-amber-300 bg-amber-50 p-4" aria-label="Unlock owner withdrawal verification">
           <h2 className="m-0 text-base font-bold text-amber-950">Unlock withdrawal OTP for {unlockOwner.name}</h2>
@@ -341,7 +392,12 @@ export default function AdminOwnerPayoutsPage() {
                       <td className="px-4 py-3">
                         <LaneBadge lane={p.lane} />
                       </td>
-                      <td className={`px-4 py-3 text-[13px] leading-5 ${p.stage === "ON_HOLD" ? "text-amber-800" : "text-neutral-600"}`}>{detail(p)}</td>
+                      <td className={`px-4 py-3 text-[13px] leading-5 ${p.stage === "ON_HOLD" ? "text-amber-800" : "text-neutral-600"}`}>
+                        {detail(p)}
+                        {p.status === "WITHDRAWING" && (p.handoffStatus === "REVIEW_REQUIRED" || !p.handoffStatus) && (
+                          <button type="button" onClick={() => { setReviewPayout(p); setReviewNote(""); setReviewMessage(""); }} className="mt-1 block border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] underline">Reconcile withdrawal</button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

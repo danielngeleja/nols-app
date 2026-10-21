@@ -294,6 +294,12 @@ manifest from the repository-pinned EB lock, stages the root Prisma schema and
 migrations plus all controlled contract artifacts, validates the bundle, and
 cleans its temporary files.
 
+The validator also builds the EB CLI's local ZIP with the committed `.ebignore`
+rules. It must report no `node_modules` or environment files and the expected
+migration count. A partial local `node_modules` makes Elastic Beanstalk skip
+dependency installation and can break Prisma generation on a fresh instance.
+Do not deploy if this archive check fails.
+
 ```powershell
 Set-Location $ApiDir
 powershell -NoProfile -ExecutionPolicy Bypass `

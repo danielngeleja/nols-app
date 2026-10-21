@@ -82,6 +82,10 @@ export async function notifyAdmins(template: string, data: any) {
         title: "Owner Payout Invoice Submitted",
         body: `${data.ownerName ? `${data.ownerName} ` : "A property owner "}submitted invoice ${data.invoiceNumber || `#${data.invoiceId}`} for a payout claim${data.propertyTitle ? ` for "${data.propertyTitle}"` : data.bookingId ? ` on booking #${data.bookingId}` : ""}. Review it in the admin revenue dashboard.`
       },
+      owner_payout_withdrawal_review: {
+        title: "Owner withdrawal needs finance review",
+        body: `Withdrawal release #${data.releaseId} for owner #${data.ownerId}, invoice #${data.invoiceId} could not finish safely. ${data.reason || "Check its recovery deductions and disbursement before taking action."} Do not submit another payout until reconciled.`
+      },
 
       // Transport (driver allocation) escalations
       transport_auto_dispatch_no_drivers_2m: {
@@ -126,7 +130,7 @@ export async function notifyAdmins(template: string, data: any) {
         },
         security_account_locked: {
           title: "Account locked after failed sign-ins",
-          body: `${data.identifier || "An account"} was locked for ${data.lockoutMinutes || 0} min after ${data.attempts || 0} failed sign-in attempts${data.ip ? ` (last from ${data.ip})` : ""}. If this was not the owner, consider resetting the password.`
+          body: `${data.identifier || "An account"} was locked for ${data.lockoutMinutes || 0} min after ${data.attempts || 0} failed sign-in attempts${data.ip ? ` (last from ${data.ip})` : ""}${data.userAgent ? `; reported client: ${data.userAgent}` : ""}${data.requestId ? `; request ID: ${data.requestId}` : ""}. If this was not the owner, consider resetting the password.`
         },
         security_ip_burst: {
           title: "Many failed sign-ins from one address",
@@ -278,6 +282,14 @@ export async function notifyOwner(ownerId: number, template: string, data: any) 
       owner_payout_unclaimed_reminder: {
         title: "Your payout will be sent automatically",
         body: `${data.amountText || "Your payout"} is ready to withdraw. If you do not withdraw it, NoLSAF will send it to ${data.destination || "your verified payout account"} automatically on ${data.sendOnText || "the scheduled date"}. You can withdraw it sooner from My Payouts.`
+      },
+      owner_payout_withdrawal_review: {
+        title: "Withdrawal request under review",
+        body: `Your withdrawal request #${data.releaseId} needs a check by our payments team. Please do not submit it again. We will update its status after review.`
+      },
+      owner_payout_withdrawal_reset: {
+        title: "Withdrawal is ready to confirm again",
+        body: `Our payments team checked withdrawal request #${data.releaseId} and returned it to Ready. Request a new code in My Payouts if you still want to withdraw.`
       },
       property_submitted: {
         title: "Property Submitted for Review",

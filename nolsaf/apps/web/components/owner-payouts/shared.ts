@@ -15,6 +15,7 @@ export type PayoutStage =
   | "WAITING"
   | "ON_HOLD"
   | "READY"
+  | "PROCESSING"
   | "SENDING"
   | "UNDER_REVIEW"
   | "PAID"
@@ -45,7 +46,8 @@ export const STAGES: Record<PayoutStage, { label: string; chip: string; dot: str
   WAITING: { label: "Waiting", chip: "bg-slate-100 text-slate-700", dot: "bg-slate-400", active: true },
   ON_HOLD: { label: "On hold", chip: "bg-amber-50 text-amber-800", dot: "bg-amber-500", active: true },
   READY: { label: "Ready", chip: "bg-emerald-50 text-emerald-800", dot: "bg-emerald-500", active: true },
-  SENDING: { label: "Sending", chip: "bg-sky-50 text-sky-800", dot: "bg-sky-500", active: true },
+  PROCESSING: { label: "Processing request", chip: "bg-sky-50 text-sky-800", dot: "bg-sky-500", active: true },
+  SENDING: { label: "Queued for payout", chip: "bg-sky-50 text-sky-800", dot: "bg-sky-500", active: true },
   UNDER_REVIEW: { label: "Under review", chip: "bg-sky-50 text-sky-800", dot: "bg-sky-500", active: true },
   PAID: { label: "Paid", chip: "bg-emerald-50 text-emerald-800", dot: "bg-emerald-600", active: false },
   SETTLED: { label: "Settled against a refund", chip: "bg-slate-100 text-slate-700", dot: "bg-slate-500", active: false },

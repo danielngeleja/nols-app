@@ -37,7 +37,6 @@ type PayoutAccountRow = {
 };
 
 const PAYOUT_KEYS = ["payoutPreferred", "bankName", "bankAccountName", "bankAccountNumber", "bankBranch", "mobileMoneyProvider", "mobileMoneyNumber"] as const;
-const NEW_ACCOUNT_WAIT_MS = 72 * 60 * 60 * 1000;
 
 const PROVIDER_NAMES: Record<string, string> = {
   azampesa: "AzamPesa", airtel: "Airtel Money", tigo: "Mixx by Yas", yas: "Mixx by Yas",
@@ -57,12 +56,13 @@ export default function OwnerPayoutAccountManager() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [preview, setPreview] = useState<Verification | null>(null);
+  const [securityWaitingHours, setSecurityWaitingHours] = useState(72);
 
   const load = useCallback(async () => {
     try {
       const [me, rows] = await Promise.all([
         apiClient.get("/api/account/me"),
-        apiClient.get<{ accounts: PayoutAccountRow[] }>("/api/owner/payouts/accounts").catch(() => ({ data: { accounts: [] } })),
+        apiClient.get<{ accounts: PayoutAccountRow[]; securityWaitingHours?: number }>("/api/owner/payouts/accounts").catch(() => ({ data: { accounts: [] } })),
       ]);
       const user = (me as any)?.data?.data ?? (me as any)?.data ?? {};
       const payout = user?.payout && typeof user.payout === "object" ? user.payout : {};
@@ -71,6 +71,8 @@ export default function OwnerPayoutAccountManager() {
       setSaved(values);
       setForm(values);
       setAccounts((rows as any)?.data?.accounts ?? []);
+      const waitingHours = Number((rows as any)?.data?.securityWaitingHours);
+      if (Number.isFinite(waitingHours) && waitingHours >= 24 && waitingHours <= 336) setSecurityWaitingHours(waitingHours);
     } catch {
       setError("Your payout account could not be loaded. Refresh to try again.");
     } finally {
@@ -92,7 +94,7 @@ export default function OwnerPayoutAccountManager() {
     return usable.find((a) => a.isDefault) ?? usable[0];
   }, [accounts]);
   const changedAt = active ? new Date(active.destinationChangedAt ?? active.createdAt) : null;
-  const usableFrom = changedAt ? new Date(changedAt.getTime() + NEW_ACCOUNT_WAIT_MS) : null;
+  const usableFrom = changedAt ? new Date(changedAt.getTime() + securityWaitingHours * 60 * 60 * 1000) : null;
   const inWaitingPeriod = Boolean(usableFrom && usableFrom.getTime() > Date.now());
   const savedIsBank = clean(saved.payoutPreferred).toUpperCase() === "BANK";
 
@@ -140,7 +142,7 @@ export default function OwnerPayoutAccountManager() {
     try {
       await apiClient.put("/api/account/payouts", { challengeToken: preview.challengeToken });
       setPreview(null);
-      setSuccess("Payout account verified and saved. For your protection, payouts to a new account wait 72 hours.");
+      setSuccess("Payout account verified and saved. A security wait applies before it can be used for eligible payouts. Saving it did not approve or send a payout.");
       await load();
     } catch (err: any) {
       const data = err?.response?.data;
@@ -201,11 +203,11 @@ export default function OwnerPayoutAccountManager() {
               <p className="m-0 text-slate-600">Holder: {active.accountName}</p>
               {inWaitingPeriod ? (
                 <p className="m-0 flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-                  <Clock className="h-3.5 w-3.5" aria-hidden /> New account: payouts start {formatEat(usableFrom)}
+                  <Clock className="h-3.5 w-3.5" aria-hidden /> Eligible for approved payouts after {formatEat(usableFrom)}
                 </p>
               ) : (
                 <p className="m-0 flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Verified and receiving payouts
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Verified for eligible payouts
                 </p>
               )}
             </div>
@@ -218,7 +220,7 @@ export default function OwnerPayoutAccountManager() {
           <h2 className="m-0 text-sm font-bold text-slate-900">How your account is protected</h2>
           <ul className="m-0 mt-3 list-none space-y-3 p-0 text-[13px] leading-5 text-slate-600">
             <li className="flex gap-2.5"><UserCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />The provider confirms the account holder name before it is saved, and again before every payout.</li>
-            <li className="flex gap-2.5"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />Payouts to a new or changed account wait 72 hours.</li>
+            <li className="flex gap-2.5"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />A new or changed account has a {securityWaitingHours}-hour security wait before eligible payouts.</li>
             <li className="flex gap-2.5"><KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />Every withdrawal is confirmed with a one-time code sent to you.</li>
             <li className="flex gap-2.5"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#02665e]" aria-hidden />Withdrawals pause for 72 hours after your phone or email changes.</li>
           </ul>
@@ -273,7 +275,7 @@ export default function OwnerPayoutAccountManager() {
                   </div>
                 </dl>
                 <p className="m-0 text-xs text-slate-500">
-                  Payouts to this account start 72 hours after you save it. This confirmation expires at {formatEat(preview.expiresAt)}.
+                  A {securityWaitingHours}-hour security wait applies after saving. Each payout still needs to qualify and be approved. This confirmation expires at {formatEat(preview.expiresAt)}.
                 </p>
               </div>
               <div className="flex flex-col-reverse gap-2 border-0 border-t border-solid border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">

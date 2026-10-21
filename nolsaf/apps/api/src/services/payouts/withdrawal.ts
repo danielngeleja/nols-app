@@ -31,7 +31,9 @@ import {
 } from "./release.js";
 import { loadPayoutSafeguards } from "./riskScoring.js";
 import { decideOwnerPayoutLane, loadAutoLaneSettings, startAutoPayout, type PayoutLane } from "./autoLane.js";
-import { applyRecoveriesToClaim, openRecoveryTotal } from "./recovery.js";
+import { ensureRecoveryDeduction, openRecoveryTotal } from "./recovery.js";
+import { approveDisbursementAutomatically } from "./ledger.js";
+import { disbursementSendingEnabled } from "./senderSwitch.js";
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
@@ -43,6 +45,7 @@ export class WithdrawalError extends Error {
   constructor(
     readonly code:
       | "FEATURE_OFF"
+      | "SENDING_PAUSED"
       | "NOTHING_AVAILABLE"
       | "NO_PAYOUT_ACCOUNT"
       | "NO_VERIFIED_CONTACT"
@@ -127,6 +130,16 @@ export function maskDestination(provider: string, accountNumber: string): string
   return `${provider} ***${digits.slice(-3)}`;
 }
 
+/** Locks a queued withdrawal to the account details the owner confirmed. */
+export function withdrawalAccountFingerprint(account: {
+  id: number; provider: string; accountNumber: string; destinationChangedAt: Date | null;
+}): string {
+  return createHash("sha256").update([
+    account.id, account.provider, account.accountNumber,
+    account.destinationChangedAt?.toISOString() ?? "-",
+  ].join("|")).digest("hex");
+}
+
 /**
  * sha256 over the sorted release ids, the total, the currency and the live
  * destination. destinationChangedAt is part of it so re-saving the same
@@ -136,7 +149,7 @@ export function withdrawalFingerprint(input: {
   releaseIds: number[];
   total: number;
   currency: string;
-  account: { id: number; accountNumber: string; destinationChangedAt: Date | null };
+  account: { id: number; provider: string; accountNumber: string; destinationChangedAt: Date | null };
   /** Open recovery debt when the code was issued: a new debt changes what is sent, so it breaks the code. */
   openDebt?: number;
 }): string {
@@ -145,9 +158,7 @@ export function withdrawalFingerprint(input: {
     ids,
     input.total.toFixed(2),
     input.currency,
-    input.account.id,
-    input.account.accountNumber,
-    input.account.destinationChangedAt ? input.account.destinationChangedAt.toISOString() : "-",
+    withdrawalAccountFingerprint(input.account),
     (input.openDebt ?? 0).toFixed(2),
   ].join("|");
   return createHash("sha256").update(line).digest("hex");
@@ -253,6 +264,7 @@ async function deliverCode(
 /** Step 1: the owner tapped Withdraw. Sends the code for every withdrawable payout. */
 export async function startWithdrawal(ownerId: number, now = new Date()) {
   if (!payoutReleaseEnabled()) throw new WithdrawalError("FEATURE_OFF", "Withdrawals are not available yet.", 404);
+  if (!disbursementSendingEnabled()) throw new WithdrawalError("SENDING_PAUSED", "Withdrawals are temporarily paused. No payout has been sent.", 503);
 
   const owner = await loadOwnerContact(ownerId);
   if (!owner) throw new WithdrawalError("NOT_FOUND", "Account not found.", 404);
@@ -348,6 +360,7 @@ function codeMatches(code: string, codeHash: string): boolean {
 /** Step 2: the owner entered the code. Submits every bound claim to the payout queue. */
 export async function confirmWithdrawal(ownerId: number, challengeRef: string, code: string, now = new Date()) {
   if (!payoutReleaseEnabled()) throw new WithdrawalError("FEATURE_OFF", "Withdrawals are not available yet.", 404);
+  if (!disbursementSendingEnabled()) throw new WithdrawalError("SENDING_PAUSED", "Withdrawals are temporarily paused. No payout has been sent.", 503);
   await assertWithdrawalOtpUnlocked(ownerId);
 
   const challenge = await prisma.payoutWithdrawalChallenge.findUnique({ where: { reference: String(challengeRef) } });
@@ -380,8 +393,20 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
     throw new WithdrawalError("CHANGED", "Something changed since the code was sent. Check your payouts and start again.");
   }
 
-  // Spend the code and claim the releases in one transaction, so two
-  // concurrent confirms cannot both succeed.
+  const planned = new Map<number, number>();
+  let debtRemaining = Math.min(openDebt, total);
+  for (const release of bound) {
+    const deduction = Math.round(Math.min(debtRemaining, release.amount) * 100) / 100;
+    planned.set(release.id, deduction);
+    debtRemaining = Math.round((debtRemaining - deduction) * 100) / 100;
+  }
+  const expectedSend = Math.round((total - Math.min(openDebt, total)) * 100) / 100;
+  if (Math.abs(Number(challenge.totalAmount) - expectedSend) > 0.01) {
+    throw new WithdrawalError("CHANGED", "The withdrawal amount changed. Check your payouts and start again.");
+  }
+
+  // Spend the code, claim the releases and persist every handoff in one
+  // transaction. The worker resumes these jobs after a crash or timeout.
   await prisma.$transaction(async (tx) => {
     const stillUnlocked = await tx.payoutWithdrawalOtpGuard.updateMany({
       where: { ownerId, lockedAt: null, failedAttempts: { lt: MAX_ATTEMPTS } },
@@ -400,33 +425,35 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
     if (claimed.count !== releaseIds.length) {
       throw new WithdrawalError("CHANGED", "Something changed since the code was sent. Check your payouts and start again.");
     }
+    for (const release of bound) {
+      await tx.payoutWithdrawalJob.create({ data: {
+        releaseId: release.id,
+        ownerId,
+        invoiceId: release.sourceId,
+        bookingId: release.bookingId,
+        challengeId: challenge.id,
+        payoutAccountId: account!.id,
+        accountFingerprint: withdrawalAccountFingerprint(account!),
+        grossAmount: new Prisma.Decimal(release.amount),
+        plannedDeduction: new Prisma.Decimal(planned.get(release.id) ?? 0),
+        status: "PENDING",
+        nextAttemptAt: now,
+      } });
+    }
     await tx.payoutWithdrawalChallenge.updateMany({
       where: { userId: ownerId, id: { not: challenge.id }, usedAt: null, expiresAt: { gt: now } },
       data: { expiresAt: now },
     });
   });
 
-  const owner = await loadOwnerContact(ownerId);
-  let autoCount = 0;
-  let manualCount = 0;
-  let sent = 0;
-  let recovered = 0;
-  for (const release of bound) {
-    const result = await submitRelease({ release, ownerId, account: account!, owner, now, audit: { via: "OTP", challengeId: challenge.id } });
-    if (result.lane === "AUTO") autoCount++;
-    if (result.lane === "MANUAL") manualCount++;
-    sent += result.payable;
-    recovered += result.deducted;
-  }
-
   return {
     count: bound.length,
-    total: Math.round(sent * 100) / 100,
-    recoveryDeduction: Math.round(recovered * 100) / 100,
+    total: expectedSend,
+    recoveryDeduction: Math.round(Math.min(openDebt, total) * 100) / 100,
     currency: challenge.currency,
     destination: challenge.destinationMasked,
-    autoCount,
-    manualCount,
+    queuedCount: bound.length,
+    status: "PROCESSING" as const,
   };
 }
 
@@ -436,26 +463,55 @@ export async function confirmWithdrawal(ownerId: number, challengeRef: string, c
  * could not start): the claim is submitted to admins exactly as the owner's
  * old "send invoice" did.
  */
+class WithdrawalReviewRequired extends Error {}
+
 async function submitRelease(input: {
   release: { id: number; sourceId: number; bookingId: number; amount: number };
   ownerId: number;
   account: Awaited<ReturnType<typeof verifiedPayoutAccounts>>[number];
   owner: Awaited<ReturnType<typeof loadOwnerContact>>;
   now: Date;
+  plannedDeduction: number;
   audit: { via: "OTP" | "UNCLAIMED"; challengeId?: number };
 }): Promise<{ lane: PayoutLane | "OFFSET"; payable: number; deducted: number }> {
   const { release, ownerId, account, owner, now } = input;
 
-  // Policy 6.3.3: earlier refund or chargeback debts are taken first.
-  const deducted = await applyRecoveriesToClaim(ownerId, release.sourceId, release.amount, now);
+  // Existing applications are a durable checkpoint. Resume an incomplete
+  // deduction without charging the same debt twice.
+  const deducted = await ensureRecoveryDeduction(ownerId, release.sourceId, input.plannedDeduction, now);
+  if (Math.abs(deducted - input.plannedDeduction) > 0.01) {
+    throw new WithdrawalReviewRequired("The confirmed recovery deduction could not be applied in full");
+  }
   const payable = Math.round((release.amount - deducted) * 100) / 100;
 
+  const existing = await prisma.disbursement.findFirst({
+    where: { sourceType: "OWNER_INVOICE", sourceId: release.sourceId, status: { not: "FAILED" } },
+    orderBy: { id: "desc" },
+    select: { id: true, status: true, releaseLane: true, payoutAccountId: true, amount: true, remarks: true },
+  });
+  if (existing && (existing.payoutAccountId !== account.id || Math.abs(Number(existing.amount) - payable) > 0.01)) {
+    throw new WithdrawalReviewRequired("An existing disbursement has different destination or amount");
+  }
+  if (!existing) {
+    const failed = await prisma.disbursement.findFirst({
+      where: { sourceType: "OWNER_INVOICE", sourceId: release.sourceId, status: "FAILED" }, select: { id: true },
+    });
+    if (failed) throw new WithdrawalReviewRequired("A failed disbursement needs reconciliation before any new attempt");
+  }
+
   if (payable <= 0.005) {
+    if (existing) throw new WithdrawalReviewRequired("An existing disbursement conflicts with a fully recovered claim");
     // The whole claim settled the debt: nothing to send, nothing for admins.
-    await prisma.invoice.updateMany({
+    const settled = await prisma.invoice.updateMany({
       where: { id: release.sourceId, ownerId, status: { in: ["DRAFT", "REQUESTED", "VERIFIED", "APPROVED"] } },
       data: { status: "PAID", paidAt: now, notes: "Settled in full against a recovery from an earlier refund or chargeback (policy 6.3.3)." },
     });
+    if (settled.count !== 1) {
+      const current = await prisma.invoice.findUnique({ where: { id: release.sourceId }, select: { status: true, notes: true } });
+      if (current?.status !== "PAID" || !current.notes?.startsWith("Settled in full against a recovery")) {
+        throw new WithdrawalReviewRequired("The invoice cannot be settled against the recovery automatically");
+      }
+    }
     await prisma.payoutRelease.updateMany({
       where: { id: release.id, status: "WITHDRAWING" },
       data: { status: "RELEASED", lane: "OFFSET", releasedAt: now, holdReason: "Used to recover an earlier refund" },
@@ -476,7 +532,12 @@ async function submitRelease(input: {
     return { lane: "OFFSET", payable: 0, deducted };
   }
 
-  const decision = await decideOwnerPayoutLane({ ownerId, invoiceId: release.sourceId, amount: payable, account, now });
+  const invoice = await prisma.invoice.findUnique({ where: { id: release.sourceId }, select: { status: true } });
+  if (!invoice) throw new WithdrawalReviewRequired("The payout invoice is missing");
+  if (invoice.status === "PAID" && !existing) throw new WithdrawalReviewRequired("The invoice is paid without a matching disbursement");
+  const decision = !existing && invoice.status !== "REQUESTED"
+    ? await decideOwnerPayoutLane({ ownerId, invoiceId: release.sourceId, amount: payable, account, now })
+    : { lane: (existing ? "AUTO" : "MANUAL") as PayoutLane, reason: null };
   let lane: PayoutLane = decision.lane;
   let note = decision.reason;
   // While any debt is still open, a person looks at this owner's payouts.
@@ -485,10 +546,25 @@ async function submitRelease(input: {
     note = "A recovery from an earlier refund is still open";
   }
   let disbursementId: number | null = null;
-  if (lane === "AUTO") {
+  if (existing) {
+    if (existing.status === "REQUESTED" && existing.remarks === "Owner withdrawal (automatic)") {
+      const freshDecision = await decideOwnerPayoutLane({ ownerId, invoiceId: release.sourceId, amount: payable, account, now });
+      if (freshDecision.lane !== "AUTO") throw new WithdrawalReviewRequired("Automatic approval needs a fresh finance review");
+      await approveDisbursementAutomatically(existing.id);
+    } else if (existing.releaseLane !== "AUTO") {
+      throw new WithdrawalReviewRequired("An existing disbursement needs finance review before handoff can finish");
+    }
+    lane = "AUTO";
+    disbursementId = existing.id;
+  } else if (lane === "AUTO") {
     const started = await startAutoPayout({ ownerId, invoiceId: release.sourceId, payoutAccountId: account.id, now });
     if (started.ok) disbursementId = started.disbursementId;
     else {
+      const partial = await prisma.disbursement.findFirst({
+        where: { sourceType: "OWNER_INVOICE", sourceId: release.sourceId, status: { not: "FAILED" } },
+        select: { id: true },
+      });
+      if (partial) throw new Error(`Automatic disbursement ${partial.id} requires reconciliation`);
       lane = "MANUAL";
       note = `Automatic payout could not start: ${started.reason}`;
     }
@@ -500,13 +576,17 @@ async function submitRelease(input: {
       where: { id: release.sourceId, ownerId, status: "DRAFT" },
       data: { status: "REQUESTED" },
     });
-    submittedToAdmins = submitted.count === 1 || note?.startsWith("Automatic payout could not start") === true;
+    if (submitted.count !== 1 && invoice.status !== "REQUESTED") {
+      throw new WithdrawalReviewRequired(`Manual claim is ${invoice.status}, expected DRAFT or REQUESTED`);
+    }
+    submittedToAdmins = submitted.count === 1;
   }
 
-  await prisma.payoutRelease.updateMany({
+  const moved = await prisma.payoutRelease.updateMany({
     where: { id: release.id, status: "WITHDRAWING" },
     data: { status: "RELEASED", lane, releasedAt: now, holdReason: lane === "MANUAL" ? note : null, disbursementId },
   });
+  if (moved.count !== 1) throw new Error(`Payout release ${release.id} changed during handoff`);
   await prisma.auditLog
     .create({
       data: {
@@ -549,6 +629,205 @@ async function submitRelease(input: {
   return { lane, payable, deducted };
 }
 
+const HANDOFF_LEASE_MS = 10 * 60 * 1000;
+const HANDOFF_RETRY_MS = 60 * 1000;
+const HANDOFF_MAX_ATTEMPTS = 5;
+
+async function notifyWithdrawalReview(releaseId: number, ownerId: number, invoiceId: number, reason: string) {
+  const kind = "owner_payout_withdrawal_review";
+  let alreadySent = false;
+  try {
+    alreadySent = !!(await prisma.notification.findFirst({
+      where: {
+        userId: null, ownerId: null,
+        AND: [
+          { meta: { path: "$.releaseId", equals: releaseId } as any },
+          { meta: { path: "$.notificationKind", equals: kind } as any },
+        ],
+      } as any,
+      select: { id: true },
+    }));
+  } catch {
+    // Prefer a duplicate alert to a withdrawal silently awaiting review.
+  }
+  if (alreadySent) return;
+  await notifyAdmins(kind, { releaseId, ownerId, invoiceId, reason });
+  await notifyOwner(ownerId, "owner_payout_withdrawal_review", { releaseId }).catch(() => {});
+}
+
+/** Resume durable owner handoffs. The worker never submits money to AzamPay. */
+export async function processWithdrawalJobs(now = new Date(), limit = 20): Promise<{ done: number; retried: number; review: number }> {
+  const result = { done: 0, retried: 0, review: 0 };
+  if (!payoutReleaseEnabled() || !disbursementSendingEnabled()) return result;
+  const jobs = await prisma.payoutWithdrawalJob.findMany({
+    where: { OR: [
+      { status: "PENDING", nextAttemptAt: { lte: now } },
+      { status: "PROCESSING", leaseUntil: { lte: now } },
+    ] },
+    orderBy: { id: "asc" },
+    take: limit,
+  });
+  for (const job of jobs) {
+    // Deductions were planned in release order. Do not let a later payout
+    // overtake an earlier one that still owns the recovery debt.
+    const earlier = await prisma.payoutWithdrawalJob.findFirst({
+      where: { ownerId: job.ownerId, id: { lt: job.id }, status: { notIn: ["DONE", "CANCELLED"] } },
+      select: { id: true, status: true },
+    });
+    if (earlier) {
+      if (earlier.status === "REVIEW_REQUIRED") {
+        const reason = `Earlier withdrawal job ${earlier.id} needs finance review`;
+        const held = await prisma.payoutWithdrawalJob.updateMany({
+          where: { id: job.id, status: { in: ["PENDING", "PROCESSING"] } },
+          data: { status: "REVIEW_REQUIRED", leaseUntil: null, lastError: reason },
+        });
+        if (held.count === 1) result.review++;
+      }
+      continue;
+    }
+    const claimed = await prisma.payoutWithdrawalJob.updateMany({
+      where: { id: job.id, OR: [
+        { status: "PENDING", nextAttemptAt: { lte: now } },
+        { status: "PROCESSING", leaseUntil: { lte: now } },
+      ] },
+      data: { status: "PROCESSING", leaseUntil: new Date(now.getTime() + HANDOFF_LEASE_MS), attempts: { increment: 1 } },
+    });
+    if (claimed.count !== 1) continue;
+    try {
+      const release = await prisma.payoutRelease.findUnique({ where: { id: job.releaseId }, select: {
+        id: true, ownerId: true, sourceId: true, bookingId: true, status: true,
+      } });
+      if (!release || release.ownerId !== job.ownerId || release.sourceId !== job.invoiceId) {
+        throw new WithdrawalReviewRequired("Withdrawal release does not match its durable job");
+      }
+      if (release.status === "RELEASED") {
+        await prisma.payoutWithdrawalJob.update({ where: { id: job.id }, data: { status: "DONE", leaseUntil: null, lastError: null } });
+        result.done++;
+        continue;
+      }
+      if (release.status !== "WITHDRAWING") throw new WithdrawalReviewRequired(`Withdrawal release is ${release.status}`);
+      const account = (await verifiedPayoutAccounts(job.ownerId)).find((a) => a.id === job.payoutAccountId);
+      if (!account || withdrawalAccountFingerprint(account) !== job.accountFingerprint) {
+        throw new WithdrawalReviewRequired("The confirmed payout account changed or is no longer verified");
+      }
+      const invoice = await prisma.invoice.findUnique({ where: { id: job.invoiceId }, select: { netPayable: true } });
+      if (!invoice || Math.abs(Number(invoice.netPayable) - Number(job.grossAmount)) > 0.01) {
+        throw new WithdrawalReviewRequired("The claim amount changed after withdrawal confirmation");
+      }
+      await submitRelease({
+        release: { id: job.releaseId, sourceId: job.invoiceId, bookingId: job.bookingId, amount: Number(job.grossAmount) },
+        ownerId: job.ownerId,
+        account,
+        owner: await loadOwnerContact(job.ownerId),
+        now,
+        plannedDeduction: Number(job.plannedDeduction),
+        audit: { via: job.challengeId === null ? "UNCLAIMED" : "OTP", challengeId: job.challengeId ?? undefined },
+      });
+      await prisma.payoutWithdrawalJob.update({ where: { id: job.id }, data: { status: "DONE", leaseUntil: null, lastError: null } });
+      result.done++;
+    } catch (error: any) {
+      const reason = String(error?.message || error).slice(0, 500);
+      const review = error instanceof WithdrawalReviewRequired || job.attempts + 1 >= HANDOFF_MAX_ATTEMPTS;
+      await prisma.payoutWithdrawalJob.update({ where: { id: job.id }, data: {
+        status: review ? "REVIEW_REQUIRED" : "PENDING",
+        leaseUntil: null,
+        nextAttemptAt: new Date(now.getTime() + HANDOFF_RETRY_MS),
+        lastError: reason,
+      } });
+      if (review) {
+        result.review++;
+        await notifyWithdrawalReview(job.releaseId, job.ownerId, job.invoiceId, reason).catch((alertError) => {
+          console.error("[withdrawal] review alert failed", { releaseId: job.releaseId, error: String(alertError) });
+        });
+      } else {
+        result.retried++;
+        console.warn("[withdrawal] handoff will retry", { releaseId: job.releaseId, attempt: job.attempts + 1, reason });
+      }
+    }
+  }
+  let afterReviewId = 0;
+  for (;;) {
+    const needingReview = await prisma.payoutWithdrawalJob.findMany({
+      where: { status: "REVIEW_REQUIRED", id: { gt: afterReviewId } },
+      select: { id: true, releaseId: true, ownerId: true, invoiceId: true, lastError: true },
+      orderBy: { id: "asc" }, take: 100,
+    });
+    for (const job of needingReview) {
+      await notifyWithdrawalReview(job.releaseId, job.ownerId, job.invoiceId, job.lastError ?? "Withdrawal needs finance review");
+    }
+    if (needingReview.length < 100) break;
+    afterReviewId = needingReview[needingReview.length - 1].id;
+  }
+  // Pre-migration withdrawals have no account snapshot, so they cannot be
+  // replayed safely. Surface them to finance instead of silently stranding them.
+  let afterLegacyId = 0;
+  for (;;) {
+    const legacy = await prisma.payoutRelease.findMany({
+      where: { status: "WITHDRAWING", id: { gt: afterLegacyId }, updatedAt: { lte: new Date(now.getTime() - HANDOFF_LEASE_MS) }, withdrawalJobs: { none: { status: { in: ["PENDING", "PROCESSING", "REVIEW_REQUIRED"] } } } },
+      select: { id: true, ownerId: true, sourceId: true }, orderBy: { id: "asc" }, take: 100,
+    });
+    for (const release of legacy) {
+      await notifyWithdrawalReview(release.id, release.ownerId, release.sourceId, "Legacy withdrawal has no durable handoff record");
+    }
+    if (legacy.length < 100) break;
+    afterLegacyId = legacy[legacy.length - 1].id;
+  }
+  return result;
+}
+
+/** Finance may requeue a reviewed job, or reset it only when no money step ran. */
+export async function resolveWithdrawalHandoff(input: {
+  releaseId: number; action: "RETRY" | "RESET"; adminId: number; note: string; now?: Date;
+}): Promise<"RETRY" | "RESET"> {
+  const now = input.now ?? new Date();
+  const resolved = await prisma.$transaction(async (tx) => {
+    const release = await tx.payoutRelease.findUnique({ where: { id: input.releaseId }, select: {
+      id: true, ownerId: true, sourceId: true, status: true,
+    } });
+    const job = await tx.payoutWithdrawalJob.findFirst({
+      where: { releaseId: input.releaseId }, orderBy: { id: "desc" },
+    });
+    if (!release || release.status !== "WITHDRAWING" ||
+      (job && (job.status !== "REVIEW_REQUIRED" || job.ownerId !== release.ownerId || job.invoiceId !== release.sourceId))) {
+      throw new WithdrawalError("CHANGED", "This withdrawal is no longer awaiting finance review.", 409);
+    }
+    if (input.action === "RETRY" && !job) {
+      throw new WithdrawalError("CHANGED", "This older withdrawal has no saved account snapshot. Reset it only if no money step exists.", 409);
+    }
+    if (input.action === "RESET") {
+      const [application, disbursement, invoice] = await Promise.all([
+        tx.ownerPayoutRecoveryApplication.findFirst({ where: { invoiceId: release.sourceId }, select: { id: true } }),
+        tx.disbursement.findFirst({ where: { sourceType: "OWNER_INVOICE", sourceId: release.sourceId }, select: { id: true } }),
+        tx.invoice.findUnique({ where: { id: release.sourceId }, select: { status: true } }),
+      ]);
+      if (application || disbursement || invoice?.status !== "DRAFT") {
+        throw new WithdrawalError("CHANGED", "A money or claim step already exists. Reconcile it before resetting this withdrawal.", 409);
+      }
+      const returned = await tx.payoutRelease.updateMany({
+        where: { id: release.id, status: "WITHDRAWING" },
+        data: { status: "AVAILABLE", ...(job?.challengeId === null ? { availableAt: now } : {}) },
+      });
+      if (returned.count !== 1) throw new WithdrawalError("CHANGED", "The withdrawal changed during review.", 409);
+      if (job) await tx.payoutWithdrawalJob.update({ where: { id: job.id }, data: { status: "CANCELLED", leaseUntil: null, lastError: input.note } });
+    } else {
+      await tx.payoutWithdrawalJob.update({ where: { id: job!.id }, data: {
+        status: "PENDING", attempts: 0, nextAttemptAt: now, leaseUntil: null, lastError: null,
+      } });
+    }
+    await tx.auditLog.create({ data: {
+      actorId: input.adminId, actorRole: "ADMIN", action: `OWNER_WITHDRAWAL_HANDOFF_${input.action}`,
+      entity: "PayoutRelease", entityId: release.id,
+      afterJson: { jobId: job?.id ?? null, ownerId: release.ownerId, invoiceId: release.sourceId, note: input.note },
+      ...retentionFields("FINANCIAL", now),
+    } });
+    return { ownerId: release.ownerId };
+  });
+  if (input.action === "RESET") {
+    await notifyOwner(resolved.ownerId, "owner_payout_withdrawal_reset", { releaseId: input.releaseId }).catch(() => {});
+  }
+  return input.action;
+}
+
 /** Owner policy 5.2.2: the owner is told before an unclaimed payout is sent. At least this long before. */
 export const UNCLAIMED_REMINDER_LEAD_MS = 48 * HOUR_MS;
 const REMINDER_ACTION = "OWNER_PAYOUT_UNCLAIMED_REMINDER";
@@ -567,16 +846,24 @@ function formatEat(date: Date): string {
 /** Release ids that already have a reminder sent at or before `sentBy`. */
 async function remindedReleaseIds(releaseIds: number[], sentBy?: Date): Promise<Set<number>> {
   if (releaseIds.length === 0) return new Set();
-  const rows = await prisma.auditLog.findMany({
+  const [rows, resets] = await Promise.all([
+    prisma.auditLog.findMany({
     where: {
       action: REMINDER_ACTION,
       entity: "PayoutRelease",
       entityId: { in: releaseIds },
       ...(sentBy ? { createdAt: { lte: sentBy } } : {}),
     },
-    select: { entityId: true },
-  });
-  return new Set(rows.map((r) => Number(r.entityId)));
+    select: { entityId: true, createdAt: true },
+  }),
+    prisma.auditLog.findMany({
+      where: { action: "OWNER_WITHDRAWAL_HANDOFF_RESET", entity: "PayoutRelease", entityId: { in: releaseIds } },
+      select: { entityId: true, createdAt: true },
+    }),
+  ]);
+  const resetAt = new Map<number, number>();
+  for (const row of resets) resetAt.set(Number(row.entityId), Math.max(resetAt.get(Number(row.entityId)) ?? 0, row.createdAt.getTime()));
+  return new Set(rows.filter((row) => !resetAt.has(Number(row.entityId)) || row.createdAt?.getTime() >= resetAt.get(Number(row.entityId))!).map((row) => Number(row.entityId)));
 }
 
 export function unclaimedReminderText(input: { total: number; destination: string; sendOn: Date }): string {
@@ -595,6 +882,7 @@ export function unclaimedReminderText(input: { total: number; destination: strin
  * Returns the number of owners reminded.
  */
 export async function remindUnclaimed(now = new Date(), limit = 50): Promise<number> {
+  if (!disbursementSendingEnabled()) return 0;
   const settings = await loadAutoLaneSettings();
   if (!payoutReleaseEnabled() || settings.unclaimedAutoDays === null) return 0;
   const dueBy = new Date(now.getTime() - settings.unclaimedAutoDays * 24 * HOUR_MS + UNCLAIMED_REMINDER_LEAD_MS);
@@ -659,6 +947,7 @@ export async function remindUnclaimed(now = new Date(), limit = 50): Promise<num
  * Returns the number of releases submitted.
  */
 export async function withdrawUnclaimed(now = new Date(), limit = 50): Promise<number> {
+  if (!disbursementSendingEnabled()) return 0;
   const settings = await loadAutoLaneSettings();
   if (!payoutReleaseEnabled() || settings.unclaimedAutoDays === null) return 0;
   const cutoff = new Date(now.getTime() - settings.unclaimedAutoDays * 24 * HOUR_MS);
@@ -687,14 +976,32 @@ export async function withdrawUnclaimed(now = new Date(), limit = 50): Promise<n
     );
     const staleIds = new Set(staleRows.map((r) => r.id).filter((id) => remindedInTime.has(id)));
     if (staleIds.size === 0) continue;
-    const owner = await loadOwnerContact(ownerId);
+    let debtRemaining = await openRecoveryTotal(ownerId);
     for (const release of ready.filter((r) => staleIds.has(r.id))) {
-      const claimed = await prisma.payoutRelease.updateMany({
-        where: { id: release.id, ownerId, status: "AVAILABLE" },
-        data: { status: "WITHDRAWING" },
+      const plannedDeduction = Math.round(Math.min(debtRemaining, release.amount) * 100) / 100;
+      const claimed = await prisma.$transaction(async (tx) => {
+        const moved = await tx.payoutRelease.updateMany({
+          where: { id: release.id, ownerId, status: "AVAILABLE" },
+          data: { status: "WITHDRAWING" },
+        });
+        if (moved.count !== 1) return false;
+        await tx.payoutWithdrawalJob.create({ data: {
+          releaseId: release.id,
+          ownerId,
+          invoiceId: release.sourceId,
+          bookingId: release.bookingId,
+          challengeId: null,
+          payoutAccountId: account.id,
+          accountFingerprint: withdrawalAccountFingerprint(account),
+          grossAmount: new Prisma.Decimal(release.amount),
+          plannedDeduction: new Prisma.Decimal(plannedDeduction),
+          status: "PENDING",
+          nextAttemptAt: now,
+        } });
+        return true;
       });
-      if (claimed.count !== 1) continue;
-      await submitRelease({ release, ownerId, account, owner, now, audit: { via: "UNCLAIMED" } });
+      if (!claimed) continue;
+      debtRemaining = Math.round((debtRemaining - plannedDeduction) * 100) / 100;
       submitted++;
     }
   }

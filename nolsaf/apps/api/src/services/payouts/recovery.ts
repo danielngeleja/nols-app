@@ -248,6 +248,68 @@ export async function applyRecoveriesToClaim(ownerId: number, invoiceId: number,
   return deducted;
 }
 
+/**
+ * Reach a withdrawal's confirmed deduction target after a crash. Existing
+ * applications are counted first; an additional slice of the same recovery
+ * updates that application's row rather than creating a duplicate. Each
+ * recovery balance and application update commits in the same transaction.
+ */
+export async function ensureRecoveryDeduction(ownerId: number, invoiceId: number, target: number, now = new Date()): Promise<number> {
+  const goal = round2(target);
+  let applied = await recoveredFromClaim(invoiceId);
+  if (applied > goal + CENT) throw new Error("Recovery applications exceed the confirmed withdrawal deduction");
+  if (applied >= goal - CENT) return applied;
+  const existing = await prisma.ownerPayoutRecoveryApplication.findMany({
+    where: { invoiceId }, select: { id: true, recoveryId: true, amount: true },
+  });
+  const byRecovery = new Map<number, { id: number; amount: Prisma.Decimal }>(existing.map((row) => [row.recoveryId, row]));
+  const open = await prisma.ownerPayoutRecovery.findMany({
+    where: { ownerId, status: "OPEN" }, orderBy: { createdAt: "asc" },
+    select: { id: true, amount: true, recoveredAmount: true },
+  });
+  for (const debt of open) {
+    if (applied >= goal - CENT) break;
+    const outstanding = round2(Number(debt.amount) - Number(debt.recoveredAmount));
+    if (outstanding <= CENT) continue;
+    const take = round2(Math.min(outstanding, goal - applied));
+    const prior = byRecovery.get(debt.id);
+    const moved = await prisma.$transaction(async (tx) => {
+      const balance = await tx.ownerPayoutRecovery.updateMany({
+        where: { id: debt.id, status: "OPEN", recoveredAmount: debt.recoveredAmount },
+        data: {
+          recoveredAmount: { increment: new Prisma.Decimal(take) },
+          ...(take >= outstanding - CENT ? { status: "RECOVERED", closedAt: now } : {}),
+        },
+      });
+      if (balance.count !== 1) return false;
+      if (prior) {
+        const application = await tx.ownerPayoutRecoveryApplication.updateMany({
+          where: { id: prior.id, amount: prior.amount },
+          data: { amount: { increment: new Prisma.Decimal(take) } },
+        });
+        if (application.count !== 1) throw new Error("Recovery application changed during withdrawal");
+      } else {
+        await tx.ownerPayoutRecoveryApplication.create({
+          data: { recoveryId: debt.id, invoiceId, amount: new Prisma.Decimal(take) },
+        });
+      }
+      await tx.auditLog.create({ data: {
+        actorId: null,
+        actorRole: "SYSTEM",
+        action: "OWNER_PAYOUT_RECOVERY_DEDUCTED",
+        entity: "Invoice",
+        entityId: invoiceId,
+        afterJson: { ownerId, recoveryId: debt.id, deducted: take, confirmedTarget: goal },
+        ...retentionFields("FINANCIAL", now),
+      } });
+      return true;
+    });
+    if (!moved) continue;
+    applied = round2(applied + take);
+  }
+  return applied;
+}
+
 /** 7 business days passed with debt left: ask the owner to repay (policy 6.3.3) and tell admins. Once per debt. */
 export async function requestOverdueRepayments(now = new Date()): Promise<number> {
   const overdue = await prisma.ownerPayoutRecovery.findMany({

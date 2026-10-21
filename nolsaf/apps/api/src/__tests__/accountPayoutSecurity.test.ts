@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   lookup: vi.fn(),
   audit: vi.fn(),
   txAccountFindUnique: vi.fn(),
+  txAccountFindFirst: vi.fn(),
   txAccountCreate: vi.fn(),
   txAccountUpdate: vi.fn(),
   txAccountUpdateMany: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   txSalesProfileUpdateMany: vi.fn(),
   sendSms: vi.fn(),
   sendMail: vi.fn(),
+  systemSettingFindUnique: vi.fn(),
 }));
 
 vi.mock("@nolsaf/prisma", () => ({
@@ -28,6 +30,7 @@ vi.mock("@nolsaf/prisma", () => ({
     userDocument: { findMany: mocks.userDocumentFindMany },
     session: { updateMany: mocks.sessionUpdateMany },
     payoutAccount: { findUnique: mocks.accountFindUnique },
+    systemSetting: { findUnique: mocks.systemSettingFindUnique },
     $transaction: mocks.transaction,
   },
 }));
@@ -39,6 +42,7 @@ vi.mock("../middleware/auth.js", () => ({
     next();
   },
   blockImpersonated: (_req: any, _res: any, next: any) => next(),
+  requireRole: () => (_req: any, _res: any, next: any) => next(),
 }));
 
 vi.mock("../lib/redisRateLimitStore.js", () => ({
@@ -69,11 +73,13 @@ vi.mock("../lib/crypto.js", () => ({
 }));
 
 import { router as accountRouter } from "../routes/account";
+import { router as ownerPayoutsRouter } from "../routes/owner.payouts";
 import { AzamPayDisburseConfigurationError, AzamPayDisburseError } from "../services/azampay/disbursement/errors";
 
 const tx = {
   payoutAccount: {
     findUnique: mocks.txAccountFindUnique,
+    findFirst: mocks.txAccountFindFirst,
     create: mocks.txAccountCreate,
     update: mocks.txAccountUpdate,
     updateMany: mocks.txAccountUpdateMany,
@@ -90,6 +96,13 @@ function app(requestId?: string) {
   return instance;
 }
 
+function ownerApp() {
+  const instance = express();
+  instance.use(express.json());
+  instance.use("/owner/payouts", ownerPayoutsRouter);
+  return instance;
+}
+
 describe("secure payout destination update", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -102,9 +115,22 @@ describe("secure payout destination update", () => {
     mocks.sendMail.mockResolvedValue({ success: true });
     mocks.accountFindUnique.mockResolvedValue(null);
     mocks.txAccountFindUnique.mockResolvedValue(null);
+    mocks.txAccountFindFirst.mockResolvedValue(null);
+    mocks.systemSettingFindUnique.mockResolvedValue({ payoutReviewThresholdTzs: null, payoutDailyCapPerPayeeTzs: null, payoutRecentChangeHours: 72 });
     mocks.txAccountUpdateMany.mockResolvedValue({ count: 2 });
     mocks.txUserUpdate.mockResolvedValue({ id: 44 });
     mocks.transaction.mockImplementation(async (callback: any) => callback(tx));
+  });
+
+  it("refuses the legacy owner account write path before it can bypass confirmation", async () => {
+    const response = await request(ownerApp()).post("/owner/payouts/accounts").send({
+      type: "MOBILE_MONEY", provider: "azampesa", accountNumber: "255700000001",
+    });
+
+    expect(response.status).toBe(410);
+    expect(response.body.code).toBe("PAYOUT_VERIFICATION_REQUIRED");
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
   it("soft-deletes an account without relying on Prisma delegate metadata", async () => {
@@ -170,6 +196,7 @@ describe("secure payout destination update", () => {
 
   it("persists only the verified active method and deactivates older destinations", async () => {
     const now = new Date();
+    mocks.userFindUnique.mockResolvedValue({ payout: null, email: "owner@example.com", phone: "255700000009" });
     mocks.lookup.mockResolvedValue({
       name: "ASHA MTUMWA",
       status: true,
@@ -230,6 +257,13 @@ describe("secure payout destination update", () => {
       data: { isDefault: false, isActive: false },
     });
     expect(response.body.data.payoutAccount.accountNumber).toBe("********0001");
+    expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account added");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("AzamPesa ending in 0001");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("72-hour security waiting period");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("did not approve or send a payout");
+    expect(mocks.sendMail.mock.calls[0][2]).not.toContain("255700000001");
+    expect(mocks.sendSms.mock.calls[0][1]).toContain("payout account added");
+    expect(mocks.sendSms.mock.calls[0][1]).not.toContain("255700000001");
     // A sales partner's withdrawal profile follows the same verified destination.
     expect(mocks.txSalesProfileUpdateMany).toHaveBeenCalledWith({
       where: { userId: 44 },
@@ -241,6 +275,57 @@ describe("secure payout destination update", () => {
     });
     expect(replay.status).toBe(410);
     expect(replay.body.code).toBe("PAYOUT_VERIFICATION_EXPIRED");
+  });
+
+  it("alerts a replacement as changed and uses the configured waiting period", async () => {
+    const now = new Date();
+    mocks.userFindUnique.mockResolvedValue({ payout: { mobileMoneyNumber: "encrypted:255700000002" }, email: "owner@example.com", phone: "255700000009" });
+    mocks.txAccountFindFirst.mockResolvedValue({ provider: "airtel", accountNumber: "255700000002" });
+    mocks.systemSettingFindUnique.mockResolvedValue({ payoutReviewThresholdTzs: null, payoutDailyCapPerPayeeTzs: null, payoutRecentChangeHours: 96 });
+    mocks.lookup.mockResolvedValue({ name: "ASHA MTUMWA", status: true, statusCode: 200, accountNumber: "255700000001", bankName: "azampesa" });
+    mocks.txAccountCreate.mockResolvedValue({ id: 10, userId: 44, type: "MOBILE_MONEY", provider: "azampesa", accountNumber: "255700000001", accountName: "ASHA MTUMWA", isVerified: true, verifiedAt: now, lastVerifiedAt: now, destinationChangedAt: now });
+
+    const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: "azampesa", mobileMoneyNumber: "255700000001" });
+    const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
+
+    expect(response.status).toBe(200);
+    expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account changed");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("96-hour security waiting period");
+    expect(mocks.sendMail.mock.calls[0][2]).not.toContain("255700000001");
+    expect(mocks.sendSms.mock.calls[0][1]).toContain("payout account changed");
+  });
+
+  it("alerts a repeated confirmation as reverified rather than changed", async () => {
+    const now = new Date();
+    mocks.userFindUnique.mockResolvedValue({ payout: { mobileMoneyNumber: "encrypted:255700000001" }, email: "owner@example.com", phone: null });
+    mocks.txAccountFindFirst.mockResolvedValue({ provider: "azampesa", accountNumber: "255700000001" });
+    mocks.txAccountFindUnique.mockResolvedValue({ id: 9, verifiedAt: now });
+    mocks.txAccountUpdate.mockResolvedValue({ id: 9, userId: 44, type: "MOBILE_MONEY", provider: "azampesa", accountNumber: "255700000001", accountName: "ASHA MTUMWA", isVerified: true, verifiedAt: now, lastVerifiedAt: now, destinationChangedAt: now });
+    mocks.lookup.mockResolvedValue({ name: "ASHA MTUMWA", status: true, statusCode: 200, accountNumber: "255700000001", bankName: "azampesa" });
+
+    const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "MOBILE_MONEY", mobileMoneyProvider: "azampesa", mobileMoneyNumber: "255700000001" });
+    const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
+
+    expect(response.status).toBe(200);
+    expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account reverified");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("72-hour security waiting period");
+  });
+
+  it("does not promise automatic payout when a bank account is first saved", async () => {
+    const now = new Date();
+    mocks.userFindUnique.mockResolvedValue({ payout: null, email: "owner@example.com", phone: "255700000009" });
+    mocks.lookup.mockResolvedValue({ name: "ASHA MTUMWA", status: true, statusCode: 200, accountNumber: "12345678901234", bankName: "CRDB" });
+    mocks.txAccountCreate.mockResolvedValue({ id: 11, userId: 44, type: "BANK", provider: "CRDB", accountNumber: "12345678901234", accountName: "ASHA MTUMWA", isVerified: true, verifiedAt: now, lastVerifiedAt: now, destinationChangedAt: now });
+
+    const lookup = await request(app()).post("/account/payouts/verify").send({ payoutPreferred: "BANK", bankName: "CRDB", bankAccountName: "ASHA MTUMWA", bankAccountNumber: "12345678901234", bankBranch: "MLIMANI CITY" });
+    const response = await request(app()).put("/account/payouts").send({ challengeToken: lookup.body.data.challengeToken });
+
+    expect(response.status).toBe(200);
+    expect(mocks.sendMail.mock.calls[0][1]).toBe("Security alert: payout account added");
+    expect(mocks.sendMail.mock.calls[0][2]).toContain("Automated bank payouts are not enabled");
+    expect(mocks.sendMail.mock.calls[0][2]).not.toContain("hour security waiting period");
+    expect(mocks.sendSms.mock.calls[0][1]).toContain("Automated bank payouts unavailable");
+    expect(mocks.sendSms.mock.calls[0][1]).not.toContain("12345678901234");
   });
 
   it("normalizes a legacy mobile provider alias before Name Lookup", async () => {

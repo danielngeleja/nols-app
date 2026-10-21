@@ -246,6 +246,22 @@ The worker accepts a batch in `AUTHORIZED` (first pass) or `PROCESSING` (resumin
 
 `POST /:id/submit` is a **retry only**: the item must be `AUTHORIZED` and have no `pgReferenceId`. It previously accepted `APPROVED`, which made this entire architecture optional — one admin could approve and immediately submit, skipping bulk re-verification, risk scoring, the batch fingerprint and the second authorizer. `submitToAzamPay` now accepts `AUTHORIZED` and nothing else, so there is no path to AzamPay that does not pass through a batch someone else released.
 
+`DISBURSEMENTS_ENABLED=false` blocks new AzamPay submissions in both the batch
+worker and the shared `submitToAzamPay` function. This includes finance-admin
+retries of already-authorized items. The guard runs before claiming the item or
+calling AzamPay. Owner self-withdraw cannot issue or confirm a code while
+sending is paused, and the automatic unclaimed-payout lane pauses its reminders
+and queueing. Overdue recovery requests and reconciliation remain available.
+The owner confirmation describes a request entering processing, not confirmed
+delivery.
+
+Owner OTP confirmation and unclaimed auto claims persist `PayoutWithdrawalJob`
+rows before returning. The payout-release worker resumes these database handoffs
+after a crash and checks prior deductions and disbursements before progressing.
+Ambiguous jobs require finance review; the handoff worker never calls AzamPay.
+Deploy migration `20261021090000_add_payout_withdrawal_jobs` before the API
+version that writes these jobs.
+
 **5. Security Review.**
 A queue of everything excluded above, with its reason and risk flags. Clearing an item returns it to `APPROVED`, unbatched, so the next `formBatch` call can pick it up again — a manual confirmation that the flagged condition no longer applies, not an override of the checks themselves. Clearing requires finance re-auth, a written note of at least 10 characters (recorded on the audit log and as a `DisbursementEvent`), and an admin **other than** the one who approved that payout. Without that last rule, risk scoring was advisory only: the same compromised session that pushed a payout through approval could clear its own `CRITICAL` flag and send it on.
 
@@ -256,6 +272,19 @@ A queue of everything excluded above, with its reason and risk flags. Clearing a
 ## Name Lookup: verify the beneficiary before payout
 
 Use AzamPay to resolve the account holder name, then lock the verified payout destination.
+
+The owner saves a destination through `POST /api/account/payouts/verify` followed by
+`PUT /api/account/payouts` with the short-lived confirmation token. The legacy
+`POST /api/owner/payouts/accounts` write route returns `410`; it cannot save an
+unconfirmed destination. After a successful save, the API attempts security
+alerts to the owner's existing email and phone. The message distinguishes a
+first account (`added`), a replacement (`changed`), and a repeat confirmation
+(`reverified`), shows only the last four account digits and the save time in
+EAT, and states that saving did not approve or send a payout. Mobile-money
+alerts use the configured payout-account waiting period; bank alerts say that
+automatic bank payouts are unavailable. The account list returns that waiting
+period for the owner screen. Alert delivery is best effort and does not roll
+back a successful account save.
 
 ```
 POST /api/v1/azampay/namelookup

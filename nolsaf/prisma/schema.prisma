@@ -9097,6 +9097,7 @@ model PayoutRelease {
 
   /// Restrict: a booking carrying a payout decision must not disappear.
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  withdrawalJobs PayoutWithdrawalJob[]
 
   @@unique([sourceType, sourceId])
   @@index([status, releaseAt])
@@ -9133,6 +9134,36 @@ model PayoutWithdrawalChallenge {
   @@index([userId, createdAt])
   @@index([expiresAt])
   @@map("payout_withdrawal_challenge")
+}
+
+/// Durable handoff created when an OTP is consumed (or an unclaimed payout is
+/// claimed). The worker may resume it after a crash without spending another
+/// code or creating a second payout. REVIEW_REQUIRED needs finance attention.
+model PayoutWithdrawalJob {
+  id Int @id @default(autoincrement())
+  releaseId Int
+  ownerId Int
+  invoiceId Int
+  bookingId Int
+  challengeId Int?
+  payoutAccountId Int
+  accountFingerprint String @db.VarChar(64)
+  grossAmount Decimal @db.Decimal(14, 2)
+  plannedDeduction Decimal @db.Decimal(14, 2)
+  status String @default("PENDING") @db.VarChar(20)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  leaseUntil DateTime?
+  lastError String? @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  release PayoutRelease @relation(fields: [releaseId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAttemptAt])
+  @@index([releaseId, id])
+  @@index([ownerId, status])
+  @@map("payout_withdrawal_job")
 }
 
 /// Three consecutive wrong owner withdrawal codes block further verification

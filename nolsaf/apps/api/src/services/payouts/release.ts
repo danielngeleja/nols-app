@@ -261,6 +261,7 @@ export function onBookingCheckedIn(bookingId: number): void {
  *   WAITING       unlock time passed, waiting on payment confirmation or a payout account
  *   ON_HOLD       held (cancellation, refund, guest matches owner...)
  *   READY         can be withdrawn
+ *   PROCESSING    withdrawal accepted; handoff to payout queue is in progress
  *   SENDING       withdrawn, on its way (automatic lane or in flight)
  *   UNDER_REVIEW  withdrawn, with NoLSAF's payments team (manual lane)
  *   PAID          money confirmed sent
@@ -272,6 +273,7 @@ export type OwnerPayoutStage =
   | "WAITING"
   | "ON_HOLD"
   | "READY"
+  | "PROCESSING"
   | "SENDING"
   | "UNDER_REVIEW"
   | "PAID"
@@ -283,6 +285,7 @@ export function ownerPayoutStage(input: {
   lane: string | null;
   holdReason: string | null;
   claimStatus: string | null;
+  handoffStatus?: string | null;
 }): OwnerPayoutStage {
   const claim = String(input.claimStatus ?? "").toUpperCase();
   switch (input.status) {
@@ -293,7 +296,7 @@ export function ownerPayoutStage(input: {
     case "AVAILABLE":
       return "READY";
     case "WITHDRAWING":
-      return "SENDING";
+      return input.handoffStatus === "REVIEW_REQUIRED" || !input.handoffStatus ? "UNDER_REVIEW" : "PROCESSING";
     case "CANCELLED":
       return "CANCELLED";
     case "RELEASED":

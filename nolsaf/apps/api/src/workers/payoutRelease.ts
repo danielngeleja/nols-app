@@ -23,10 +23,11 @@ import {
   loadReleaseContext,
   payoutReleaseEnabled,
 } from "../services/payouts/release.js";
-import { remindUnclaimed, withdrawUnclaimed } from "../services/payouts/withdrawal.js";
+import { processWithdrawalJobs, remindUnclaimed, withdrawUnclaimed } from "../services/payouts/withdrawal.js";
 import { loadAutoLaneSettings } from "../services/payouts/autoLane.js";
 import { requestOverdueRepayments } from "../services/payouts/recovery.js";
 import { authorizeAutoBatch, autoLaneAuthorizedToday, formAutoBatch } from "../services/payouts/batching.js";
+import { disbursementSendingEnabled } from "../services/payouts/senderSwitch.js";
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 /** Only recent check-ins are backfilled, so enabling the feature never reopens old, settled stays. */
@@ -115,6 +116,9 @@ export async function runAutoLanePass(
   } catch (err: any) {
     console.error("[payout-release] overdue recovery request failed", { message: err?.message });
   }
+  if (!disbursementSendingEnabled()) {
+    return { reminded: 0, unclaimed: 0, authorized: 0, skipped: ["disbursement sending paused"] };
+  }
   // Reminder first: the unclaimed sender only takes payouts reminded at least 48h ago.
   try {
     reminded = await remindUnclaimed(now);
@@ -175,6 +179,10 @@ export function startPayoutReleaseWorker({ intervalMs = DEFAULT_INTERVAL_MS }: {
       const result = await runPayoutReleasePass();
       if (result.created || result.moved || result.failed) {
         console.log(`[payout-release] pass: created ${result.created}, moved ${result.moved}, failed ${result.failed}`);
+      }
+      const handoff = await processWithdrawalJobs();
+      if (handoff.done || handoff.retried || handoff.review) {
+        console.log(`[payout-release] withdrawal handoff: done ${handoff.done}, retrying ${handoff.retried}, review ${handoff.review}`);
       }
       const auto = await runAutoLanePass();
       if (auto.reminded || auto.unclaimed || auto.authorized || auto.skipped.length) {

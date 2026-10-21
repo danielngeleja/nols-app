@@ -1,0 +1,29 @@
+# The EB CLI packages the current directory when .ebignore exists. Only these
+# runtime inputs may enter the source bundle; especially exclude local
+# node_modules, which makes Elastic Beanstalk skip its dependency installation.
+/*
+!/.ebextensions/
+!/.platform/
+!/_workspace/
+!/certs/
+!/dist/
+!/docs/
+!/policies/
+!/prisma/
+!/scripts/
+!/src/
+!/package.json
+!/package-lock.json
+!/Procfile
+!/tsconfig.json
+!/tsconfig.build.json
+!/eslint.config.mjs
+!/vitest.config.ts
+
+**/node_modules/
+**/.env
+**/.env.*
+**/*.log
+**/*-tmp.*
+**/response.json
+**/package.json.predeploy-bak

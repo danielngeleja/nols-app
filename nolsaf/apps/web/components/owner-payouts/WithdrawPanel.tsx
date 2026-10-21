@@ -26,28 +26,22 @@ type Challenge = {
 type ConfirmResult = {
   total: number;
   destination: string;
-  autoCount?: number;
-  manualCount?: number;
+  queuedCount: number;
   recoveryDeduction?: number;
 };
 
 const RESEND_AFTER_MS = 60_000;
-const ENDS_REQUEST = ["CHANGED", "EXPIRED", "ALREADY_USED", "TOO_MANY_ATTEMPTS", "OTP_LOCKED", "NOT_FOUND"];
+const ENDS_REQUEST = ["CHANGED", "EXPIRED", "ALREADY_USED", "TOO_MANY_ATTEMPTS", "OTP_LOCKED", "NOT_FOUND", "SENDING_PAUSED"];
 
 function apiError(err: any, fallback: string): string {
   return err?.response?.data?.error || fallback;
 }
 
 function confirmationText(res: ConfirmResult): string {
-  const auto = Number(res.autoCount ?? 0);
-  const manual = Number(res.manualCount ?? 0);
   const recovered = Number(res.recoveryDeduction ?? 0);
-  const recoveredNote = recovered > 0 ? ` ${formatTzs(recovered)} was used to settle an earlier refund.` : "";
-  if (auto === 0 && manual === 0) return `Your ready payouts settled an earlier refund in full.${recoveredNote}`;
-  const head = `${formatTzs(res.total)} to ${res.destination} confirmed.`;
-  if (manual === 0) return `${head} It is being sent now and normally arrives within minutes.${recoveredNote}`;
-  if (auto === 0) return `${head} Our payments team pays it, normally within 24 hours.${recoveredNote}`;
-  return `${head} ${auto} payout(s) are being sent now; ${manual} go to our payments team and are normally paid within 24 hours.${recoveredNote}`;
+  const recoveredNote = recovered > 0 ? ` ${formatTzs(recovered)} is planned to settle an earlier refund.` : "";
+  if (res.total <= 0) return `Your withdrawal request was received. The ready amount is being applied to an earlier refund.${recoveredNote}`;
+  return `Your withdrawal request for ${formatTzs(res.total)} to ${res.destination} was received. ${res.queuedCount} payout(s) are being prepared. Delivery is not yet confirmed.${recoveredNote}`;
 }
 
 export default function WithdrawPanel({

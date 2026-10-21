@@ -59,8 +59,8 @@ export default function PayoutsOverviewPage() {
       nextUnlock,
       heldTotal: sum(payouts, ["ON_HOLD"]),
       heldCount: payouts.filter((p) => p.stage === "ON_HOLD").length,
-      onTheWayTotal: sum(payouts, ["SENDING", "UNDER_REVIEW"]),
-      onTheWayCount: payouts.filter((p) => p.stage === "SENDING" || p.stage === "UNDER_REVIEW").length,
+      onTheWayTotal: sum(payouts, ["PROCESSING", "SENDING", "UNDER_REVIEW"]),
+      onTheWayCount: payouts.filter((p) => ["PROCESSING", "SENDING", "UNDER_REVIEW"].includes(p.stage)).length,
       paidMonthTotal: paidThisMonth.reduce((t, p) => t + (Number(p.amount) || 0), 0),
       paidMonthCount: paidThisMonth.length,
     };
@@ -134,9 +134,9 @@ export default function PayoutsOverviewPage() {
               detail: figures.nextUnlock ? `Next ${formatEat(figures.nextUnlock)}, ${timeLeft(figures.nextUnlock, now)}` : "Nothing unlocking",
             },
             {
-              label: "On its way",
+              label: "In progress",
               value: formatTzs(figures.onTheWayTotal),
-              detail: figures.onTheWayCount ? `${figures.onTheWayCount} withdrawn, being paid` : "Nothing being paid",
+              detail: figures.onTheWayCount ? `${figures.onTheWayCount} withdrawal request(s) in progress` : "No active withdrawals",
             },
             {
               label: "On hold",

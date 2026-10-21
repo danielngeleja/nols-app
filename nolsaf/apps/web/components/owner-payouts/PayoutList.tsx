@@ -14,6 +14,7 @@ function stepIndex(stage: PayoutStage): number {
       return 1;
     case "READY":
       return 2;
+    case "PROCESSING":
     case "SENDING":
     case "UNDER_REVIEW":
       return 3;
@@ -70,10 +71,12 @@ export function stageSentence(p: OwnerPayout, now: number): string {
       return `On hold: ${p.reason ?? "under review"}. No money moves while a payout is on hold.`;
     case "READY":
       return `Ready to withdraw since ${formatEat(p.availableAt ?? p.releaseAt)}.`;
+    case "PROCESSING":
+      return "Withdrawal request received. We are preparing the payout; delivery is not yet confirmed.";
     case "SENDING":
-      return "Withdrawn and on its way to your payout account.";
+      return "Withdrawal is queued for payout. Provider delivery is not yet confirmed.";
     case "UNDER_REVIEW":
-      return `Withdrawn. With our payments team, normally paid within 24 hours.${p.reason ? ` ${p.reason}.` : ""}`;
+      return `Withdrawal is with our payments team. Delivery is not yet confirmed.${p.reason ? ` ${p.reason}.` : ""}`;
     case "PAID":
       return `Paid ${formatEat(p.paidAt ?? p.releasedAt)}.`;
     case "SETTLED":

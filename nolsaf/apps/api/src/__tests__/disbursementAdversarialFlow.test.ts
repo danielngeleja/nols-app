@@ -266,11 +266,23 @@ describe("disbursement state-machine attack resistance", () => {
 describe("disbursement submission attack resistance", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv("DISBURSEMENTS_ENABLED", "true");
     vi.stubEnv("AZAMPAY_DISBURSE_SOURCE_ACCOUNT", "255700000000");
     vi.stubEnv("AZAMPAY_DISBURSE_TRANSFER_TYPE", "MOBILE_MONEY");
   });
 
   afterEach(() => vi.unstubAllEnvs());
+
+  it("blocks an authorized payout at the shared sender boundary while the off switch is set", async () => {
+    vi.stubEnv("DISBURSEMENTS_ENABLED", "false");
+    mocks.findDisbursement.mockResolvedValue(payout("AUTHORIZED"));
+
+    await expect(submitToAzamPay(77)).rejects.toThrow("DISBURSEMENTS_ENABLED=false");
+
+    expect(mocks.findDisbursement).not.toHaveBeenCalled();
+    expect(mocks.updateManyDisbursement).not.toHaveBeenCalled();
+    expect(mocks.azamPayDisburse).not.toHaveBeenCalled();
+  });
 
   it("makes concurrent submission attempts share one database claim and one provider call", async () => {
     let state = payout("AUTHORIZED");
