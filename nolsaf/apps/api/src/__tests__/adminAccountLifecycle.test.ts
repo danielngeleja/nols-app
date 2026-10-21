@@ -20,11 +20,17 @@ function inspectionDb(options: {
     id: 42, role: options.role ?? 'DRIVER', deletedAt: null, isDisabled: false, suspendedAt: options.suspended ? new Date() : null,
     kycStatus: options.kycStatus ?? null, email: 'user@example.com', phone: null,
     emailVerifiedAt: null, phoneVerifiedAt: null,
-    _count: options.counts ?? { sessions: 2, notifications: 1 },
     agentProfile: null, salesPartnerProfile: null, driverLiveLocation: null,
   };
   return {
-    user: { findUnique: vi.fn().mockResolvedValue(user), count: vi.fn().mockResolvedValue(options.referredUsers ?? 0) },
+    user: {
+      findUnique: vi.fn().mockImplementation(async (query: any) => {
+        const selected = query.select?._count?.select;
+        if (!selected) return user;
+        return { _count: Object.fromEntries(Object.keys(selected).map((name) => [name, options.counts?.[name] ?? (name === 'sessions' ? 2 : name === 'notifications' ? 1 : 0)])) };
+      }),
+      count: vi.fn().mockResolvedValue(options.referredUsers ?? 0),
+    },
     payoutRelease: { count: vi.fn().mockResolvedValue(options.payoutReleases ?? 0) },
     payoutWithdrawalJob: { count: vi.fn().mockResolvedValue(0) },
     payoutWithdrawalChallenge: { count: vi.fn().mockResolvedValue(0) },
@@ -62,9 +68,13 @@ function transactionDb(options: Parameters<typeof inspectionDb>[0] = {}) {
 
 describe('admin account lifecycle eligibility', () => {
   it('allows correcting an unused driver while retaining sessions and notifications', async () => {
-    const preview = await inspectAccountLifecycle(inspectionDb() as any, 42);
+    const db = inspectionDb();
+    const preview = await inspectAccountLifecycle(db as any, 42);
     expect(preview?.blockers).toEqual([]);
     expect(preview?.actions).toEqual({ CORRECT_TO_TRAVELLER: true, RETIRE_UNUSED: true });
+    const countCalls = db.user.findUnique.mock.calls.filter(([query]) => query.select?._count?.select);
+    expect(countCalls.length).toBeGreaterThan(1);
+    expect(countCalls.every(([query]) => Object.keys(query.select._count.select).length <= 16)).toBe(true);
   });
 
   it('blocks business records even when there is no payout balance', async () => {

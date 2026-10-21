@@ -13,6 +13,31 @@ const NON_BLOCKING_RELATIONS = new Set([
   'notifications', 'ownerNotifications', 'auditLogs', 'savedProperties',
 ]);
 
+// Prisma's `_count: true` joins every User list relation in one statement.
+// This schema has far more than MySQL's 61-table join limit, so inspect a
+// bounded group at a time. Runtime model metadata keeps new list relations
+// covered; singular relations are checked explicitly below.
+const SINGULAR_USER_RELATIONS = new Set(['agentProfile', 'salesPartnerProfile', 'driverLiveLocation']);
+const USER_COUNT_RELATIONS = Prisma.dmmf.datamodel.models
+  .find((model) => model.name === 'User')?.fields
+  .filter((field) => field.kind === 'object' && !SINGULAR_USER_RELATIONS.has(field.name))
+  .map((field) => field.name) ?? [];
+const RELATION_COUNT_BATCH_SIZE = 16;
+
+async function countUserRelations(db: Db | typeof prisma, userId: number): Promise<Record<string, number>> {
+  if (USER_COUNT_RELATIONS.length === 0) throw new Error('User relation metadata is unavailable');
+  const batches: string[][] = [];
+  for (let i = 0; i < USER_COUNT_RELATIONS.length; i += RELATION_COUNT_BATCH_SIZE) {
+    batches.push(USER_COUNT_RELATIONS.slice(i, i + RELATION_COUNT_BATCH_SIZE));
+  }
+  const rows = await Promise.all(batches.map((names) => db.user.findUnique({
+    where: { id: userId },
+    select: { _count: { select: Object.fromEntries(names.map((name) => [name, true])) } },
+  } as any))) as Array<{ _count?: Record<string, number> } | null>;
+  if (rows.some((row) => !row?._count)) throw new Error('User relation counts are unavailable');
+  return Object.assign({}, ...rows.map((row) => row!._count!));
+}
+
 export class LifecycleBlocked extends Error {
   constructor(public blockers: string[]) {
     super('Account has records requiring manual review');
@@ -25,13 +50,14 @@ export async function inspectAccountLifecycle(db: Db | typeof prisma, userId: nu
     select: {
       id: true, role: true, deletedAt: true, isDisabled: true, suspendedAt: true, kycStatus: true,
       email: true, phone: true, emailVerifiedAt: true, phoneVerifiedAt: true,
-      _count: true,
       agentProfile: { select: { id: true } },
       salesPartnerProfile: { select: { id: true } },
       driverLiveLocation: { select: { driverId: true } },
     },
   });
   if (!user) return null;
+
+  const relationCounts = await countUserRelations(db, userId);
 
   const blockers: string[] = [];
   if (!['OWNER', 'DRIVER', 'CUSTOMER'].includes(user.role)) blockers.push(`Role ${user.role} requires manual review`);
@@ -41,7 +67,7 @@ export async function inspectAccountLifecycle(db: Db | typeof prisma, userId: nu
   if (user.agentProfile) blockers.push('Agent profile exists');
   if (user.salesPartnerProfile) blockers.push('Sales partner profile exists');
 
-  for (const [relation, count] of Object.entries(user._count as Record<string, number>)) {
+  for (const [relation, count] of Object.entries(relationCounts)) {
     if (count > 0 && !NON_BLOCKING_RELATIONS.has(relation) && relation !== 'payoutAccounts') {
       blockers.push(`${relation}: ${count}`);
     }
