@@ -3,7 +3,7 @@ import { prisma } from '@nolsaf/prisma';
 import { requireAuth, requireRole, blockImpersonated } from '../middleware/auth.js';
 import { hasFinanceGrant, hasNrmsFinanceRole } from '../middleware/financeGrant.js';
 import { requireAdminFinanceGrant } from '../middleware/financeGrant.js';
-import { applyAccountLifecycle, inspectAccountLifecycle, LifecycleBlocked, type LifecycleAction } from '../lib/adminAccountLifecycle.js';
+import { applyAccountLifecycle, createLifecycleCaseReference, inspectAccountLifecycle, isLifecycleCaseReference, LifecycleBlocked, type LifecycleAction, type LifecycleVerificationMethod } from '../lib/adminAccountLifecycle.js';
 import { retentionFields } from '../lib/auditRetention.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { audit } from '../lib/audit.js';
@@ -2366,7 +2366,11 @@ router.get('/:id/lifecycle', asyncHandler(async (req, res) => {
   const inspection = await inspectAccountLifecycle(prisma, id);
   if (!inspection) return res.status(404).json({ error: 'User not found' });
   return res.json({
-    data: { role: inspection.user.role, blockers: inspection.blockers, actions: inspection.actions },
+    data: {
+      role: inspection.user.role, blockers: inspection.blockers, actions: inspection.actions,
+      caseReference: createLifecycleCaseReference(id),
+      verifiedChannels: { email: Boolean(inspection.user.emailVerifiedAt), phone: Boolean(inspection.user.phoneVerifiedAt) },
+    },
   });
 }));
 
@@ -2376,13 +2380,15 @@ router.post('/:id/lifecycle', requireAdminFinanceGrant as RequestHandler, asyncH
   const action = String(req.body?.action || '') as LifecycleAction;
   const caseReference = String(req.body?.caseReference || '').trim();
   const reason = String(req.body?.reason || '').trim();
+  const verificationMethod = String(req.body?.verificationMethod || '') as LifecycleVerificationMethod;
   if (!['CORRECT_TO_TRAVELLER', 'RETIRE_UNUSED'].includes(action)) return res.status(400).json({ error: 'Invalid lifecycle action' });
-  if (!/^[A-Za-z0-9][A-Za-z0-9/_-]{3,79}$/.test(caseReference)) return res.status(400).json({ error: 'A support case reference (4–80 letters, digits, /, _ or -) is required' });
-  if (reason.length < 20 || reason.length > 1000) return res.status(400).json({ error: 'Reason must be 20–1000 characters' });
+  if (!isLifecycleCaseReference(caseReference, id)) return res.status(400).json({ error: 'Reopen the account to get a valid case reference' });
+  if (!['VERIFIED_EMAIL', 'VERIFIED_PHONE', 'SUPPORT_IDENTITY_CHECK'].includes(verificationMethod)) return res.status(400).json({ error: 'Select how the account holder was verified' });
+  if (reason.length < 30 || reason.length > 1000) return res.status(400).json({ error: 'Case notes must be 30–1000 characters' });
   if (req.body?.confirm !== action) return res.status(400).json({ error: 'Confirm the exact action before submitting' });
 
   try {
-    const result = await applyAccountLifecycle({ userId: id, adminId: Number((req.user as any).id), action, caseReference, reason });
+    const result = await applyAccountLifecycle({ userId: id, adminId: Number((req.user as any).id), action, caseReference, reason, verificationMethod });
     if (!result) return res.status(404).json({ error: 'User not found' });
     const message = result.retired
       ? 'Your NoLSAF account has been retired following a support request. Contact support if this was unexpected.'

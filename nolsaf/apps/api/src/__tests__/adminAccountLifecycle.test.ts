@@ -4,7 +4,7 @@ const prismaMock = vi.hoisted(() => ({ $transaction: vi.fn() }));
 vi.mock('@nolsaf/prisma', () => ({ prisma: prismaMock }));
 vi.mock('../lib/authSessionCache.js', () => ({ invalidateAuthSessionCacheForUser: vi.fn().mockResolvedValue(undefined) }));
 
-import { applyAccountLifecycle, inspectAccountLifecycle, LifecycleBlocked } from '../lib/adminAccountLifecycle.js';
+import { applyAccountLifecycle, createLifecycleCaseReference, inspectAccountLifecycle, isLifecycleCaseReference, LifecycleBlocked } from '../lib/adminAccountLifecycle.js';
 
 function inspectionDb(options: {
   role?: string;
@@ -67,6 +67,15 @@ function transactionDb(options: Parameters<typeof inspectionDb>[0] = {}) {
 }
 
 describe('admin account lifecycle eligibility', () => {
+  it('generates a unique case reference bound to the selected account', () => {
+    const first = createLifecycleCaseReference(42);
+    const second = createLifecycleCaseReference(42);
+    expect(first).not.toBe(second);
+    expect(isLifecycleCaseReference(first, 42)).toBe(true);
+    expect(isLifecycleCaseReference(first, 43)).toBe(false);
+    expect(isLifecycleCaseReference('CASE-1234', 42)).toBe(false);
+  });
+
   it('allows correcting an unused driver while retaining sessions and notifications', async () => {
     const db = inspectionDb();
     const preview = await inspectAccountLifecycle(db as any, 42);
@@ -106,7 +115,7 @@ describe('admin account lifecycle eligibility', () => {
   it('performs no mutation when a payout release appears before commit', async () => {
     const db = transactionDb({ payoutReleases: 1 });
     prismaMock.$transaction.mockImplementationOnce((run: (tx: any) => Promise<unknown>) => run(db));
-    await expect(applyAccountLifecycle({ userId: 42, adminId: 7, action: 'CORRECT_TO_TRAVELLER', caseReference: 'CASE-1', reason: 'Mistaken registration verified by support' }))
+    await expect(applyAccountLifecycle({ userId: 42, adminId: 7, action: 'CORRECT_TO_TRAVELLER', caseReference: createLifecycleCaseReference(42), reason: 'Mistaken registration verified by support', verificationMethod: 'SUPPORT_IDENTITY_CHECK' }))
       .rejects.toBeInstanceOf(LifecycleBlocked);
     expect(db.user.update).not.toHaveBeenCalled();
     expect(db.payoutAccount.deleteMany).not.toHaveBeenCalled();
@@ -115,17 +124,26 @@ describe('admin account lifecycle eligibility', () => {
   it('corrects an unused owner and revokes all sessions in the transaction', async () => {
     const db = transactionDb({ role: 'OWNER' });
     prismaMock.$transaction.mockImplementationOnce((run: (tx: any) => Promise<unknown>) => run(db));
-    const result = await applyAccountLifecycle({ userId: 42, adminId: 7, action: 'CORRECT_TO_TRAVELLER', caseReference: 'CASE-2', reason: 'Owner registered by mistake; identity verified' });
+    const result = await applyAccountLifecycle({ userId: 42, adminId: 7, action: 'CORRECT_TO_TRAVELLER', caseReference: createLifecycleCaseReference(42), reason: 'Owner registered by mistake; identity verified', verificationMethod: 'SUPPORT_IDENTITY_CHECK' });
     expect(result?.role).toBe('CUSTOMER');
     expect(db.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'CUSTOMER', payout: expect.anything(), tokensValidAfter: expect.any(Date) }) }));
     expect(db.session.updateMany).toHaveBeenCalledWith({ where: { userId: 42, revokedAt: null }, data: { revokedAt: expect.any(Date) } });
     expect(db.adminAudit.create).toHaveBeenCalledOnce();
+    expect(db.adminAudit.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ details: expect.objectContaining({ verificationMethod: 'SUPPORT_IDENTITY_CHECK' }) }) }));
+  });
+
+  it('rejects an email verification claim when the account email is unverified', async () => {
+    const db = transactionDb({ role: 'OWNER' });
+    prismaMock.$transaction.mockImplementationOnce((run: (tx: any) => Promise<unknown>) => run(db));
+    await expect(applyAccountLifecycle({ userId: 42, adminId: 7, action: 'CORRECT_TO_TRAVELLER', caseReference: createLifecycleCaseReference(42), reason: 'Owner asked to correct a mistaken registration', verificationMethod: 'VERIFIED_EMAIL' }))
+      .rejects.toBeInstanceOf(LifecycleBlocked);
+    expect(db.user.update).not.toHaveBeenCalled();
   });
 
   it('retires an unused account without deleting the User or audit row', async () => {
     const db = transactionDb({ role: 'CUSTOMER' });
     prismaMock.$transaction.mockImplementationOnce((run: (tx: any) => Promise<unknown>) => run(db));
-    const result = await applyAccountLifecycle({ userId: 42, adminId: 7, action: 'RETIRE_UNUSED', caseReference: 'CASE-3', reason: 'Unused duplicate account; holder identity verified' });
+    const result = await applyAccountLifecycle({ userId: 42, adminId: 7, action: 'RETIRE_UNUSED', caseReference: createLifecycleCaseReference(42), reason: 'Unused duplicate account; holder identity verified', verificationMethod: 'SUPPORT_IDENTITY_CHECK' });
     expect(result?.retired).toBe(true);
     expect(db.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDisabled: true, deletedAt: expect.any(Date), phone: null, passwordHash: null }) }));
     expect(db.savedProperty.deleteMany).toHaveBeenCalledWith({ where: { userId: 42 } });

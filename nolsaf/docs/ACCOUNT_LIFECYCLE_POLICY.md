@@ -6,7 +6,7 @@ Support can resolve a mistaken OWNER or DRIVER registration without creating a s
 
 ## Required review
 
-1. Confirm the request came from the account holder through the approved support identity check. Record the support case reference and a reason that describes the verification and requested outcome. Do not place secrets or identity-document images in the reason.
+1. Confirm the request came from the account holder through the approved support identity check. The admin screen assigns an internal case reference automatically; it is stored with the audit entry. Select the verification method and write case notes describing the request, evidence of the check, and any existing external support ticket. Do not place secrets, OTPs or identity-document numbers or images in the notes. A selected method alone does not prove that a check occurred.
 2. Open the linked-record preview. If it reports any blocker, stop the automated action and refer the case to the owner of that business or compliance workflow. A zero balance or absence of an active trip is insufficient.
 3. Re-authenticate with the admin finance OTP grant. Select the specific action and explicitly confirm it. The server repeats every eligibility check within a serializable transaction before changing the account.
 4. Check the resulting admin audit entry and whether the verified email/SMS security notice was delivered. If delivery failed, follow up through the support case. Never repeat an action only to retry a notice.

@@ -1,10 +1,20 @@
 import { Prisma } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
 import { prisma } from '@nolsaf/prisma';
 import { invalidateAuthSessionCacheForUser } from './authSessionCache.js';
 import { retentionFields } from './auditRetention.js';
 
 export type LifecycleAction = 'CORRECT_TO_TRAVELLER' | 'RETIRE_UNUSED';
+export type LifecycleVerificationMethod = 'VERIFIED_EMAIL' | 'VERIFIED_PHONE' | 'SUPPORT_IDENTITY_CHECK';
 type Db = Prisma.TransactionClient;
+
+export function createLifecycleCaseReference(userId: number): string {
+  return `ACCT-${userId}-${randomBytes(8).toString('hex').toUpperCase()}`;
+}
+
+export function isLifecycleCaseReference(value: string, userId: number): boolean {
+  return new RegExp(`^ACCT-${userId}-[A-F0-9]{16}$`).test(value);
+}
 
 // These records do not establish a commercial or privileged relationship. They
 // remain in place for their normal retention period; sessions are revoked.
@@ -110,9 +120,13 @@ export async function inspectAccountLifecycle(db: Db | typeof prisma, userId: nu
 
 export async function applyAccountLifecycle(input: {
   userId: number; adminId: number; action: LifecycleAction; caseReference: string; reason: string;
+  verificationMethod: LifecycleVerificationMethod;
 }) {
-  const { userId, adminId, action, caseReference, reason } = input;
+  const { userId, adminId, action, caseReference, reason, verificationMethod } = input;
   if (userId === adminId) throw new LifecycleBlocked(['Administrators cannot change their own account']);
+  if (!isLifecycleCaseReference(caseReference, userId)) throw new LifecycleBlocked(['Invalid internal case reference']);
+  if (!['VERIFIED_EMAIL', 'VERIFIED_PHONE', 'SUPPORT_IDENTITY_CHECK'].includes(verificationMethod)) throw new LifecycleBlocked(['Verification method is required']);
+  if (reason.trim().length < 30 || reason.length > 1000) throw new LifecycleBlocked(['Case notes are incomplete']);
 
   const result = await prisma.$transaction(async (tx) => {
     // Lock before recomputing eligibility. InnoDB serializable isolation also
@@ -122,6 +136,12 @@ export async function applyAccountLifecycle(input: {
     if (!inspection) return null;
     if (!inspection.actions[action]) {
       throw new LifecycleBlocked(inspection.blockers.length ? inspection.blockers : ['Action is unavailable for this role']);
+    }
+    if (verificationMethod === 'VERIFIED_EMAIL' && !inspection.user.emailVerifiedAt) {
+      throw new LifecycleBlocked(['This account has no verified email address']);
+    }
+    if (verificationMethod === 'VERIFIED_PHONE' && !inspection.user.phoneVerifiedAt) {
+      throw new LifecycleBlocked(['This account has no verified phone number']);
     }
     const now = new Date();
     const previousRole = inspection.user.role;
@@ -168,7 +188,7 @@ export async function applyAccountLifecycle(input: {
     const audit = {
       adminId, targetUserId: userId,
       action: retired ? 'RETIRE_UNUSED_USER' : 'CORRECT_USER_TO_TRAVELLER',
-      details: { caseReference, reason, previousRole, nextRole: retired ? null : 'CUSTOMER' },
+      details: { caseReference, reason, verificationMethod, previousRole, nextRole: retired ? null : 'CUSTOMER' },
       ...retentionFields('SECURITY', now),
     };
     await tx.adminAudit.create({ data: audit });
