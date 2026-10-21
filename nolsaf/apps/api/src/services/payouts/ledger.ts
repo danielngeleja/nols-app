@@ -24,6 +24,7 @@ import { computeApprovalFingerprint } from "./fingerprint.js";
 import { guestCheckInAlertAccepted } from "../../lib/checkInConfirmationSms.js";
 import { customerBookingReference } from "../../lib/customerBookingReference.js";
 import { payoutReleaseEnabled } from "./release.js";
+import { disbursementSendingEnabled } from "./senderSwitch.js";
 import { azamPayDisburse } from "../azampay/disbursement/client.js";
 import { loadAzamPayDisbursementRequestConfig } from "../azampay/disbursement/config.js";
 import { AzamPayDisburseError } from "../azampay/disbursement/errors.js";
@@ -460,6 +461,13 @@ export async function approveDisbursementAutomatically(disbursementId: number): 
  * changed after approval is diverted to SECURITY_REVIEW rather than paid.
  */
 export async function submitToAzamPay(disbursementId: number): Promise<Disbursement> {
+  // The worker gate alone is insufficient: an authorized payout can also be
+  // retried through the finance-admin route. Enforce the same off switch at
+  // the shared money-out boundary before any state change or provider call.
+  if (!disbursementSendingEnabled()) {
+    throw new PayoutStateError("AzamPay disbursement sending is disabled (DISBURSEMENTS_ENABLED=false)");
+  }
+
   const disbursement = await prisma.disbursement.findUnique({
     where: { id: disbursementId },
     include: { payoutAccount: true },

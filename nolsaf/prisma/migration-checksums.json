@@ -214,6 +214,7 @@
     "20261010120000_support_impersonation_handoff": "b3009f758dd1c0149e139d032d078d3ff0e64c2757023d6dfefcb4ac69f22a9a",
     "20261011100000_add_app_distribution_settings": "99da1b4d4391580af3dbd46ef3e87c3e21eed8c7357f2415a38d701c00b2acc8",
     "20261015100000_add_support_address": "80dc59905fce174dfa334fc60671189fbb79b8d6663f5fb3e310c45c93b35391",
-    "20261018190000_add_mobile_push_delivery": "87c0e8bef75a240e3dff7b593059c1dfd2974c784165a8efae157470c3c86be5"
+    "20261018190000_add_mobile_push_delivery": "87c0e8bef75a240e3dff7b593059c1dfd2974c784165a8efae157470c3c86be5",
+    "20261021090000_add_payout_withdrawal_jobs": "b054a9fadbc2d12c406cc9f1314332d17a9bc8e0f1ee83a7f7f9497229af6dea"
   }
 }

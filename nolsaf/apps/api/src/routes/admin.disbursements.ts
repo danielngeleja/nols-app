@@ -34,6 +34,7 @@ import { PayoutIneligibleError } from "../services/payouts/eligibility.js";
 import { checkDisbursementStatus } from "../services/payouts/reconciliation.js";
 import { recordRecovery, RecoveryError, waiveRecovery } from "../services/payouts/recovery.js";
 import { ownerPayoutStage, payoutReleaseEnabled } from "../services/payouts/release.js";
+import { resolveWithdrawalHandoff, WithdrawalError } from "../services/payouts/withdrawal.js";
 import { adminBookingReference, resolveAdminBookingReference } from "../lib/adminBookingReference.js";
 import { retentionFields } from "../lib/auditRetention.js";
 import { provisionPayoutAccountFromProfile, NoPayoutProfileError } from "../services/payouts/provisioning.js";
@@ -136,7 +137,12 @@ router.get(
     const rows = await prisma.payoutRelease.findMany({
       orderBy: { updatedAt: "desc" },
       take: 500,
-      include: { booking: { select: { checkIn: true, checkOut: true, guestName: true, property: { select: { title: true } } } } },
+      include: {
+        booking: { select: { checkIn: true, checkOut: true, guestName: true, property: { select: { title: true } } } },
+        withdrawalJobs: { orderBy: { id: "desc" }, take: 1, select: {
+          status: true, attempts: true, lastError: true, payoutAccountId: true, plannedDeduction: true,
+        } },
+      },
     });
     const claimIds = rows.map((r) => r.sourceId);
     const ownerIds = [...new Set(rows.map((r) => r.ownerId))];
@@ -156,10 +162,16 @@ router.get(
 
     const all = rows.map((r) => {
       const claim = claimById.get(r.sourceId);
-      const stage = ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null });
+      const stage = ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null, handoffStatus: r.withdrawalJobs[0]?.status ?? null });
       return {
         id: r.id,
+        status: r.status,
         stage,
+        handoffStatus: r.withdrawalJobs[0]?.status ?? null,
+        handoffAttempts: r.withdrawalJobs[0]?.attempts ?? null,
+        handoffError: r.withdrawalJobs[0]?.lastError ?? null,
+        handoffPayoutAccountId: r.withdrawalJobs[0]?.payoutAccountId ?? null,
+        handoffPlannedDeduction: r.withdrawalJobs[0]?.plannedDeduction ?? null,
         ownerId: r.ownerId,
         withdrawalOtpLockedAt: otpByOwner.get(r.ownerId)?.lockedAt ?? null,
         ownerName: ownerName.get(r.ownerId) ?? null,
@@ -174,7 +186,7 @@ router.get(
         rule: r.rule,
         releaseAt: r.releaseAt,
         availableAt: r.availableAt,
-        reason: r.holdReason,
+        reason: r.status === "WITHDRAWING" && stage === "UNDER_REVIEW" ? "Withdrawal handoff needs finance reconciliation" : r.holdReason,
         lane: r.lane,
         releasedAt: r.releasedAt,
         paidAt: claim?.paidAt ?? null,
@@ -233,6 +245,33 @@ router.post(
       return;
     }
     res.json({ ok: true, ownerId, message: "Withdrawal OTP unlocked. The owner must request a new code." });
+  })
+);
+
+const resolveWithdrawalHandoffSchema = z.object({
+  action: z.enum(["RETRY", "RESET"]),
+  note: z.string().trim().min(20).max(1000),
+}).strict();
+
+/** Finance retries a reviewed handoff or returns it for a new OTP only when no money step exists. */
+router.post(
+  "/owner-payouts/:releaseId/withdrawal-handoff/resolve",
+  limitDisbursementAdminWrite,
+  requireAdminFinanceGrant as RequestHandler,
+  asyncHandler(async (req: AuthedRequest, res: Response) => {
+    const releaseId = Number(req.params.releaseId);
+    const parsed = resolveWithdrawalHandoffSchema.safeParse(req.body);
+    if (!Number.isSafeInteger(releaseId) || releaseId <= 0 || !parsed.success) {
+      res.status(400).json({ error: "A payout release, action and finance note of at least 20 characters are required." });
+      return;
+    }
+    try {
+      const action = await resolveWithdrawalHandoff({ releaseId, adminId: req.user!.id, ...parsed.data });
+      res.json({ ok: true, releaseId, action });
+    } catch (error) {
+      if (!(error instanceof WithdrawalError)) throw error;
+      res.status(error.httpStatus).json({ error: error.message, code: error.code });
+    }
   })
 );
 

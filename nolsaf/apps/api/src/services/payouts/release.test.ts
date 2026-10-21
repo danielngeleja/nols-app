@@ -163,7 +163,9 @@ describe("ownerPayoutStage", () => {
     expect(stage("LOCKED", null, "Add and verify a mobile money payout account")).toBe("WAITING");
     expect(stage("HELD", null, "open cancellation")).toBe("ON_HOLD");
     expect(stage("AVAILABLE")).toBe("READY");
-    expect(stage("WITHDRAWING")).toBe("SENDING");
+    expect(stage("WITHDRAWING")).toBe("UNDER_REVIEW"); // legacy request without a durable job
+    expect(ownerPayoutStage({ status: "WITHDRAWING", lane: null, holdReason: null, claimStatus: "DRAFT", handoffStatus: "PENDING" })).toBe("PROCESSING");
+    expect(ownerPayoutStage({ status: "WITHDRAWING", lane: null, holdReason: null, claimStatus: "DRAFT", handoffStatus: "REVIEW_REQUIRED" })).toBe("UNDER_REVIEW");
   });
 
   it("follows the claim after release", () => {

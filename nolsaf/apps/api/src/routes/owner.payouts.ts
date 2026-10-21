@@ -8,10 +8,8 @@
  * actual AzamPay submission remain a separate, deliberate step
  * (see admin.disbursements.ts), matching how Sales Partner payouts work.
  *
- * Verification (AzamPay Name Lookup) will fail with a clear configuration
- * error until AZAMPAY_DISBURSE_PUBLIC_KEY and the checksum field contract
- * are set — see services/azampay/disbursement. That is expected pre-launch
- * behaviour, not a bug in this route.
+ * Payout destinations are added through the verified two-step account route;
+ * this router only lists destinations and handles payout requests.
  */
 
 import { Router, type RequestHandler, type Response } from "express";
@@ -20,25 +18,16 @@ import { prisma } from "@nolsaf/prisma";
 import { type AuthedRequest, blockImpersonated, requireAuth, requireRole } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { limitOwnerPayoutRead } from "../middleware/rateLimit.js";
-import { azamPayNameLookup } from "../services/azampay/disbursement/client.js";
-import { AzamPayDisburseError } from "../services/azampay/disbursement/errors.js";
 import { requestDisbursement, PayoutStateError } from "../services/payouts/ledger.js";
 import { PayoutIneligibleError } from "../services/payouts/eligibility.js";
 import { ownerPayoutStage, payoutReleaseEnabled } from "../services/payouts/release.js";
 import { confirmWithdrawal, startWithdrawal, WithdrawalError } from "../services/payouts/withdrawal.js";
 import { openRecoveryTotal } from "../services/payouts/recovery.js";
+import { loadPayoutSafeguards } from "../services/payouts/riskScoring.js";
 import { customerBookingReference, ownerInvoiceReference } from "../lib/customerBookingReference.js";
 
 export const router = Router();
 router.use(requireAuth as RequestHandler, requireRole("OWNER") as RequestHandler, blockImpersonated as RequestHandler);
-
-const addAccountSchema = z
-  .object({
-    type: z.enum(["MOBILE_MONEY", "BANK"]),
-    provider: z.string().trim().min(2).max(30),
-    accountNumber: z.string().trim().min(4).max(40),
-  })
-  .strict();
 
 const requestSchema = z
   .object({
@@ -57,58 +46,22 @@ router.get(
       where: { userId: req.user!.id },
       orderBy: { createdAt: "desc" },
     });
-    res.json({ ok: true, accounts });
+    const { recentChangeHours } = await loadPayoutSafeguards();
+    res.json({ ok: true, accounts, securityWaitingHours: recentChangeHours });
   })
 );
 
-/**
- * POST /owner/payouts/accounts — register a payout destination. Attempts an
- * AzamPay Name Lookup immediately; the account is saved unverified either
- * way (verification cannot block onboarding while the provider contract is
- * still pending confirmation from AzamPay).
- */
+/** Legacy write path cannot bypass name lookup, owner confirmation, or alerts. */
 router.post(
   "/accounts",
   limitOwnerPayoutRead,
-  asyncHandler(async (req: AuthedRequest, res: Response) => {
-    const body = addAccountSchema.parse(req.body);
-
-    let accountName = req.user!.name || `Owner #${req.user!.id}`;
-    let isVerified = false;
-    let verifiedAt: Date | null = null;
-    let verificationWarning: string | null = null;
-
-    try {
-      const lookup = await azamPayNameLookup({ bankName: body.provider, accountNumber: body.accountNumber });
-      accountName = lookup.name || accountName;
-      isVerified = Boolean(lookup.status);
-      verifiedAt = isVerified ? new Date() : null;
-    } catch (err) {
-      verificationWarning =
-        err instanceof AzamPayDisburseError
-          ? `AzamPay verification unavailable: ${err.providerMessage ?? err.message}`
-          : err instanceof Error
-            ? `AzamPay verification unavailable: ${err.message}`
-            : "AzamPay verification unavailable";
-    }
-
-    const account = await prisma.payoutAccount.create({
-      data: {
-        userId: req.user!.id,
-        type: body.type,
-        provider: body.provider,
-        accountNumber: body.accountNumber,
-        accountName,
-        isVerified,
-        verifiedAt,
-        // Provenance anchor for riskScoring.RECENT_ACCOUNT_CHANGE. Must be
-        // set wherever a destination is created or edited, and nowhere else.
-        destinationChangedAt: new Date(),
-      },
+  (_req, res) => {
+    res.status(410).json({
+      ok: false,
+      code: "PAYOUT_VERIFICATION_REQUIRED",
+      error: "Verify the payout destination, confirm the account holder, then save it through /api/account/payouts.",
     });
-
-    res.status(201).json({ ok: true, account, verificationWarning });
-  })
+  }
 );
 
 /** GET /owner/payouts — this owner's disbursement history. */
@@ -194,6 +147,7 @@ router.get(
       take: 200,
       include: {
         booking: { select: { checkIn: true, checkOut: true, guestName: true, property: { select: { title: true } } } },
+        withdrawalJobs: { orderBy: { id: "desc" }, take: 1, select: { status: true } },
       },
     });
     const claims = await prisma.invoice.findMany({
@@ -226,11 +180,12 @@ router.get(
           recoveryDeducted: recoveredByClaim.get(r.sourceId) ?? 0,
           currency: "TZS",
           status: r.status,
-          stage: ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null }),
+          stage: ownerPayoutStage({ status: r.status, lane: r.lane, holdReason: r.holdReason, claimStatus: claim?.status ?? null, handoffStatus: r.withdrawalJobs[0]?.status ?? null }),
           rule: r.rule,
           releaseAt: r.releaseAt,
           availableAt: r.availableAt,
-          reason: r.holdReason,
+          reason: r.status === "WITHDRAWING" && (r.withdrawalJobs[0]?.status === "REVIEW_REQUIRED" || !r.withdrawalJobs[0])
+            ? "Our payments team is checking this request" : r.holdReason,
           releasedAt: r.releasedAt,
           paidAt: claim?.paidAt ?? null,
         };

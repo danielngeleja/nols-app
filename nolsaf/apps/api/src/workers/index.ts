@@ -32,6 +32,7 @@ import { startTravellerTripReminders } from "./travellerTripReminders.js";
 import { startDisbursementReconciliationWorker } from "./reconcileProcessingDisbursements.js";
 import { startUnsettledPaymentReconciliationWorker } from "./reconcileUnsettledPayments.js";
 import { startDisbursementBatchWorker } from "./processAuthorizedBatches.js";
+import { disbursementSendingEnabled } from "../services/payouts/senderSwitch.js";
 import { startPayoutReleaseWorker } from "./payoutRelease.js";
 import { startGuestCodeRequestReminders } from "./guestCodeRequestReminders.js";
 import { startTwigaAutoResolveWorker } from "./twigaAutoResolve.js";
@@ -89,14 +90,14 @@ export function startBackgroundWorkers(io: SocketServer): void {
     () => {
       console.log("[workers] Background workers enabled for this process (worker lease acquired).");
 
-      // Kill-switch for outgoing AzamPay disbursements. Until the production
-      // disbursement credentials are provisioned the feature is not live, so
-      // DISBURSEMENTS_ENABLED=false keeps the batch *sender* dark. The
+      // Kill-switch for outgoing AzamPay disbursements.
+      // DISBURSEMENTS_ENABLED=false keeps the batch sender dark; ledger's
+      // submitToAzamPay also enforces it for manual retries. The
       // reconciliation worker below is intentionally NOT gated: it is a cheap
       // no-op when nothing is in flight, and leaving it on means this flag can
       // never strand an already-submitted payout. Unset or set to "true" (the
       // default) once the disbursement keys are in place.
-      const disbursementSenderEnabled = process.env.DISBURSEMENTS_ENABLED !== "false";
+      const disbursementSenderEnabled = disbursementSendingEnabled();
       if (!disbursementSenderEnabled) {
         console.log("[workers] Disbursement batch sender DISABLED (DISBURSEMENTS_ENABLED=false).");
       }

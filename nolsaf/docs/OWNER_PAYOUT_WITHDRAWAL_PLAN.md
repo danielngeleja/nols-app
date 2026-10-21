@@ -137,13 +137,12 @@ All three routes sit under `/api/owner/payouts` and are guarded by `blockImperso
 
 1. Inside one transaction: load the challenge, check it is not used, not expired and under 5 attempts, and verify the hash (increment attempts on a mismatch). Mark it used **in the same transaction** so two concurrent confirms cannot both spend it (the same pattern as `services/payouts/releaseChallenge.ts`).
 2. Recompute the fingerprint from live data. If it doesn't match, reject; the owner starts again. This catches an account change or new hold between challenge and confirm.
-3. Move the releases to WITHDRAWING.
-4. For each release, outside the OTP transaction and idempotent:
-   1. Invoice REQUESTED to APPROVED via a shared `approveOwnerInvoice(id, actor)` extracted from `admin.invoices.ts` line 443 (the same conditional claim; actor `SYSTEM`, reason `OWNER_WITHDRAWAL_OTP`).
-   2. `requestDisbursement({ sourceType: "OWNER_INVOICE", ... })` (existing).
-   3. **Lane decision** (section 6). AUTO calls `approveDisbursement(id, SYSTEM)` and sets `releaseLane = AUTO`; MANUAL leaves the disbursement REQUESTED with `releaseLane = MANUAL` and a reason the admin can see.
-   4. The release becomes RELEASED, linked to the disbursement.
-5. Respond with per-item results ("Sending now" or "Under review, usually within 24h").
+3. In that transaction, move releases to WITHDRAWING **and create one `PayoutWithdrawalJob` per release**. Each job stores the confirmed payout account fingerprint, gross amount and planned recovery deduction. If any job cannot be written, the transaction rolls back the used OTP and the release claims together.
+4. Respond that the request was received; do not claim delivery or lane assignment yet.
+5. The leader worker processes jobs in owner/release order. It rechecks the account and amount, applies only the planned recovery deduction, then puts each claim in the manual queue or creates/approves an automatic disbursement. It marks the release RELEASED after the queue handoff succeeds.
+6. After a crash, the worker resumes the durable job. Existing recovery applications, invoice state and active disbursement are checked before any step repeats. A partial recovery application is extended inside a transaction, never inserted twice. The handoff worker never submits money to AzamPay. Changed destinations, failed or mismatched disbursements, an uncollectible confirmed deduction, and repeated transient errors go to `REVIEW_REQUIRED` with owner and finance notifications; no blind payout retry occurs.
+7. Unclaimed automatic withdrawals use the same durable jobs. Pre-migration WITHDRAWING releases without a job are alerted to finance for manual reconciliation because their original account snapshot was not saved.
+8. A finance admin with a fresh grant and a written note can retry a reviewed job after investigation. The admin can return it to AVAILABLE for a new OTP only if the invoice is still DRAFT and **no** recovery application or disbursement exists. The old job stays as CANCELLED evidence; the next confirmation creates a new job. A reset unclaimed automatic withdrawal starts a new unclaimed timer and requires a new reminder, so an old reminder cannot trigger an immediate resend.
 
 ### 5.4 Automatic batching (no change to the "every payout goes through a batch" rule)
 

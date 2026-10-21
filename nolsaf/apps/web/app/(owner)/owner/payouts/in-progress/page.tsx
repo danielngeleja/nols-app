@@ -7,10 +7,10 @@ import { PayoutRow } from "@/components/owner-payouts/PayoutList";
 import { STAGES, formatTzs, sum, useNow, useOwnerPayouts, type PayoutStage } from "@/components/owner-payouts/shared";
 
 const FILTERS: Array<{ key: string; label: string; stages: PayoutStage[] }> = [
-  { key: "all", label: "All", stages: ["UNLOCKING", "WAITING", "READY", "ON_HOLD", "SENDING", "UNDER_REVIEW"] },
+  { key: "all", label: "All", stages: ["UNLOCKING", "WAITING", "READY", "ON_HOLD", "PROCESSING", "SENDING", "UNDER_REVIEW"] },
   { key: "unlocking", label: "Unlocking", stages: ["UNLOCKING", "WAITING"] },
   { key: "ready", label: "Ready", stages: ["READY"] },
-  { key: "onway", label: "On its way", stages: ["SENDING", "UNDER_REVIEW"] },
+  { key: "onway", label: "In progress", stages: ["PROCESSING", "SENDING", "UNDER_REVIEW"] },
   { key: "hold", label: "On hold", stages: ["ON_HOLD"] },
 ];
 
