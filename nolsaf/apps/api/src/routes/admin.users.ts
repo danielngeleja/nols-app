@@ -2,6 +2,9 @@ import { Router, RequestHandler } from 'express';
 import { prisma } from '@nolsaf/prisma';
 import { requireAuth, requireRole, blockImpersonated } from '../middleware/auth.js';
 import { hasFinanceGrant, hasNrmsFinanceRole } from '../middleware/financeGrant.js';
+import { requireAdminFinanceGrant } from '../middleware/financeGrant.js';
+import { applyAccountLifecycle, inspectAccountLifecycle, LifecycleBlocked, type LifecycleAction } from '../lib/adminAccountLifecycle.js';
+import { retentionFields } from '../lib/auditRetention.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { audit } from '../lib/audit.js';
 import { referralCodeFor, referralKindForRole } from '../lib/referralCode.js';
@@ -256,6 +259,7 @@ router.get('/', async (req, res) => {
           twoFactorEnabled: true,
           suspendedAt: true,
           isDisabled: true,
+          deletedAt: true,
           _count: {
             select: {
               bookings: true,
@@ -706,6 +710,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
           twoFactorEnabled: true,
           suspendedAt: true,
           isDisabled: true,
+          deletedAt: true,
           _count: {
             select: {
               bookings: true,
@@ -733,6 +738,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
         user.twoFactorEnabled = false;
         user.suspendedAt = null;
         user.isDisabled = null;
+        user.deletedAt = null;
         user._count = { bookings: 0 };
         user.registrationStatus = 'INCOMPLETE';
         user.registrationSource = 'UNKNOWN';
@@ -1414,7 +1420,7 @@ router.get('/:id/audit', async (req, res) => {
     const rows = await prisma.adminAudit.findMany({
       where: {
         targetUserId: id,
-        action: { in: ['DISABLE_USER', 'ENABLE_USER', 'RESET_2FA'] },
+        action: { in: ['DISABLE_USER', 'ENABLE_USER', 'RESET_2FA', 'CORRECT_USER_TO_TRAVELLER', 'RETIRE_UNUSED_USER', 'ACCOUNT_LIFECYCLE_NOTICE_FAILED'] },
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -2223,9 +2229,10 @@ router.post(
 
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true },
+      select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true, deletedAt: true },
     });
     if (!target) return res.status(404).json({ error: 'user_not_found' });
+    if (target.deletedAt) return res.status(409).json({ error: 'Retired accounts cannot be promoted' });
 
     const before = { role: target.role };
     const currentRole = String(target.role ?? '').toUpperCase();
@@ -2238,7 +2245,7 @@ router.post(
     }
 
     const updated = await prisma.user.update({
-      where: { id },
+      where: { id, deletedAt: null },
       data: { role: 'ADMIN' as any },
       select: { id: true, role: true, email: true, phone: true, name: true, suspendedAt: true, isDisabled: true },
     });
@@ -2353,6 +2360,58 @@ router.post(
   })
 );
 
+router.get('/:id/lifecycle', asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid user id' });
+  const inspection = await inspectAccountLifecycle(prisma, id);
+  if (!inspection) return res.status(404).json({ error: 'User not found' });
+  return res.json({
+    data: { role: inspection.user.role, blockers: inspection.blockers, actions: inspection.actions },
+  });
+}));
+
+router.post('/:id/lifecycle', requireAdminFinanceGrant as RequestHandler, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid user id' });
+  const action = String(req.body?.action || '') as LifecycleAction;
+  const caseReference = String(req.body?.caseReference || '').trim();
+  const reason = String(req.body?.reason || '').trim();
+  if (!['CORRECT_TO_TRAVELLER', 'RETIRE_UNUSED'].includes(action)) return res.status(400).json({ error: 'Invalid lifecycle action' });
+  if (!/^[A-Za-z0-9][A-Za-z0-9/_-]{3,79}$/.test(caseReference)) return res.status(400).json({ error: 'A support case reference (4–80 letters, digits, /, _ or -) is required' });
+  if (reason.length < 20 || reason.length > 1000) return res.status(400).json({ error: 'Reason must be 20–1000 characters' });
+  if (req.body?.confirm !== action) return res.status(400).json({ error: 'Confirm the exact action before submitting' });
+
+  try {
+    const result = await applyAccountLifecycle({ userId: id, adminId: Number((req.user as any).id), action, caseReference, reason });
+    if (!result) return res.status(404).json({ error: 'User not found' });
+    const message = result.retired
+      ? 'Your NoLSAF account has been retired following a support request. Contact support if this was unexpected.'
+      : 'Your NoLSAF account has been corrected to a traveller account. Please sign in again. Contact support if this was unexpected.';
+    // Security notice is best effort after the committed transaction. Failed
+    // delivery is surfaced to operations without rolling back a completed action.
+    const delivery = await Promise.allSettled([
+      result.email ? sendMail(result.email, 'NoLSAF account change', `<p>${message}</p>`, undefined, { bypassEligibilityCheck: true, sensitiveContent: true }) : Promise.resolve(null),
+      result.phone ? sendSms(result.phone, message, { bypassEligibilityCheck: true, sensitiveContent: true }) : Promise.resolve(null),
+    ]);
+    const noticeFailed = (!result.email && !result.phone) || delivery.some((item) => item.status === 'rejected' || (item.value && item.value.success === false));
+    if (noticeFailed) {
+      console.warn('Account lifecycle notice delivery failed', { userId: id, action, caseReference });
+      await prisma.adminAudit.create({
+        data: {
+          adminId: Number((req.user as any).id), targetUserId: id,
+          action: 'ACCOUNT_LIFECYCLE_NOTICE_FAILED',
+          details: { caseReference, action, emailAvailable: Boolean(result.email), phoneAvailable: Boolean(result.phone) },
+          ...retentionFields('SECURITY'),
+        },
+      }).catch((auditError) => console.error('Failed to record account lifecycle notice incident', auditError));
+    }
+    return res.json({ ok: true, data: { id, role: result.role, retired: result.retired, noticeFailed } });
+  } catch (error) {
+    if (error instanceof LifecycleBlocked) return res.status(409).json({ error: error.message, blockers: error.blockers });
+    throw error;
+  }
+}));
+
 router.patch('/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -2360,6 +2419,9 @@ router.patch('/:id', async (req, res) => {
 
     const { role, reset2FA, disable, nrmsFinanceRole } = req.body as any;
     const me = (req.user as any)?.id;
+    const lifecycleState = await prisma.user.findUnique({ where: { id }, select: { deletedAt: true } });
+    if (!lifecycleState) return res.status(404).json({ error: 'user_not_found' });
+    if (lifecycleState.deletedAt) return res.status(409).json({ error: 'Retired accounts cannot be reactivated or edited' });
 
     const update: any = {};
     // Role changes are not permitted via this endpoint.
@@ -2409,7 +2471,7 @@ router.patch('/:id', async (req, res) => {
 
     const ops: any[] = [
       prisma.user.update({
-        where: { id },
+        where: { id, deletedAt: null },
         data: update,
         select: { id: true, name: true, email: true, phone: true, role: true, nrmsFinanceRole: true, twoFactorEnabled: true, isDisabled: true } as any,
       }),
