@@ -8,9 +8,11 @@ import axios from "axios";import apiClient from "@/lib/apiClient";
 import { ownerPropertyPath, resolveOwnerPropertyRef } from "@/lib/ownerPropertyRefs";
 import { REGIONS, REGION_BY_ID } from "@/lib/tzRegions";
 import { REGIONS_FULL_DATA } from "@/lib/tzRegionsFull";
+import { aggregateBedroomBeds, countPropertyBedrooms, declaredGuestCapacity, hasCompleteBedrooms, sleepingCapacity, type BedKey, type BedroomLayout } from "@/lib/listingInventory";
+import { defaultBookingModeForPropertyType, isRoomOnlyPropertyType } from "@/lib/propertyBookingMode";
 import { TotalsStep } from "./_components/TotalsStep";
 import { PhotosStep } from "./_components/PhotosStep";
-import { ROOM_ITEMS, RoomsStep } from "./_components/RoomsStep";
+import { ROOM_ITEMS, UNIT_AMENITY_ITEMS, RoomsStep } from "./_components/RoomsStep";
 import { cleanFloorUses, parseFloorUses, type FloorUses } from "./_components/floorUses";
 import { ServicesStep } from "./_components/ServicesStep";
 import { ReviewStep } from "./_components/ReviewStep";
@@ -21,7 +23,7 @@ import "@/styles/add-property.css";
 const api = apiClient;
 function authify() {}
 
-type BedKey = "twin" | "full" | "queen" | "king";
+type BookingMode = "ROOM" | "ENTIRE_UNIT";
 const PROPERTY_TYPES = ["Villa","Apartment","Hotel","Lodge","Condo","Guest House","Bungalow","Cabin","Homestay","Townhouse","House","Other"] as const;
 
 // Icon mapping for property types
@@ -80,9 +82,11 @@ type FacilityType =
   | "Police station"
   | "Airport"
   | "Bus station"
+  | "Train station"
   | "Petrol station"
   | "Conference center"
   | "Stadium"
+  | "Shopping mall"
   | "Main road";
 const REACH_MODES = ["Walking","Boda","Public Transport","Car/Taxi"] as const;
 type ReachMode = typeof REACH_MODES[number];
@@ -139,6 +143,8 @@ type NearbyFacility = {
   distanceKm: number | "";
   reachableBy: ReachMode[];
   url?: string;
+  pointCode?: string;
+  distanceKind?: "straight_line";
 };
 
 /** Facilities mini-components - FacilityRow defined after type */
@@ -149,6 +155,7 @@ const PAGE_SHELL_CLASS = "add-property-shell" as const;
 const STEPPER_WRAPPER_CLASS = "add-property-stepper" as const;
 const SIDEBAR_CARD_CLASS = "add-property-sidebar-card" as const;
 type RoomEntry = {
+  code?: string;
   roomType: string;
   beds: Record<BedKey, number>;
   roomsCount: number;
@@ -164,6 +171,11 @@ type RoomEntry = {
   roomDescription: string;
   roomImages: string[];
   pricePerNight: number;
+  bookingMode?: BookingMode;
+  bedrooms?: BedroomLayout[];
+  maxGuestsPerUnit?: number;
+  includedGuests?: number;
+  extraGuestFee?: number;
 };
 type ServicesState = {
   parking: "no"|"free"|"paid";
@@ -176,6 +188,7 @@ type ServicesState = {
   sauna: boolean;
   laundry: boolean;
   roomService: boolean;
+  privateChef: boolean;
   security24: boolean;
   firstAid: boolean;
   fireExtinguisher: boolean;
@@ -211,6 +224,20 @@ export default function AddProperty() {
   useEffect(()=>{ authify(); },[]);
 
   const [propertyId, setPropertyId] = useState<number|null>(null);
+  const [systemCommission, setSystemCommission] = useState<number | null>(null);
+  const [savedCommissionOverride, setSavedCommissionOverride] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api.get("/api/public/support/system-settings")
+      .then((response) => {
+        const settings = response.data?.data ?? response.data;
+        const percent = Number(settings?.commissionPercent);
+        if (active && Number.isFinite(percent) && percent >= 0 && percent <= 100) setSystemCommission(percent);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   const [loadingProperty, setLoadingProperty] = useState(false);
   
   // Auto-save state
@@ -258,7 +285,13 @@ export default function AddProperty() {
               
               // Load basic info
               if (property.title) setTitle(property.title);
-              if (property.type) setType(property.type);
+              if (property.type) {
+                setType(property.type);
+                const defaultMode = defaultBookingModeForPropertyType(property.type);
+                setBookingMode(defaultMode);
+                setRoomType(defaultMode === "ENTIRE_UNIT" ? property.type : "Single");
+                setRoomsCount(defaultMode === "ENTIRE_UNIT" ? 1 : "");
+              }
               if (property.hotelStar) setHotelStar(property.hotelStar);
               if (property.buildingType) setBuildingType(property.buildingType);
               if (typeof property.totalFloors === "number") setTotalFloors(property.totalFloors);
@@ -339,6 +372,11 @@ export default function AddProperty() {
                     : property.roomsSpec;
                   if (Array.isArray(rooms)) {
                     setDefinedRooms(rooms);
+                    if (rooms.length > 0) {
+                      const savedMode = rooms[0]?.bookingMode === "ENTIRE_UNIT" ? "ENTIRE_UNIT" : "ROOM";
+                      setBookingMode(savedMode);
+                      setRoomType(rooms[0]?.roomType || (savedMode === "ENTIRE_UNIT" ? property.type || "Villa" : "Single"));
+                    }
                   }
                 } catch (e) {
                   console.error("Error parsing roomsSpec:", e);
@@ -352,6 +390,10 @@ export default function AddProperty() {
                     ? JSON.parse(property.services) 
                     : property.services;
                   if (services) {
+                    const customCommission = Number(services.commissionPercent);
+                    if (services.commissionPercent != null && Number.isFinite(customCommission) && customCommission >= 0 && customCommission <= 100) {
+                      setSavedCommissionOverride(customCommission);
+                    }
                     setServices({
                       parking: services.parking || "no",
                       parkingPrice: services.parkingPrice || "",
@@ -363,6 +405,7 @@ export default function AddProperty() {
                       sauna: services.sauna || false,
                       laundry: services.laundry || false,
                       roomService: services.roomService || false,
+                      privateChef: services.privateChef || false,
                       security24: services.security24 || false,
                       firstAid: services.firstAid || false,
                       fireExtinguisher: services.fireExtinguisher || false,
@@ -623,7 +666,12 @@ export default function AddProperty() {
 
   // room-type mini form
   const [roomType, setRoomType] = useState("Single");
+  const [bookingMode, setBookingMode] = useState<BookingMode>("ROOM");
+  const [unitBedrooms, setUnitBedrooms] = useState<BedroomLayout[]>([
+    { name: "Bedroom 1", beds: { twin: 0, full: 0, queen: 0, king: 0 }, sleeps: 0 },
+  ]);
   const [beds, setBeds] = useState<Record<BedKey, number>>({ twin: 0, full: 0, queen: 0, king: 0 });
+  const [roomMaxGuests, setRoomMaxGuests] = useState<number | "">("");
   const [roomsCount, setRoomsCount] = useState<number | "">("");
   // Room placement (only used when buildingType === "multi_storey")
   const [roomFloors, setRoomFloors] = useState<number[]>([]);
@@ -643,40 +691,53 @@ export default function AddProperty() {
   useEffect(()=>{ roomImagesRef.current = roomImages; }, [roomImages]);
   // const roomImageInput = useRef<HTMLInputElement>(null);
   const [pricePerNight, setPricePerNight] = useState<number | "">("");
+  const [unitPricingMode, setUnitPricingMode] = useState<"FLAT" | "EXTRA_GUEST">("FLAT");
+  const [unitIncludedGuests, setUnitIncludedGuests] = useState<number | "">("");
+  const [unitExtraGuestFee, setUnitExtraGuestFee] = useState<number | "">("");
   const [definedRooms, setDefinedRooms] = useState<RoomEntry[]>([]);
+
+  const changePropertyType = (nextType: string) => {
+    setType(nextType);
+    if (definedRooms.length > 0) return;
+    const nextMode = defaultBookingModeForPropertyType(nextType);
+    setBookingMode(nextMode);
+    setRoomType(nextMode === "ENTIRE_UNIT" ? nextType : "Single");
+    setRoomsCount(nextMode === "ENTIRE_UNIT" ? 1 : "");
+  };
   // Saved group loaded back into the room form for editing (null = a new group)
   const [editingRoomIndex, setEditingRoomIndex] = useState<number | null>(null);
 
-  // Totals: auto-fill bedrooms from the saved room types (roomsCount per type).
+  // One entire unit can contain multiple bedrooms; a hotel room is one bedroom.
   const autoTotalBedrooms = useMemo(() => {
-    return (definedRooms || []).reduce((sum, r: any) => {
-      const n = Number(r?.roomsCount);
-      return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);
-    }, 0);
+    return countPropertyBedrooms(definedRooms);
   }, [definedRooms]);
 
   useEffect(() => {
     setTotalBedrooms((prev) => (prev === autoTotalBedrooms ? prev : autoTotalBedrooms));
   }, [autoTotalBedrooms]);
 
-  // Auto-calculate maxGuests from total beds across all room types
+  // Auto-calculate a starting guest capacity from the actual bed sizes.
   const autoMaxGuests = useMemo(() => {
     const totalBeds = (definedRooms || []).reduce((sum, r: any) => {
       const roomsCount = Number(r?.roomsCount) || 0;
       const beds = r?.beds || {};
-      const bedsPerRoom = (Number(beds?.twin) || 0) + (Number(beds?.full) || 0) + (Number(beds?.queen) || 0) + (Number(beds?.king) || 0);
-      return sum + (bedsPerRoom * roomsCount);
+      const placesPerUnit = r.bookingMode === "ENTIRE_UNIT" && Array.isArray(r.bedrooms)
+        ? declaredGuestCapacity(r.bedrooms)
+        : Number(r.maxGuestsPerUnit) > 0 ? Number(r.maxGuestsPerUnit) : sleepingCapacity(beds);
+      return sum + placesPerUnit * roomsCount;
     }, 0);
     // Ensure at least 1 guest (backend requirement: > 0)
     return Math.max(1, totalBeds);
   }, [definedRooms]);
+  const hasDeclaredInventory = definedRooms.length > 0 && definedRooms.every((room) => Number(room.maxGuestsPerUnit) > 0);
 
   useEffect(() => {
-    // Only auto-fill if user hasn't manually set a value (empty or 0)
-    if (maxGuests === "" || maxGuests === 0) {
+    if (hasDeclaredInventory && maxGuests !== autoMaxGuests) {
+      setMaxGuests(autoMaxGuests);
+    } else if (maxGuests === "" || maxGuests === 0) {
       setMaxGuests(autoMaxGuests);
     }
-  }, [autoMaxGuests, maxGuests]);
+  }, [autoMaxGuests, hasDeclaredInventory, maxGuests]);
 
   // Reset room placement state when building layout changes away from multi-storey
   useEffect(() => {
@@ -693,7 +754,7 @@ export default function AddProperty() {
     breakfastIncluded: false, breakfastAvailable: false,
     restaurant: false, bar: false,
     pool: false, sauna: false,
-    laundry: false, roomService: false,
+    laundry: false, roomService: false, privateChef: false,
     security24: false, firstAid: false, fireExtinguisher: false,
     onSiteShop: false, nearbyMall: false,
     socialHall: false, sportsGames: false,
@@ -746,7 +807,8 @@ export default function AddProperty() {
             return p;
           }).filter(Boolean),
           definedRooms, services, nearbyFacilities,
-          roomType, beds, roomsCount, smoking, bathPrivate,
+          roomType, bookingMode, unitBedrooms, beds, roomMaxGuests, roomsCount, smoking, bathPrivate,
+          pricePerNight, unitPricingMode, unitIncludedGuests, unitExtraGuestFee,
           roomFloors,
           roomFloorDistribution,
           floorUses,
@@ -773,7 +835,8 @@ export default function AddProperty() {
     regionId, district, ward, street, city, zip,
     latitude, longitude, desc, totalBedrooms, totalBathrooms, maxGuests,
     photos, definedRooms, services, nearbyFacilities,
-    roomType, beds, roomsCount, smoking, bathPrivate, roomFloors, roomFloorDistribution, floorUses,
+    roomType, bookingMode, unitBedrooms, beds, roomMaxGuests, roomsCount, smoking, bathPrivate, roomFloors, roomFloorDistribution, floorUses,
+    pricePerNight, unitPricingMode, unitIncludedGuests, unitExtraGuestFee,
     acceptGroupBooking, freeCancellation, paymentModes,
     houseRules,
     currentStep, visitedSteps,
@@ -992,14 +1055,23 @@ export default function AddProperty() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latitude, longitude, regionId]);
 
+  const roomStepError = isRoomOnlyPropertyType(type) && definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT")
+    ? `${type} listings need room inventory. Remove the saved whole-place unit and add the rooms guests book.`
+    : definedRooms.length < 1
+    ? bookingMode === "ENTIRE_UNIT" ? "Set every bedroom's beds and guest capacity, then save the entire unit before continuing." : "Save at least one room type before continuing."
+    : definedRooms.some((room) => room.bookingMode === "ENTIRE_UNIT" && !hasCompleteBedrooms(room.bedrooms))
+      ? "Every bedroom in the saved unit needs a name, a bed, and declared guest capacity. Edit the unit to complete it."
+      : editingRoomIndex !== null ? "Save or cancel your room edits before continuing." : null;
+
   const goToNextStep = () => {
     if (currentStep < 5) {
       if (currentStep === 0) {
         const ok = validateBasics();
         if (!ok) return;
       }
-      if (currentStep === 1 && definedRooms.length < 1) {
-        alert('Please add at least one room type before continuing.');
+      if (currentStep >= 1 && roomStepError) {
+        alert(roomStepError);
+        if (currentStep > 1) scrollToStep(1, true);
         return;
       }
       if (currentStep === 2 && !servicesCompleted) {
@@ -1036,16 +1108,20 @@ export default function AddProperty() {
       if (currentStep === 0) {
         const ok = validateBasics();
         if (!ok) return;
-      } else if (currentStep === 1 && definedRooms.length < 1) {
-        alert('Please add at least one room type before continuing.');
+      }
+      if (i > 1 && roomStepError) {
+        alert(roomStepError);
         return;
-      } else if (currentStep === 2 && !servicesCompleted) {
+      }
+      if (currentStep === 2 && !servicesCompleted) {
         alert('Please complete the Services section before continuing.');
         return;
-      } else if (currentStep === 3 && !totalsCompleted) {
+      }
+      if (currentStep === 3 && !totalsCompleted) {
         alert('Please complete the Totals & Description section before continuing.');
         return;
-      } else if (currentStep === 4 && photos.length < 3) {
+      }
+      if (currentStep === 4 && photos.length < 3) {
         alert(`Please add at least 3 photos (${photos.length}/3 added).`);
         return;
       }
@@ -1225,9 +1301,23 @@ export default function AddProperty() {
 
   const addRoomType = () => {
     const errs: string[] = [];
-    if (!roomsCount || Number(roomsCount) <= 0) errs.push("Rooms count is required.");
-    if (roomImages.length === 0) errs.push("At least one room image is required.");
-    if (buildingType === "multi_storey") {
+    if (bookingMode === "ENTIRE_UNIT" && isRoomOnlyPropertyType(type)) errs.push(`${type} listings must be set up by room.`);
+    if (!roomType.trim()) errs.push(bookingMode === "ENTIRE_UNIT" ? "Unit type is required." : "Room type is required.");
+    if (!roomsCount || Number(roomsCount) <= 0) errs.push(bookingMode === "ENTIRE_UNIT" ? "Number of units is required." : "Rooms count is required.");
+    if (roomImages.length < 3) errs.push("Add at least three photos.");
+    if (Number(pricePerNight) < 5000) errs.push("Nightly price must be at least TZS 5,000.");
+    if (bookingMode === "ENTIRE_UNIT" && !hasCompleteBedrooms(unitBedrooms)) {
+      errs.push("Give every bedroom a name, at least one bed, and a guest capacity.");
+    }
+    const declaredUnitCapacity = bookingMode === "ENTIRE_UNIT" ? declaredGuestCapacity(unitBedrooms) : 0;
+    if (bookingMode === "ROOM" && Object.values(beds).every((n) => Number(n) <= 0)) errs.push("Add at least one bed.");
+    if (bookingMode === "ROOM" && (!Number.isInteger(Number(roomMaxGuests)) || Number(roomMaxGuests) < 1 || Number(roomMaxGuests) > 99)) errs.push("Declare how many guests can sleep in one room.");
+    const sellableCapacity = bookingMode === "ENTIRE_UNIT" ? declaredUnitCapacity : Number(roomMaxGuests);
+    if (unitPricingMode === "EXTRA_GUEST" &&
+      (!Number.isInteger(Number(unitIncludedGuests)) || Number(unitIncludedGuests) < 1 || Number(unitIncludedGuests) >= sellableCapacity || Number(unitExtraGuestFee) <= 0)) {
+      errs.push("Set how many guests the base rate includes and a positive fee per additional guest.");
+    }
+    if (bookingMode === "ROOM" && buildingType === "multi_storey") {
       if (roomFloors.length === 0) errs.push("Select at least one floor for this room type.");
       const total = roomFloors.reduce((sum, f) => sum + (roomFloorDistribution[f] || 0), 0);
       if (Number(roomsCount) > 0 && total !== Number(roomsCount)) {
@@ -1236,11 +1326,23 @@ export default function AddProperty() {
     }
     if (errs.length) { alert(errs.join("\n")); return; }
 
+    const unitBeds = bookingMode === "ENTIRE_UNIT" ? aggregateBedroomBeds(unitBedrooms) : beds;
     const entry: RoomEntry = {
-      roomType, beds, roomsCount: Number(roomsCount),
-      ...(buildingType === "multi_storey"
+      ...(editingRoomIndex !== null && definedRooms[editingRoomIndex]?.code ? { code: definedRooms[editingRoomIndex].code } : {}),
+      roomType, beds: unitBeds, roomsCount: Number(roomsCount), bookingMode,
+      ...(bookingMode === "ENTIRE_UNIT" ? {
+        bedrooms: unitBedrooms.map((room) => ({ name: room.name.trim(), beds: { ...room.beds }, sleeps: Number(room.sleeps) })),
+        maxGuestsPerUnit: declaredUnitCapacity,
+        includedGuests: unitPricingMode === "EXTRA_GUEST" ? Number(unitIncludedGuests) : declaredUnitCapacity,
+        extraGuestFee: unitPricingMode === "EXTRA_GUEST" ? Number(unitExtraGuestFee) : 0,
+      } : {
+        maxGuestsPerUnit: Number(roomMaxGuests),
+        includedGuests: unitPricingMode === "EXTRA_GUEST" ? Number(unitIncludedGuests) : Number(roomMaxGuests),
+        extraGuestFee: unitPricingMode === "EXTRA_GUEST" ? Number(unitExtraGuestFee) : 0,
+      }),
+      ...(bookingMode === "ROOM" && buildingType === "multi_storey"
         ? { floors: roomFloors, floorDistribution: roomFloorDistribution }
-        : buildingType === "single_storey"
+        : bookingMode === "ROOM" && buildingType === "single_storey"
           ? { floors: [0], floorDistribution: { 0: Number(roomsCount) } }
           : {}),
       smoking, bathPrivate, bathItems, towelColor,
@@ -1254,12 +1356,21 @@ export default function AddProperty() {
     } else {
       setDefinedRooms(list => [...list, entry]);
     }
+    if (bookingMode === "ENTIRE_UNIT") {
+      const capacity = declaredUnitCapacity;
+      const previousUnit = editingRoomIndex !== null ? definedRooms[editingRoomIndex] : null;
+      const previousCapacity = previousUnit?.maxGuestsPerUnit ?? 1;
+      setMaxGuests((current) => current === "" || current <= 1 || current === previousCapacity ? Math.max(1, capacity) : current);
+    }
     setEditingRoomIndex(null);
     resetRoomForm();
   };
 
   const resetRoomForm = () => {
     setBeds({ twin:0, full:0, queen:0, king:0 });
+    setRoomMaxGuests("");
+    setUnitBedrooms([{ name: "Bedroom 1", beds: { twin: 0, full: 0, queen: 0, king: 0 }, sleeps: 0 }]);
+    setUnitPricingMode("FLAT"); setUnitIncludedGuests(""); setUnitExtraGuestFee("");
     setRoomsCount(""); setSmoking("yes"); setBathPrivate("yes");
     setRoomFloors([]); setRoomFloorDistribution({});
     setBathItems([]); setTowelColor(""); setOtherAmenities([]);
@@ -1269,13 +1380,23 @@ export default function AddProperty() {
   };
 
   const roomFormHasContent = () =>
-    roomsCount !== "" || roomImages.length > 0 || pricePerNight !== "" ||
-    Object.values(beds).some((n) => Number(n) > 0) || roomDescription.trim() !== "";
+    roomsCount !== "" || roomMaxGuests !== "" || roomImages.length > 0 || pricePerNight !== "" ||
+    unitPricingMode === "EXTRA_GUEST" || unitIncludedGuests !== "" || unitExtraGuestFee !== "" ||
+    Object.values(beds).some((n) => Number(n) > 0) ||
+    unitBedrooms.some((room) => Object.values(room.beds).some((n) => Number(n) > 0)) || roomDescription.trim() !== "";
 
   /** Puts a saved group back into the room form, exactly as it was saved */
   const loadRoomIntoForm = (r: RoomEntry) => {
-    setRoomType(r.roomType || "");
+    setBookingMode(r.bookingMode === "ENTIRE_UNIT" ? "ENTIRE_UNIT" : "ROOM");
+    setRoomType(r.roomType || (r.bookingMode === "ENTIRE_UNIT" ? type : "Single"));
+    setUnitBedrooms(Array.isArray(r.bedrooms) && r.bedrooms.length
+      ? r.bedrooms.map((bedroom, index) => ({ name: bedroom.name || `Bedroom ${index + 1}`, beds: { twin: Number(bedroom.beds?.twin) || 0, full: Number(bedroom.beds?.full) || 0, queen: Number(bedroom.beds?.queen) || 0, king: Number(bedroom.beds?.king) || 0 }, sleeps: Number(bedroom.sleeps) || 0 }))
+      : [{ name: "Bedroom 1", beds: { twin: 0, full: 0, queen: 0, king: 0 }, sleeps: 0 }]);
+    setUnitPricingMode(Number(r.extraGuestFee) > 0 ? "EXTRA_GUEST" : "FLAT");
+    setUnitIncludedGuests(Number(r.includedGuests) || "");
+    setUnitExtraGuestFee(Number(r.extraGuestFee) || "");
     setBeds({ twin: Number(r.beds?.twin) || 0, full: Number(r.beds?.full) || 0, queen: Number(r.beds?.queen) || 0, king: Number(r.beds?.king) || 0 });
+    setRoomMaxGuests(Number(r.maxGuestsPerUnit) || "");
     setRoomsCount(Number(r.roomsCount) || "");
     setSmoking(r.smoking === "no" ? "no" : "yes");
     setBathPrivate(r.bathPrivate === "no" ? "no" : "yes");
@@ -1293,8 +1414,8 @@ export default function AddProperty() {
     setBathItems(Array.isArray(r.bathItems) ? r.bathItems : []);
     setTowelColor(r.towelColor || "");
     const amenities = Array.isArray(r.otherAmenities) ? r.otherAmenities : [];
-    setOtherAmenities(amenities.filter((a) => ROOM_ITEMS.includes(a)));
-    setOtherAmenitiesText(amenities.filter((a) => !ROOM_ITEMS.includes(a)).join(", "));
+    setOtherAmenities(amenities.filter((a) => ROOM_ITEMS.includes(a) || UNIT_AMENITY_ITEMS.includes(a)));
+    setOtherAmenitiesText(amenities.filter((a) => !ROOM_ITEMS.includes(a) && !UNIT_AMENITY_ITEMS.includes(a)).join(", "));
     setRoomDescription(r.roomDescription || "");
     const imgs = Array.isArray(r.roomImages) ? r.roomImages : [];
     setRoomImages(imgs);
@@ -1333,6 +1454,12 @@ export default function AddProperty() {
       resetRoomForm();
     } else if (editingRoomIndex !== null && editingRoomIndex > index) {
       setEditingRoomIndex(editingRoomIndex - 1);
+    }
+    if (definedRooms.length === 1) {
+      const defaultMode = defaultBookingModeForPropertyType(type);
+      setBookingMode(defaultMode);
+      setRoomType(defaultMode === "ENTIRE_UNIT" ? type : "Single");
+      setRoomsCount(defaultMode === "ENTIRE_UNIT" ? 1 : "");
     }
   };
 
@@ -1424,13 +1551,16 @@ export default function AddProperty() {
 
       totalBedrooms: numOrNull(totalBedrooms),
       totalBathrooms: totalBathrooms === "" || totalBathrooms == null ? 0 : Number(totalBathrooms),
-      maxGuests: maxGuests === "" || maxGuests == null || Number(maxGuests) <= 0 ? Math.max(1, autoMaxGuests) : Number(maxGuests),
+      maxGuests: hasDeclaredInventory
+        ? Math.max(1, autoMaxGuests)
+        : maxGuests === "" || maxGuests == null || Number(maxGuests) <= 0 ? Math.max(1, autoMaxGuests) : Number(maxGuests),
       houseRules: houseRulesObj,
 
       // Backend expects services as JSON: can be array of strings OR object with nearbyFacilities
       // Send as object to preserve full nearbyFacilities data (name, distance, etc.) AND all service properties
       services: (() => {
         const servicesObj: any = {
+          ...(savedCommissionOverride !== null ? { commissionPercent: savedCommissionOverride } : {}),
           // Include all service properties so they can be displayed in admin view
           // Only include properties that have been explicitly set (not default/empty values)
           ...(services.parking && services.parking !== 'no' ? { parking: services.parking } : {}),
@@ -1443,6 +1573,7 @@ export default function AddProperty() {
           ...(services.sauna ? { sauna: true } : {}),
           ...(services.laundry ? { laundry: true } : {}),
           ...(services.roomService ? { roomService: true } : {}),
+          ...(services.privateChef ? { privateChef: true } : {}),
           ...(services.security24 ? { security24: true } : {}),
           ...(services.firstAid ? { firstAid: true } : {}),
           ...(services.fireExtinguisher ? { fireExtinguisher: true } : {}),
@@ -1493,7 +1624,9 @@ export default function AddProperty() {
       "Police station": "Near police station",
       Airport: "Near airport",
       "Bus station": "Near bus station",
+      "Train station": "Near train station",
       "Petrol station": "Near petrol station",
+      "Shopping mall": "Near shopping mall",
       "Main road": "Near main road",
     };
     const tags = new Set<string>();
@@ -1516,6 +1649,7 @@ export default function AddProperty() {
     if (s.sauna) out.push("Sauna");
     if (s.laundry) out.push("Laundry");
     if (s.roomService) out.push("Room service");
+    if (s.privateChef) out.push("Private chef");
     if (s.security24) out.push("24h security");
     if (s.firstAid) out.push("First aid");
     if (s.fireExtinguisher) out.push("Fire extinguisher");
@@ -1538,7 +1672,7 @@ export default function AddProperty() {
     typeof latitude === 'number' &&
     typeof longitude === 'number' &&
     photos.length >= 3 &&
-    definedRooms.length >= 1 &&
+    !roomStepError &&
     // if this is a Hotel, ensure a star rating was chosen
     (!isHotel || (typeof hotelStar === "string" && hotelStar !== ""));
 
@@ -1550,7 +1684,7 @@ export default function AddProperty() {
         !regionId ? "location" : null,
         (typeof latitude !== 'number' || typeof longitude !== 'number') ? "exact location pin" : null,
         !(photos.length >= 3) ? "≥3 photos" : null,
-        !(definedRooms.length >= 1) ? "≥1 room type" : null,
+        roomStepError,
         (isHotel && (!hotelStar || hotelStar === "")) ? "hotel star rating" : null,
       ].filter(Boolean);
       alert("Please complete: " + missing.join(", ") + ".");
@@ -1625,7 +1759,13 @@ export default function AddProperty() {
     if (!draft) return;
     // Apply values
     if (draft.title) setTitle(draft.title);
-    if (draft.type) setType(draft.type);
+    if (draft.type) {
+      setType(draft.type);
+      const defaultMode = defaultBookingModeForPropertyType(draft.type);
+      setBookingMode(defaultMode);
+      setRoomType(defaultMode === "ENTIRE_UNIT" ? draft.type : "Single");
+      setRoomsCount(defaultMode === "ENTIRE_UNIT" ? 1 : "");
+    }
     if (draft.otherType) setOtherType(draft.otherType);
     if (draft.hotelStar) setHotelStar(draft.hotelStar);
     if (draft.buildingType) setBuildingType(draft.buildingType);
@@ -1634,8 +1774,15 @@ export default function AddProperty() {
       setTotalFloors(Number.isFinite(n) ? n : "");
     }
     if (draft.roomType) setRoomType(draft.roomType);
+    if (draft.bookingMode === "ENTIRE_UNIT" || draft.bookingMode === "ROOM") setBookingMode(draft.bookingMode);
+    if (Array.isArray(draft.unitBedrooms) && draft.unitBedrooms.length) setUnitBedrooms(draft.unitBedrooms);
     if (draft.beds) setBeds(draft.beds);
+    if (draft.roomMaxGuests !== undefined) setRoomMaxGuests(draft.roomMaxGuests);
     if (draft.roomsCount !== undefined) setRoomsCount(draft.roomsCount);
+    if (draft.pricePerNight !== undefined) setPricePerNight(draft.pricePerNight);
+    if (draft.unitPricingMode === "FLAT" || draft.unitPricingMode === "EXTRA_GUEST") setUnitPricingMode(draft.unitPricingMode);
+    if (draft.unitIncludedGuests !== undefined) setUnitIncludedGuests(draft.unitIncludedGuests);
+    if (draft.unitExtraGuestFee !== undefined) setUnitExtraGuestFee(draft.unitExtraGuestFee);
     if (draft.smoking) setSmoking(draft.smoking);
     if (draft.bathPrivate) setBathPrivate(draft.bathPrivate);
     if (Array.isArray(draft.roomFloors)) setRoomFloors(draft.roomFloors);
@@ -1734,6 +1881,7 @@ export default function AddProperty() {
       !!s.sauna ||
       !!s.laundry ||
       !!s.roomService ||
+      !!s.privateChef ||
       !!s.security24 ||
       !!s.firstAid ||
       !!s.fireExtinguisher ||
@@ -1787,7 +1935,7 @@ export default function AddProperty() {
 
   const stepsMeta = [
     { index: 0, title: stepShortTitles[0], completed: title.trim().length >= 3 && !!regionId && !!district && typeof latitude === 'number' && typeof longitude === 'number' },
-    { index: 1, title: stepShortTitles[1], completed: definedRooms.length >= 1 },
+    { index: 1, title: stepShortTitles[1], completed: !roomStepError },
     { index: 2, title: stepShortTitles[2], completed: servicesCompleted },
     { index: 3, title: stepShortTitles[3], completed: totalsCompleted },
     { index: 4, title: stepShortTitles[4], completed: photos.length >= 3 },
@@ -1914,7 +2062,7 @@ export default function AddProperty() {
           title={title}
           setTitle={setTitle}
           type={type}
-          setType={setType}
+          setType={changePropertyType}
           otherType={otherType}
           setOtherType={setOtherType}
           hotelStar={hotelStar}
@@ -1962,11 +2110,18 @@ export default function AddProperty() {
           goToPreviousStep={goToPreviousStep}
           goToNextStep={goToNextStep}
           buildingType={buildingType}
+          propertyType={type}
+          bookingMode={bookingMode}
+          setBookingMode={setBookingMode}
+          unitBedrooms={unitBedrooms}
+          setUnitBedrooms={setUnitBedrooms}
           totalFloors={totalFloors}
           roomType={roomType}
           setRoomType={setRoomType}
           beds={beds as any}
           changeBed={changeBed as any}
+          roomMaxGuests={roomMaxGuests}
+          setRoomMaxGuests={setRoomMaxGuests}
           roomsCount={roomsCount}
           setRoomsCount={setRoomsCount}
           roomFloors={roomFloors}
@@ -1998,6 +2153,13 @@ export default function AddProperty() {
           setRoomImageUploading={setRoomImageUploading}
           pricePerNight={pricePerNight}
           setPricePerNight={setPricePerNight}
+          commissionPercent={savedCommissionOverride ?? systemCommission}
+          unitPricingMode={unitPricingMode}
+          setUnitPricingMode={setUnitPricingMode}
+          unitIncludedGuests={unitIncludedGuests}
+          setUnitIncludedGuests={setUnitIncludedGuests}
+          unitExtraGuestFee={unitExtraGuestFee}
+          setUnitExtraGuestFee={setUnitExtraGuestFee}
           addRoomType={addRoomType}
           editingRoomIndex={editingRoomIndex}
           onEditRoom={editRoom}
@@ -2021,11 +2183,13 @@ export default function AddProperty() {
           goToPreviousStep={goToPreviousStep}
           goToNextStep={goToNextStep}
           services={services as any}
+          propertyType={type}
+          propertyLatitude={latitude}
+          propertyLongitude={longitude}
           setServices={setServices as any}
           numOrEmpty={numOrEmpty}
           nearbyFacilities={nearbyFacilities as any}
           setNearbyFacilities={setNearbyFacilities as any}
-          servicesCompleted={servicesCompleted}
         />
 
         {/* totals + description */}
@@ -2039,6 +2203,7 @@ export default function AddProperty() {
           setTotalBathrooms={setTotalBathrooms}
           maxGuests={maxGuests}
           setMaxGuests={setMaxGuests}
+          declaredInventoryGuests={hasDeclaredInventory ? autoMaxGuests : null}
           desc={desc}
           setDesc={setDesc}
           acceptGroupBooking={acceptGroupBooking}
@@ -2090,6 +2255,11 @@ export default function AddProperty() {
             },
             rooms: definedRooms.map((r) => ({
               roomType: r.roomType,
+              bookingMode: r.bookingMode,
+              bedrooms: r.bedrooms,
+              maxGuestsPerUnit: r.maxGuestsPerUnit,
+              includedGuests: r.includedGuests,
+              extraGuestFee: r.extraGuestFee,
               roomsCount: r.roomsCount,
               pricePerNight: r.pricePerNight,
               floorDistribution: r.floorDistribution || undefined,
@@ -2103,7 +2273,7 @@ export default function AddProperty() {
             description: desc,
             bedrooms: totalBedrooms,
             bathrooms: totalBathrooms,
-            maxGuests: maxGuests,
+            maxGuests: hasDeclaredInventory ? autoMaxGuests : maxGuests,
           }}
         />
                   </div>

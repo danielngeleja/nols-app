@@ -29,6 +29,7 @@ function getServiceIconColor(serviceType: string): { bg: string; icon: string } 
     bar: { bg: "bg-amber-50", icon: "text-amber-600" },
     pool: { bg: "bg-cyan-50", icon: "text-cyan-600" },
     roomService: { bg: "bg-amber-50", icon: "text-amber-600" },
+    privateChef: { bg: "bg-orange-50", icon: "text-orange-600" },
     wifi: { bg: "bg-blue-50", icon: "text-blue-600" },
     laundry: { bg: "bg-blue-50", icon: "text-blue-600" },
     security: { bg: "bg-indigo-50", icon: "text-indigo-600" },
@@ -50,6 +51,7 @@ function getServiceIconColor(serviceType: string): { bg: string; icon: string } 
   if (lowerType.includes('bar')) return colors.bar;
   if (lowerType.includes('pool')) return colors.pool;
   if (lowerType.includes('room service')) return colors.roomService;
+  if (lowerType.includes('private chef')) return colors.privateChef;
   if (lowerType.includes('wifi')) return colors.wifi;
   if (lowerType.includes('laundry')) return colors.laundry;
   if (lowerType.includes('security')) return colors.security;
@@ -77,6 +79,7 @@ type NormalizedServicesObj = {
   sauna?: boolean;
   laundry?: boolean;
   roomService?: boolean;
+  privateChef?: boolean;
   security24?: boolean;
   firstAid?: boolean;
   fireExtinguisher?: boolean;
@@ -112,6 +115,7 @@ export default function ServicesAndFacilities({
     normalizedServicesObj.sauna ||
     normalizedServicesObj.laundry ||
     normalizedServicesObj.roomService ||
+    normalizedServicesObj.privateChef ||
     normalizedServicesObj.security24 ||
     normalizedServicesObj.firstAid ||
     normalizedServicesObj.fireExtinguisher ||
@@ -199,6 +203,17 @@ export default function ServicesAndFacilities({
                 <ConciergeBell className={`h-4 w-4 ${colors.icon}`} />
               </div>
               <span className="text-sm font-medium text-slate-800 leading-tight">Room Service</span>
+            </div>
+          );
+        })()}
+
+        {/* Private chef */}
+        {(normalizedServicesObj.privateChef || effectiveServicesArray.some((s: string) => s.toLowerCase().includes('private chef'))) && (() => {
+          const colors = getServiceIconColor('private chef');
+          return (
+            <div className="group relative inline-flex items-center gap-2.5 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-3 py-2.5 hover:border-[#02665e]/40 hover:bg-gradient-to-br hover:from-emerald-50/30 hover:to-white motion-safe:transition-all motion-safe:duration-200">
+              <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${colors.bg} flex-shrink-0 motion-safe:transition-colors`}><UtensilsCrossed className={`h-4 w-4 ${colors.icon}`} /></div>
+              <span className="text-sm font-medium text-slate-800 leading-tight">Private Chef</span>
             </div>
           );
         })()}

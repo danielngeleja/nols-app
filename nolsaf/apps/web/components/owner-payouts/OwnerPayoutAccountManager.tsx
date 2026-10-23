@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, Clock, KeyRound, Loader2, ShieldCheck, UserCheck, X } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, KeyRound, Loader2, ShieldCheck, UserCheck, Wallet, X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
 import SecurePayoutPreferenceCard from "@/components/SecurePayoutPreferenceCard";
-import { formatEat } from "./shared";
+import { formatEat, useNow } from "./shared";
 
 /**
  * The owner's payout account, moved here from Profile so it sits with the
@@ -32,6 +33,7 @@ type PayoutAccountRow = {
   isActive: boolean;
   isDefault: boolean;
   verifiedAt: string | null;
+  lastVerifiedAt?: string | null;
   destinationChangedAt: string | null;
   createdAt: string;
 };
@@ -47,6 +49,11 @@ function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function maskedWallet(value: string): string {
+  const lastFour = value.replace(/\D/g, "").slice(-4);
+  return lastFour ? `•••• ${lastFour}` : "Number unavailable";
+}
+
 export default function OwnerPayoutAccountManager() {
   const [saved, setSaved] = useState<Record<string, any>>({});
   const [form, setForm] = useState<Record<string, any>>({});
@@ -57,6 +64,8 @@ export default function OwnerPayoutAccountManager() {
   const [success, setSuccess] = useState<string | null>(null);
   const [preview, setPreview] = useState<Verification | null>(null);
   const [securityWaitingHours, setSecurityWaitingHours] = useState(72);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const now = useNow();
 
   const load = useCallback(async () => {
     try {
@@ -93,9 +102,13 @@ export default function OwnerPayoutAccountManager() {
     const usable = accounts.filter((a) => a.isActive && a.isVerified && a.type === "MOBILE_MONEY");
     return usable.find((a) => a.isDefault) ?? usable[0];
   }, [accounts]);
+  const history = useMemo(() => accounts
+    .filter((account) => !account.isActive && account.isVerified)
+    .sort((a, b) => new Date(b.destinationChangedAt ?? b.createdAt).getTime() - new Date(a.destinationChangedAt ?? a.createdAt).getTime()),
+  [accounts]);
   const changedAt = active ? new Date(active.destinationChangedAt ?? active.createdAt) : null;
   const usableFrom = changedAt ? new Date(changedAt.getTime() + securityWaitingHours * 60 * 60 * 1000) : null;
-  const inWaitingPeriod = Boolean(usableFrom && usableFrom.getTime() > Date.now());
+  const inWaitingPeriod = Boolean(usableFrom && usableFrom.getTime() > now);
   const savedIsBank = clean(saved.payoutPreferred).toUpperCase() === "BANK";
 
   const verify = async () => {
@@ -177,6 +190,7 @@ export default function OwnerPayoutAccountManager() {
         <SecurePayoutPreferenceCard
           value={form}
           bankPayoutsAvailable={false}
+          securityWaitingHours={securityWaitingHours}
           disabled={busy}
           saving={busy}
           saveDisabled={!detailsOk || !changed}
@@ -193,26 +207,71 @@ export default function OwnerPayoutAccountManager() {
       </div>
 
       <aside className="space-y-4">
-        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
-          <h2 className="m-0 text-sm font-bold text-slate-900">Account status</h2>
+        <section className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white">
+          <div className="flex items-center justify-between gap-3 border-0 border-b border-solid border-slate-100 px-5 py-4">
+            <h2 className="m-0 text-sm font-bold text-slate-900">Account status</h2>
+            {active && (
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${inWaitingPeriod ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800"}`}>
+                {inWaitingPeriod ? "Waiting" : "Ready"}
+              </span>
+            )}
+          </div>
           {active ? (
-            <div className="mt-3 space-y-2 text-sm">
-              <p className="m-0 font-semibold text-slate-900">
-                {PROVIDER_NAMES[active.provider.toLowerCase()] ?? active.provider} ***{active.accountNumber.replace(/\D/g, "").slice(-3)}
-              </p>
-              <p className="m-0 text-slate-600">Holder: {active.accountName}</p>
-              {inWaitingPeriod ? (
-                <p className="m-0 flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-                  <Clock className="h-3.5 w-3.5" aria-hidden /> Eligible for approved payouts after {formatEat(usableFrom)}
-                </p>
-              ) : (
-                <p className="m-0 flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Verified for eligible payouts
+            <div className="p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#e8f5f1] text-[#02665e]"><Wallet className="h-5 w-5" aria-hidden /></span>
+                <div className="min-w-0">
+                  <p className="m-0 break-words text-base font-bold text-slate-900">{PROVIDER_NAMES[active.provider.toLowerCase()] ?? active.provider}</p>
+                  <p className="m-0 mt-0.5 text-xs font-medium text-slate-500">{maskedWallet(active.accountNumber)}</p>
+                </div>
+              </div>
+              <dl className="m-0 mt-4 grid grid-cols-2 gap-3 border-0 border-t border-solid border-slate-100 pt-4">
+                <div className="min-w-0">
+                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Account holder</dt>
+                  <dd className="m-0 mt-1 break-words text-xs font-semibold text-slate-800">{active.accountName}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Last verified</dt>
+                  <dd className="m-0 mt-1 text-xs font-semibold text-slate-800">{formatEat(active.lastVerifiedAt ?? active.verifiedAt ?? active.createdAt, false)}</dd>
+                </div>
+              </dl>
+              {inWaitingPeriod && (
+                <p className="m-0 mt-4 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                  <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden /> Available {formatEat(usableFrom)}
                 </p>
               )}
             </div>
           ) : (
-            <p className="m-0 mt-3 text-sm text-slate-600">No verified mobile money account yet. Add one to receive payouts.</p>
+            <div className="p-5"><p className="m-0 text-sm font-semibold text-slate-800">No verified wallet</p><p className="m-0 mt-1 text-xs text-slate-500">Add one to receive payouts.</p></div>
+          )}
+          <Link href={active ? "/owner/payouts#withdraw" : "/owner/payouts"} className={`flex items-center justify-between gap-2 border-0 border-t border-solid px-5 py-3 text-xs font-semibold no-underline hover:no-underline ${active ? "border-[#02665e] bg-[#02665e] text-white hover:bg-[#014d47]" : "border-slate-100 bg-slate-50 text-[#02665e] hover:bg-slate-100"}`}>
+            {active ? "Go to Withdraw" : "View payouts"} <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          </Link>
+        </section>
+
+        <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5">
+          <h2 className="m-0 text-sm font-bold text-slate-900">Previous payout accounts</h2>
+          {history.length > 0 ? (
+            <ul className="m-0 mt-3 list-none divide-y divide-slate-100 p-0">
+              {history.slice(0, showAllHistory ? undefined : 3).map((account) => (
+                <li key={account.id} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="m-0 break-words text-xs font-semibold text-slate-800">
+                      {PROVIDER_NAMES[account.provider.toLowerCase()] ?? account.provider} {maskedWallet(account.accountNumber)}
+                    </p>
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Replaced</span>
+                  </div>
+                  <p className="m-0 mt-1 break-words text-[11px] text-slate-500">{account.accountName} · Saved {formatEat(account.destinationChangedAt ?? account.createdAt, false)}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="m-0 mt-2 text-xs leading-5 text-slate-500">When you replace this account, the previous destination will appear here with its number masked.</p>
+          )}
+          {history.length > 3 && (
+            <button type="button" onClick={() => setShowAllHistory((current) => !current)} className="mt-3 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-[#02665e] hover:underline">
+              {showAllHistory ? "Show fewer" : `Show all ${history.length} accounts`}
+            </button>
           )}
         </section>
 

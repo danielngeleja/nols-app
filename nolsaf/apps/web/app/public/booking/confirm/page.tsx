@@ -549,6 +549,11 @@ export default function BookingConfirmPage() {
       setSubmitting(false);
       return;
     }
+    if (selectionCapacityExceeded) {
+      setError(`This selection sleeps up to ${declaredCapacity * roomsQty} guests. Reduce the guest count or choose another room.`);
+      setSubmitting(false);
+      return;
+    }
 
     // Validate dates
     if (!bookingData.checkIn || !bookingData.checkOut) {
@@ -943,9 +948,10 @@ export default function BookingConfirmPage() {
   // Calculate price based on selected room or base price
   // Always show the room's price even when nights is 0, so users can see the price while selecting dates
   let basePricePerNight = property?.basePrice ? Number(property.basePrice) : 0;
+  let selectedPricingRoom: any = null;
   
   // If a room is selected, use that room's price (this takes priority over basePrice)
-  if (property?.roomsSpec && (selectedRoomCode !== null || selectedRoomIndex !== null)) {
+  if (property?.roomsSpec) {
     let roomTypes: Array<any> = [];
     if (typeof property.roomsSpec === "object") {
       const spec = property.roomsSpec as any;
@@ -969,7 +975,7 @@ export default function BookingConfirmPage() {
         const rt = roomTypes[idx];
         const rtCode = rt?.code || rt?.roomCode;
         const rtType = String(rt?.roomType ?? rt?.type ?? rt?.name ?? rt?.label ?? "").trim();
-        if (rtCode === selectedRoomCode || rtType === selectedRoomCode) {
+        if (rtCode === selectedRoomCode || rtType === selectedRoomCode || (rtCode && selectedRoomCode.startsWith(String(rtCode) + "-"))) {
           selectedRoom = rt;
           break;
         }
@@ -980,8 +986,10 @@ export default function BookingConfirmPage() {
     if (!selectedRoom && selectedRoomIndex !== null && selectedRoomIndex >= 0 && selectedRoomIndex < roomTypes.length) {
       selectedRoom = roomTypes[selectedRoomIndex];
     }
+    if (!selectedRoom && !selectedRoomCode && selectedRoomIndex === null && roomTypes.length === 1) selectedRoom = roomTypes[0];
     
     if (selectedRoom) {
+      selectedPricingRoom = selectedRoom;
       // Extract price using same logic as normalizeRoomSpec: r?.pricePerNight ?? r?.price
       const priceRaw = selectedRoom.pricePerNight ?? selectedRoom.price ?? null;
       if (priceRaw !== null && priceRaw !== undefined) {
@@ -1009,7 +1017,18 @@ export default function BookingConfirmPage() {
   const pricePerNight = calculatePriceWithCommission(basePricePerNight, commissionPercent);
   
   const roomsQty = Math.max(1, Number(bookingData?.rooms ?? 1));
-  const subtotal = pricePerNight * nights * roomsQty;
+  const guestCount = Number(bookingData?.adults || 1) + Number(bookingData?.children || 0);
+  const includedGuests = Number(selectedPricingRoom?.includedGuests);
+  const extraGuestFeeNet = Number(selectedPricingRoom?.extraGuestFee);
+  const declaredCapacity = Number(selectedPricingRoom?.maxGuestsPerUnit);
+  const selectionCapacityExceeded = Number.isInteger(declaredCapacity) && declaredCapacity > 0 && guestCount > declaredCapacity * roomsQty;
+  const hasExtraGuestRate = Number.isInteger(includedGuests) && includedGuests >= 1 && Number.isFinite(extraGuestFeeNet) && extraGuestFeeNet > 0 &&
+    (!Number.isInteger(declaredCapacity) || declaredCapacity <= 0 || includedGuests < declaredCapacity);
+  const extraGuestCount = hasExtraGuestRate ? Math.max(0, guestCount - includedGuests * roomsQty) : 0;
+  const extraGuestRate = hasExtraGuestRate ? calculatePriceWithCommission(extraGuestFeeNet, commissionPercent) : 0;
+  const baseStaySubtotal = pricePerNight * nights * roomsQty;
+  const extraGuestSubtotal = extraGuestCount * extraGuestRate * nights;
+  const subtotal = Math.round((baseStaySubtotal + extraGuestSubtotal) * 100) / 100;
   const totalAmount = subtotal;
   const currency = property?.currency || "TZS"; // always TZS — settlement currency
 
@@ -1673,6 +1692,7 @@ export default function BookingConfirmPage() {
                         )}
                       </div>
                     </div>
+                    {selectionCapacityExceeded && <p className="m-0 px-5 pt-2 text-[12px] font-semibold text-rose-700" role="alert">This selection sleeps up to {declaredCapacity * roomsQty} guests. Reduce the guest count or choose another room.</p>}
 
                     {/* Live availability, attached to the choices above */}
                     <div className="px-5 pb-5 pt-3 sm:px-6">
@@ -2813,6 +2833,7 @@ export default function BookingConfirmPage() {
                 {(() => {
                   const blocked =
                     submitting ||
+                    selectionCapacityExceeded ||
                     availabilityState.status === "checking" ||
                     availabilityState.status === "unavailable" ||
                     (includeTransport && (calculatingFare || transportOriginLat === null || transportOriginLng === null || transportFare === null));
@@ -2875,6 +2896,7 @@ export default function BookingConfirmPage() {
               const outDate = bookingData?.checkOut ? new Date(bookingData.checkOut) : null;
               const short = (d: Date | null) => (d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) : "Add date");
               const guests = (bookingData?.adults || 1) + (bookingData?.children || 0);
+              const entireUnit = Array.isArray(property?.roomsSpec) && property.roomsSpec.some((unit: any) => unit?.bookingMode === "ENTIRE_UNIT");
               const roomName = (() => {
                 if (!property?.roomsSpec || (!selectedRoomCode && selectedRoomIndex === null)) return "";
                 const spec = property.roomsSpec as any;
@@ -2942,8 +2964,8 @@ export default function BookingConfirmPage() {
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Hotel className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                      {roomsQty} room{roomsQty !== 1 ? "s" : ""}
-                      {roomName && <span className="font-medium text-slate-700">· {roomName}</span>}
+                      {entireUnit ? `Entire ${roomName || String(property?.type || "place").toLowerCase()}` : `${roomsQty} room${roomsQty !== 1 ? "s" : ""}`}
+                      {!entireUnit && roomName && <span className="font-medium text-slate-700">· {roomName}</span>}
                     </span>
                   </p>
 
@@ -2958,8 +2980,9 @@ export default function BookingConfirmPage() {
                             {roomsQty > 1 ? ` × ${roomsQty} rooms` : ""}
                           </span>
                         </dt>
-                        <dd className="m-0 flex-none text-right font-semibold tabular-nums text-slate-900">{money(subtotal)}</dd>
+                        <dd className="m-0 flex-none text-right font-semibold tabular-nums text-slate-900">{money(baseStaySubtotal)}</dd>
                       </div>
+                      {extraGuestCount > 0 && <div className="flex items-start justify-between gap-3"><dt className="min-w-0 text-slate-600">Additional guests<span className="block text-[12px] text-slate-400">{extraGuestCount} guest{extraGuestCount === 1 ? "" : "s"} × {extraGuestRate.toLocaleString()} TZS × {nights} night{nights === 1 ? "" : "s"}</span></dt><dd className="m-0 flex-none text-right font-semibold tabular-nums text-slate-900">{money(extraGuestSubtotal)}</dd></div>}
                       {includeTransport && transportFare !== null && (
                         <div className="flex items-start justify-between gap-3">
                           <dt className="min-w-0 text-slate-600">

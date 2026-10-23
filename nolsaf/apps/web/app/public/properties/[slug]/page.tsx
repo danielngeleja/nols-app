@@ -307,6 +307,11 @@ type RoomSpecRow = {
   roomCode?: string; // Room code from roomsSpec
   roomsCount: number | null;
   bedsSummary: string;
+  bookingMode: "ROOM" | "ENTIRE_UNIT";
+  bedrooms: Array<{ name: string; bedsSummary: string; sleeps: number | null }>;
+  maxGuestsPerUnit: number | null;
+  includedGuests: number | null;
+  extraGuestFee: number | null;
   description: string;
   amenities: string[];
   bathItems: string[];
@@ -391,6 +396,7 @@ function normalizeOwnerDeclaredServices(servicesObj: any, servicesArray: string[
   if (normalizeBoolean(servicesObj?.sauna)) addAmenity("Sauna");
   if (normalizeBoolean(servicesObj?.laundry)) addAmenity("Laundry");
   if (normalizeBoolean(servicesObj?.roomService)) addAmenity("Room service");
+  if (normalizeBoolean(servicesObj?.privateChef)) addAmenity("Private chef");
   if (normalizeBoolean(servicesObj?.security24)) addAmenity("24h security");
   if (normalizeBoolean(servicesObj?.firstAid)) addAmenity("First aid");
   if (normalizeBoolean(servicesObj?.fireExtinguisher)) addAmenity("Fire extinguisher");
@@ -791,6 +797,15 @@ function bedsToSummary(beds: any): string {
 
 }
 
+function bedroomBedsLabel(summary: string): string {
+  if (!summary || summary === "-") return "Beds not listed";
+  return summary.split(",").map((part) => {
+    const match = part.trim().match(/^(\d+)\s+(Twin|Full|Queen|King)$/i);
+    if (!match) return part.trim();
+    return `${match[1]} ${match[2].toLowerCase()} ${Number(match[1]) === 1 ? "bed" : "beds"}`;
+  }).join(" · ");
+}
+
 function getBedDimensions(bedsSummary: string): string | null {
   if (!bedsSummary || bedsSummary === "-") return null;
   
@@ -835,6 +850,12 @@ function normalizeRoomSpec(
   const roomsCountRaw = r?.roomsCount ?? r?.count ?? r?.quantity ?? null;
   const roomsCount = roomsCountRaw == null ? null : (Number.isFinite(Number(roomsCountRaw)) ? Number(roomsCountRaw) : null);
   const bedsSummary = bedsToSummary(r?.beds);
+  const bookingMode = r?.bookingMode === "ENTIRE_UNIT" ? "ENTIRE_UNIT" : "ROOM";
+  const bedrooms = Array.isArray(r?.bedrooms) ? r.bedrooms.map((bedroom: any, index: number) => ({
+    name: String(bedroom?.name || `Bedroom ${index + 1}`),
+    bedsSummary: bedsToSummary(bedroom?.beds),
+    sleeps: Number(bedroom?.sleeps) > 0 ? Number(bedroom.sleeps) : null,
+  })) : [];
   const description = String(r?.roomDescription || r?.description || "").trim();
   const amenities = Array.from(
     new Set<string>([
@@ -881,6 +902,11 @@ function normalizeRoomSpec(
     roomCode: r?.code || r?.roomCode || undefined, // Extract room code
     roomsCount,
     bedsSummary,
+    bookingMode,
+    bedrooms,
+    maxGuestsPerUnit: Number(r?.maxGuestsPerUnit) > 0 ? Number(r.maxGuestsPerUnit) : null,
+    includedGuests: Number(r?.includedGuests) > 0 ? Number(r.includedGuests) : null,
+    extraGuestFee: Number(r?.extraGuestFee) > 0 ? calculatePriceWithCommission(Number(r.extraGuestFee), property ? getPropertyCommission(property, systemCommission) : 0) : null,
     description,
     amenities,
     bathItems,
@@ -1038,6 +1064,8 @@ function PropertyAvailabilityChecker({
   selectedRoomCode,
   onRoomTypeSelect,
   roomPrice,
+  entireUnit = false,
+  entireUnitLabel,
 
 }: {
   propertyId: number;
@@ -1054,6 +1082,8 @@ function PropertyAvailabilityChecker({
   onRoomTypeSelect?: (roomCode: string | null) => void;
   /** Guest-facing nightly price for a room type, shown on each room option. */
   roomPrice?: (roomCode: string) => number | null;
+  entireUnit?: boolean;
+  entireUnitLabel?: string;
 
 }) {
   const [checkIn, setCheckIn] = useState<string>("");
@@ -1212,7 +1242,7 @@ function PropertyAvailabilityChecker({
     const isChecking = Boolean(checkIn && checkOut && !availability && !error);
     // Free rooms first, ordered by price in the chosen direction; sold out last.
     const roomOptions = roomOptionsFrom(availability)
-      .map((o) => ({ ...o, price: roomPrice?.(o.code) ?? null }))
+      .map((o) => ({ ...o, label: entireUnit ? `Entire ${entireUnitLabel || "place"}` : o.label, price: roomPrice?.(o.code) ?? null }))
       .sort((a, b) => {
         if ((a.free > 0) !== (b.free > 0)) return a.free > 0 ? -1 : 1;
         if (a.price == null || b.price == null) return a.price == null ? (b.price == null ? 0 : 1) : -1;
@@ -1342,7 +1372,7 @@ function PropertyAvailabilityChecker({
                     <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100" aria-hidden>
                       <Check className="h-3 w-3 text-emerald-700" strokeWidth={3} />
                     </span>
-                    {rooms > 0 ? `${rooms} room${rooms === 1 ? "" : "s"} available` : "Available"}
+                    {rooms > 0 ? (entireUnit ? "Entire place available" : `${rooms} room${rooms === 1 ? "" : "s"} available`) : "Available"}
                     {nights > 0 && <span className="font-normal text-slate-500">· {nights} night{nights === 1 ? "" : "s"}</span>}
                   </p>
                   {loading && (
@@ -1355,9 +1385,9 @@ function PropertyAvailabilityChecker({
 
                 {roomOptions.length > 0 && (
                   <fieldset className="m-0 mt-3 border-0 p-0">
-                    <legend className="sr-only">Choose your room</legend>
+                    <legend className="sr-only">{entireUnit ? "Choose the entire place" : "Choose your room"}</legend>
                     <div className="mb-2 flex items-center justify-between gap-3">
-                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500" aria-hidden>Choose your room</span>
+                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500" aria-hidden>{entireUnit ? "Choose the entire place" : "Choose your room"}</span>
                       {canSortByPrice && (
                         <button
                           type="button"
@@ -1413,7 +1443,7 @@ function PropertyAvailabilityChecker({
                                 {soldOutType ? (
                                   <span className="text-slate-400">Sold out for these dates</span>
                                 ) : free <= 3 ? (
-                                  <span className="font-semibold text-amber-700">Only {free} left</span>
+                                  <span className="font-semibold text-amber-700">{entireUnit ? "Available" : `Only ${free} left`}</span>
                                 ) : (
                                   <span className="text-slate-500">{free} available</span>
                                 )}
@@ -2420,8 +2450,8 @@ export default function PublicPropertyDetailPage() {
   }, [property, systemCommission]);
 
   // Guest-facing nightly price per room type, matched the same way the confirm
-  // page matches it (room code first, then room type name), so the estimate in
-  // the booking card is the price the guest will see at checkout.
+  // page matches it (room code first, then room type name), so the base stay
+  // price in the booking card uses the same nightly rate as checkout.
   const roomNightlyPrice = useMemo(() => {
     const rows = property ? normalizeRoomsSpec(property.roomsSpec as any[], property.currency, property.basePrice, property, systemCommission) : [];
     return (code: string | null | undefined): number | null => {
@@ -3363,9 +3393,9 @@ export default function PublicPropertyDetailPage() {
                 types. A home is booked whole: show guests, bedrooms, bathrooms. */}
             {(() => {
               const roomTypeCount = Array.isArray(property.roomsSpec) ? property.roomsSpec.length : 0;
+              const entireUnit = Array.isArray(property.roomsSpec) && property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT");
               const byTheRoom =
-                /^(HOTEL|LODGE|GUEST_HOUSE|RESORT|HOSTEL|MOTEL)$/i.test(String(property.type || "").replace(/[\s-]+/g, "_")) ||
-                roomTypeCount > 1;
+                !entireUnit && (/^(HOTEL|LODGE|GUEST_HOUSE|RESORT|HOSTEL|MOTEL)$/i.test(String(property.type || "").replace(/[\s-]+/g, "_")) || roomTypeCount > 1);
               const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
               const facts = (byTheRoom
                 ? [
@@ -3394,16 +3424,16 @@ export default function PublicPropertyDetailPage() {
             })()}
             {/* Description */}
             <div className="overflow-hidden rounded-2xl border border-solid border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-6">
-                <div className="flex items-start justify-between gap-4">
+              <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+                <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">
-                        <FileText className="w-5 h-5" aria-hidden />
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-[#02665e] shadow-sm ring-1 ring-[#02665e]/10">
+                        <FileText className="h-[18px] w-[18px]" aria-hidden />
                       </span>
                       <div>
-                        <div className="text-xs font-bold tracking-[0.08em] text-[#02665e]">Host overview</div>
-                        <h2 className="mt-1 text-lg font-semibold text-slate-950">About this place</h2>
+                        <div className="text-[11px] font-bold tracking-[0.08em] text-[#02665e]">Host overview</div>
+                        <h2 className="text-base font-semibold leading-5 text-slate-950">About this place</h2>
                       </div>
                     </div>
                   </div>
@@ -3420,15 +3450,10 @@ export default function PublicPropertyDetailPage() {
                 </div>
               </div>
 
-              <div className="p-5 sm:p-6">
-                <div className="relative rounded-xl border border-solid border-slate-100 bg-white px-4 py-4">
-                  <p className="text-[15px] leading-7 text-slate-700 whitespace-pre-wrap">
-                    {aboutExpanded ? about.text : about.collapsed}
-                  </p>
-                  {!aboutExpanded && about.hasMore ? (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 rounded-b-xl bg-gradient-to-t from-white to-white/0" />
-                  ) : null}
-                </div>
+              <div className="px-4 py-4 sm:px-5">
+                <p className="whitespace-pre-wrap text-[15px] leading-6 text-slate-700">
+                  {aboutExpanded ? about.text : about.collapsed}
+                </p>
               </div>
             </div>
             {/* Physical Verification - Our Competitive Advantage */}
@@ -3535,9 +3560,8 @@ export default function PublicPropertyDetailPage() {
             {(servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 || property.nrmsMenuUrl) ? (
               <div className="rounded-2xl border border-solid border-slate-200 bg-white p-4 sm:p-5">
               {servicesByCategory.included.length > 0 || servicesByCategory.available.length > 0 ? (() => {
-                // Compact rows: a label, then chips that flow across the width.
-                // Safety features are never a paid extra, so they get their own quiet
-                // row instead of sitting under "May cost extra".
+                // Keep included items, other available services, and safety distinct.
+                // Safety features are never presented as paid extras.
                 const SAFETY = /security|guard|first aid|fire|extinguisher|smoke|alarm|cctv|emergency|safe\b/i;
                 const safety = servicesByCategory.available.filter((item: string) => SAFETY.test(item));
                 const extras = servicesByCategory.available.filter((item: string) => !SAFETY.test(item));
@@ -3549,12 +3573,12 @@ export default function PublicPropertyDetailPage() {
                     <h3 className="m-0 text-base font-bold text-slate-900">What this place offers</h3>
                     <dl className="m-0 mt-3 space-y-2.5">
                       {servicesByCategory.included.length > 0 && (
-                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4">
-                          <dt className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 sm:w-28 sm:flex-none sm:pt-1.5">
+                        <div className="rounded-xl border border-solid border-emerald-200 bg-emerald-50/60 p-3">
+                          <dt className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
                             <CheckCircle2 className="h-3.5 w-3.5 flex-none" aria-hidden />
-                            In your price
+                            Included in your price
                           </dt>
-                          <dd className="m-0 flex flex-wrap gap-1.5">
+                          <dd className="m-0 mt-2 flex flex-wrap gap-1.5">
                             {servicesByCategory.included.map((item: string) => {
                               const meta = amenityMeta(item);
                               // The row already says "in your price", so "Free parking"
@@ -3568,7 +3592,7 @@ export default function PublicPropertyDetailPage() {
                                 <span
                                   key={item}
                                   title={item}
-                                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[12.5px] font-semibold text-emerald-900 ring-1 ring-inset ring-emerald-200"
+                                  className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[12.5px] font-semibold text-emerald-900 ring-1 ring-inset ring-emerald-200"
                                 >
                                   <meta.Icon className="h-3.5 w-3.5 flex-none text-emerald-700" aria-hidden />
                                   {label}
@@ -3579,12 +3603,12 @@ export default function PublicPropertyDetailPage() {
                         </div>
                       )}
                       {extras.length > 0 && (
-                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4">
-                          <dt className="text-xs font-semibold text-slate-500 sm:w-28 sm:flex-none sm:pt-1.5">
-                            Also on site
-                            <span className="block font-normal text-slate-400">May cost extra</span>
+                        <div className="rounded-xl border border-solid border-slate-200 bg-slate-50 p-3">
+                          <dt className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-bold text-slate-800">
+                            Available at the property
+                            <span className="font-normal text-slate-500">Charges may apply</span>
                           </dt>
-                          <dd className="m-0 flex flex-wrap items-center gap-1.5">
+                          <dd className="m-0 mt-2 flex flex-wrap items-center gap-1.5">
                             {shownExtras.map((item: string) => {
                               const meta = amenityMeta(item);
                               return (
@@ -3608,12 +3632,12 @@ export default function PublicPropertyDetailPage() {
                         </div>
                       )}
                       {safety.length > 0 && (
-                        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-4">
-                          <dt className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 sm:w-28 sm:flex-none sm:pt-0.5">
+                        <div className="rounded-xl border border-solid border-sky-100 bg-sky-50/50 p-3">
+                          <dt className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
                             <ShieldCheck className="h-3.5 w-3.5 flex-none" aria-hidden />
-                            Safety
+                            Safety at the property
                           </dt>
-                          <dd className="m-0 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                          <dd className="m-0 mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
                             {safety.map((item: string) => {
                               const meta = amenityMeta(item);
                               return (
@@ -3691,8 +3715,10 @@ export default function PublicPropertyDetailPage() {
               const checkingAvailability = hasDates && availabilityData == null;
               const hasRoomSelection = Boolean(selectedRoomCode);
               const canRequestBooking = hasDates && availabilityData?.available === true && hasRoomSelection;
-              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? "Choose a room to continue" : "Request booking";
-              // Once a room is chosen the estimate follows that room's own rate.
+              const entireUnit = Array.isArray(property.roomsSpec) && property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT");
+              const bookingActionLabel = !hasDates ? "Check availability" : checkingAvailability ? "Checking availability" : soldOut ? "Not available" : !hasRoomSelection ? (entireUnit ? "Choose the whole unit" : "Choose a room to continue") : (entireUnit ? "Request entire place" : "Request booking");
+              // A selected room gives an exact base rate; guest-dependent charges
+              // are added after the guest count is entered at checkout.
               const selectedNightly = roomNightlyPrice(selectedRoomCode);
               const nightly = selectedNightly ?? finalBasePrice;
               return (
@@ -3717,6 +3743,8 @@ export default function PublicPropertyDetailPage() {
                       selectedRoomCode={selectedRoomCode}
                       onRoomTypeSelect={setSelectedRoomCode}
                       roomPrice={roomNightlyPrice}
+                      entireUnit={entireUnit}
+                      entireUnitLabel={String((property.roomsSpec as any[])?.find((room: any) => room?.bookingMode === "ENTIRE_UNIT")?.roomType || property.type || "place")}
                     />
                   </div>
 
@@ -3738,27 +3766,12 @@ export default function PublicPropertyDetailPage() {
                     {(!hasDates || canRequestBooking) && <ChevronRight className="h-4 w-4" aria-hidden />}
                   </button>
 
-                  {hasDates && nights > 0 && nightly != null && (
-                    <div className="mt-4 space-y-1.5 border-0 border-t border-solid border-slate-100 pt-3 text-[13px]">
-                      <div className="flex items-center justify-between gap-3 text-slate-600">
-                        <span className="inline-flex items-baseline gap-1">
-                          <PriceDisplay amountTzs={nightly} showNote={false} /> × {nights} night{nights === 1 ? "" : "s"}
-                        </span>
-                        <span className="tabular-nums">
-                          <PriceDisplay amountTzs={nightly * nights} showNote={false} />
-                        </span>
+                  {hasDates && nights > 0 && selectedNightly != null && (
+                    <div className="mt-4 border-0 border-t border-solid border-slate-100 pt-3 text-[13px]">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0"><span className="font-semibold text-slate-900">Base stay price</span><span className="mt-0.5 block text-[11.5px] text-slate-500"><PriceDisplay amountTzs={selectedNightly} showNote={false} /> × {nights} night{nights === 1 ? "" : "s"}</span></div>
+                        <span className="flex-none font-bold tabular-nums text-slate-900"><PriceDisplay amountTzs={selectedNightly * nights} showNote={false} /></span>
                       </div>
-                      <div className="flex items-center justify-between gap-3 font-semibold text-slate-900">
-                        <span>Estimated total</span>
-                        <span className="tabular-nums">
-                          <PriceDisplay amountTzs={nightly * nights} showNote={false} />
-                        </span>
-                      </div>
-                      <p className="m-0 text-[11.5px] text-slate-500">
-                        {selectedNightly != null && selectedRoomCode
-                          ? `Rate for ${selectedRoomCode}. Final amount confirmed at checkout.`
-                          : "Choose a room to see its exact price."}
-                      </p>
                     </div>
                   )}
 
@@ -3830,7 +3843,7 @@ export default function PublicPropertyDetailPage() {
           </aside>
         </div>
         {/* Building visualization (owner-declared) */}
-        {property.roomsSpec && property.roomsSpec.length > 0 && (
+        {property.roomsSpec && property.roomsSpec.length > 0 && !property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT") && (
           <div className="mt-6 rounded-2xl border border-solid border-slate-200 bg-white shadow-sm overflow-hidden">
             {/* Content (the component draws the section header with live totals) */}
             <div className="p-4 sm:p-5">
@@ -3923,7 +3936,7 @@ export default function PublicPropertyDetailPage() {
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[#02665e]/10 text-[#02665e]">
               <DoorClosed className="w-5 h-5" aria-hidden />
             </span>
-            <h2 className="text-lg font-semibold text-slate-900">Rooms</h2>
+            <h2 className="text-lg font-semibold text-slate-900">{Array.isArray(property.roomsSpec) && property.roomsSpec.some((room: any) => room?.bookingMode === "ENTIRE_UNIT") ? "The entire place" : "Rooms"}</h2>
           </div>
           {(() => {
             const rows = normalizeRoomsSpec(property.roomsSpec, property.currency, property.basePrice, property, systemCommission);
@@ -3949,7 +3962,11 @@ export default function PublicPropertyDetailPage() {
                     return { label: "Note", value: t };
                   };
                   const specs: Array<{ key: string; label: string; value: string; Icon: any }> = [];
-                  if (r.bedsSummary) specs.push({ key: "bed", label: "Bed", value: dims ? `${r.bedsSummary} · ${dims.replace(/^[^:]*:\s*/, "").replace(/^.*\((.*)\)$/, "$1")}` : r.bedsSummary, Icon: BedDouble });
+                  if (r.bookingMode === "ENTIRE_UNIT") {
+                    specs.push({ key: "bedrooms", label: "Bedrooms", value: String(r.bedrooms.length), Icon: BedDouble });
+                  }
+                  else if (r.bedsSummary && r.bedsSummary !== "-") specs.push({ key: "bed", label: "Bed", value: dims ? `${r.bedsSummary} · ${dims.replace(/^[^:]*:\s*/, "").replace(/^.*\((.*)\)$/, "$1")}` : r.bedsSummary, Icon: BedDouble });
+                  if (r.maxGuestsPerUnit) specs.push({ key: "guests", label: "Sleeps", value: String(r.maxGuestsPerUnit), Icon: Users });
                   if (r.bathPrivate === "yes" || r.bathPrivate === "no") specs.push({ key: "bath", label: "Bathroom", value: r.bathPrivate === "yes" ? "Private" : "Shared", Icon: Bath });
                   r.policies.slice(0, 2).forEach((pol, i) => {
                     const sp = specOf(pol.text);
@@ -3979,10 +3996,10 @@ export default function PublicPropertyDetailPage() {
                             {idx + 1}
                           </span>
                           <div className="min-w-0">
-                            <h3 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{r.roomType}</h3>
+                            <h3 className="m-0 truncate text-[17px] font-bold leading-tight text-slate-900">{r.bookingMode === "ENTIRE_UNIT" ? `Entire ${r.roomType}` : r.roomType}</h3>
                             {typeof r.roomsCount === "number" && r.roomsCount > 0 ? (
                               <div className="text-[12px] text-slate-500">
-                                {r.roomsCount} {r.roomsCount === 1 ? "room" : "rooms"} of this type
+                                {r.bookingMode === "ENTIRE_UNIT" ? "All bedrooms are included in one booking" : `${r.roomsCount} ${r.roomsCount === 1 ? "room" : "rooms"} of this type`}
                               </div>
                             ) : null}
                           </div>
@@ -4029,6 +4046,15 @@ export default function PublicPropertyDetailPage() {
                           </p>
                         ) : null}
 
+                        {r.bookingMode === "ENTIRE_UNIT" && r.bedrooms.length > 0 && <section className="mt-3.5 rounded-xl border border-solid border-slate-200 bg-white p-3 sm:p-4" aria-label="Sleeping arrangements">
+                          <div className="mb-3 flex items-center gap-2"><BedDouble className="h-4 w-4 text-[#02665e]" aria-hidden /><h4 className="m-0 text-[13px] font-bold text-slate-900">Sleeping arrangements</h4></div>
+                          <div className="grid gap-2 sm:grid-cols-2">{r.bedrooms.map((bedroom, bedroomIndex) => <div key={bedroomIndex} className="flex min-w-0 items-center gap-2.5 rounded-lg border border-solid border-slate-200 bg-slate-50 px-3 py-2.5">
+                            <span className="inline-flex h-7 w-7 flex-none items-center justify-center rounded-full bg-[#02665e]/10 text-[11px] font-bold tabular-nums text-[#02665e]">{bedroomIndex + 1}</span>
+                            <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold text-slate-900" title={bedroom.name}>{bedroom.name}</div><div className="truncate text-[12px] text-slate-600" title={bedroomBedsLabel(bedroom.bedsSummary)}>{bedroomBedsLabel(bedroom.bedsSummary)}</div></div>
+                            {bedroom.sleeps ? <span className="inline-flex flex-none items-center gap-1 rounded-full border border-solid border-[#02665e]/15 bg-[#02665e]/5 px-2 py-1 text-[11px] font-semibold whitespace-nowrap text-[#02665e]" title={`Sleeps ${bedroom.sleeps} ${bedroom.sleeps === 1 ? "guest" : "guests"}`}><Users className="h-3 w-3" aria-hidden />{bedroom.sleeps} {bedroom.sleeps === 1 ? "guest" : "guests"}</span> : null}
+                          </div>)}</div>
+                        </section>}
+
                         {/* Amenities: the highlights in one line, everything on request */}
                         {allAmenities ? (
                           <div className="mt-3.5 border-0 border-t border-solid border-slate-100 pt-3">
@@ -4064,6 +4090,7 @@ export default function PublicPropertyDetailPage() {
                                   };
                                   type Group = { title: string; Icon: any; items: string[]; t: ReturnType<typeof tone> };
                                   const ROOM_GROUPS: Group[] = [
+                                    { title: "Kitchen and dining", Icon: UtensilsCrossed, t: tone("#059669"), items: ["Private kitchen", "Kitchenette", "Shared kitchen", "Cooking allowed", "Stove", "Oven", "Refrigerator", "Cookware", "Dishes and cutlery", "Dining table", "Microwave", "Electric kettle"] },
                                     { title: "Tech & entertainment", Icon: Wifi, t: tone("#4f46e5"), items: ["Free Wi-Fi", "TV", "Flat Screen TV", "PS Station", "Phone"] },
                                     { title: "Comfort & climate", Icon: Thermometer, t: tone("#d97706"), items: ["Air Conditioning", "Heating", "Blackout Curtains", "Bedside Lamps", "Couches"] },
                                     { title: "Work & refreshments", Icon: Coffee, t: tone("#02665e"), items: ["Table", "Desk", "Chair", "Coffee Maker", "Mini Fridge"] },
@@ -4087,11 +4114,11 @@ export default function PublicPropertyDetailPage() {
                                     if (rest.length) out.push({ title: otherTitle, Icon: Tags, items: rest, t: OTHER_TONE });
                                     return out;
                                   };
-                                  const groups = [...group(r.amenities, ROOM_GROUPS, "Other in the room"), ...group(bath, BATH_GROUPS, "Other in the bathroom")];
+                                  const groups = [...group(r.amenities, ROOM_GROUPS, r.bookingMode === "ENTIRE_UNIT" ? "Other in the unit" : "Other in the room"), ...group(bath, BATH_GROUPS, "Other in the bathroom")];
                                   return (
                                     <>
                                       <div className="mb-2.5 flex items-center justify-between gap-3">
-                                        <span className="text-[12px] font-semibold text-slate-500">{allAmenities} amenities in this room</span>
+                                        <span className="text-[12px] font-semibold text-slate-500">{allAmenities} amenities in this {r.bookingMode === "ENTIRE_UNIT" ? "place" : "room"}</span>
                                         <button
                                           type="button"
                                           onClick={() => setOpenRoomAmen((prev) => toggleInSet(prev, idx))}
@@ -4148,7 +4175,8 @@ export default function PublicPropertyDetailPage() {
                             className="text-[22px] font-black leading-tight text-slate-900 tabular-nums"
                             noteClassName="text-xs font-normal text-slate-500 mt-0.5"
                           />
-                          <div className="text-xs text-slate-500">per night, per room</div>
+                          <div className="text-xs text-slate-500">per night, {r.bookingMode === "ENTIRE_UNIT" ? "entire place" : "per room"}</div>
+                          {r.extraGuestFee && r.includedGuests && <div className="mt-1 text-[11px] text-slate-600">Includes {r.includedGuests} guest{r.includedGuests === 1 ? "" : "s"}; +{fmtMoney(r.extraGuestFee, property?.currency || "TZS")} per extra guest per night.</div>}
                           {r.discountLabel ? (
                             <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#02665e]/10 px-2 py-0.5 text-[11px] font-semibold text-[#02665e]">
                               <Tags className="h-2.5 w-2.5" aria-hidden />
@@ -4162,7 +4190,7 @@ export default function PublicPropertyDetailPage() {
                             onClick={reserve}
                             className="inline-flex h-11 cursor-pointer items-center justify-center rounded-xl border-0 bg-[#02665e] px-6 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#014e47] active:scale-[0.98] md:w-full"
                           >
-                            Pay now
+                            {r.bookingMode === "ENTIRE_UNIT" ? "Book entire place" : "Pay now"}
                           </button>
                           <span className="inline-flex items-center gap-1 text-[10.5px] text-slate-400">
                             <Lock className="h-2.5 w-2.5" aria-hidden />
@@ -4679,7 +4707,7 @@ export default function PublicPropertyDetailPage() {
           const approximateLocation = property.locationPrecision === "APPROXIMATE";
           const approximateRadiusM = approximateLocation ? Number(property.locationRadiusMeters) || 500 : null;
 
-          type Place = { name: string; type: string; ownership?: string; distanceKm: number | null; reachableBy: string[]; url?: string };
+          type Place = { name: string; type: string; ownership?: string; distanceKm: number | null; distanceKind?: string; reachableBy: string[]; url?: string };
           const places: Place[] = nearbyFacilities
             .filter((f: any) => f && typeof f !== "string" && f.name)
             .map((f: any) => ({
@@ -4687,6 +4715,7 @@ export default function PublicPropertyDetailPage() {
               type: String(f.type || "Place"),
               ownership: f.ownership ? String(f.ownership) : undefined,
               distanceKm: typeof f.distanceKm === "number" && Number.isFinite(f.distanceKm) ? f.distanceKm : null,
+              distanceKind: f.distanceKind === "straight_line" ? "straight_line" : undefined,
               reachableBy: Array.isArray(f.reachableBy) ? f.reachableBy.map(String) : [],
               url: typeof f.url === "string" && /^https?:\/\//i.test(f.url) ? f.url : undefined,
             }))
@@ -4710,11 +4739,13 @@ export default function PublicPropertyDetailPage() {
             if (v.includes("police")) return Shield;
             if (v.includes("conference")) return Landmark;
             if (v.includes("stadium")) return Building2;
+            if (v.includes("mall")) return Store;
             return MapPin;
           };
           const modeIcon: Record<string, any> = { Walking: Footprints, Boda: Bike, "Public Transport": Bus, "Car/Taxi": Car };
           // A rough travel time from the modes the host listed, so distance means something
           const travel = (p: Place) => {
+            if (p.distanceKind === "straight_line") return null;
             const d = p.distanceKm;
             if (d === null || d <= 0) return null;
             const has = (m: string) => p.reachableBy.includes(m);
@@ -4901,6 +4932,7 @@ export default function PublicPropertyDetailPage() {
                                                 {p.distanceKm}<span className="ml-0.5 text-[10.5px] font-semibold text-white/55">km</span>
                                               </div>
                                             ) : null}
+                                            {p.distanceKind === "straight_line" ? <div className="text-[10px] text-white/50">straight line</div> : null}
                                             {eta ? <div className="mt-0.5 text-[10.5px] text-[#5ec8bb]">{eta}</div> : null}
                                           </div>
                                         </div>

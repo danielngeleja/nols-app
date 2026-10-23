@@ -52,7 +52,21 @@ const baseBodySchema = z.object({
   hotelStar: z.number().int().min(1).max(5).optional().nullable(),
 
   // room & services
-  roomsSpec: z.array(z.any()).default([]),
+  roomsSpec: z.array(z.any()).superRefine((rooms, ctx) => {
+    rooms.forEach((room, index) => {
+      if (!room || typeof room !== "object" || room.maxGuestsPerUnit == null) return;
+      const capacity = Number(room.maxGuestsPerUnit);
+      const included = Number(room.includedGuests);
+      const fee = Number(room.extraGuestFee);
+      const hasPricingRule = room.includedGuests != null || room.extraGuestFee != null;
+      if (!Number.isInteger(capacity) || capacity < 1 || (hasPricingRule && (!Number.isInteger(included) || included < 1 || included > capacity || !Number.isFinite(fee) || fee < 0 || (fee > 0 && included >= capacity)))) {
+        ctx.addIssue({ code: "custom", path: [index], message: "Room guest capacity and extra-guest pricing are invalid" });
+      }
+      if (Array.isArray(room.bedrooms) && room.bedrooms.some((bedroom: any) => bedroom?.sleeps != null && (!Number.isInteger(Number(bedroom.sleeps)) || Number(bedroom.sleeps) < 1 || Number(bedroom.sleeps) > 99))) {
+        ctx.addIssue({ code: "custom", path: [index, "bedrooms"], message: "Bedroom guest capacity must be between 1 and 99" });
+      }
+    });
+  }).default([]),
   // services can be array of strings (legacy) or object with tags and nearbyFacilities
   services: z.union([
     z.array(z.string()),
@@ -124,7 +138,7 @@ function cleanServices(services: unknown): any {
     // Preserve all service properties (parking, restaurant, bar, pool, etc.)
     const serviceProperties = [
       'parking', 'parkingPrice', 'breakfastIncluded', 'breakfastAvailable',
-      'restaurant', 'bar', 'pool', 'sauna', 'laundry', 'roomService',
+      'restaurant', 'bar', 'pool', 'sauna', 'laundry', 'roomService', 'privateChef',
       'security24', 'firstAid', 'fireExtinguisher', 'onSiteShop', 'nearbyMall',
       'socialHall', 'sportsGames', 'gym', 'wifi', 'ac',
       'acceptGroupBookings', 'freeCancellation',

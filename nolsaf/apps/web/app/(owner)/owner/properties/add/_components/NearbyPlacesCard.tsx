@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
+import { straightLineKm } from "@/lib/nearbyPlaceDistance";
 import {
   AlertCircle,
   Bike,
@@ -8,6 +9,7 @@ import {
   Bus,
   Car,
   Check,
+  ChevronDown,
   ExternalLink,
   Footprints,
   Fuel,
@@ -21,6 +23,8 @@ import {
   Route,
   Shield,
   Stethoscope,
+  Store,
+  Train,
   Trash2,
 } from "lucide-react";
 
@@ -33,9 +37,11 @@ export type PlaceType =
   | "Police station"
   | "Airport"
   | "Bus station"
+  | "Train station"
   | "Petrol station"
   | "Conference center"
   | "Stadium"
+  | "Shopping mall"
   | "Main road";
 export type ReachMode = "Walking" | "Boda" | "Public Transport" | "Car/Taxi";
 export type NearbyPlace = {
@@ -46,14 +52,22 @@ export type NearbyPlace = {
   distanceKm: number | "";
   reachableBy: ReachMode[];
   url?: string;
+  pointCode?: string;
+  distanceKind?: "straight_line";
 };
+
+type PickupPoint = { id: string; label: string; city: string; lat: number; lng: number; category: string };
+const CATALOG_CATEGORIES: Partial<Record<PlaceType, string>> = {
+  Airport: "airport", "Bus station": "bus_terminal", "Train station": "train_station",
+};
+const isCatalogType = (type: PlaceType) => Boolean(CATALOG_CATEGORIES[type]);
 
 type Icon = ComponentType<{ className?: string }>;
 
 const GROUPS: { label: string; types: PlaceType[] }[] = [
   { label: "Medical", types: ["Hospital", "Pharmacy", "Polyclinic", "Clinic"] },
-  { label: "Transport", types: ["Airport", "Bus station", "Petrol station", "Main road"] },
-  { label: "Public places", types: ["Police station", "Conference center", "Stadium"] },
+  { label: "Transport", types: ["Airport", "Bus station", "Train station", "Petrol station", "Main road"] },
+  { label: "Public places", types: ["Police station", "Conference center", "Stadium", "Shopping mall"] },
 ];
 
 const TYPE_ICONS: Record<PlaceType, Icon> = {
@@ -64,9 +78,11 @@ const TYPE_ICONS: Record<PlaceType, Icon> = {
   "Police station": Shield,
   Airport: Plane,
   "Bus station": Bus,
+  "Train station": Train,
   "Petrol station": Fuel,
   "Conference center": Landmark,
   Stadium: Building2,
+  "Shopping mall": Store,
   "Main road": Route,
 };
 
@@ -78,9 +94,11 @@ const PLACEHOLDERS: Record<PlaceType, string> = {
   "Police station": "e.g. Central Police Station",
   Airport: "e.g. Julius Nyerere International Airport",
   "Bus station": "e.g. Ubungo Bus Terminal",
+  "Train station": "e.g. Dar es Salaam SGR Station",
   "Petrol station": "e.g. Total Petrol Station",
   "Conference center": "e.g. Mlimani City Conference Center",
   Stadium: "e.g. Benjamin Mkapa Stadium",
+  "Shopping mall": "e.g. Mlimani City",
   "Main road": "e.g. Bagamoyo Road",
 };
 
@@ -106,12 +124,20 @@ function PlaceForm({
   initial,
   isNew,
   lockedTypes,
+  points,
+  usedPointCodes,
+  propertyLatitude,
+  propertyLongitude,
   onSave,
   onCancel,
 }: {
   initial: NearbyPlace;
   isNew: boolean;
   lockedTypes: Set<PlaceType>;
+  points: PickupPoint[];
+  usedPointCodes: Set<string>;
+  propertyLatitude: number | "";
+  propertyLongitude: number | "";
   onSave: (p: NearbyPlace) => void;
   onCancel: () => void;
 }) {
@@ -120,17 +146,34 @@ function PlaceForm({
   // Typed text is kept as is ("2." while typing); the number follows it
   const [distanceText, setDistanceText] = useState(initial.distanceKm === "" ? "" : String(initial.distanceKm));
   const set = (patch: Partial<NearbyPlace>) => setDraft((d) => ({ ...d, ...patch }));
+  const catalogOptions = points.filter((point) => point.category === CATALOG_CATEGORIES[draft.type]);
+  const from = typeof propertyLatitude === "number" && typeof propertyLongitude === "number"
+    ? { lat: propertyLatitude, lng: propertyLongitude } : null;
+  const selectedPoint = draft.pointCode ? points.find((point) => point.id === draft.pointCode) : null;
+
+  useEffect(() => {
+    if (!draft.pointCode || typeof propertyLatitude !== "number" || typeof propertyLongitude !== "number") return;
+    const point = points.find((item) => item.id === draft.pointCode);
+    if (!point) return;
+    const distanceKm = straightLineKm({ lat: propertyLatitude, lng: propertyLongitude }, { lat: point.lat, lng: point.lng });
+    setDraft((current) => current.distanceKm === distanceKm && current.name === point.label
+      ? current : { ...current, name: point.label, distanceKm, distanceKind: "straight_line" });
+    setDistanceText(String(distanceKm));
+  }, [draft.pointCode, points, propertyLatitude, propertyLongitude]);
 
   const nameError = (tried || draft.name.length > 0) && draft.name.trim().length < 2 ? "At least 2 characters" : "";
   const urlError = draft.url && !/^https?:\/\/.+/.test(draft.url) ? "Start with http:// or https://" : "";
   const distanceError = typeof draft.distanceKm === "number" && draft.distanceKm < 0 ? "Cannot be negative" : "";
-  const canSave = draft.name.trim().length >= 2 && !urlError && !distanceError;
+  const canSave = draft.name.trim().length >= 2 && !urlError && !distanceError &&
+    (!selectedPoint || (Boolean(from) && !usedPointCodes.has(draft.pointCode!)));
 
   const save = () => {
     setTried(true);
     if (!canSave) return;
     onSave({
       ...draft,
+      pointCode: selectedPoint?.id,
+      distanceKind: selectedPoint ? "straight_line" : undefined,
       name: draft.name.trim(),
       ownership: WITH_OWNERSHIP.includes(draft.type) ? draft.ownership : "",
       url: draft.url ? draft.url.trim() : undefined,
@@ -148,12 +191,13 @@ function PlaceForm({
               value={draft.type}
               onChange={(e) => {
                 const t = e.target.value as PlaceType;
-                set({ type: t, ownership: WITH_OWNERSHIP.includes(t) ? draft.ownership : "" });
+                setDistanceText("");
+                set({ type: t, name: "", pointCode: undefined, distanceKm: "", distanceKind: undefined, ownership: WITH_OWNERSHIP.includes(t) ? draft.ownership : "" });
               }}
               className="ap-select is-set"
             >
               {GROUPS.flatMap((g) => g.types).map((t) => (
-                <option key={t} value={t} disabled={t !== initial.type && lockedTypes.has(t)}>
+                <option key={t} value={t} disabled={t !== initial.type && lockedTypes.has(t) && !isCatalogType(t)}>
                   {t}
                 </option>
               ))}
@@ -162,29 +206,39 @@ function PlaceForm({
         </div>
       ) : null}
 
-      <div className="ap-fields-3">
+      <div className="ap-place-main">
         <div>
-          <label className="ap-label" htmlFor={`place-name-${draft.id}`}>
+          {isCatalogType(draft.type) && catalogOptions.length > 0 ? <><label className="ap-label" htmlFor={`place-catalog-${draft.id}`}>{draft.type}</label>
+            <div className="ap-place-select-wrap"><select id={`place-catalog-${draft.id}`} className="ap-select" value={draft.pointCode ?? ""} onChange={(event) => {
+              const point = points.find((item) => item.id === event.target.value);
+              if (!point) { setDistanceText(""); set({ pointCode: undefined, name: "", distanceKm: "", distanceKind: undefined }); return; }
+              const distanceKm = from ? straightLineKm(from, { lat: point.lat, lng: point.lng }) : "";
+              setDistanceText(distanceKm === "" ? "" : String(distanceKm));
+              set({ pointCode: point.id, name: point.label, distanceKm, distanceKind: "straight_line" });
+            }}><option value="">My place is not listed</option>{catalogOptions.map((point) => <option key={point.id} value={point.id} disabled={point.id !== initial.pointCode && usedPointCodes.has(point.id)}>{point.label} · {point.city}</option>)}</select><ChevronDown className="h-4 w-4" aria-hidden="true" /></div>
+          </> : null}
+          {!draft.pointCode || (points.length > 0 && !selectedPoint) ? <><label className={`ap-label${catalogOptions.length > 0 ? " ap-place-name-label" : ""}`} htmlFor={`place-name-${draft.id}`}>
             Name <span className="text-red-300">*</span>
           </label>
           <input
             id={`place-name-${draft.id}`}
             value={draft.name}
             onChange={(e) => set({ name: e.target.value })}
+            readOnly={Boolean(selectedPoint)}
             placeholder={PLACEHOLDERS[draft.type]}
             className={`ap-input${nameError ? " is-invalid" : draft.name.trim().length >= 2 ? " is-set" : ""}`}
-            autoFocus
           />
-          {nameError ? <p className="ap-field-error">{nameError}</p> : null}
+          {nameError ? <p className="ap-field-error">{nameError}</p> : null}</> : null}
         </div>
         <div>
-          <label className="ap-label" htmlFor={`place-distance-${draft.id}`}>Distance</label>
+          {selectedPoint ? <><span className="ap-label">From your property</span><div className="ap-place-distance-summary"><MapPin className="h-4 w-4" aria-hidden="true" /><strong>{from && distanceText ? `${distanceText} km` : "Set property pin"}</strong><small>{from ? "Straight-line distance" : "Needed to calculate distance"}</small></div></> : <><label className="ap-label" htmlFor={`place-distance-${draft.id}`}>Distance <span className="font-normal text-white/40">optional</span></label>
           <div className="ap-price">
             <input
               id={`place-distance-${draft.id}`}
               type="text"
               inputMode="decimal"
               value={distanceText}
+              readOnly={Boolean(selectedPoint)}
               onChange={(e) => {
                 const raw = e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
                 setDistanceText(raw);
@@ -195,25 +249,11 @@ function PlaceForm({
             />
             <span className="ap-price-unit">km</span>
           </div>
-          {distanceError ? <p className="ap-field-error">{distanceError}</p> : null}
-        </div>
-        <div>
-          <label className="ap-label" htmlFor={`place-url-${draft.id}`}>
-            Link <span className="font-normal text-white/40">optional</span>
-          </label>
-          <input
-            id={`place-url-${draft.id}`}
-            type="url"
-            value={draft.url ?? ""}
-            onChange={(e) => set({ url: e.target.value })}
-            placeholder="https://"
-            className={`ap-input${urlError ? " is-invalid" : ""}`}
-          />
-          {urlError ? <p className="ap-field-error">{urlError}</p> : null}
+          {distanceError ? <p className="ap-field-error">{distanceError}</p> : null}</>}
         </div>
       </div>
 
-      <div className="ap-fields-3">
+      <div className="ap-place-secondary">
         {WITH_OWNERSHIP.includes(draft.type) ? (
           <div>
             <span className="ap-label">Ownership</span>
@@ -233,9 +273,9 @@ function PlaceForm({
             </div>
           </div>
         ) : null}
-        <div className={WITH_OWNERSHIP.includes(draft.type) ? "sm:col-span-2" : "sm:col-span-2 lg:col-span-3"}>
+        <div className="ap-place-reach-field">
           <span className="ap-label">Reachable by</span>
-          <div className="ap-reach" role="group" aria-label="Reachable by">
+          <div className="ap-reach ap-place-reach" role="group" aria-label="Reachable by">
             {REACH.map(({ mode, label, Icon }) => {
               const on = draft.reachableBy.includes(mode);
               return (
@@ -252,6 +292,11 @@ function PlaceForm({
               );
             })}
           </div>
+        </div>
+        <div className="ap-place-link-field">
+          <label className="ap-label" htmlFor={`place-url-${draft.id}`}>Website or map link <span className="font-normal text-white/40">optional</span></label>
+          <input id={`place-url-${draft.id}`} type="url" value={draft.url ?? ""} onChange={(e) => set({ url: e.target.value })} placeholder="https://" className={`ap-input${urlError ? " is-invalid" : ""}`} />
+          {urlError ? <p className="ap-field-error">{urlError}</p> : null}
         </div>
       </div>
 
@@ -273,14 +318,46 @@ export function NearbyPlacesCard({
   cardNo,
   places,
   setPlaces,
+  propertyLatitude,
+  propertyLongitude,
 }: {
   cardNo: number;
   places: NearbyPlace[];
   setPlaces: (updater: (prev: NearbyPlace[]) => NearbyPlace[]) => void;
+  propertyLatitude: number | "";
+  propertyLongitude: number | "";
 }) {
   const [composing, setComposing] = useState<NearbyPlace | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [points, setPoints] = useState<PickupPoint[]>([]);
+  const [catalogError, setCatalogError] = useState(false);
   const lockedTypes = new Set(places.map((p) => p.type));
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/public/pickup-points", { cache: "no-store" })
+      .then((response) => { if (!response.ok) throw new Error("Pickup point request failed"); return response.json(); })
+      .then((data) => { if (active) setPoints(Array.isArray(data?.items) ? data.items : []); })
+      .catch(() => { if (active) setCatalogError(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!points.length || typeof propertyLatitude !== "number" || typeof propertyLongitude !== "number") return;
+    setPlaces((previous) => {
+      let changed = false;
+      const next = previous.map((place) => {
+        if (!place.pointCode) return place;
+        const point = points.find((item) => item.id === place.pointCode);
+        if (!point) return place;
+        const distanceKm = straightLineKm({ lat: propertyLatitude, lng: propertyLongitude }, { lat: point.lat, lng: point.lng });
+        if (place.distanceKm === distanceKm && place.name === point.label && place.distanceKind === "straight_line") return place;
+        changed = true;
+        return { ...place, name: point.label, distanceKm, distanceKind: "straight_line" as const };
+      });
+      return changed ? next : previous;
+    });
+  }, [points, propertyLatitude, propertyLongitude, setPlaces]);
 
   return (
     <section className="ap-card">
@@ -349,7 +426,7 @@ export function NearbyPlacesCard({
                 <div className="ap-place-foot">
                   {typeof p.distanceKm === "number" ? (
                     <span className="ap-place-dist">
-                      <strong>{p.distanceKm}</strong> km
+                      <strong>{p.distanceKm}</strong> km{p.distanceKind === "straight_line" ? " straight line" : ""}
                     </span>
                   ) : (
                     <span className="text-[11.5px] text-white/40">No distance</span>
@@ -380,6 +457,10 @@ export function NearbyPlacesCard({
             initial={places.find((p) => p.id === editingId)!}
             isNew={false}
             lockedTypes={lockedTypes}
+            points={points}
+            usedPointCodes={new Set(places.filter((p) => p.id !== editingId).map((p) => p.pointCode).filter((value): value is string => Boolean(value)))}
+            propertyLatitude={propertyLatitude}
+            propertyLongitude={propertyLongitude}
             onCancel={() => setEditingId(null)}
             onSave={(next) => {
               setPlaces((list) => list.map((x) => (x.id === editingId ? next : x)));
@@ -399,7 +480,7 @@ export function NearbyPlacesCard({
               </div>
               {g.types.map((t) => {
                 const Icon = TYPE_ICONS[t];
-                const added = lockedTypes.has(t);
+                const added = lockedTypes.has(t) && !isCatalogType(t);
                 const on = composing?.type === t;
                 return (
                   <button
@@ -441,6 +522,10 @@ export function NearbyPlacesCard({
             initial={composing}
             isNew
             lockedTypes={lockedTypes}
+            points={points}
+            usedPointCodes={new Set(places.map((p) => p.pointCode).filter((value): value is string => Boolean(value)))}
+            propertyLatitude={propertyLatitude}
+            propertyLongitude={propertyLongitude}
             onCancel={() => setComposing(null)}
             onSave={(p) => {
               setPlaces((list) => [...list, p]);
@@ -453,6 +538,7 @@ export function NearbyPlacesCard({
           <p className="m-0 ap-note">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
             Guests often check the nearest hospital and how to get from the airport.
+            {catalogError ? " The known transport locations are unavailable; you can still add a place manually." : ""}
           </p>
         </div>
       ) : null}

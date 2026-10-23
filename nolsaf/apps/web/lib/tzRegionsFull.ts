@@ -3092,6 +3092,34 @@ export const REGIONS_FULL_DATA: RegionFullData[] = [
     "name": "DODOMA",
     "code": "41",
     "districts": [
+      // TCRA Dodoma postcode list: CBD 41101–41120 (missing from the imported CSV).
+      // https://tcra.go.tz/uploads/text-editor/files/Dodoma%2041000_1622732679.pdf
+      {
+        "name": "DODOMA CBD",
+        "code": "411",
+        "wards": [
+          { "name": "UHURU", "code": "41101", "postcode": "41101", "streets": [] },
+          { "name": "VIWANDANI", "code": "41102", "postcode": "41102", "streets": [] },
+          { "name": "MADUKANI", "code": "41103", "postcode": "41103", "streets": [] },
+          { "name": "TAMBUKARELI", "code": "41104", "postcode": "41104", "streets": [] },
+          { "name": "MAKOLE", "code": "41105", "postcode": "41105", "streets": [] },
+          { "name": "MAJENGO", "code": "41106", "postcode": "41106", "streets": [] },
+          { "name": "DODOMA MAKULU", "code": "41107", "postcode": "41107", "streets": [] },
+          { "name": "HAZINA", "code": "41108", "postcode": "41108", "streets": [] },
+          { "name": "CHAMWINO", "code": "41109", "postcode": "41109", "streets": [] },
+          { "name": "KILIMANI", "code": "41110", "postcode": "41110", "streets": [] },
+          { "name": "KIKUYU KASKAZINI", "code": "41111", "postcode": "41111", "streets": [] },
+          { "name": "KIKUYU KUSINI", "code": "41112", "postcode": "41112", "streets": [] },
+          { "name": "MIYUJI", "code": "41113", "postcode": "41113", "streets": [] },
+          { "name": "KIZOTA", "code": "41114", "postcode": "41114", "streets": [] },
+          { "name": "KIWANJA CHA NDEGE", "code": "41115", "postcode": "41115", "streets": [] },
+          { "name": "MKONZE", "code": "41116", "postcode": "41116", "streets": [] },
+          { "name": "NKUHUNGU", "code": "41117", "postcode": "41117", "streets": [] },
+          { "name": "IHUMWA", "code": "41118", "postcode": "41118", "streets": [] },
+          { "name": "NGHONG'ONHA", "code": "41119", "postcode": "41119", "streets": [] },
+          { "name": "MATUMBULU", "code": "41120", "postcode": "41120", "streets": [] }
+        ]
+      },
       {
         "name": "DODOMA",
         "code": "412",
@@ -3127,6 +3155,7 @@ export const REGIONS_FULL_DATA: RegionFullData[] = [
               "SONGAMBELE"
             ]
           },
+          { "name": "HOMBOLO BWAWANI", "code": "41204", "postcode": "41204", "streets": [] },
           {
             "name": "MSALATO",
             "code": "41205",

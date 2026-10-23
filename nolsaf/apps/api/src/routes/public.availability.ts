@@ -11,6 +11,7 @@ import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { findRestrictionBlocks, resolveRoomTypeIdForCode } from "../lib/nrmsRestrictions.js";
 import { matchingRoomSelectionCodes } from "../lib/roomSelectionCode.js";
 import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
+import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
 
 export const router = Router();
 
@@ -229,7 +230,7 @@ router.post("/check", availabilityLimiter, (async (req: Request, res: Response) 
         const rawKey = String(rt?.code ?? rt?.roomCode ?? rt?.roomType ?? rt?.type ?? rt?.name ?? rt?.label ?? "").trim();
         const key = roomCodeToTypeKey(rawKey) || "default";
         const rooms = Number(rt?.rooms ?? rt?.roomsCount ?? rt?.count ?? 0) || 0;
-        const bedsPerRoom = Number(rt?.beds ?? rt?.bedsPerRoom ?? rt?.bedsCount ?? rt?.capacity ?? 0) || 0;
+        const bedsPerRoom = bedsPerSellableUnit(rt);
 
         const effectiveRooms = rooms > 0 ? rooms : (property.totalBedrooms || 1);
         const effectiveBedsPerRoom = bedsPerRoom > 0 ? bedsPerRoom : 1;

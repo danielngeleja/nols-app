@@ -23,6 +23,7 @@ export function TotalsStep({
   setTotalBathrooms,
   maxGuests,
   setMaxGuests,
+  declaredInventoryGuests,
   desc,
   setDesc,
   acceptGroupBooking,
@@ -40,6 +41,7 @@ export function TotalsStep({
   setTotalBathrooms: NumSetter;
   maxGuests: number | "";
   setMaxGuests: NumSetter;
+  declaredInventoryGuests: number | null;
   desc: string;
   setDesc: (v: string) => void;
   acceptGroupBooking: boolean;
@@ -60,7 +62,7 @@ export function TotalsStep({
   currentStep: number;
 }) {
   const baths = Number(totalBathrooms) || 0;
-  const guests = Number(maxGuests) || 0;
+  const guests = declaredInventoryGuests ?? (Number(maxGuests) || 0);
   const bedrooms = Number(totalBedrooms) || 0;
 
   const descLength = desc.trim().length;
@@ -141,8 +143,8 @@ export function TotalsStep({
                 </div>
 
                 <div className="ap-stat">
-                  <label htmlFor="max-guests" className="ap-stat-label">Max guests</label>
-                  <div className={`ap-stepper ap-stat-stepper${guests > 0 ? " is-set" : ""}`}>
+                  {declaredInventoryGuests !== null ? <span className="ap-stat-label">Max guests</span> : <label htmlFor="max-guests" className="ap-stat-label">Max guests</label>}
+                  {declaredInventoryGuests !== null ? <div className="ap-sum is-set"><Users className="h-4 w-4 text-teal-300" aria-hidden /><span id="max-guests" className="ap-sum-value">{declaredInventoryGuests}</span></div> : <div className={`ap-stepper ap-stat-stepper${guests > 0 ? " is-set" : ""}`}>
                     <button type="button" aria-label="One guest less" onClick={() => setMaxGuests(Math.max(1, guests - 1))} disabled={guests <= 1} className="ap-step-btn">
                       <Minus className="h-4 w-4" />
                     </button>
@@ -161,8 +163,8 @@ export function TotalsStep({
                     <button type="button" aria-label="One guest more" onClick={() => setMaxGuests(guests + 1)} className="ap-step-btn is-plus">
                       <Plus className="h-4 w-4" />
                     </button>
-                  </div>
-                  <span className="ap-stat-note">Everyone who can sleep here at once</span>
+                  </div>}
+                  <span className="ap-stat-note">{declaredInventoryGuests !== null ? "Total declared across the saved rooms. Edit room capacity to change this." : "Everyone who can sleep here at once"}</span>
                 </div>
               </div>
             </section>

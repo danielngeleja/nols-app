@@ -569,11 +569,11 @@ export default function GroupStayDetail() {
                 {[
                   { label: "Guests", value: groupStay.headcount },
                   { label: "Rooms", value: groupStay.roomsNeeded },
-                  { label: "Accommodation", value: humanize(groupStay.accommodationType) || "Any" },
+                  { label: "Stay type", value: humanize(groupStay.accommodationType) || "Any" },
                 ].map((fact, index) => (
-                  <div key={fact.label} className={index > 0 ? "border-0 border-l border-dashed border-slate-200 pl-4" : ""}>
-                    <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
-                    <dd className="m-0 mt-1 truncate text-xl font-extrabold text-slate-900">{fact.value}</dd>
+                  <div key={fact.label} className={`min-w-0 ${index > 0 ? "border-0 border-l border-dashed border-slate-200 pl-4" : ""}`}>
+                    <dt className="truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{fact.label}</dt>
+                    <dd className={`m-0 mt-1 break-words font-extrabold text-slate-900 ${index === 2 ? "text-[17px]" : "text-xl"}`}>{fact.value}</dd>
                   </div>
                 ))}
               </dl>
@@ -582,9 +582,9 @@ export default function GroupStayDetail() {
                 <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#012a26] text-sm font-bold text-[#5eead4]">
                   {(groupStay.user?.name || "G").split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("")}
                 </span>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-[8rem] flex-1">
                   <p className="m-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Lead guest</p>
-                  <p className="m-0 truncate text-sm font-bold text-slate-900">{groupStay.user?.name || "Not on record"}</p>
+                  <p className="m-0 break-words text-sm font-bold text-slate-900">{groupStay.user?.name || "Not on record"}</p>
                 </div>
                 {groupStay.confirmedProperty && (
                   <span className="inline-flex max-w-full items-center gap-1.5 rounded-xl bg-[#012a26] px-3 py-1.5 text-xs font-semibold text-[#5eead4]"><Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden /><span className="truncate">{groupStay.confirmedProperty.title}</span></span>
@@ -616,11 +616,11 @@ export default function GroupStayDetail() {
               <p className="m-0 mt-0.5 text-xs text-slate-500">For awareness. NoLSAF arranges transport and pickups.</p>
               <ul className="m-0 mt-4 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2 xl:grid-cols-5">
                 {allExtras.map((extra) => (
-                  <li key={extra.label} className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 ring-1 ring-inset ${extra.on ? "bg-emerald-50/60 ring-emerald-200" : "bg-slate-50 ring-slate-100"}`}>
-                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${extra.on ? "bg-[#012a26] text-[#5eead4]" : "bg-white text-slate-300 ring-1 ring-inset ring-slate-200"}`}><extra.Icon className="h-4 w-4" aria-hidden /></span>
-                    <span className="min-w-0">
-                      <span className={`block text-sm font-semibold ${extra.on ? "text-slate-900" : "text-slate-400"}`}>{extra.label}</span>
-                      <span className={`block text-[11px] ${extra.on ? "text-emerald-700" : "text-slate-400"}`}>{extra.on ? "Requested" : "Not needed"}</span>
+                  <li key={extra.label} className={`flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2.5 py-2.5 ring-1 ring-inset xl:gap-1.5 xl:px-2 ${extra.on ? "bg-emerald-50/60 ring-emerald-200" : "bg-slate-50 ring-slate-100"}`}>
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg xl:h-7 xl:w-7 ${extra.on ? "bg-[#012a26] text-[#5eead4]" : "bg-white text-slate-300 ring-1 ring-inset ring-slate-200"}`}><extra.Icon className="h-4 w-4" aria-hidden /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-sm font-semibold leading-5 xl:text-xs xl:leading-4 ${extra.on ? "text-slate-900" : "text-slate-400"}`}>{extra.label}</span>
+                      <span className={`block truncate text-[11px] leading-4 xl:text-[10px] xl:leading-3 ${extra.on ? "text-emerald-700" : "text-slate-400"}`}>{extra.on ? "Requested" : "Not needed"}</span>
                     </span>
                   </li>
                 ))}

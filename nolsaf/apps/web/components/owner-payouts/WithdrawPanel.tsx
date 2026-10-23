@@ -58,6 +58,7 @@ export default function WithdrawPanel({
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [sentAt, setSentAt] = useState(0);
   const [code, setCode] = useState("");
+  const [codeFocused, setCodeFocused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supportLocked, setSupportLocked] = useState(false);
@@ -122,17 +123,17 @@ export default function WithdrawPanel({
   return (
     <div className="space-y-3">
       {!challenge && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-2">
           <button
             type="button"
             onClick={requestCode}
             disabled={busy || readyCount === 0}
-            className="inline-flex h-11 items-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border-0 bg-[#02665e] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#014d47] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <LockKeyhole className="h-4 w-4" aria-hidden />}
-            {busy ? "Sending code..." : readyCount === 0 ? "Nothing to withdraw yet" : `Withdraw ${formatTzs(sendable)}`}
+            {busy ? "Sending code..." : `Withdraw ${formatTzs(sendable)}`}
           </button>
-          {readyCount > 0 && <span className="text-xs text-slate-500">We send a one-time code to confirm it is you.</span>}
+          {readyCount > 0 && <span className="text-center text-xs text-slate-500">Includes all {readyCount} ready {readyCount === 1 ? "stay" : "stays"} · one confirmation code</span>}
         </div>
       )}
 
@@ -144,30 +145,55 @@ export default function WithdrawPanel({
             </span>
             <div className="min-w-0 text-sm text-slate-700">
               <p className="m-0">
-                Withdraw <strong className="text-slate-900">{formatTzs(challenge.total)}</strong> to{" "}
+                Withdraw <strong className="text-slate-900">{formatTzs(challenge.total)}</strong> from {challenge.count} {challenge.count === 1 ? "stay" : "stays"} to{" "}
                 <strong className="text-slate-900">{challenge.destination}</strong>
                 {Number(challenge.recoveryDeduction ?? 0) > 0 && (
                   <> ({formatTzs(challenge.grossTotal)} ready, less {formatTzs(challenge.recoveryDeduction)} for an earlier refund)</>
                 )}
                 .
               </p>
-              <p className="m-0 mt-1 text-xs text-slate-500">
+              <p id="withdrawal-code-hint" className="m-0 mt-1 text-xs text-slate-500">
                 Code sent by {challenge.channel === "SMS" ? "SMS" : "email"} to {challenge.sentTo}. It expires at {formatEat(challenge.expiresAt)}.
                 Never share it. NoLSAF staff will never ask for it.
               </p>
             </div>
           </div>
+          <div className="mt-4">
+            <label htmlFor="withdrawal-code" className="mb-2 block text-xs font-semibold text-slate-700">Enter the 6-digit code</label>
+            <div className="relative w-full max-w-[18rem]">
+              <div className="grid grid-cols-6 gap-1.5" aria-hidden>
+                {Array.from({ length: 6 }, (_, index) => {
+                  const digit = code[index];
+                  const isCurrent = codeFocused && code.length < 6 && index === code.length;
+                  return (
+                    <span key={index} className={`grid h-11 min-w-0 place-items-center rounded-lg border border-solid bg-white font-mono text-lg font-bold tabular-nums transition-colors ${digit ? "border-[#02665e]/40 text-[#02665e]" : isCurrent ? "border-[#02665e] ring-2 ring-[#02665e]/15 text-slate-400" : "border-slate-300 text-slate-300"}`}>
+                      {digit || "·"}
+                    </span>
+                  );
+                })}
+              </div>
+              <input
+                id="withdrawal-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                onPaste={(event) => {
+                  event.preventDefault();
+                  setCode(event.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6));
+                }}
+                onFocus={() => setCodeFocused(true)}
+                onBlur={() => setCodeFocused(false)}
+                aria-label="6-digit withdrawal code"
+                aria-describedby="withdrawal-code-hint"
+                autoFocus
+                className="absolute inset-0 h-full w-full cursor-text border-0 bg-transparent p-0 text-transparent caret-transparent outline-none selection:bg-transparent"
+              />
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <input
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              aria-label="Withdrawal code"
-              placeholder="000000"
-              className="box-border h-11 w-36 rounded-xl border border-solid border-slate-300 bg-white px-3 text-center text-lg tracking-[0.35em] text-slate-900 outline-none focus:border-[#02665e] focus:ring-2 focus:ring-[#02665e]/15"
-            />
             <button
               type="button"
               onClick={confirm}

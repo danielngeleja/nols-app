@@ -25,6 +25,11 @@ interface ReviewData {
   };
   rooms: Array<{
     roomType: string;
+    bookingMode?: "ROOM" | "ENTIRE_UNIT";
+    bedrooms?: Array<{ name: string; beds: object }>;
+    maxGuestsPerUnit?: number;
+    includedGuests?: number;
+    extraGuestFee?: number;
     roomsCount: number;
     pricePerNight: number;
     floorDistribution?: Record<number, number>;
@@ -108,6 +113,7 @@ function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: Revi
   };
 
   const rooms = reviewData.rooms || [];
+  const entireUnit = rooms.some((room) => room.bookingMode === "ENTIRE_UNIT");
   const totalRooms = rooms.reduce((sum, r) => sum + (Number(r.roomsCount) || 0), 0);
   const prices = rooms.map((r) => Number(r.pricePerNight) || 0).filter((n) => n > 0);
   const minPrice = prices.length ? Math.min(...prices) : 0;
@@ -268,7 +274,7 @@ function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: Revi
           {rooms.length ? (
             <span className="ap-card-tag">
               <Check className="h-3.5 w-3.5" aria-hidden />
-              {totalRooms} {totalRooms === 1 ? "room" : "rooms"}
+              {totalRooms} {entireUnit ? "entire place" : totalRooms === 1 ? "room" : "rooms"}
             </span>
           ) : (
             <span className="ap-card-tag is-todo">None yet</span>
@@ -284,11 +290,11 @@ function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: Revi
             <table className="ap-table">
               <thead>
                 <tr>
-                  <th>Room type</th>
-                  <th className="is-num">Rooms</th>
+                  <th>{entireUnit ? "Unit type" : "Room type"}</th>
+                  <th className="is-num">{entireUnit ? "Units" : "Rooms"}</th>
                   {isMulti ? <th>Floors</th> : null}
                   <th className="is-num">Per night</th>
-                  <th className="is-num">All rooms, one night</th>
+                  <th className="is-num">{entireUnit ? "Whole unit, one night" : "All rooms, one night"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -302,8 +308,9 @@ function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: Revi
                       <td>
                         <span className="ap-table-type">
                           <span className="ap-floor-no">{String(r.roomType || "R").charAt(0)}</span>
-                          {r.roomType}
+                          {r.bookingMode === "ENTIRE_UNIT" ? `Entire ${r.roomType} · ${r.bedrooms?.length ?? 0} bedrooms` : r.roomType}
                         </span>
+                        {r.maxGuestsPerUnit && <small className="block pl-8 text-white/55">Sleeps {r.maxGuestsPerUnit}{r.bookingMode === "ROOM" ? " per room" : ""} · {Number(r.extraGuestFee) > 0 ? `Base rate includes ${r.includedGuests}; +${money(Number(r.extraGuestFee), currency)} per extra guest/night` : "Same rate for all guests"}</small>}
                       </td>
                       <td className="is-num">{r.roomsCount}</td>
                       {isMulti ? <td className="text-white/60">{floorsLabel || "Not placed"}</td> : null}
@@ -346,7 +353,7 @@ function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: Revi
           </span>
         </header>
 
-        {rooms.length > 0 ? (
+        {rooms.length > 0 && !entireUnit ? (
           <div className="ap-card-body">
             <PropertyVisualizationPreview
               tone="dark"
@@ -362,7 +369,7 @@ function ReviewBody({ stepsMeta, completeEnough, onStepClick, reviewData }: Revi
               }))}
             />
           </div>
-        ) : (
+        ) : entireUnit ? <div className="ap-card-body"><p className="m-0 ap-note">The entire place is one bookable unit. The guest listing will show each bedroom and its beds.</p></div> : (
           <div className="ap-card-body">
             <p className="m-0 ap-note">The building appears here once a room group is saved.</p>
           </div>

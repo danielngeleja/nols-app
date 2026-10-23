@@ -75,6 +75,12 @@ export default function PayoutsOverviewPage() {
     [payouts]
   );
 
+  useEffect(() => {
+    if (loading || !enabled || window.location.hash !== "#withdraw") return;
+    const frame = window.requestAnimationFrame(() => document.getElementById("withdraw")?.scrollIntoView({ block: "start" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, enabled]);
+
   if (loading) {
     return (
       <div className="flex min-h-[30vh] items-center justify-center text-sm text-slate-500">
@@ -93,7 +99,7 @@ export default function PayoutsOverviewPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-7">
+      <section id="withdraw" className="scroll-mt-6 rounded-2xl border border-solid border-slate-200 bg-white p-5 sm:p-7">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <p className="m-0 text-sm font-medium text-slate-500">Ready to withdraw</p>
@@ -105,7 +111,7 @@ export default function PayoutsOverviewPage() {
               <span aria-hidden>·</span>
               {destination ? (
                 <span className="inline-flex items-center gap-1">
-                  <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden /> Paid to {destination}
+                  <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden /> To {destination}
                 </span>
               ) : (
                 <Link href="/owner/payouts/account" className="font-semibold text-amber-700 no-underline hover:underline">
@@ -114,7 +120,8 @@ export default function PayoutsOverviewPage() {
               )}
             </p>
           </div>
-          <div className="lg:max-w-md lg:text-right">
+          <div className="min-w-0 rounded-xl border border-solid border-emerald-200 bg-emerald-50/40 p-4 lg:w-[21rem]">
+            <h2 className="m-0 mb-3 text-sm font-bold text-slate-900">Withdraw earnings</h2>
             <WithdrawPanel readyTotal={figures.readyTotal} readyCount={figures.ready.length} recoveryDue={recoveryDue} onDone={() => void reload()} />
           </div>
         </div>

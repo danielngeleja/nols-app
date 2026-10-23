@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import {
   Ban,
   Bandage,
   Beer,
   Car,
   Check,
+  ChevronDown,
+  ChevronUp,
   Coffee,
   Dumbbell,
   FireExtinguisher,
@@ -14,7 +16,6 @@ import {
   Package,
   PartyPopper,
   Shield,
-  ShoppingBag,
   Store,
   Thermometer,
   UtensilsCrossed,
@@ -28,13 +29,11 @@ import { StepFooter } from "./StepFooter";
 
 type Icon = ComponentType<{ className?: string }>;
 
-/** Every on-site service, grouped the way guests scan for them. Keys are the saved service flags. */
+/** On-site services only. Amenities inside a booked unit are set in the Rooms step. */
 const SERVICE_GROUPS: { label: string; items: { key: string; label: string; hint: string; Icon: Icon }[] }[] = [
   {
     label: "Dining",
     items: [
-      { key: "breakfastIncluded", label: "Breakfast included", hint: "Breakfast is included in the room price", Icon: Coffee },
-      { key: "breakfastAvailable", label: "Breakfast, extra charge", hint: "Breakfast is available for an additional charge", Icon: Coffee },
       { key: "restaurant", label: "Restaurant", hint: "On-site restaurant available for guests", Icon: UtensilsCrossed },
       { key: "bar", label: "Bar", hint: "Bar or lounge area available for guests", Icon: Beer },
     ],
@@ -50,8 +49,9 @@ const SERVICE_GROUPS: { label: string; items: { key: string; label: string; hint
   {
     label: "Housekeeping",
     items: [
-      { key: "laundry", label: "Laundry", hint: "Laundry service available for guests", Icon: WashingMachine },
+      { key: "laundry", label: "Laundry service", hint: "Staff or a laundry provider washes guests' clothes", Icon: WashingMachine },
       { key: "roomService", label: "Room service", hint: "Room service available for food and other requests", Icon: Package },
+      { key: "privateChef", label: "Private chef", hint: "A chef can prepare meals for guests; disclose any extra charge", Icon: UtensilsCrossed },
     ],
   },
   {
@@ -66,7 +66,6 @@ const SERVICE_GROUPS: { label: string; items: { key: string; label: string; hint
     label: "Shopping",
     items: [
       { key: "onSiteShop", label: "On-site shop", hint: "Shop or convenience store on the property", Icon: Store },
-      { key: "nearbyMall", label: "Mall nearby", hint: "Shopping mall nearby the property", Icon: ShoppingBag },
     ],
   },
   {
@@ -78,12 +77,9 @@ const SERVICE_GROUPS: { label: string; items: { key: string; label: string; hint
   },
 ];
 
-/** Column layout for the groups above, balanced by item count (6 / 6 / 4) */
-const SERVICE_COLUMNS: string[][] = [
-  ["Dining", "Shopping"],
-  ["Wellness and fitness", "Safety"],
-  ["Housekeeping", "Events and sport"],
-];
+const HOTEL_PRIORITY = new Set(["restaurant", "bar", "roomService", "laundry", "pool", "gym", "security24", "firstAid", "fireExtinguisher"]);
+const HOME_PRIORITY = new Set(["pool", "laundry", "sportsGames", "security24", "firstAid", "fireExtinguisher"]);
+const HOTEL_TYPES = new Set(["Hotel", "Lodge", "Guest House"]);
 
 const PARKING: { v: "no" | "free" | "paid"; label: string; Icon: Icon }[] = [
   { v: "no", label: "No parking", Icon: Ban },
@@ -99,10 +95,12 @@ export function ServicesStep({
   goToNextStep,
   services,
   setServices,
+  propertyType,
+  propertyLatitude,
+  propertyLongitude,
   numOrEmpty,
   nearbyFacilities,
   setNearbyFacilities,
-  servicesCompleted,
 }: {
   isVisible: boolean;
   sectionRef: (el: HTMLElement | null) => void;
@@ -111,15 +109,68 @@ export function ServicesStep({
   goToNextStep: () => void;
   services: any;
   setServices: (updater: (prev: any) => any) => void;
+  propertyType: string;
+  propertyLatitude: number | "";
+  propertyLongitude: number | "";
   numOrEmpty: (v: any) => number | "";
   nearbyFacilities: any[];
   setNearbyFacilities: (updater: (prev: any[]) => any[]) => void;
-  servicesCompleted: boolean;
 }) {
+  const [showMoreServices, setShowMoreServices] = useState(false);
+  const hotelStyle = HOTEL_TYPES.has(propertyType);
+  const priorityKeys = hotelStyle ? HOTEL_PRIORITY : HOME_PRIORITY;
+  const priorityGroups = SERVICE_GROUPS.map((group) => ({ ...group, items: group.items.filter((item) => priorityKeys.has(item.key)) })).filter((group) => group.items.length > 0);
+  const moreGroups = SERVICE_GROUPS.map((group) => ({ ...group, items: group.items.filter((item) => !priorityKeys.has(item.key)) })).filter((group) => group.items.length > 0);
   const onSiteCount = useMemo(() => {
     const s: any = services || {};
-    return SERVICE_GROUPS.reduce((sum, g) => sum + g.items.filter((i) => !!s[i.key]).length, 0);
+    return SERVICE_GROUPS.reduce((sum, g) => sum + g.items.filter((i) => !!s[i.key]).length, 0) + (s.breakfastIncluded || s.breakfastAvailable ? 1 : 0);
   }, [services]);
+  const moreCount = moreGroups.reduce((sum, group) => sum + group.items.filter((item) => !!services?.[item.key]).length, 0) + (!hotelStyle && (services?.breakfastIncluded || services?.breakfastAvailable) ? 1 : 0);
+  const breakfastChoice = services?.breakfastIncluded ? "included" : services?.breakfastAvailable ? "extra" : "none";
+
+  useEffect(() => {
+    if (services?.breakfastIncluded && services?.breakfastAvailable) {
+      setServices((previous: any) => ({ ...previous, breakfastAvailable: false }));
+    }
+  }, [services?.breakfastIncluded, services?.breakfastAvailable, setServices]);
+
+  const breakfastPicker = (
+    <fieldset className="ap-breakfast-choice">
+      <legend>Breakfast</legend>
+      <div className="ap-breakfast-options">
+        {([{"value": "none", "label": "Not offered"}, {"value": "included", "label": "Included in the nightly price"}, {"value": "extra", "label": "Available for an extra charge"}] as const).map(({ value, label }) => (
+          <label key={value} className={`ap-breakfast-option${breakfastChoice === value ? " is-on" : ""}`}>
+            <input type="radio" name="breakfast-service" checked={breakfastChoice === value} onChange={() => setServices((previous: any) => ({ ...previous, breakfastIncluded: value === "included", breakfastAvailable: value === "extra" }))} />
+            <Coffee className="h-4 w-4" aria-hidden="true" />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+
+  const renderGroups = (groups: typeof SERVICE_GROUPS) => {
+    const columnCount = Math.min(3, groups.length);
+    return <div className="ap-svc-cols">{Array.from({ length: columnCount }, (_, column) => (
+      <div key={column} className="ap-svc-col">
+        {groups.filter((_, index) => index % columnCount === column).map((group) => {
+          const picked = group.items.filter((item) => !!services?.[item.key]).length;
+          return <div key={group.label} className="ap-svc-group">
+            <div className="ap-svc-head"><span>{group.label}</span>{picked > 0 ? <span className="ap-svc-count">{picked}</span> : null}</div>
+            {group.items.map(({ key, label, hint, Icon }) => {
+              const on = !!services?.[key];
+              return <label key={key} className={`ap-svc-item${on ? " is-on" : ""}`} title={hint}>
+                <input type="checkbox" className="sr-only" checked={on} onChange={(event) => setServices((previous: any) => ({ ...previous, [key]: event.target.checked }))} />
+                <span className="ap-svc-ico"><Icon className="h-3.5 w-3.5" /></span>
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span className="ap-checklist-dot">{on ? <Check className="h-3 w-3" /> : null}</span>
+              </label>;
+            })}
+          </div>;
+        })}
+      </div>
+    ))}</div>;
+  };
 
   const parking = services?.parking || "no";
   const parkingPrice = services?.parkingPrice;
@@ -195,15 +246,13 @@ export function ServicesStep({
               </div>
             </section>
 
-            {/* ---------------------------------------------------------------
-                2. Everything on site, one row per kind
-               --------------------------------------------------------------- */}
+            {/* On-site services suggested for this property type; every other service remains available. */}
             <section className="ap-card">
               <header className="ap-card-head">
                 <span className="ap-card-head-no">2</span>
                 <div className="ap-card-head-copy">
                   <h3 className="ap-card-title">On-site services</h3>
-                  <p className="ap-card-sub">Tick what guests can use at the property.</p>
+                  <p className="ap-card-sub">Select services guests can use at this {propertyType ? propertyType.toLowerCase() : "property"}.</p>
                 </div>
                 {onSiteCount > 0 ? (
                   <span className="ap-card-tag">
@@ -215,49 +264,20 @@ export function ServicesStep({
                 )}
               </header>
 
-              {/* Three balanced columns of two groups each: short, and no empty band */}
-              <div className="ap-svc-cols">
-                {SERVICE_COLUMNS.map((column, ci) => (
-                  <div key={ci} className="ap-svc-col">
-                    {column.map((groupLabel) => {
-                      const group = SERVICE_GROUPS.find((g) => g.label === groupLabel)!;
-                      const picked = group.items.filter((i) => !!services?.[i.key]).length;
-                      return (
-                        <div key={group.label} className="ap-svc-group">
-                          <div className="ap-svc-head">
-                            <span>{group.label}</span>
-                            {picked > 0 ? <span className="ap-svc-count">{picked}</span> : null}
-                          </div>
-                          {group.items.map(({ key, label, hint, Icon }) => {
-                            const on = !!services?.[key];
-                            return (
-                              <label key={key} className={`ap-svc-item${on ? " is-on" : ""}`} title={hint}>
-                                <input
-                                  type="checkbox"
-                                  className="sr-only"
-                                  checked={on}
-                                  onChange={(e) => setServices((prev: any) => ({ ...prev, [key]: e.target.checked }))}
-                                />
-                                <span className="ap-svc-ico">
-                                  <Icon className="h-3.5 w-3.5" />
-                                </span>
-                                <span className="min-w-0 flex-1 truncate">{label}</span>
-                                <span className="ap-checklist-dot">{on ? <Check className="h-3 w-3" /> : null}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
+              <div className="ap-service-context">{hotelStyle ? "Common hotel services appear first. Add any other service guests can actually use." : "Kitchen, cooking and amenities inside the booked space are set in Rooms and beds. Add property services here."}</div>
+              {hotelStyle ? <div className="ap-service-breakfast-wrap">{breakfastPicker}</div> : null}
+              {renderGroups(priorityGroups)}
+              <div className="ap-service-more">
+                <button type="button" className="ap-service-more-toggle" aria-expanded={showMoreServices} onClick={() => setShowMoreServices((value) => !value)}><span>{showMoreServices ? "Hide" : "Show"} more services{moreCount > 0 ? ` · ${moreCount} selected` : ""}</span>{showMoreServices ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>
+                {showMoreServices ? <div className="ap-service-more-content">{!hotelStyle ? breakfastPicker : null}{renderGroups(moreGroups)}</div> : null}
               </div>
+              {services?.nearbyMall ? <div className="ap-service-legacy-mall"><span>“Mall nearby” was saved in the old service list. Add the named mall under Nearby places, then clear this old flag.</span><button type="button" onClick={() => setServices((previous: any) => ({ ...previous, nearbyMall: false }))}>Clear old flag</button></div> : null}
             </section>
 
             {/* ---------------------------------------------------------------
                 3. Nearby places
                --------------------------------------------------------------- */}
-            <NearbyPlacesCard cardNo={3} places={nearbyFacilities as any} setPlaces={setNearbyFacilities as any} />
+            <NearbyPlacesCard cardNo={3} places={nearbyFacilities as any} setPlaces={setNearbyFacilities as any} propertyLatitude={propertyLatitude} propertyLongitude={propertyLongitude} />
           </div>
         </div>
       )}

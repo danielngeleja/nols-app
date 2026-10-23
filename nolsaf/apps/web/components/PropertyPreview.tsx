@@ -969,6 +969,7 @@ export default function PropertyPreview({
     sauna: normalizeBoolean(servicesObj.sauna),
     laundry: normalizeBoolean(servicesObj.laundry),
     roomService: normalizeBoolean(servicesObj.roomService),
+    privateChef: normalizeBoolean(servicesObj.privateChef),
     security24: normalizeBoolean(servicesObj.security24),
     firstAid: normalizeBoolean(servicesObj.firstAid),
     fireExtinguisher: normalizeBoolean(servicesObj.fireExtinguisher),
@@ -1021,6 +1022,7 @@ export default function PropertyPreview({
     if (tags.some((t: string) => t.includes('sauna'))) normalizedServicesObj.sauna = true;
     if (tags.some((t: string) => t.includes('laundry'))) normalizedServicesObj.laundry = true;
     if (tags.some((t: string) => t.includes('room service'))) normalizedServicesObj.roomService = true;
+    if (tags.some((t: string) => t.includes('private chef'))) normalizedServicesObj.privateChef = true;
     if (tags.some((t: string) => t.includes('24h security') || t.includes('24-hour security'))) normalizedServicesObj.security24 = true;
     if (tags.some((t: string) => t.includes('first aid'))) normalizedServicesObj.firstAid = true;
     if (tags.some((t: string) => t.includes('fire extinguisher'))) normalizedServicesObj.fireExtinguisher = true;
@@ -1591,6 +1593,7 @@ export default function PropertyPreview({
                 normalizedServicesObj.sauna ||
                 normalizedServicesObj.laundry ||
                 normalizedServicesObj.roomService ||
+                normalizedServicesObj.privateChef ||
                 normalizedServicesObj.security24 ||
                 normalizedServicesObj.firstAid ||
                 normalizedServicesObj.fireExtinguisher ||

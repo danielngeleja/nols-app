@@ -18,6 +18,8 @@ import { isCheckInBeforeToday } from "../lib/bookingDateRules.js";
 import { getNrmsMarketplaceHolds } from "../lib/nrmsAvailability.js";
 import { getTransportAvailability } from "../lib/serviceAvailability.js";
 import { effectiveRoomSelectionCode, matchingRoomSelectionCodes, roomsSpecEntries } from "../lib/roomSelectionCode.js";
+import { bedsPerSellableUnit } from "../lib/roomSpecBeds.js";
+import { guestOccupancyPricing } from "../lib/guestOccupancyPricing.js";
 
 /**
  * Both booking transactions take a `SELECT ... FOR UPDATE` lock on the property
@@ -664,7 +666,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         if (roomType) {
           const code = roomTypeKeyFromSpec(roomType) || typeFromCode;
           const totalRooms = Math.max(1, toFiniteInt(roomType.rooms ?? roomType.roomsCount ?? 1, 1));
-          const bedsPerRoom = Math.max(1, toFiniteInt((roomType as any).beds ?? 1, 1));
+          const bedsPerRoom = bedsPerSellableUnit(roomType);
           availabilityByRoomType[code] = {
             totalRooms,
             totalBeds: bedsPerRoom * totalRooms,
@@ -680,7 +682,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
             const code = roomTypeKeyFromSpec(rt);
             if (!availabilityByRoomType[code]) {
               const totalRooms = Math.max(1, toFiniteInt(rt.rooms ?? rt.roomsCount ?? propertyForCheck.totalBedrooms ?? 1, 1));
-              const bedsPerRoom = Math.max(1, toFiniteInt((rt as any).beds ?? 1, 1));
+              const bedsPerRoom = bedsPerSellableUnit(rt);
               availabilityByRoomType[code] = {
                 totalRooms,
                 totalBeds: bedsPerRoom * totalRooms,
@@ -700,7 +702,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           roomTypes.forEach((rt) => {
             const code = roomTypeKeyFromSpec(rt);
             const totalRooms = Math.max(1, toFiniteInt(rt.rooms ?? propertyForCheck.totalBedrooms ?? 1, 1));
-            const bedsPerRoom = Math.max(1, toFiniteInt((rt as any).beds ?? 1, 1));
+            const bedsPerRoom = bedsPerSellableUnit(rt);
             availabilityByRoomType[code] = {
               totalRooms,
               totalBeds: bedsPerRoom * totalRooms,
@@ -874,6 +876,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     // Calculate booking amount (server-side only - NEVER trust client)
     // If roomCode is provided, use that room's price from roomsSpec, otherwise use basePrice
     let pricePerNight = property.basePrice ? Number(property.basePrice) : 0;
+    let selectedPricingRoom: any = null;
     
     if (data.roomCode && property.roomsSpec) {
       // Parse roomsSpec to find the selected room's price
@@ -921,6 +924,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         );
       })();
       if (selectedRoom) {
+        selectedPricingRoom = selectedRoom;
         const roomPrice = parseRoomPrice(selectedRoom.pricePerNight ?? selectedRoom.price ?? null);
         if (roomPrice != null) pricePerNight = roomPrice;
       }
@@ -933,7 +937,12 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
     const commissionPercent = await getEffectiveCommissionPercent({ propertyServices: (property as any).services });
     const safeCommission = Number.isFinite(commissionPercent) ? Math.max(0, Math.min(100, commissionPercent)) : 0;
 
-    const accommodationNet = pricePerNight * nights * roomsQty;
+    const guestCount = Number(data.adults || 1) + Number(data.children || 0);
+    const occupancy = guestOccupancyPricing(selectedPricingRoom, guestCount, roomsQty);
+    if (occupancy.maximumGuests !== null && guestCount > occupancy.maximumGuests) {
+      return res.status(400).json({ error: "Guest capacity exceeded", message: `This selection sleeps up to ${occupancy.maximumGuests} guests.`, maxGuests: occupancy.maximumGuests, requestId });
+    }
+    const accommodationNet = (pricePerNight * roomsQty + occupancy.extraGuests * occupancy.extraGuestFee) * nights;
     const commissionAmount = safeCommission > 0 ? (accommodationNet * safeCommission) / 100 : 0;
     const accommodationGross = accommodationNet + commissionAmount;
     
@@ -1097,7 +1106,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
         if (roomType) {
           const code = roomTypeKeyFromSpec(roomType) || typeFromCode;
           const totalRooms = Math.max(1, toFiniteInt(roomType.rooms ?? roomType.roomsCount ?? 1, 1));
-          const bedsPerRoom = Math.max(1, toFiniteInt((roomType as any).beds ?? 1, 1));
+          const bedsPerRoom = bedsPerSellableUnit(roomType);
           finalAvailabilityByRoomType[code] = {
             totalRooms,
             totalBeds: bedsPerRoom * totalRooms,
@@ -1113,7 +1122,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
             const code = roomTypeKeyFromSpec(rt);
             if (!finalAvailabilityByRoomType[code]) {
               const totalRooms = Math.max(1, toFiniteInt(rt.rooms ?? rt.roomsCount ?? propertyForFinalCheck.totalBedrooms ?? 1, 1));
-              const bedsPerRoom = Math.max(1, toFiniteInt((rt as any).beds ?? 1, 1));
+              const bedsPerRoom = bedsPerSellableUnit(rt);
               finalAvailabilityByRoomType[code] = {
                 totalRooms,
                 totalBeds: bedsPerRoom * totalRooms,
@@ -1132,7 +1141,7 @@ router.post("/", bookingLimiter, maybeAuth as any, async (req: Request, res: Res
           roomTypes.forEach((rt) => {
             const code = roomTypeKeyFromSpec(rt);
             const totalRooms = Math.max(1, toFiniteInt(rt.rooms ?? propertyForFinalCheck.totalBedrooms ?? 1, 1));
-            const bedsPerRoom = Math.max(1, toFiniteInt((rt as any).beds ?? 1, 1));
+            const bedsPerRoom = bedsPerSellableUnit(rt);
             finalAvailabilityByRoomType[code] = {
               totalRooms,
               totalBeds: bedsPerRoom * totalRooms,

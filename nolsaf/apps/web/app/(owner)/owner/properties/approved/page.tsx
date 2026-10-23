@@ -22,10 +22,6 @@ import {
   ArrowUpRight,
   Trees
 } from "lucide-react";
-import { 
-  getPropertyCommission, 
-  calculatePriceWithCommission 
-} from "@/lib/priceUtils";
 import VerifiedIcon from "@/components/VerifiedIcon";
 
 // Use same-origin calls + secure httpOnly cookie session.
@@ -120,7 +116,6 @@ export default function ApprovedProps() {
   const [loading, setLoading] = useState(true);
   const [selectedPropertyId, setSelectedPropertyId] = useState<number | null>(null);
   const [reviewsMap, setReviewsMap] = useState<Record<number, ReviewsData>>({});
-  const [systemCommission, setSystemCommission] = useState<number>(0);
   const [query, setQuery] = useState("");
   const loadingReviewsRef = useRef<Record<number, boolean>>({});
 
@@ -131,27 +126,6 @@ export default function ApprovedProps() {
     if (Array.isArray(payload?.data)) return payload.data;
     return [];
   }
-
-  // Load system commission settings
-  useEffect(() => {
-    let mounted = true;
-    const load = async () => {
-      try {
-        const response = await api.get("/api/public/support/system-settings");
-        const settings = response.data?.data ?? response.data;
-        if (mounted && settings?.commissionPercent !== undefined) {
-          const commission = Number(settings.commissionPercent);
-          setSystemCommission(isNaN(commission) ? 0 : commission);
-        }
-      } catch (e) {
-        // Silently fail - will use 0 as default
-      }
-    };
-    load();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const loadReviewsForProperty = useCallback(async (propertyId: number) => {
     // Prevent duplicate concurrent fetches using a ref to track loading per property
@@ -391,10 +365,6 @@ export default function ApprovedProps() {
             const isFromRoom = bp <= 0 && roomPrices.length > 0;
             const basePriceFormatted = effectiveBase > 0 ? fmtMoney(effectiveBase, property.currency) : null;
             const roomTypes = Array.isArray(property.roomsSpec) ? property.roomsSpec.length : 0;
-            // What the guest sees on NoLSAF: your rate plus the platform commission.
-            const guestPrice = effectiveBase > 0
-              ? calculatePriceWithCommission(effectiveBase, getPropertyCommission(property, systemCommission))
-              : null;
 
             const typeLabel = property.type
               ? String(property.type).replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
@@ -491,12 +461,6 @@ export default function ApprovedProps() {
                         <span className="text-xs text-slate-400">No rate set</span>
                       )}
                     </div>
-                    {guestPrice && guestPrice > effectiveBase ? (
-                      <p className="m-0 mt-0.5 text-right text-[11px] text-slate-500">
-                        Guests see {fmtMoney(guestPrice, property.currency)} / night
-                      </p>
-                    ) : null}
-
                     <div className="mt-3 flex items-center gap-2">
                       <button
                         type="button"

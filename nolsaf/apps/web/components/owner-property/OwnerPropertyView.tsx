@@ -29,6 +29,8 @@ import {
 import apiClient from "@/lib/apiClient";
 import { BATHROOM_ICONS, OTHER_AMENITIES_ICONS } from "@/lib/amenityIcons";
 import { ownerPropertyRefOrId, useOwnerPropertyHref } from "@/lib/ownerPropertyRefs";
+import { getPropertyCommission } from "@/lib/priceUtils";
+import { OwnerPriceBreakdown } from "./OwnerPriceBreakdown";
 
 /**
  * The owner's view of a listing: laid out the way guests see it on the public
@@ -159,6 +161,7 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const [discountInput, setDiscountInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [systemCommission, setSystemCommission] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -176,6 +179,18 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
       .then((r) => setAudit(Array.isArray(r.data) ? r.data : []))
       .catch(() => setAudit([]));
   }, [load, propertyId]);
+
+  useEffect(() => {
+    let active = true;
+    apiClient.get("/api/public/support/system-settings")
+      .then((response) => {
+        const settings = response.data?.data ?? response.data;
+        const percent = Number(settings?.commissionPercent);
+        if (active && Number.isFinite(percent) && percent >= 0 && percent <= 100) setSystemCommission(percent);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (gallery === null) return;
@@ -230,6 +245,12 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
   const status = String(property.status || "").toUpperCase();
   const statusMeta = STATUS_META[status] ?? { label: status.toLowerCase(), tone: "bg-white/10 text-white/70 ring-white/15", note: "" };
   const currency = property.currency || "TZS";
+  const commissionServices = parseJson<Record<string, unknown>>(property.services, {});
+  const customCommission = Number(commissionServices.commissionPercent);
+  const hasCustomCommission = commissionServices.commissionPercent != null && Number.isFinite(customCommission) && customCommission >= 0 && customCommission <= 100;
+  const commissionPercent = systemCommission === null && !hasCustomCommission
+    ? null
+    : getPropertyCommission({ services: commissionServices }, systemCommission ?? 0);
   const location = [property.street, property.ward, property.district, property.regionName || property.city].filter(Boolean).join(", ");
   const lat = Number(property.latitude);
   const lng = Number(property.longitude);
@@ -467,7 +488,8 @@ export default function OwnerPropertyView({ propertyId, slug, onBack, onUpdated 
                           </div>
                         </div>
                         {saveError ? <p role="alert" className="m-0 mt-2 text-xs font-semibold text-rose-700">{saveError}</p> : null}
-                        <p className="m-0 mt-2 text-[11px] text-slate-500">Saves straight away and the listing stays live. Guests see your price plus the NoLSAF fee; your payout is your full price.</p>
+                        <OwnerPriceBreakdown rate={Number(priceInput)} commissionPercent={commissionPercent} currency={currency} />
+                        <p className="m-0 mt-2 text-[11px] text-slate-500">Saves straight away and the listing stays live.</p>
                       </div>
                     ) : (
                       <button type="button" onClick={() => startEdit(index)} className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-xl border border-solid border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">

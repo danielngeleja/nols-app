@@ -358,6 +358,12 @@ useEffect(() => {
 }, [tourismCountry, effectiveTourismSiteIdValue, selectedTourismSite, setParkPlacementValue, setTourismSiteIdValue]);
 
 const [typePickerOpen, setTypePickerOpen] = useState(false);
+const [manualDistrict, setManualDistrict] = useState(false);
+const [manualWard, setManualWard] = useState(false);
+const [manualStreet, setManualStreet] = useState(false);
+const districtNeedsInput = Boolean(regionId) && (manualDistrict || districts.length === 0 || Boolean(district && !districts.includes(district)));
+const wardNeedsInput = Boolean(district) && (manualWard || wards.length === 0 || Boolean(ward && !wards.includes(ward)));
+const streetNeedsInput = Boolean(ward) && (manualStreet || streets.length === 0 || Boolean(street && !streets.includes(street)));
 
 const handleSectionRef = useCallback(
   (node: HTMLElement | null) => {
@@ -675,7 +681,7 @@ const handleSectionRef = useCallback(
                 <span className="ap-card-head-no">3</span>
                 <div className="ap-card-copy ap-card-head-copy">
                   <h3 className="ap-card-title">Where it is</h3>
-                  <p className="ap-card-sub">The official address, down to the street.</p>
+                  <p className="ap-card-sub">Choose each place from the list, or type it if missing. Set the exact pin below.</p>
                 </div>
                 {regionId && district && ward && street ? (
                   <span className="ap-card-tag">
@@ -697,7 +703,7 @@ const handleSectionRef = useCallback(
                       <select
                         title="Region"
                         value={regionId}
-                        onChange={(e) => { setRegionId(e.target.value); setDistrict(""); setWard(""); }}
+                        onChange={(e) => { setRegionId(e.target.value); setDistrict(""); setWard(""); setStreet(""); setZip(""); setManualDistrict(false); setManualWard(false); setManualStreet(false); }}
                         className="ap-select"
                         aria-required={true}
                       >
@@ -715,8 +721,8 @@ const handleSectionRef = useCallback(
                     <div className="relative">
                       <select
                         title="District"
-                        value={district}
-                        onChange={(e) => { setDistrict(e.target.value); setWard(""); setStreet(""); setZip(""); }}
+                        value={districtNeedsInput ? "__manual__" : district}
+                        onChange={(e) => { const custom = e.target.value === "__manual__"; setManualDistrict(custom); setManualWard(false); setManualStreet(false); setDistrict(custom ? "" : e.target.value); setWard(""); setStreet(""); setZip(""); }}
                         onBlur={() => setTouchedBasics((t) => ({ ...t, district: true }))}
                         disabled={!regionId}
                         className={`ap-select${district ? " is-set" : ""}`}
@@ -727,9 +733,11 @@ const handleSectionRef = useCallback(
                         {districts.map((d: string) => (
                           <option key={d} value={d}>{d}</option>
                         ))}
+                        <option value="__manual__">My district is not listed</option>
                       </select>
                       <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
                     </div>
+                    {districtNeedsInput ? <input type="text" value={district} onChange={(e) => { setDistrict(e.target.value); setWard(""); setStreet(""); setZip(""); setManualWard(false); setManualStreet(false); }} onBlur={() => setTouchedBasics((t) => ({ ...t, district: true }))} maxLength={120} className="ap-input" placeholder="Enter district name" aria-label="District name" aria-required={true} /> : null}
                     {touchedBasics.district && !district ? <p id="districtError" className="text-[10px] text-red-300 mt-1">Required</p> : null}
                   </div>
 
@@ -738,8 +746,8 @@ const handleSectionRef = useCallback(
                     <div className="relative">
                       <select
                         title="Ward"
-                        value={ward}
-                        onChange={(e) => { setWard(e.target.value); setStreet(""); setZip(""); }}
+                        value={wardNeedsInput ? "__manual__" : ward}
+                        onChange={(e) => { const custom = e.target.value === "__manual__"; setManualWard(custom); setManualStreet(false); setWard(custom ? "" : e.target.value); setStreet(""); setZip(""); }}
                         onBlur={() => setTouchedBasics((t) => ({ ...t, ward: true }))}
                         disabled={!district}
                         className={`ap-select${ward ? " is-set" : ""}`}
@@ -750,9 +758,11 @@ const handleSectionRef = useCallback(
                         {wards.map((w: string) => (
                           <option key={w} value={w}>{w}</option>
                         ))}
+                        <option value="__manual__">My ward is not listed</option>
                       </select>
                       <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
                     </div>
+                    {wardNeedsInput ? <input type="text" value={ward} onChange={(e) => { setWard(e.target.value); setStreet(""); setZip(""); setManualStreet(false); }} onBlur={() => setTouchedBasics((t) => ({ ...t, ward: true }))} maxLength={120} className="ap-input" placeholder="Enter ward name" aria-label="Ward name" aria-required={true} /> : null}
                     {touchedBasics.ward && !ward ? <p id="wardError" className="text-[10px] text-red-300 mt-1">Required</p> : null}
                   </div>
 
@@ -761,8 +771,8 @@ const handleSectionRef = useCallback(
                     <div className="relative">
                       <select
                         title="Street"
-                        value={street}
-                        onChange={(e) => setStreet(e.target.value)}
+                        value={streetNeedsInput ? "__manual__" : street}
+                        onChange={(e) => { const custom = e.target.value === "__manual__"; setManualStreet(custom); setStreet(custom ? "" : e.target.value); }}
                         onBlur={() => setTouchedBasics((t) => ({ ...t, street: true }))}
                         disabled={!ward}
                         className={`ap-select${street ? " is-set" : ""}`}
@@ -772,9 +782,11 @@ const handleSectionRef = useCallback(
                         {streets.map((s: string) => (
                           <option key={s} value={s}>{s}</option>
                         ))}
+                        <option value="__manual__">My street is not listed</option>
                       </select>
                       <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none text-white/40" />
                     </div>
+                    {streetNeedsInput ? <input type="text" value={street} onChange={(e) => setStreet(e.target.value)} onBlur={() => setTouchedBasics((t) => ({ ...t, street: true }))} maxLength={200} className="ap-input" placeholder="Enter street or village name" aria-label="Street or village name" aria-required={true} /> : null}
                     {touchedBasics.street && !street ? <p id="streetErrorAdmin" className="text-[10px] text-red-300 mt-1">Required</p> : null}
                   </div>
                 </div>

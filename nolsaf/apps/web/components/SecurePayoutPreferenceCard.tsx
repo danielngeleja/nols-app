@@ -43,6 +43,7 @@ type Props = {
    * selectable "lookup only" choice that reads like a working payout method.
    */
   bankPayoutsAvailable?: boolean;
+  securityWaitingHours?: number;
 };
 
 const inputClass =
@@ -155,6 +156,7 @@ export default function SecurePayoutPreferenceCard({
   saveSuccess,
   className = "",
   bankPayoutsAvailable = true,
+  securityWaitingHours = 72,
 }: Props) {
   const preferred = clean(value.payoutPreferred).toUpperCase();
   const walletSubscriber = tanzaniaWalletSubscriberDigits(value.mobileMoneyNumber);
@@ -192,7 +194,7 @@ export default function SecurePayoutPreferenceCard({
   };
 
   // Changing a working payout account is never pushed: it is a quiet link,
-  // confirmed first (a new account waits 72 hours before it is paid), and the
+  // confirmed first (a new account has a security wait before it is paid), and the
   // form can always be left with the saved account restored exactly.
   const [confirmingChange, setConfirmingChange] = useState(false);
   const [savedBeforeChange, setSavedBeforeChange] = useState<PayoutPreferenceValue | null>(null);
@@ -246,7 +248,7 @@ export default function SecurePayoutPreferenceCard({
                     {preferred === "BANK" ? payoutBanks.find((b) => b.value === normalizeBankCode(value.bankName))?.label || value.bankName || "Bank account" : savedProvider?.label || value.mobileMoneyProvider || "Mobile money"}
                   </p>
                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                    <CheckCircle2 className="h-3 w-3" aria-hidden />Active
+                    <CheckCircle2 className="h-3 w-3" aria-hidden />Saved
                   </span>
                 </div>
                 <p className="m-0 mt-1 truncate text-[13px] text-slate-500">
@@ -271,7 +273,7 @@ export default function SecurePayoutPreferenceCard({
             <div className="flex flex-col gap-3 rounded-xl border border-solid border-amber-200 bg-amber-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="m-0 text-[13px] leading-5 text-amber-900">
                 Your current account keeps working until you save a new one. A new account is checked with the provider, and payouts to it
-                start 72 hours after you save it.
+                start after the {securityWaitingHours}-hour security wait.
               </p>
               <div className="flex shrink-0 gap-2">
                 <button
